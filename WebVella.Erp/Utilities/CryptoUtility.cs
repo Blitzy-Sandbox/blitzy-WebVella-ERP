@@ -67,10 +67,13 @@ namespace WebVella.Erp.Utilities
         private static byte[] DeriveKey(string password, byte[] salt, int keySize)
         {
             // SECURITY: 10,000 iterations minimum per NIST SP 800-132
-            using (var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256))
-            {
-                return pbkdf2.GetBytes(keySize);
-            }
+            // Using static Rfc2898DeriveBytes.Pbkdf2 method (recommended in .NET 10+)
+            return Rfc2898DeriveBytes.Pbkdf2(
+                password,
+                salt,
+                iterations: 10000,
+                hashAlgorithm: HashAlgorithmName.SHA256,
+                outputLength: keySize);
         }
 
         /// <summary>
