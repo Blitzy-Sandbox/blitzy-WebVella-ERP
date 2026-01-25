@@ -98,45 +98,38 @@ namespace WebVella.Erp.Api
 				{
 					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
 					{
-						var storedHash = rec["password"] as string;
-						if (string.IsNullOrWhiteSpace(storedHash))
-							return null;
+						// SECURITY FIX: Get stored password hash for format detection
+						var storedHash = (string)rec["password"];
+						if (string.IsNullOrEmpty(storedHash))
+							continue;
 
-						bool isAuthenticated = false;
+						bool passwordValid = false;
 						bool needsRehash = false;
 
-						// SECURITY: Check if hash is BCrypt (secure) or legacy MD5
+						// SECURITY: Detect hash format and verify accordingly
 						if (PasswordUtil.IsBcryptHash(storedHash))
 						{
-							// Secure BCrypt verification with timing-safe comparison
-							isAuthenticated = PasswordUtil.VerifyPassword(password, storedHash);
+							// BCrypt hash - use secure BCrypt verification
+							passwordValid = PasswordUtil.VerifyPassword(password, storedHash);
 						}
 						else
 						{
-							// Legacy MD5 verification for backward compatibility
-							// SECURITY: MD5 passwords will be upgraded to BCrypt on successful login
-							isAuthenticated = PasswordUtil.VerifyMd5Password(password, storedHash);
-							needsRehash = isAuthenticated; // Only rehash if password is correct
+							// Legacy MD5 hash - verify and mark for rehash
+							passwordValid = PasswordUtil.VerifyMd5Password(password, storedHash);
+							needsRehash = passwordValid; // Only rehash if password is valid
 						}
 
-						if (isAuthenticated)
+						if (passwordValid)
 						{
 							var user = rec.MapTo<ErpUser>();
-							
-							// SECURITY: Auto-upgrade legacy MD5 passwords to BCrypt
+
+							// SECURITY FIX: Auto-rehash legacy MD5 passwords to BCrypt
+							// This enables seamless migration without requiring users to reset passwords
 							if (needsRehash)
 							{
-								try
-								{
-									RehashPasswordToBcrypt(user.Id, password);
-								}
-								catch
-								{
-									// Silently fail rehash - user can still login, will retry next time
-									// Logging would be appropriate here in production
-								}
+								UpdateUserPasswordHash(user.Id, PasswordUtil.HashPassword(password));
 							}
-							
+
 							return user;
 						}
 					}
@@ -147,25 +140,35 @@ namespace WebVella.Erp.Api
 		}
 
 		/// <summary>
-		/// SECURITY: Upgrades a user's password from legacy MD5 hash to secure BCrypt hash.
-		/// Called automatically during login when a legacy MD5 password is successfully verified.
+		/// SECURITY: Updates user's password hash in database (used for MD5 to BCrypt migration).
+		/// Uses direct Npgsql for atomic update without triggering business logic hooks.
 		/// </summary>
-		/// <param name="userId">ID of the user to update</param>
-		/// <param name="plainPassword">The user's plaintext password to rehash with BCrypt</param>
-		private void RehashPasswordToBcrypt(Guid userId, string plainPassword)
+		/// <param name="userId">User ID to update</param>
+		/// <param name="bcryptHash">New BCrypt password hash</param>
+		private void UpdateUserPasswordHash(Guid userId, string bcryptHash)
 		{
-			// Generate new BCrypt hash with cost factor 12
-			var bcryptHash = PasswordUtil.HashPassword(plainPassword);
-			
-			// Update the user's password hash in the database
-			RecordManager recMan = new RecordManager();
-			EntityRecord record = new EntityRecord();
-			record["id"] = userId;
-			record["password"] = bcryptHash;
-			
-			var response = recMan.UpdateRecord("user", record);
-			// Note: We don't throw on failure as this is a background upgrade operation
-			// The user will be upgraded on their next successful login
+			try
+			{
+				using (NpgsqlConnection connection = new NpgsqlConnection(ErpSettings.ConnectionString))
+				{
+					connection.Open();
+
+					// SECURITY: Parameterized query to prevent SQL injection
+					using (NpgsqlCommand cmd = new NpgsqlCommand(
+						"UPDATE rec_user SET password = @password WHERE id = @id", connection))
+					{
+						cmd.Parameters.Add(new NpgsqlParameter("password", bcryptHash));
+						cmd.Parameters.Add(new NpgsqlParameter("id", userId));
+						cmd.ExecuteNonQuery();
+					}
+				}
+			}
+			catch (Exception)
+			{
+				// SECURITY: Silent failure on rehash - don't break authentication
+				// Password will be rehashed on next successful login
+				// Consider logging this in production for audit
+			}
 		}
 
 		private ErpUser GetSystemUserWithNoSecurityCheck()
