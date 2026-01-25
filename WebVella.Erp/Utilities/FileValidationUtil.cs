@@ -241,20 +241,42 @@ namespace WebVella.Erp.Utilities
                 return "unnamed_file";
             }
 
+            // SECURITY: Remove null bytes first - these can bypass extension checks
+            fileName = fileName.Replace("\0", "");
+            
             // SECURITY: Remove any path information - only keep the filename
-            fileName = Path.GetFileName(fileName);
+            // Note: Path.GetFileName() may not work correctly on Linux for Windows-style paths
+            // so we manually handle both types of path separators
+            var lastBackslash = fileName.LastIndexOf('\\');
+            var lastForwardSlash = fileName.LastIndexOf('/');
+            var lastSeparator = Math.Max(lastBackslash, lastForwardSlash);
+            if (lastSeparator >= 0 && lastSeparator < fileName.Length - 1)
+            {
+                fileName = fileName.Substring(lastSeparator + 1);
+            }
+            else if (lastSeparator == fileName.Length - 1)
+            {
+                // Path ends with separator - invalid filename
+                return "unnamed_file";
+            }
 
             // SECURITY: Remove path traversal sequences
             fileName = fileName.Replace("..", "")
                                .Replace("/", "")
                                .Replace("\\", "");
 
-            // SECURITY: Remove invalid filename characters
+            // SECURITY: Remove colon character (Windows drive letters, alternate data streams)
+            fileName = fileName.Replace(":", "");
+
+            // SECURITY: Remove invalid filename characters (platform-specific + universal dangerous chars)
             var invalidChars = Path.GetInvalidFileNameChars();
             foreach (var c in invalidChars)
             {
                 fileName = fileName.Replace(c.ToString(), "");
             }
+            
+            // SECURITY: Explicitly remove any remaining control characters
+            fileName = new string(fileName.Where(c => !char.IsControl(c)).ToArray());
 
             // Handle case where sanitization results in empty string
             if (string.IsNullOrWhiteSpace(fileName))

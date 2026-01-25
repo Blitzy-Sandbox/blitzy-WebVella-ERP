@@ -773,7 +773,7 @@ namespace WebVella.Erp.Tests.Security
             // Assert
             Assert.False(string.IsNullOrEmpty(sanitized));
             Assert.DoesNotContain("/", sanitized);
-            Assert.DoesNotStartWith("/", sanitized);
+            Assert.False(sanitized.StartsWith("/"), "Sanitized filename should not start with '/'");
         }
 
         /// <summary>
@@ -811,7 +811,9 @@ namespace WebVella.Erp.Tests.Security
 
             // Assert
             Assert.False(string.IsNullOrEmpty(sanitized));
-            Assert.DoesNotContain("\0", sanitized);
+            // Note: Using Assert.False with Contains instead of Assert.DoesNotContain
+            // due to xUnit issue with null character handling in DoesNotContain
+            Assert.False(sanitized.Contains('\0'), "Sanitized filename should not contain null bytes");
         }
 
         /// <summary>
