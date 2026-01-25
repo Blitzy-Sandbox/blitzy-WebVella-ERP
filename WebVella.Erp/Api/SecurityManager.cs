@@ -74,25 +74,98 @@ namespace WebVella.Erp.Api
 			}
 		}
 
+		/// <summary>
+		/// Authenticates a user by email and password.
+		/// SECURITY: Supports both BCrypt (secure) and legacy MD5 hashes (for backward compatibility).
+		/// When a user authenticates with a legacy MD5 password, it is automatically upgraded to BCrypt.
+		/// </summary>
+		/// <param name="email">User's email address</param>
+		/// <param name="password">User's plaintext password</param>
+		/// <returns>ErpUser if authentication succeeds, null otherwise</returns>
 		public ErpUser GetUser(string email, string password)
 		{
-			if (string.IsNullOrWhiteSpace(email))
+			if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
 				return null; 
 
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email AND password = @password",
-						 new List<EqlParameter> { new EqlParameter("email", email), new EqlParameter("password", encryptedPassword) }).Execute();
+				// SECURITY: Query by email only, then verify password hash locally
+				// This allows proper BCrypt verification (since each hash has unique salt)
+				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email",
+						 new List<EqlParameter> { new EqlParameter("email", email) }).Execute();
 
 				foreach (var rec in result)
 				{
 					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
-						return rec.MapTo<ErpUser>();
+					{
+						var storedHash = rec["password"] as string;
+						if (string.IsNullOrWhiteSpace(storedHash))
+							return null;
+
+						bool isAuthenticated = false;
+						bool needsRehash = false;
+
+						// SECURITY: Check if hash is BCrypt (secure) or legacy MD5
+						if (PasswordUtil.IsBcryptHash(storedHash))
+						{
+							// Secure BCrypt verification with timing-safe comparison
+							isAuthenticated = PasswordUtil.VerifyPassword(password, storedHash);
+						}
+						else
+						{
+							// Legacy MD5 verification for backward compatibility
+							// SECURITY: MD5 passwords will be upgraded to BCrypt on successful login
+							isAuthenticated = PasswordUtil.VerifyMd5Password(password, storedHash);
+							needsRehash = isAuthenticated; // Only rehash if password is correct
+						}
+
+						if (isAuthenticated)
+						{
+							var user = rec.MapTo<ErpUser>();
+							
+							// SECURITY: Auto-upgrade legacy MD5 passwords to BCrypt
+							if (needsRehash)
+							{
+								try
+								{
+									RehashPasswordToBcrypt(user.Id, password);
+								}
+								catch
+								{
+									// Silently fail rehash - user can still login, will retry next time
+									// Logging would be appropriate here in production
+								}
+							}
+							
+							return user;
+						}
+					}
 				}
 
 				return null;
 			}
+		}
+
+		/// <summary>
+		/// SECURITY: Upgrades a user's password from legacy MD5 hash to secure BCrypt hash.
+		/// Called automatically during login when a legacy MD5 password is successfully verified.
+		/// </summary>
+		/// <param name="userId">ID of the user to update</param>
+		/// <param name="plainPassword">The user's plaintext password to rehash with BCrypt</param>
+		private void RehashPasswordToBcrypt(Guid userId, string plainPassword)
+		{
+			// Generate new BCrypt hash with cost factor 12
+			var bcryptHash = PasswordUtil.HashPassword(plainPassword);
+			
+			// Update the user's password hash in the database
+			RecordManager recMan = new RecordManager();
+			EntityRecord record = new EntityRecord();
+			record["id"] = userId;
+			record["password"] = bcryptHash;
+			
+			var response = recMan.UpdateRecord("user", record);
+			// Note: We don't throw on failure as this is a background upgrade operation
+			// The user will be upgraded on their next successful login
 		}
 
 		private ErpUser GetSystemUserWithNoSecurityCheck()

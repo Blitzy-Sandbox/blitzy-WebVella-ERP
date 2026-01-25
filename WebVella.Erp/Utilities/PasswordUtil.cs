@@ -19,11 +19,13 @@ namespace WebVella.Erp.Utilities
         /// <summary>
         /// Generates an MD5 hash of the input string.
         /// SECURITY WARNING: MD5 is cryptographically broken and should NOT be used for new password hashing.
-        /// This method is kept private for backward compatibility verification only.
+        /// This method is kept internal for backward compatibility with existing code only.
+        /// Use HashPassword() for new password hashing.
         /// </summary>
         /// <param name="input">The string to hash</param>
         /// <returns>MD5 hash as lowercase hex string</returns>
-        private static string GetMd5Hash(string input)
+        [Obsolete("MD5 is cryptographically broken. Use HashPassword() for secure password hashing. This method is retained only for backward compatibility.")]
+        internal static string GetMd5Hash(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
                 return string.Empty;
@@ -113,7 +115,10 @@ namespace WebVella.Erp.Utilities
             if (string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(storedHash))
                 return false;
 
+            // Suppress obsolete warning - intentional use for backward compatibility
+#pragma warning disable CS0618
             string hashOfInput = GetMd5Hash(password);
+#pragma warning restore CS0618
             // Case-insensitive comparison for MD5 hex strings
             return StringComparer.OrdinalIgnoreCase.Compare(hashOfInput, storedHash) == 0;
         }
@@ -127,7 +132,10 @@ namespace WebVella.Erp.Utilities
         [Obsolete("Use VerifyPassword for BCrypt hashes or VerifyMd5Password for legacy hashes. This method will be removed in a future version.")]
         internal static bool VerifyMd5Hash(string input, string hash)
         {
+            // Suppress obsolete warning - intentional use for backward compatibility
+#pragma warning disable CS0618
             string hashOfInput = GetMd5Hash(input);
+#pragma warning restore CS0618
             StringComparer comparer = StringComparer.OrdinalIgnoreCase;
             return (0 == comparer.Compare(hashOfInput, hash));
         }
