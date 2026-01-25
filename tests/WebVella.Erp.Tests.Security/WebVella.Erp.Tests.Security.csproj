@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- ASP.NET Core framework for configuration and other utilities -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Project references -->
     <ProjectReference Include="..\..\WebVella.Erp\WebVella.Erp.csproj" />
   </ItemGroup>
@@ -35,6 +40,7 @@
   <ItemGroup>
     <!-- Include security test files from parent tests/security folder -->
     <Compile Include="..\security\FileValidationTests.cs" Link="Security\FileValidationTests.cs" />
+    <Compile Include="..\security\CryptoSecurityTests.cs" Link="Security\CryptoSecurityTests.cs" />
   </ItemGroup>
 
 </Project>
