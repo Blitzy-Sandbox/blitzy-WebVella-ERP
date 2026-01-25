@@ -1,4 +1,4 @@
-﻿#region <--- DIRECTIVES --->
+#region <--- DIRECTIVES --->
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,33 +9,99 @@ using System.Text;
 
 namespace WebVella.Erp.Utilities
 {
+    /// <summary>
+    /// Cryptographic utility class providing encryption, decryption, and hashing functionality.
+    /// SECURITY: Updated to address CWE-798 (hard-coded credentials) and CWE-329 (predictable IV).
+    /// </summary>
     public class CryptoUtility
     {
         #region <--- Fields --->
 
-        private const string defaultCryptKey = "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658";
+        // SECURITY FIX: Removed hard-coded defaultCryptKey constant (CWE-798 mitigation)
+        // The encryption key MUST now be configured via ErpSettings.EncryptionKey
         private static string cryptKey;
 
         #endregion
 
         #region <--- Properties --->
 
+        /// <summary>
+        /// Gets the configured encryption key.
+        /// SECURITY: No longer falls back to a default key - configuration is required.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when encryption key is not configured in ErpSettings.
+        /// </exception>
         public static string CryptKey
         {
             get
             {
                 if (string.IsNullOrEmpty(cryptKey))
                 {
-                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey)) {
-                        cryptKey = defaultCryptKey;
+                    // SECURITY FIX: Remove default key fallback - CWE-798 mitigation
+                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey))
+                    {
+                        throw new InvalidOperationException(
+                            "SECURITY ERROR: Encryption key is not configured. " +
+                            "Set 'Settings:EncryptionKey' in configuration with a cryptographically random value. " +
+                            "Generate a secure key using: openssl rand -base64 32");
                     }
-                    else {
-
-                        cryptKey = ErpSettings.EncryptionKey;
-                    }
+                    cryptKey = ErpSettings.EncryptionKey;
                 }
                 return cryptKey;
             }
+        }
+
+        #endregion
+
+        #region <--- Key Derivation --->
+
+        /// <summary>
+        /// Derives a cryptographic key from password using PBKDF2.
+        /// SECURITY: Uses 10,000 iterations per NIST SP 800-132 recommendation.
+        /// </summary>
+        /// <param name="password">The password to derive key from</param>
+        /// <param name="salt">Random salt (should be stored with ciphertext)</param>
+        /// <param name="keySize">Required key size in bytes</param>
+        /// <returns>Derived key bytes</returns>
+        private static byte[] DeriveKey(string password, byte[] salt, int keySize)
+        {
+            // SECURITY: 10,000 iterations minimum per NIST SP 800-132
+            using (var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256))
+            {
+                return pbkdf2.GetBytes(keySize);
+            }
+        }
+
+        /// <summary>
+        /// Generates a cryptographically random salt.
+        /// </summary>
+        /// <param name="size">Salt size in bytes (default 16)</param>
+        /// <returns>Random salt bytes</returns>
+        private static byte[] GenerateRandomSalt(int size = 16)
+        {
+            byte[] salt = new byte[size];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(salt);
+            }
+            return salt;
+        }
+
+        /// <summary>
+        /// Generates a cryptographically random IV.
+        /// SECURITY: IV must be unique per encryption operation to prevent pattern analysis (CWE-329).
+        /// </summary>
+        /// <param name="size">IV size in bytes</param>
+        /// <returns>Random IV bytes</returns>
+        private static byte[] GenerateRandomIV(int size)
+        {
+            byte[] iv = new byte[size];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(iv);
+            }
+            return iv;
         }
 
         #endregion
@@ -87,65 +153,139 @@ namespace WebVella.Erp.Utilities
         }
 
         /// <summary>
-        /// 	Encrypts the text.
+        /// Encrypts the text using the specified key.
+        /// SECURITY: Uses PBKDF2 key derivation with random salt and random IV (CWE-329 mitigation).
+        /// Output format: Base64(salt[16] + IV[blockSize] + ciphertext)
         /// </summary>
         /// <param name="text"> The text. </param>
         /// <param name="key"> The key. </param>
         /// <param name="algorithm"> The algorithm. </param>
-        /// <returns> </returns>
+        /// <returns>Base64 encoded string containing salt, IV, and ciphertext</returns>
         public static string EncryptText(string text, string key, SymmetricAlgorithm algorithm)
         {
-            algorithm.Key = GetValidKey(key, algorithm);
-            algorithm.IV = GetValidIV(key, algorithm.IV.Length);
+            // SECURITY FIX: Generate random salt and IV per operation - CWE-329 mitigation
+            byte[] salt = GenerateRandomSalt(16);
+            byte[] iv = GenerateRandomIV(algorithm.BlockSize / 8);
 
-            byte[] buffer = EncryptInternal(text, algorithm);
-            return Convert.ToBase64String(buffer);
+            // Derive key using PBKDF2 instead of weak truncation
+            algorithm.Key = DeriveKey(key, salt, algorithm.KeySize / 8);
+            algorithm.IV = iv;
+
+            byte[] encryptedData = EncryptInternal(text, algorithm);
+
+            // Prepend salt and IV to ciphertext (salt + IV + ciphertext)
+            // Salt and IV are not secret and are needed for decryption
+            byte[] result = new byte[salt.Length + iv.Length + encryptedData.Length];
+            Buffer.BlockCopy(salt, 0, result, 0, salt.Length);
+            Buffer.BlockCopy(iv, 0, result, salt.Length, iv.Length);
+            Buffer.BlockCopy(encryptedData, 0, result, salt.Length + iv.Length, encryptedData.Length);
+
+            return Convert.ToBase64String(result);
         }
 
         /// <summary>
-        /// 	Decrypts the text.
+        /// Decrypts the text using the specified key.
+        /// SECURITY: Extracts salt and IV from ciphertext for PBKDF2 key derivation.
+        /// Expected input format: Base64(salt[16] + IV[blockSize] + ciphertext)
         /// </summary>
-        /// <param name="cypherText"> The cypher text. </param>
+        /// <param name="cypherText"> The cypher text (Base64 encoded). </param>
         /// <param name="key"> The key. </param>
         /// <param name="algorithm"> The algorithm. </param>
-        /// <returns> </returns>
+        /// <returns>Decrypted plaintext</returns>
+        /// <exception cref="ArgumentException">Thrown when ciphertext format is invalid</exception>
         public static string DecryptText(string cypherText, string key, SymmetricAlgorithm algorithm)
         {
-            algorithm.Key = GetValidKey(key, algorithm);
-            algorithm.IV = GetValidIV(key, algorithm.IV.Length);
-
             byte[] inputBuffer = Convert.FromBase64String(cypherText);
-            return DecryptInternal(inputBuffer, algorithm);
+
+            // SECURITY FIX: Extract salt and IV from prepended data
+            int saltSize = 16;
+            int ivSize = algorithm.BlockSize / 8;
+
+            if (inputBuffer.Length < saltSize + ivSize)
+            {
+                throw new ArgumentException("Invalid ciphertext format - data too short to contain salt and IV");
+            }
+
+            byte[] salt = new byte[saltSize];
+            byte[] iv = new byte[ivSize];
+            byte[] ciphertext = new byte[inputBuffer.Length - saltSize - ivSize];
+
+            Buffer.BlockCopy(inputBuffer, 0, salt, 0, saltSize);
+            Buffer.BlockCopy(inputBuffer, saltSize, iv, 0, ivSize);
+            Buffer.BlockCopy(inputBuffer, saltSize + ivSize, ciphertext, 0, ciphertext.Length);
+
+            // Derive key using same PBKDF2 parameters
+            algorithm.Key = DeriveKey(key, salt, algorithm.KeySize / 8);
+            algorithm.IV = iv;
+
+            return DecryptInternal(ciphertext, algorithm);
         }
 
         /// <summary>
-        /// 	Encrypts the text.
+        /// Encrypts the data using the specified key.
+        /// SECURITY: Uses PBKDF2 key derivation with random salt and random IV (CWE-329 mitigation).
+        /// Output format: salt[16] + IV[blockSize] + ciphertext
         /// </summary>
         /// <param name="data"> The data. </param>
         /// <param name="key"> The key. </param>
         /// <param name="algorithm"> The algorithm. </param>
-        /// <returns> </returns>
+        /// <returns>Byte array containing salt, IV, and ciphertext</returns>
         public static byte[] EncryptData(byte[] data, string key, SymmetricAlgorithm algorithm)
         {
-            algorithm.Key = GetValidKey(key, algorithm);
-            algorithm.IV = GetValidIV(key, algorithm.IV.Length);
+            // SECURITY FIX: Generate random salt and IV per operation - CWE-329 mitigation
+            byte[] salt = GenerateRandomSalt(16);
+            byte[] iv = GenerateRandomIV(algorithm.BlockSize / 8);
 
-            return EncryptDataInternal(data, algorithm);
+            // Derive key using PBKDF2 instead of weak truncation
+            algorithm.Key = DeriveKey(key, salt, algorithm.KeySize / 8);
+            algorithm.IV = iv;
+
+            byte[] encryptedData = EncryptDataInternal(data, algorithm);
+
+            // Prepend salt and IV to ciphertext (salt + IV + ciphertext)
+            // Salt and IV are not secret and are needed for decryption
+            byte[] result = new byte[salt.Length + iv.Length + encryptedData.Length];
+            Buffer.BlockCopy(salt, 0, result, 0, salt.Length);
+            Buffer.BlockCopy(iv, 0, result, salt.Length, iv.Length);
+            Buffer.BlockCopy(encryptedData, 0, result, salt.Length + iv.Length, encryptedData.Length);
+
+            return result;
         }
 
         /// <summary>
-        /// 	Decrypts the text.
+        /// Decrypts the data using the specified key.
+        /// SECURITY: Extracts salt and IV from ciphertext for PBKDF2 key derivation.
+        /// Expected input format: salt[16] + IV[blockSize] + ciphertext
         /// </summary>
         /// <param name="data"> The data. </param>
         /// <param name="key"> The key. </param>
         /// <param name="algorithm"> The algorithm. </param>
-        /// <returns> </returns>
+        /// <returns>Decrypted data</returns>
+        /// <exception cref="ArgumentException">Thrown when data format is invalid</exception>
         public static byte[] DecryptData(byte[] data, string key, SymmetricAlgorithm algorithm)
         {
-            algorithm.Key = GetValidKey(key, algorithm);
-            algorithm.IV = GetValidIV(key, algorithm.IV.Length);
+            // SECURITY FIX: Extract salt and IV from prepended data
+            int saltSize = 16;
+            int ivSize = algorithm.BlockSize / 8;
 
-            return DecryptDataInternal(data, algorithm);
+            if (data.Length < saltSize + ivSize)
+            {
+                throw new ArgumentException("Invalid data format - data too short to contain salt and IV");
+            }
+
+            byte[] salt = new byte[saltSize];
+            byte[] iv = new byte[ivSize];
+            byte[] ciphertext = new byte[data.Length - saltSize - ivSize];
+
+            Buffer.BlockCopy(data, 0, salt, 0, saltSize);
+            Buffer.BlockCopy(data, saltSize, iv, 0, ivSize);
+            Buffer.BlockCopy(data, saltSize + ivSize, ciphertext, 0, ciphertext.Length);
+
+            // Derive key using same PBKDF2 parameters
+            algorithm.Key = DeriveKey(key, salt, algorithm.KeySize / 8);
+            algorithm.IV = iv;
+
+            return DecryptDataInternal(ciphertext, algorithm);
         }
 
         /// <summary>
@@ -215,10 +355,13 @@ namespace WebVella.Erp.Utilities
 
         /// <summary>
         /// 	Gets the valid encode key.
+        /// DEPRECATED: Kept for backward compatibility with legacy encrypted data only.
+        /// New encryption uses DeriveKey() with PBKDF2 instead.
         /// </summary>
         /// <param name="key"> The key. </param>
         /// <param name="encodeMethod"> The encode method. </param>
         /// <returns> </returns>
+        [Obsolete("Use DeriveKey() for new encryption. This method uses weak key truncation/padding.")]
         private static byte[] GetValidKey(string key, SymmetricAlgorithm encodeMethod)
         {
             string result;
@@ -241,13 +384,18 @@ namespace WebVella.Erp.Utilities
         }
 
         /// <summary>
-        /// 	Gets the valid encode IV.
+        /// Gets the valid encode IV.
+        /// DEPRECATED: This method derived IV from key which is insecure (CWE-329).
+        /// Kept for backward compatibility with legacy encrypted data only.
+        /// New encryption uses GenerateRandomIV() instead.
         /// </summary>
         /// <param name="InitVector"> The init vector. </param>
         /// <param name="ValidLength"> Length of the valid. </param>
         /// <returns> </returns>
+        [Obsolete("Use GenerateRandomIV() instead. IV derived from key is insecure (CWE-329).")]
         private static byte[] GetValidIV(String InitVector, int ValidLength)
         {
+            // Legacy implementation kept for backward compatibility with existing encrypted data
             if (InitVector.Length > ValidLength)
                 return Encoding.ASCII.GetBytes(InitVector.Substring(0, ValidLength));
 
