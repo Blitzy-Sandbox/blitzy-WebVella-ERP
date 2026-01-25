@@ -25,6 +25,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    
+    <!-- Required for integration testing with WebApplicationFactory (CORS and SecurityHeaders tests) -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,6 +38,8 @@
   <ItemGroup>
     <!-- Project references -->
     <ProjectReference Include="..\..\WebVella.Erp\WebVella.Erp.csproj" />
+    <!-- Required for integration testing of CORS and SecurityHeaders middleware -->
+    <ProjectReference Include="..\..\WebVella.Erp.Site\WebVella.Erp.Site.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,6 +47,8 @@
     <Compile Include="..\security\FileValidationTests.cs" Link="Security\FileValidationTests.cs" />
     <Compile Include="..\security\CryptoSecurityTests.cs" Link="Security\CryptoSecurityTests.cs" />
     <Compile Include="..\security\PasswordSecurityTests.cs" Link="Security\PasswordSecurityTests.cs" />
+    <!-- CORS security tests - integration tests for CWE-942 (overly permissive CORS) vulnerability mitigation -->
+    <Compile Include="..\security\CorsSecurityTests.cs" Link="Security\CorsSecurityTests.cs" />
   </ItemGroup>
 
 </Project>
