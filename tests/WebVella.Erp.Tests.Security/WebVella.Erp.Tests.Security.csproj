@@ -49,6 +49,8 @@
     <Compile Include="..\security\PasswordSecurityTests.cs" Link="Security\PasswordSecurityTests.cs" />
     <!-- CORS security tests - integration tests for CWE-942 (overly permissive CORS) vulnerability mitigation -->
     <Compile Include="..\security\CorsSecurityTests.cs" Link="Security\CorsSecurityTests.cs" />
+    <!-- Security Headers tests - integration tests for CWE-693 (missing security headers) vulnerability mitigation -->
+    <Compile Include="..\security\SecurityHeadersTests.cs" Link="Security\SecurityHeadersTests.cs" />
   </ItemGroup>
 
 </Project>
