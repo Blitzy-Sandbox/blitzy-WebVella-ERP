@@ -41,6 +41,7 @@
     <!-- Include security test files from parent tests/security folder -->
     <Compile Include="..\security\FileValidationTests.cs" Link="Security\FileValidationTests.cs" />
     <Compile Include="..\security\CryptoSecurityTests.cs" Link="Security\CryptoSecurityTests.cs" />
+    <Compile Include="..\security\PasswordSecurityTests.cs" Link="Security\PasswordSecurityTests.cs" />
   </ItemGroup>
 
 </Project>
