@@ -49,6 +49,12 @@ namespace WebVella.Erp
 		public static string JwtKey { get; private set; }
 		public static string JwtIssuer { get; private set; }
 		public static string JwtAudience { get; private set; }
+		
+		/// <summary>
+		/// Cookie expiration duration in days. Default is 30 days.
+		/// SECURITY: Reduced from 100 years to mitigate CWE-613 (Insufficient Session Expiration).
+		/// </summary>
+		public static int CookieExpirationDays { get; private set; }
 
 		//API URLs
 		public static string ApiUrlTemplateFieldInlineEdit { get; private set; }
@@ -115,11 +121,94 @@ namespace WebVella.Erp
 
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
-			JwtKey = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Key"]) ? "ThisIsMySecretKey" : configuration["Settings:Jwt:Key"];
+			// SECURITY: JWT key must be explicitly configured - no default fallback (CWE-798 mitigation)
+			JwtKey = configuration["Settings:Jwt:Key"];
 			JwtIssuer = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Issuer"]) ? "webvella-erp" : configuration["Settings:Jwt:Issuer"];
 			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp" : configuration["Settings:Jwt:Audience"];
 
+			// SECURITY: Cookie expiration - default 30 days (CWE-613 mitigation, reduced from 100 years)
+			CookieExpirationDays = string.IsNullOrWhiteSpace(configuration["Settings:CookieExpirationDays"]) 
+				? 30 
+				: int.Parse(configuration["Settings:CookieExpirationDays"]);
+
 			IsInitialized = true;
+		}
+
+		/// <summary>
+		/// Validates security-critical settings. Call after Initialize().
+		/// Throws InvalidOperationException if validation fails.
+		/// SECURITY: Implements startup-time validation to prevent deployment with weak/missing security configuration.
+		/// </summary>
+		public static void ValidateSettings()
+		{
+			if (!IsInitialized)
+			{
+				throw new InvalidOperationException(
+					"CONFIGURATION ERROR: ErpSettings.Initialize() must be called before ValidateSettings().");
+			}
+
+			// SECURITY: JWT key validation - CWE-798 mitigation
+			ValidateJwtKey();
+
+			// SECURITY: Encryption key validation - CWE-798 mitigation
+			ValidateEncryptionKey();
+		}
+
+		/// <summary>
+		/// Validates the JWT signing key meets security requirements.
+		/// SECURITY: Prevents deployment with weak, default, or missing JWT keys (CWE-798 mitigation).
+		/// </summary>
+		private static void ValidateJwtKey()
+		{
+			// Check if JWT key is configured
+			if (string.IsNullOrWhiteSpace(JwtKey))
+			{
+				throw new InvalidOperationException(
+					"SECURITY ERROR: JWT key is not configured. " +
+					"Set 'Settings:Jwt:Key' in configuration with a cryptographically random value of at least 32 characters.");
+			}
+
+			// Check minimum key length (256 bits / 32 characters for HMAC-SHA256)
+			if (JwtKey.Length < 32)
+			{
+				throw new InvalidOperationException(
+					$"SECURITY ERROR: JWT key must be at least 32 characters (256 bits). Current length: {JwtKey.Length}. " +
+					"Generate a secure key using: openssl rand -base64 48");
+			}
+
+			// Reject known weak/default keys to prevent accidental deployment with insecure configuration
+			var weakKeys = new[] 
+			{ 
+				"ThisIsMySecretKey", 
+				"secretkey", 
+				"password", 
+				"12345678901234567890123456789012",
+				"secret",
+				"mysecretkey",
+				"defaultkey"
+			};
+
+			if (Array.Exists(weakKeys, key => string.Equals(key, JwtKey, StringComparison.OrdinalIgnoreCase)))
+			{
+				throw new InvalidOperationException(
+					"SECURITY ERROR: JWT key matches a known weak/default value. " +
+					"Generate a cryptographically random key using: openssl rand -base64 48");
+			}
+		}
+
+		/// <summary>
+		/// Validates the encryption key is configured.
+		/// SECURITY: Prevents deployment without encryption key configuration (CWE-798 mitigation).
+		/// </summary>
+		private static void ValidateEncryptionKey()
+		{
+			// Check if encryption key is configured
+			if (string.IsNullOrWhiteSpace(EncryptionKey))
+			{
+				throw new InvalidOperationException(
+					"SECURITY ERROR: Encryption key is not configured. " +
+					"Set 'Settings:EncryptionKey' in configuration with a cryptographically random value.");
+			}
 		}
 	}
 }
