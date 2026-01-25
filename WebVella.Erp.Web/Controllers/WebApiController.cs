@@ -3328,6 +3328,13 @@ namespace WebVella.Erp.Web.Controllers
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult UploadFile([FromForm] IFormFile file)
 		{
+			// SECURITY: Validate file before processing - CWE-434 mitigation
+			var validationResult = FileValidationUtil.ValidateFile(file);
+			if (!validationResult.IsValid)
+			{
+				return BadRequest(new { success = false, message = validationResult.ErrorMessage });
+			}
+
 			//var fileName = ContentDispositionHeaderValue.Parse(file.ContentDisposition).FileName.Trim('"').ToLowerInvariant();
 			//Trim('"') was removed from Core2
 			var fileName = ContentDispositionHeaderValue.Parse(file.ContentDisposition).FileName.ToString().Trim().ToLowerInvariant();
@@ -3336,6 +3343,9 @@ namespace WebVella.Erp.Web.Controllers
 
 			if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 				fileName = fileName.Substring(0, fileName.Length - 1);
+
+			// SECURITY: Sanitize filename to prevent path traversal attacks
+			fileName = FileValidationUtil.SanitizeFileName(fileName);
 
 			DbFileRepository fsRepository = new DbFileRepository();
 			var createdFile = fsRepository.CreateTempFile(fileName, ReadFully(file.OpenReadStream()));
@@ -3967,6 +3977,18 @@ namespace WebVella.Erp.Web.Controllers
 			byte[] fileBytes = null;
 			try
 			{
+				// SECURITY: Validate file before processing - CWE-434 mitigation
+				var validationResult = FileValidationUtil.ValidateFile(upload);
+				if (!validationResult.IsValid)
+				{
+					response["uploaded"] = 0;
+					response["error"] = new EntityRecord();
+					var errorMsg = new EntityRecord();
+					errorMsg["message"] = validationResult.ErrorMessage;
+					response["error"] = errorMsg;
+					return Json(response);
+				}
+
 				if (upload != null)
 				{
 					using (var ms = new MemoryStream())
@@ -3974,7 +3996,9 @@ namespace WebVella.Erp.Web.Controllers
 						upload.CopyTo(ms);
 						fileBytes = ms.ToArray();
 					}
-					var tempPath = "tmp/" + Guid.NewGuid() + "/" + upload.FileName;
+					// SECURITY: Sanitize filename to prevent path traversal attacks
+					var sanitizedFileName = FileValidationUtil.SanitizeFileName(upload.FileName);
+					var tempPath = "tmp/" + Guid.NewGuid() + "/" + sanitizedFileName;
 					var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
 
 					var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
@@ -3982,7 +4006,7 @@ namespace WebVella.Erp.Web.Controllers
 					string url = "/fs" + newFile.Path;
 
 					response["uploaded"] = 1;
-					response["fileName"] = upload.FileName;
+					response["fileName"] = sanitizedFileName;
 					response["url"] = url;
 					return Json(response);
 
@@ -4014,21 +4038,31 @@ namespace WebVella.Erp.Web.Controllers
 			string CKEditorFuncNum = HttpContext.Request.Query["CKEditorFuncNum"].ToString();
 			try
 			{
+				// SECURITY: Validate file before processing - CWE-434 mitigation
+				var validationResult = FileValidationUtil.ValidateFile(upload);
+				if (!validationResult.IsValid)
+				{
+					var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"" + validationResult.ErrorMessage + "\");</script></body></html>";
+					return Content(vOutput, "text/html");
+				}
+
 				using (var ms = new MemoryStream())
 				{
 					upload.CopyTo(ms);
 					fileBytes = ms.ToArray();
 				}
-				var tempPath = "tmp/" + Guid.NewGuid() + "/" + upload.FileName;
+				// SECURITY: Sanitize filename to prevent path traversal attacks
+				var sanitizedFileName = FileValidationUtil.SanitizeFileName(upload.FileName);
+				var tempPath = "tmp/" + Guid.NewGuid() + "/" + sanitizedFileName;
 				var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
 
 				var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
 
 				string url = "/fs" + newFile.Path;
 				string vMessage = "";
-				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"" + url + "\", \"" + vMessage + "\");</script></body></html>";
+				var vOutput2 = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"" + url + "\", \"" + vMessage + "\");</script></body></html>";
 
-				return Content(vOutput, "text/html");
+				return Content(vOutput2, "text/html");
 			}
 			catch (Exception ex)
 			{
