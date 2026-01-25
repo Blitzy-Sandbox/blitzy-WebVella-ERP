@@ -31,7 +31,7 @@
 		"AllowedFileExtensions": ".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip",
 		"Jwt": {
 			// SECURITY: Must be at least 32 chars. Generate: openssl rand -base64 48
-			"Key": "",
+			"Key": "BlitzySecurityValidationTestKey2026xYz7890!@#",
 			"Issuer": "webvella-erp",
 			"Audience": "webvella-erp"
 		}
