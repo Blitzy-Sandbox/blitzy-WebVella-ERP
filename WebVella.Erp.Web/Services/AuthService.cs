@@ -38,11 +38,13 @@ namespace WebVella.Erp.Web.Services
 
 				var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
 
+				// SECURITY FIX: Changed from 100 years to configurable days (default 30) - CWE-613 mitigation
+				// Sliding expiration: AllowRefresh=true + IsPersistent=true extends session on activity
 				var authProperties = new AuthenticationProperties
 				{
-					AllowRefresh = true,
-					ExpiresUtc = DateTimeOffset.UtcNow.AddYears(100),
-					IsPersistent = false,
+					AllowRefresh = true,  // Enable sliding expiration
+					ExpiresUtc = DateTimeOffset.UtcNow.AddDays(ErpSettings.CookieExpirationDays > 0 ? ErpSettings.CookieExpirationDays : 30),
+					IsPersistent = true,  // SECURITY FIX: Changed to true for sliding expiration to work
 					IssuedUtc = DateTimeOffset.UtcNow,
 				};
 
