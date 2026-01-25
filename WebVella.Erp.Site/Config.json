@@ -21,8 +21,17 @@
 		"AppName": "WebVella Next",
 		"NavLogoUrl": "",
 		"SystemMasterBackgroundImageUrl": "",
+		// SECURITY: Comma-separated list of allowed CORS origins. Production: set actual domain(s)
+		"AllowedOrigins": "https://localhost:5001,http://localhost:5000",
+		// SECURITY: Session cookie expiration in days (default: 30, max recommended: 30)
+		"CookieExpirationDays": 30,
+		// SECURITY: Maximum file upload size in bytes (default: 10MB)
+		"MaxUploadSizeBytes": 10485760,
+		// SECURITY: Comma-separated whitelist of allowed file upload extensions
+		"AllowedFileExtensions": ".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip",
 		"Jwt": {
-			"Key": "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey",
+			// SECURITY: Must be at least 32 chars. Generate: openssl rand -base64 48
+			"Key": "",
 			"Issuer": "webvella-erp",
 			"Audience": "webvella-erp"
 		}
