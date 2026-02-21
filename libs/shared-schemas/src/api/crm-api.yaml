@@ -1,0 +1,1955 @@
+openapi: "3.1.0"
+info:
+  title: "WebVella ERP - CRM / Contacts API"
+  version: "1.0.0"
+  description: >
+    OpenAPI specification for the CRM / Contacts bounded-context service. This
+    service owns the Account, Contact, Address, and Salutation entities that
+    were originally defined in the WebVella ERP monolith's Next plugin entity
+    provisioning patches (NextPlugin.20190204.cs creates account, contact,
+    address; NextPlugin.20190206.cs creates salutation and adds corrected
+    salutation_id, created_on, photo, and x_search fields). The CRM plugin
+    skeleton (CrmPlugin.cs) and SearchService.cs provide additional context.
+
+
+    Backed by DynamoDB with single-table design; deployed as AWS Lambda handlers
+    behind HTTP API Gateway v2. Cross-service communication uses SNS domain
+    events following the pattern crm.{entity}.{action} (e.g.
+    crm.account.created). The x_search composite field supports DynamoDB GSI
+    search patterns derived from the monolith's SearchService.RegenSearchField
+    logic and Configuration.cs index field lists.
+  contact:
+    name: WebVella ERP Team
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: "http://localhost:4566/restapis/{apiId}/v1/_user_request_"
+    description: LocalStack
+    variables:
+      apiId:
+        default: local
+        description: API Gateway REST API identifier
+  - url: "https://{apiId}.execute-api.{region}.amazonaws.com/v1"
+    description: Production AWS
+    variables:
+      apiId:
+        default: ""
+        description: API Gateway REST API identifier
+      region:
+        default: us-east-1
+        description: AWS region
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Accounts
+    description: >
+      Account management operations. An account represents a company or
+      person entity in the CRM domain, originally provisioned by
+      NextPlugin.20190204.cs (entity ID 2e22b50f-e444-4b62-a171-076e51246939).
+  - name: Contacts
+    description: >
+      Contact management operations. A contact represents an individual
+      associated with zero or more accounts via the account_nn_contact
+      many-to-many relation (entity ID 39e1dd9b-827f-464d-95ea-507ade81cbd0).
+  - name: Addresses
+    description: >
+      Address management operations. Addresses can be linked to accounts
+      via the address_nn_account many-to-many relation.
+  - name: Salutations
+    description: >
+      Salutation reference data operations. Salutations are linked to
+      accounts and contacts via salutation_1n_account and
+      salutation_1n_contact one-to-many relations.
+  - name: CRM Search
+    description: >
+      CRM-specific search operations leveraging the x_search composite
+      field and DynamoDB GSI. Derived from SearchService.cs
+      RegenSearchField logic and Configuration.cs index field definitions.
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Account Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/accounts:
+    get:
+      operationId: listAccounts
+      summary: List accounts
+      description: >
+        Returns a paginated list of account records with optional filtering
+        and sorting. The search parameter queries the x_search composite
+        field which concatenates: city, country label, email, fax_phone,
+        first_name, fixed_phone, last_name, mobile_phone, name, notes,
+        post_code, region, street, street_2, tax_id, type, website
+        (derived from Configuration.AccountSearchIndexFields).
+      tags:
+        - Accounts
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: search
+          in: query
+          required: false
+          description: >
+            Free-text search against the account x_search composite field
+            stored in a DynamoDB GSI.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/SortFieldParam"
+        - $ref: "#/components/parameters/SortOrderParam"
+        - name: type
+          in: query
+          required: false
+          description: >
+            Filter by account type. Maps to the SelectField with options
+            Company (1) and Person (2).
+          schema:
+            type: string
+            enum:
+              - company
+              - person
+      responses:
+        "200":
+          description: Paginated list of accounts.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Account"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createAccount
+      summary: Create account
+      description: >
+        Creates a new account record. After creation the service computes
+        derived fields (x_search) and publishes a `crm.account.created` SNS
+        domain event. This replaces the monolith's IErpPostCreateRecordHook
+        for account entities.
+      tags:
+        - Accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountCreateRequest"
+      responses:
+        "201":
+          description: Account created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/accounts/{accountId}:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdParam"
+    get:
+      operationId: getAccount
+      summary: Get account by ID
+      description: >
+        Retrieves a single account by its unique identifier. Includes
+        embedded salutation reference and linked contact summaries when
+        available.
+      tags:
+        - Accounts
+      responses:
+        "200":
+          description: Account found.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Account"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateAccount
+      summary: Update account
+      description: >
+        Performs a full update of an account record. Recomputes the x_search
+        composite field and publishes a `crm.account.updated` SNS domain
+        event on success. This replaces the monolith's
+        IErpPostUpdateRecordHook for account entities.
+      tags:
+        - Accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountUpdateRequest"
+      responses:
+        "200":
+          description: Account updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteAccount
+      summary: Delete account
+      description: >
+        Deletes an account record. Publishes a `crm.account.deleted` SNS
+        domain event on success. This replaces the monolith's
+        IErpPostDeleteRecordHook for account entities. Associated
+        address_nn_account and account_nn_contact relation records are
+        cleaned up as part of the deletion.
+      tags:
+        - Accounts
+      responses:
+        "200":
+          description: Account deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Account — Contact Association
+  # ---------------------------------------------------------------------------
+  /v1/accounts/{accountId}/contacts:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdParam"
+    get:
+      operationId: listAccountContacts
+      summary: List contacts for an account
+      description: >
+        Returns a paginated list of contacts linked to the specified account
+        via the account_nn_contact many-to-many relation.
+      tags:
+        - Accounts
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: Paginated list of contacts for the account.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Contact"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/accounts/{accountId}/contacts/{contactId}:
+    parameters:
+      - $ref: "#/components/parameters/AccountIdParam"
+      - $ref: "#/components/parameters/ContactIdParam"
+    put:
+      operationId: linkContactToAccount
+      summary: Link contact to account
+      description: >
+        Creates an account_nn_contact many-to-many relation record linking
+        the specified contact to the account. Publishes a
+        `crm.relation.created` SNS domain event on success.
+      tags:
+        - Accounts
+      responses:
+        "200":
+          description: Contact linked to account successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: unlinkContactFromAccount
+      summary: Unlink contact from account
+      description: >
+        Removes the account_nn_contact many-to-many relation record for the
+        specified contact and account. Publishes a `crm.relation.deleted`
+        SNS domain event on success.
+      tags:
+        - Accounts
+      responses:
+        "200":
+          description: Contact unlinked from account successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Contact Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/contacts:
+    get:
+      operationId: listContacts
+      summary: List contacts
+      description: >
+        Returns a paginated list of contact records with optional filtering
+        and sorting. The search parameter queries the x_search composite
+        field which concatenates: city, country label, account name, email,
+        fax_phone, first_name, fixed_phone, job_title, last_name,
+        mobile_phone, notes, post_code, region, street, street_2
+        (derived from Configuration.ContactSearchIndexFields).
+      tags:
+        - Contacts
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: search
+          in: query
+          required: false
+          description: >
+            Free-text search against the contact x_search composite field
+            stored in a DynamoDB GSI.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/SortFieldParam"
+        - $ref: "#/components/parameters/SortOrderParam"
+        - name: accountId
+          in: query
+          required: false
+          description: >
+            Filter contacts by associated account ID (via account_nn_contact
+            many-to-many relation).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Paginated list of contacts.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Contact"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createContact
+      summary: Create contact
+      description: >
+        Creates a new contact record. After creation the service computes
+        derived fields (x_search) and publishes a `crm.contact.created` SNS
+        domain event. If an accountId is provided, the account_nn_contact
+        many-to-many relation is also established. This replaces the
+        monolith's IErpPostCreateRecordHook for contact entities.
+      tags:
+        - Contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactCreateRequest"
+      responses:
+        "201":
+          description: Contact created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/contacts/{contactId}:
+    parameters:
+      - $ref: "#/components/parameters/ContactIdParam"
+    get:
+      operationId: getContact
+      summary: Get contact by ID
+      description: >
+        Retrieves a single contact by its unique identifier. Includes
+        embedded salutation reference and linked account summaries when
+        available.
+      tags:
+        - Contacts
+      responses:
+        "200":
+          description: Contact found.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Contact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateContact
+      summary: Update contact
+      description: >
+        Performs a full update of a contact record. Recomputes the x_search
+        composite field and publishes a `crm.contact.updated` SNS domain
+        event on success. This replaces the monolith's
+        IErpPostUpdateRecordHook for contact entities.
+      tags:
+        - Contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdateRequest"
+      responses:
+        "200":
+          description: Contact updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Contact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteContact
+      summary: Delete contact
+      description: >
+        Deletes a contact record. Publishes a `crm.contact.deleted` SNS
+        domain event on success. This replaces the monolith's
+        IErpPostDeleteRecordHook for contact entities. Associated
+        account_nn_contact relation records are cleaned up.
+      tags:
+        - Contacts
+      responses:
+        "200":
+          description: Contact deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Address Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/addresses:
+    get:
+      operationId: listAddresses
+      summary: List addresses
+      description: >
+        Returns a paginated list of address records with optional filtering.
+        Addresses can be linked to accounts via the address_nn_account
+        many-to-many relation.
+      tags:
+        - Addresses
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: accountId
+          in: query
+          required: false
+          description: >
+            Filter addresses linked to a specific account via
+            address_nn_account relation.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Paginated list of addresses.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Address"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createAddress
+      summary: Create address
+      description: >
+        Creates a new address record. If an accountId is provided in the
+        request, the address_nn_account many-to-many relation is established.
+        Publishes a `crm.address.created` SNS domain event on success.
+      tags:
+        - Addresses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressCreateRequest"
+      responses:
+        "201":
+          description: Address created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/addresses/{addressId}:
+    parameters:
+      - $ref: "#/components/parameters/AddressIdParam"
+    get:
+      operationId: getAddress
+      summary: Get address by ID
+      description: >
+        Retrieves a single address by its unique identifier.
+      tags:
+        - Addresses
+      responses:
+        "200":
+          description: Address found.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Address"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateAddress
+      summary: Update address
+      description: >
+        Performs a full update of an address record. Publishes a
+        `crm.address.updated` SNS domain event on success.
+      tags:
+        - Addresses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressUpdateRequest"
+      responses:
+        "200":
+          description: Address updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteAddress
+      summary: Delete address
+      description: >
+        Deletes an address record. Publishes a `crm.address.deleted` SNS
+        domain event on success. Associated address_nn_account relation
+        records are cleaned up.
+      tags:
+        - Addresses
+      responses:
+        "200":
+          description: Address deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Salutation Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/salutations:
+    get:
+      operationId: listSalutations
+      summary: List salutations
+      description: >
+        Returns the list of available salutation reference records. These
+        are linked to accounts and contacts via salutation_1n_account and
+        salutation_1n_contact one-to-many relations. Salutation entity was
+        created by NextPlugin.20190206.cs with fields: is_default,
+        is_enabled, is_system, label, sort_index, l_scope.
+      tags:
+        - Salutations
+      parameters:
+        - name: isEnabled
+          in: query
+          required: false
+          description: Filter by enabled status.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of salutations.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Salutation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: createSalutation
+      summary: Create salutation
+      description: >
+        Creates a new salutation reference record. Publishes a
+        `crm.salutation.created` SNS domain event on success.
+      tags:
+        - Salutations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalutationCreateRequest"
+      responses:
+        "201":
+          description: Salutation created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Salutation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/salutations/{salutationId}:
+    parameters:
+      - $ref: "#/components/parameters/SalutationIdParam"
+    get:
+      operationId: getSalutation
+      summary: Get salutation by ID
+      description: >
+        Retrieves a single salutation by its unique identifier.
+      tags:
+        - Salutations
+      responses:
+        "200":
+          description: Salutation found.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Salutation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateSalutation
+      summary: Update salutation
+      description: >
+        Updates a salutation reference record. Publishes a
+        `crm.salutation.updated` SNS domain event on success.
+      tags:
+        - Salutations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalutationUpdateRequest"
+      responses:
+        "200":
+          description: Salutation updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Salutation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: deleteSalutation
+      summary: Delete salutation
+      description: >
+        Deletes a salutation reference record. System salutations
+        (is_system = true) cannot be deleted. Publishes a
+        `crm.salutation.deleted` SNS domain event on success.
+      tags:
+        - Salutations
+      responses:
+        "200":
+          description: Salutation deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # CRM Search Endpoint
+  # ---------------------------------------------------------------------------
+  /v1/crm/search:
+    get:
+      operationId: searchCrm
+      summary: CRM-specific search
+      description: >
+        Performs a cross-entity search across CRM domain entities (accounts
+        and contacts) using the x_search composite field stored in a DynamoDB
+        Global Secondary Index. Derived from SearchService.cs
+        RegenSearchField logic which concatenates entity-specific field
+        values into a single searchable string.
+
+
+        Account search index fields (from Configuration.AccountSearchIndexFields):
+        city, country label, email, fax_phone, first_name, fixed_phone,
+        last_name, mobile_phone, name, notes, post_code, region, street,
+        street_2, tax_id, type, website.
+
+
+        Contact search index fields (from Configuration.ContactSearchIndexFields):
+        city, country label, account name, email, fax_phone, first_name,
+        fixed_phone, job_title, last_name, mobile_phone, notes, post_code,
+        region, street, street_2.
+      tags:
+        - CRM Search
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: >
+            Search query string to match against the x_search composite
+            field in the DynamoDB GSI.
+          schema:
+            type: string
+            minLength: 1
+        - name: entityType
+          in: query
+          required: false
+          description: >
+            Restrict search to a specific entity type. When omitted, both
+            account and contact entities are searched.
+          schema:
+            type: string
+            enum:
+              - account
+              - contact
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of results to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of results to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Search results matching the query.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CrmSearchResults"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Cognito JWT token. Obtain via POST /v1/auth/login on the Identity
+        service.
+
+  # ---------------------------------------------------------------------------
+  # Reusable Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Page number (1-based).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    SortFieldParam:
+      name: sortField
+      in: query
+      required: false
+      description: Field name to sort by (e.g. "createdOn", "lastName", "name").
+      schema:
+        type: string
+        default: createdOn
+    SortOrderParam:
+      name: sortOrder
+      in: query
+      required: false
+      description: Sort direction.
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+        default: desc
+    AccountIdParam:
+      name: accountId
+      in: path
+      required: true
+      description: Unique identifier of the account (UUID).
+      schema:
+        type: string
+        format: uuid
+    ContactIdParam:
+      name: contactId
+      in: path
+      required: true
+      description: Unique identifier of the contact (UUID).
+      schema:
+        type: string
+        format: uuid
+    AddressIdParam:
+      name: addressId
+      in: path
+      required: true
+      description: Unique identifier of the address (UUID).
+      schema:
+        type: string
+        format: uuid
+    SalutationIdParam:
+      name: salutationId
+      in: path
+      required: true
+      description: Unique identifier of the salutation (UUID).
+      schema:
+        type: string
+        format: uuid
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Validation or request format error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+    Unauthorized:
+      description: Missing or invalid authentication token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # -------------------------------------------------------------------------
+    # Shared Envelope Schemas
+    # -------------------------------------------------------------------------
+    ApiResponseEnvelope:
+      type: object
+      description: >
+        Standard response envelope used by all endpoints. Mirrors the
+        monolith's BaseResponseModel (timestamp, success, message, errors)
+        from BaseModels.cs lines 8-38.
+      required:
+        - timestamp
+        - success
+        - message
+        - errors
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the response.
+        success:
+          type: boolean
+          description: Whether the request completed successfully.
+        message:
+          type: string
+          description: Human-readable summary message.
+        errors:
+          type: array
+          description: List of error details (empty on success).
+          items:
+            $ref: "#/components/schemas/ErrorModel"
+        data:
+          description: >
+            Response payload; shape varies per endpoint. See individual
+            endpoint response schemas for exact structure.
+
+    ErrorModel:
+      type: object
+      description: >
+        Individual error descriptor matching the monolith's ErrorModel
+        (BaseModels.cs lines 62-83).
+      properties:
+        key:
+          type: string
+          description: Machine-readable error key (e.g. field name).
+        value:
+          type: string
+          description: The invalid value that caused the error.
+        message:
+          type: string
+          description: Human-readable error message.
+
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included with list responses.
+      required:
+        - page
+        - pageSize
+        - totalCount
+        - totalPages
+      properties:
+        page:
+          type: integer
+          description: Current page number (1-based).
+        pageSize:
+          type: integer
+          description: Items per page.
+        totalCount:
+          type: integer
+          description: Total number of matching items.
+        totalPages:
+          type: integer
+          description: Total number of pages.
+
+    # -------------------------------------------------------------------------
+    # Account Schemas
+    # -------------------------------------------------------------------------
+    Account:
+      type: object
+      description: >
+        Account entity representing a company or person in the CRM domain.
+        Originally provisioned by NextPlugin.20190204.cs (entity ID
+        2e22b50f-e444-4b62-a171-076e51246939) with updates from
+        NextPlugin.20190206.cs (created_on, salutation_id corrections).
+      required:
+        - id
+        - type
+        - firstName
+        - lastName
+        - createdOn
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique account identifier.
+        type:
+          type: string
+          enum:
+            - company
+            - person
+          description: >
+            Account type. Maps to the monolith's SelectField with options
+            Company ("1") and Person ("2"). Default is "company".
+        name:
+          type: string
+          description: >
+            Display name for the account. Computed from firstName + lastName
+            or company name depending on type.
+        firstName:
+          type: string
+          description: >
+            First name of the account holder. Required field from the
+            monolith (TextField, Required=true, default "first name").
+        lastName:
+          type: string
+          description: >
+            Last name of the account holder. Required field from the
+            monolith (TextField, Required=true, default "last name").
+        email:
+          type: string
+          format: email
+          description: >
+            Email address (EmailField, Searchable=true in the monolith).
+        phone:
+          type: string
+          description: Fixed phone number (PhoneField in the monolith).
+        mobilePhone:
+          type: string
+          description: Mobile phone number (PhoneField in the monolith).
+        faxPhone:
+          type: string
+          description: Fax phone number (PhoneField in the monolith).
+        website:
+          type: string
+          format: uri
+          description: Website URL (UrlField in the monolith).
+        street:
+          type: string
+          description: Street address line 1 (TextField in the monolith).
+        street2:
+          type: string
+          description: Street address line 2 (TextField in the monolith).
+        city:
+          type: string
+          description: City (TextField in the monolith).
+        region:
+          type: string
+          description: State/region/province (TextField in the monolith).
+        postCode:
+          type: string
+          description: Postal/ZIP code (TextField in the monolith).
+        countryId:
+          type: string
+          format: uuid
+          description: >
+            Reference to country entity via country_1n_account relation
+            (GuidField in the monolith).
+        taxId:
+          type: string
+          description: Tax identification number (TextField in the monolith).
+        industry:
+          type: string
+          description: Industry classification.
+        notes:
+          type: string
+          description: Free-text notes (MultiLineTextField in the monolith).
+        salutationId:
+          type: string
+          format: uuid
+          description: >
+            Reference to salutation entity via salutation_1n_account relation.
+            Originally created as solutation_id in 20190204, corrected to
+            salutation_id in 20190206 (GuidField, Required=true, default
+            87c08ee1-...).
+        languageId:
+          type: string
+          format: uuid
+          description: >
+            Reference to language entity via language_1n_account relation
+            (GuidField in the monolith).
+        currencyId:
+          type: string
+          format: uuid
+          description: >
+            Reference to currency entity via currency_1n_account relation
+            (GuidField in the monolith).
+        xSearch:
+          type: string
+          readOnly: true
+          description: >
+            DynamoDB GSI search index field. Computed by concatenating:
+            city, country label, email, fax_phone, first_name, fixed_phone,
+            last_name, mobile_phone, name, notes, post_code, region, street,
+            street_2, tax_id, type, website (from
+            Configuration.AccountSearchIndexFields). Clients should never
+            set this field directly; it is recomputed on every create/update.
+        createdOn:
+          type: string
+          format: date-time
+          description: >
+            Record creation timestamp (DateTimeField, Required=true,
+            UseCurrentTimeAsDefaultValue=true, format yyyy-MMM-dd HH:mm).
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the account.
+
+    AccountCreateRequest:
+      type: object
+      description: Request body for creating a new account.
+      required:
+        - type
+        - firstName
+        - lastName
+      properties:
+        type:
+          type: string
+          enum:
+            - company
+            - person
+          default: company
+          description: Account type. Defaults to "company".
+        firstName:
+          type: string
+          minLength: 1
+          description: First name of the account holder (required).
+        lastName:
+          type: string
+          minLength: 1
+          description: Last name of the account holder (required).
+        email:
+          type: string
+          format: email
+          description: Email address.
+        phone:
+          type: string
+          description: Fixed phone number.
+        mobilePhone:
+          type: string
+          description: Mobile phone number.
+        faxPhone:
+          type: string
+          description: Fax phone number.
+        website:
+          type: string
+          format: uri
+          description: Website URL.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        taxId:
+          type: string
+          description: Tax identification number.
+        industry:
+          type: string
+          description: Industry classification.
+        notes:
+          type: string
+          description: Free-text notes.
+        salutationId:
+          type: string
+          format: uuid
+          description: Salutation entity reference ID.
+        languageId:
+          type: string
+          format: uuid
+          description: Language entity reference ID.
+        currencyId:
+          type: string
+          format: uuid
+          description: Currency entity reference ID.
+
+    AccountUpdateRequest:
+      type: object
+      description: Request body for updating an existing account.
+      required:
+        - type
+        - firstName
+        - lastName
+      properties:
+        type:
+          type: string
+          enum:
+            - company
+            - person
+          description: Account type.
+        firstName:
+          type: string
+          minLength: 1
+          description: First name of the account holder (required).
+        lastName:
+          type: string
+          minLength: 1
+          description: Last name of the account holder (required).
+        email:
+          type: string
+          format: email
+          description: Email address.
+        phone:
+          type: string
+          description: Fixed phone number.
+        mobilePhone:
+          type: string
+          description: Mobile phone number.
+        faxPhone:
+          type: string
+          description: Fax phone number.
+        website:
+          type: string
+          format: uri
+          description: Website URL.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        taxId:
+          type: string
+          description: Tax identification number.
+        industry:
+          type: string
+          description: Industry classification.
+        notes:
+          type: string
+          description: Free-text notes.
+        salutationId:
+          type: string
+          format: uuid
+          description: Salutation entity reference ID.
+        languageId:
+          type: string
+          format: uuid
+          description: Language entity reference ID.
+        currencyId:
+          type: string
+          format: uuid
+          description: Currency entity reference ID.
+
+    # -------------------------------------------------------------------------
+    # Contact Schemas
+    # -------------------------------------------------------------------------
+    Contact:
+      type: object
+      description: >
+        Contact entity representing an individual in the CRM domain.
+        Originally provisioned by NextPlugin.20190204.cs (entity ID
+        39e1dd9b-827f-464d-95ea-507ade81cbd0) with updates from
+        NextPlugin.20190206.cs (created_on, photo, x_search, salutation_id).
+        Contacts are linked to accounts via the account_nn_contact
+        many-to-many relation.
+      required:
+        - id
+        - firstName
+        - lastName
+        - createdOn
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique contact identifier.
+        salutationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Reference to salutation entity via salutation_1n_contact relation.
+            Added by NextPlugin.20190206.cs after correcting the misspelled
+            solutation_id from 20190204.
+        firstName:
+          type: string
+          description: >
+            First name of the contact (TextField, Required in the monolith).
+        lastName:
+          type: string
+          description: >
+            Last name of the contact (TextField, Required in the monolith).
+        email:
+          type: string
+          format: email
+          description: Email address (EmailField in the monolith).
+        jobTitle:
+          type: string
+          description: Job title (TextField in the monolith).
+        phone:
+          type: string
+          description: Fixed phone number (PhoneField in the monolith).
+        mobilePhone:
+          type: string
+          description: Mobile phone number (PhoneField in the monolith).
+        faxPhone:
+          type: string
+          description: Fax phone number (PhoneField in the monolith).
+        street:
+          type: string
+          description: Street address line 1 (TextField in the monolith).
+        street2:
+          type: string
+          description: Street address line 2 (TextField in the monolith).
+        city:
+          type: string
+          description: City (TextField in the monolith).
+        region:
+          type: string
+          description: State/region/province (TextField in the monolith).
+        postCode:
+          type: string
+          description: Postal/ZIP code (TextField in the monolith).
+        countryId:
+          type: string
+          format: uuid
+          description: >
+            Reference to country entity via country_1n_contact relation
+            (GuidField in the monolith).
+        notes:
+          type: string
+          description: Free-text notes (MultiLineTextField in the monolith).
+        photo:
+          type: string
+          format: uri
+          description: >
+            Photo URL (ImageField added by NextPlugin.20190206.cs).
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Primary associated account ID. Resolved via the
+            account_nn_contact many-to-many relation. Nullable when the
+            contact is not linked to any account.
+        xSearch:
+          type: string
+          readOnly: true
+          description: >
+            DynamoDB GSI search index field. Computed by concatenating:
+            city, country label, account name, email, fax_phone, first_name,
+            fixed_phone, job_title, last_name, mobile_phone, notes,
+            post_code, region, street, street_2 (from
+            Configuration.ContactSearchIndexFields). Clients should never
+            set this field directly; it is recomputed on every create/update.
+        createdOn:
+          type: string
+          format: date-time
+          description: >
+            Record creation timestamp (DateTimeField, Required=true,
+            UseCurrentTimeAsDefaultValue=true).
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the contact.
+
+    ContactCreateRequest:
+      type: object
+      description: Request body for creating a new contact.
+      required:
+        - firstName
+        - lastName
+      properties:
+        salutationId:
+          type: string
+          format: uuid
+          description: Salutation entity reference ID.
+        firstName:
+          type: string
+          minLength: 1
+          description: First name of the contact (required).
+        lastName:
+          type: string
+          minLength: 1
+          description: Last name of the contact (required).
+        email:
+          type: string
+          format: email
+          description: Email address.
+        jobTitle:
+          type: string
+          description: Job title.
+        phone:
+          type: string
+          description: Fixed phone number.
+        mobilePhone:
+          type: string
+          description: Mobile phone number.
+        faxPhone:
+          type: string
+          description: Fax phone number.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        notes:
+          type: string
+          description: Free-text notes.
+        photo:
+          type: string
+          format: uri
+          description: Photo URL.
+        accountId:
+          type: string
+          format: uuid
+          description: >
+            Account ID to associate via account_nn_contact relation. When
+            provided, the many-to-many relation is established during
+            creation.
+
+    ContactUpdateRequest:
+      type: object
+      description: Request body for updating an existing contact.
+      required:
+        - firstName
+        - lastName
+      properties:
+        salutationId:
+          type: string
+          format: uuid
+          description: Salutation entity reference ID.
+        firstName:
+          type: string
+          minLength: 1
+          description: First name of the contact (required).
+        lastName:
+          type: string
+          minLength: 1
+          description: Last name of the contact (required).
+        email:
+          type: string
+          format: email
+          description: Email address.
+        jobTitle:
+          type: string
+          description: Job title.
+        phone:
+          type: string
+          description: Fixed phone number.
+        mobilePhone:
+          type: string
+          description: Mobile phone number.
+        faxPhone:
+          type: string
+          description: Fax phone number.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        notes:
+          type: string
+          description: Free-text notes.
+        photo:
+          type: string
+          format: uri
+          description: Photo URL.
+
+    # -------------------------------------------------------------------------
+    # Address Schemas
+    # -------------------------------------------------------------------------
+    Address:
+      type: object
+      description: >
+        Address entity provisioned by NextPlugin.20190204.cs. Linked to
+        accounts via address_nn_account many-to-many relation and to
+        countries via country_1n_address one-to-many relation.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique address identifier.
+        name:
+          type: string
+          description: >
+            Address label/name for identification (TextField in the monolith).
+        street:
+          type: string
+          description: Street address line 1 (TextField in the monolith).
+        street2:
+          type: string
+          description: Street address line 2 (TextField in the monolith).
+        city:
+          type: string
+          description: City (TextField in the monolith).
+        region:
+          type: string
+          description: State/region/province (TextField in the monolith).
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: >
+            Reference to country entity via country_1n_address relation
+            (GuidField in the monolith).
+        notes:
+          type: string
+          description: Free-text notes (MultiLineTextField in the monolith).
+        createdOn:
+          type: string
+          format: date-time
+          description: Record creation timestamp.
+        createdBy:
+          type: string
+          format: uuid
+          description: ID of the user who created the address.
+
+    AddressCreateRequest:
+      type: object
+      description: Request body for creating a new address.
+      properties:
+        name:
+          type: string
+          description: Address label/name for identification.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        notes:
+          type: string
+          description: Free-text notes.
+        accountId:
+          type: string
+          format: uuid
+          description: >
+            Account ID to associate via address_nn_account relation. When
+            provided, the many-to-many relation is established during
+            creation.
+
+    AddressUpdateRequest:
+      type: object
+      description: Request body for updating an existing address.
+      properties:
+        name:
+          type: string
+          description: Address label/name for identification.
+        street:
+          type: string
+          description: Street address line 1.
+        street2:
+          type: string
+          description: Street address line 2.
+        city:
+          type: string
+          description: City.
+        region:
+          type: string
+          description: State/region/province.
+        postCode:
+          type: string
+          description: Postal/ZIP code.
+        countryId:
+          type: string
+          format: uuid
+          description: Country entity reference ID.
+        notes:
+          type: string
+          description: Free-text notes.
+
+    # -------------------------------------------------------------------------
+    # Salutation Schemas
+    # -------------------------------------------------------------------------
+    Salutation:
+      type: object
+      description: >
+        Salutation reference entity provisioned by NextPlugin.20190206.cs.
+        Linked to accounts via salutation_1n_account and to contacts via
+        salutation_1n_contact one-to-many relations.
+      required:
+        - id
+        - label
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique salutation identifier.
+        label:
+          type: string
+          description: >
+            Display label for the salutation (e.g. "Mr.", "Mrs.", "Dr.").
+            TextField, Required=true in the monolith.
+        sortIndex:
+          type: integer
+          description: >
+            Sort order index (NumberField in the monolith).
+        isDefault:
+          type: boolean
+          description: >
+            Whether this is the default salutation (CheckboxField in the
+            monolith).
+        isEnabled:
+          type: boolean
+          description: >
+            Whether this salutation is currently active/enabled (CheckboxField
+            in the monolith).
+        isSystem:
+          type: boolean
+          readOnly: true
+          description: >
+            Whether this is a system-defined salutation that cannot be deleted
+            (CheckboxField in the monolith). Read-only for API consumers.
+        scope:
+          type: string
+          description: >
+            Scope label for grouping salutations (l_scope TextField in the
+            monolith).
+        createdOn:
+          type: string
+          format: date-time
+          description: Record creation timestamp.
+
+    SalutationCreateRequest:
+      type: object
+      description: Request body for creating a new salutation.
+      required:
+        - label
+      properties:
+        label:
+          type: string
+          minLength: 1
+          description: Display label for the salutation (required).
+        sortIndex:
+          type: integer
+          description: Sort order index.
+          default: 0
+        isDefault:
+          type: boolean
+          description: Whether this is the default salutation.
+          default: false
+        isEnabled:
+          type: boolean
+          description: Whether this salutation is active/enabled.
+          default: true
+        scope:
+          type: string
+          description: Scope label for grouping.
+
+    SalutationUpdateRequest:
+      type: object
+      description: Request body for updating an existing salutation.
+      required:
+        - label
+      properties:
+        label:
+          type: string
+          minLength: 1
+          description: Display label for the salutation (required).
+        sortIndex:
+          type: integer
+          description: Sort order index.
+        isDefault:
+          type: boolean
+          description: Whether this is the default salutation.
+        isEnabled:
+          type: boolean
+          description: Whether this salutation is active/enabled.
+        scope:
+          type: string
+          description: Scope label for grouping.
+
+    # -------------------------------------------------------------------------
+    # CRM Search Schemas
+    # -------------------------------------------------------------------------
+    CrmSearchResults:
+      type: object
+      description: >
+        CRM search results containing matched accounts and contacts. Results
+        are ordered by relevance score.
+      properties:
+        accounts:
+          type: array
+          description: Matched account records.
+          items:
+            $ref: "#/components/schemas/CrmSearchHit"
+        contacts:
+          type: array
+          description: Matched contact records.
+          items:
+            $ref: "#/components/schemas/CrmSearchHit"
+        totalCount:
+          type: integer
+          description: Total number of matching records across all entity types.
+
+    CrmSearchHit:
+      type: object
+      description: >
+        Individual search result entry. Contains the matched entity record
+        along with metadata about the match.
+      required:
+        - id
+        - entityType
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the matched record.
+        entityType:
+          type: string
+          enum:
+            - account
+            - contact
+          description: Type of entity that matched.
+        name:
+          type: string
+          description: Display name of the matched record.
+        email:
+          type: string
+          format: email
+          description: Email address of the matched record (if available).
+        xSearch:
+          type: string
+          description: >
+            The x_search composite field value that was matched against.
+        matchedFields:
+          type: array
+          description: >
+            List of field names where the search query matched within the
+            x_search composite string.
+          items:
+            type: string
