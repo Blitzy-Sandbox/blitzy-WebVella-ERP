@@ -1,0 +1,11 @@
+node_modules/
+.localstack/
+volume/
+localstack/
+cdk.out/
+*.env
+.env.*
+dist/
+build/
+coverage/
+*.tfstate
