@@ -1,26 +1,84 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plugin / Extension System Microservice - .NET 9 Native AOT Lambda Project
+
+    Replaces the monolithic plugin infrastructure that was split across:
+    - WebVella.Erp/ErpPlugin.cs (abstract plugin base with JSON metadata persistence via PostgreSQL plugin_data table)
+    - WebVella.Erp.Plugins.SDK/WebVella.Erp.Plugins.SDK.csproj (SDK admin console plugin with Razor Pages UI)
+
+    This self-contained bounded context owns plugin registration, activation/deactivation,
+    plugin metadata management, and sitemap configuration. All data is persisted to DynamoDB
+    using a single-table design. Domain events (plugin-system.plugin.created,
+    plugin-system.plugin.activated, plugin-system.plugin.deactivated) are published via SNS.
+
+    Namespace: WebVellaErp.PluginSystem
+    Assembly:  WebVellaErp.PluginSystem
+
+    Source mapping:
+      - WebVella.Erp/WebVella.Erp.csproj (core engine project structure and dependency patterns)
+      - WebVella.Erp/ErpPlugin.cs (plugin metadata model with Newtonsoft.Json [JsonProperty] attributes)
+      - WebVella.Erp.Plugins.SDK/WebVella.Erp.Plugins.SDK.csproj (SDK admin plugin project structure)
+
+    Key differences from source monolith:
+      - Removes all non-plugin dependencies (Npgsql, Irony.NetCore, CsvHelper, Ical.Net,
+        Storage.Net, System.Drawing.Common, MimeMapping)
+      - Removes Razor SDK (frontend rewritten as React SPA)
+      - Removes project references (self-contained bounded context per AAP Rule 0.8.1)
+      - Adds AWS SDK packages for DynamoDB, SNS, and SSM Parameter Store
+      - Targets net9.0 (NOT net10.0 as in source) for Lambda Native AOT with < 1s cold starts
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 for Lambda Native AOT (source monolith used net10.0) -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Library</OutputType>
     <AssemblyName>WebVellaErp.PluginSystem</AssemblyName>
     <RootNamespace>WebVellaErp.PluginSystem</RootNamespace>
+
+    <!-- Native AOT configuration for Lambda cold start < 1 second (AAP Section 0.8.2) -->
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Minimize satellite assemblies (carried forward from source WebVella.Erp.csproj) -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Exclude test project artifacts from main service compilation -->
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
   <ItemGroup>
+    <!-- AWS Lambda hosting and runtime -->
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
-    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
-    <PackageReference Include="AutoMapper" Version="14.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 
+    <!-- AWS SDK: DynamoDB for plugin registry persistence (replaces PostgreSQL plugin_data table) -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- AWS SDK: SNS for domain event publishing (plugin-system.plugin.created/activated/deactivated) -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- AWS SDK: SSM Parameter Store for secrets retrieval (SecureString, never env vars per AAP 0.8.6) -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- Object mapping: domain models <-> DTOs (same version 14.0.0 as source monolith) -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization: backward compatibility with ErpPlugin [JsonProperty] manifest format -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
+
 </Project>
