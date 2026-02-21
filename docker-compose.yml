@@ -1,0 +1,170 @@
+# =============================================================================
+# WebVella ERP — Local Development Stack
+# =============================================================================
+# Docker Compose configuration for local development and testing.
+#
+# Replaces the monolith's direct PostgreSQL connection (Config.json) with a
+# full AWS-compatible local environment powered by LocalStack Pro and
+# Step Functions Local.
+#
+# Services emulated by LocalStack:
+#   Lambda, API Gateway, DynamoDB, S3, SQS, SNS, Cognito, SSM Parameter Store,
+#   RDS PostgreSQL, IAM, CloudWatch, CloudWatch Logs, STS, Step Functions
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose down           # Stop all services
+#   docker compose down -v        # Stop and remove volumes
+#   docker compose logs -f        # Tail logs
+#
+# CDK deployment against LocalStack:
+#   cdklocal bootstrap --context localstack=true
+#   cdklocal deploy --all --context localstack=true
+#
+# Environment variables (set in shell or .env file):
+#   LOCALSTACK_AUTH_TOKEN    — LocalStack Pro license token (required for Pro features)
+#   LOCALSTACK_VOLUME_DIR    — Override data persistence directory (default: ./.localstack)
+#   DEBUG                    — LocalStack debug mode: 0 (off) or 1 (on)
+#
+# References:
+#   AAP §0.4.1  — Target architecture: LocalStack Pro + Step Functions Local sidecar
+#   AAP §0.7.6  — Dual-target CDK strategy (cdklocal vs cdk deploy)
+#   AAP §0.8.1  — "LocalStack is a Docker image pull, NEVER a repository clone"
+#   AAP §0.8.6  — AWS_ENDPOINT_URL=http://localhost:4566 for LocalStack
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # LocalStack Pro — Full AWS Service Emulation
+  # ---------------------------------------------------------------------------
+  # Provides local emulation of all AWS services required by the WebVella ERP
+  # microservices architecture. LocalStack Pro is required for full-fidelity
+  # emulation of Cognito user pools, RDS PostgreSQL, and Lambda layers.
+  #
+  # All 10 bounded-context services connect to LocalStack via:
+  #   AWS_ENDPOINT_URL=http://localhost:4566
+  #
+  # Persistence is enabled so data survives container restarts during
+  # development sessions.
+  # ---------------------------------------------------------------------------
+  localstack:
+    container_name: webvella-localstack
+    image: localstack/localstack-pro:latest
+    ports:
+      - "127.0.0.1:4566:4566"              # LocalStack Gateway (all services)
+      - "127.0.0.1:4510-4559:4510-4559"    # External service port range
+    environment:
+      # --- Authentication ---
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:-}
+
+      # --- Debug & Logging ---
+      - DEBUG=${DEBUG:-0}
+
+      # --- AWS Services to Enable ---
+      # Covers all services required by the 10 bounded-context microservices:
+      #   lambda           — Lambda function execution for all .NET 9 / Node.js 22 handlers
+      #   apigateway       — HTTP API Gateway v2 for route-to-Lambda mapping
+      #   dynamodb         — Primary datastore for most services (single-table design)
+      #   s3               — File storage (File Management service) + SPA hosting (Frontend)
+      #   sqs              — Async message queues for event consumers + DLQs
+      #   sns              — Domain event fan-out ({domain}.{entity}.{action} topics)
+      #   cognito-idp      — User pool authentication (Identity service)
+      #   ssm              — Parameter Store for secrets and configuration
+      #   rds              — PostgreSQL for ACID-critical domains (Invoicing, Reporting)
+      #   iam              — Least-privilege role policies per Lambda function
+      #   cloudwatch       — Metrics and alarms
+      #   logs             — Structured JSON logging from Lambda functions
+      #   sts              — Security Token Service for assumed roles
+      #   stepfunctions    — Step Functions for workflow orchestration
+      - SERVICES=lambda,apigateway,dynamodb,s3,sqs,sns,cognito-idp,ssm,rds,iam,cloudwatch,logs,sts,stepfunctions
+
+      # --- Lambda Execution ---
+      # docker-reuse: Reuses Lambda containers across invocations for faster
+      # cold starts during local development (avoids per-invocation spin-up).
+      - LAMBDA_EXECUTOR=docker-reuse
+      - LAMBDA_REMOTE_DOCKER=0
+      - DOCKER_HOST=unix:///var/run/docker.sock
+
+      # --- Region Configuration ---
+      # All services and CDK stacks target us-east-1 for consistency.
+      - AWS_DEFAULT_REGION=us-east-1
+
+      # --- Data Persistence ---
+      # Ensures DynamoDB tables, S3 buckets, Cognito user pools, SSM parameters,
+      # and all other resource state survives container restarts.
+      - PERSISTENCE=1
+
+    volumes:
+      # Persistent data directory — survives docker compose down (without -v)
+      - "${LOCALSTACK_VOLUME_DIR:-./.localstack}:/var/lib/localstack"
+      # Docker socket — required for Lambda container execution (docker-reuse mode)
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    networks:
+      - webvella-network
+
+  # ---------------------------------------------------------------------------
+  # Step Functions Local — Workflow Orchestration Sidecar
+  # ---------------------------------------------------------------------------
+  # Amazon Step Functions Local provides offline workflow orchestration for the
+  # Workflow Engine service. It connects to LocalStack for Lambda invocations,
+  # SQS messaging, SNS notifications, and DynamoDB state persistence.
+  #
+  # Replaces the monolith's in-process JobManager/JobPool (20-thread bounded
+  # executor) with declarative state machine orchestration.
+  #
+  # The Workflow service CDK stack deploys ASL definitions here via:
+  #   cdklocal deploy WorkflowStack --context localstack=true
+  # ---------------------------------------------------------------------------
+  stepfunctions-local:
+    container_name: webvella-stepfunctions
+    image: amazon/aws-stepfunctions-local:latest
+    ports:
+      - "127.0.0.1:8083:8083"
+    environment:
+      # --- Region Configuration ---
+      - AWS_DEFAULT_REGION=us-east-1
+
+      # --- Service Endpoints ---
+      # All AWS service calls from Step Functions are routed to LocalStack
+      # via the Docker network. Uses container hostname (not localhost) since
+      # Step Functions Local runs in a separate container.
+      - LAMBDA_ENDPOINT=http://localstack:4566
+      - SQS_ENDPOINT=http://localstack:4566
+      - SNS_ENDPOINT=http://localstack:4566
+      - DYNAMODB_ENDPOINT=http://localstack:4566
+
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+    networks:
+      - webvella-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+# Shared bridge network for inter-container communication.
+# Step Functions Local resolves "localstack" hostname to reach the
+# LocalStack container's service endpoints.
+# =============================================================================
+networks:
+  webvella-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+# Named volume declaration for LocalStack persistent data.
+# The actual bind mount path is controlled by the LOCALSTACK_VOLUME_DIR
+# environment variable (defaults to ./.localstack relative to project root).
+# =============================================================================
+volumes:
+  localstack-data:
