@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/file.events.json",
+  "title": "File Management - File Events",
+  "description": "JSON Schema definitions for File Management domain events published via SNS. Covers file upload and deletion lifecycle events. Derived from the monolith's DbFileRepository.cs which manages file CRUD through PostgreSQL Large Objects, filesystem, and Storage.Net blob backends. In the target serverless architecture, all file content is stored in S3 and file metadata in DynamoDB, with these domain events enabling asynchronous consumer notification. Copy and Move operations internally decompose into delete + upload event pairs.",
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Standard domain event envelope used across all microservices for asynchronous communication via SNS/SQS. Replaces the monolith's synchronous file lifecycle operations (DbFileRepository.Create/Delete). All event consumers MUST be idempotent; correlationId enables deduplication.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP §0.8.5."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID v4 correlation identifier for distributed request tracing and idempotency enforcement across service boundaries."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event was produced by the file-management service."
+        },
+        "source": {
+          "type": "string",
+          "const": "file-management",
+          "description": "Service name that emitted the event. Always 'file-management' for events in this schema. Maps to DbFileRepository.cs file lifecycle operations in the monolith, now handled by the File Management bounded-context service."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "File Uploaded Event",
+      "description": "Published when a file is uploaded to S3 via the File Management service. Replaces the monolith's DbFileRepository.Create method which inserts a record into the PostgreSQL 'files' table and writes binary content to one of three backends (Large Objects, filesystem, or Storage.Net blob). In the target architecture, binary content goes to S3 and metadata to DynamoDB. Also emitted as the second half of Copy operations (DbFileRepository.Copy calls Create internally) and Move operations that change storage location. The CreateTempFile method (which creates files under the /tmp namespace) also triggers this event with isTemporary=true.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "file-management.file.uploaded"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "File upload payload containing metadata derived from DbFileRepository.Create and DbFile model properties. The fileId replaces DbFile.Id (GUID generated at INSERT time); filePath preserves the monolith's lowercase, leading-slash normalized path convention; S3-specific fields replace the old GetBlobPath/GetFileSystemPath storage backends.",
+          "properties": {
+            "fileId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for the file record in DynamoDB. Replaces DbFile.Id which was generated as Guid.NewGuid() during DbFileRepository.Create INSERT into the 'files' table."
+            },
+            "filePath": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Normalized file path (lowercase, leading '/'). Preserves the monolith's path convention from DbFileRepository where all filepaths are lowercased via ToLowerInvariant() and prefixed with FOLDER_SEPARATOR ('/'). Examples: '/file/{guid}/document.pdf', '/tmp/{section}/image.png'."
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Original file name extracted from the file path. In the monolith, derived from Path.GetFileName(path) in UserFileService.CreateUserFile. Used for display purposes and content-disposition headers during download."
+            },
+            "contentType": {
+              "type": "string",
+              "description": "MIME type of the uploaded file. In the monolith, determined by MimeMapping.MimeUtility.GetMimeMapping(path) in UserFileService. Used for S3 object content-type metadata and download response headers. Examples: 'image/png', 'application/pdf', 'text/plain'."
+            },
+            "sizeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "File size in bytes. In the monolith, the byte[] buffer length is used directly (buffer.Length in DbFileRepository.Create). UserFileService tracks size as kilobytes (Math.Round(buffer.Length / 1024, 2)) but the event uses raw bytes for precision."
+            },
+            "s3Key": {
+              "type": "string",
+              "minLength": 1,
+              "description": "S3 object key where the file content is stored. Replaces the monolith's GetBlobPath (StoragePath.Combine with depth-based folder structure: {guid_prefix_2}/{guid_prefix_4}/{id}.{ext}) and GetFileSystemPath (ErpSettings.FileSystemStorageFolder/{d1}/{d2}/{id}.{ext}). The S3 key preserves a similar hierarchical structure for efficient listing."
+            },
+            "s3Bucket": {
+              "type": "string",
+              "minLength": 1,
+              "description": "S3 bucket name where the file content is stored. Configured via SSM Parameter Store (replacing ErpSettings.CloudBlobStorageConnectionString). In LocalStack mode, targets the localstack S3 bucket."
+            },
+            "entityName": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "null" }
+              ],
+              "description": "Entity the file is associated with, if any. In the monolith, UserFileService associates files with the 'user_file' entity via RecMan.CreateRecord('user_file', ...). Null when the file is not linked to any entity (e.g., standalone temp uploads)."
+            },
+            "recordId": {
+              "oneOf": [
+                { "type": "string", "format": "uuid" },
+                { "type": "null" }
+              ],
+              "description": "Record ID the file belongs to, if any. In the monolith, UserFileService creates a user_file record with a newFileId (Guid.NewGuid()). Null when the file is not linked to a specific record."
+            },
+            "uploadedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who uploaded the file. Maps to DbFile.CreatedBy (Guid?) from the monolith, now derived from JWT claims in the Lambda event context. In the monolith, passed as the 'createdBy' parameter to DbFileRepository.Create."
+            },
+            "isTemporary": {
+              "type": "boolean",
+              "description": "Whether the file resides in the temporary namespace. Maps to the monolith's TMP_FOLDER_NAME ('tmp') concept where DbFileRepository.CreateTempFile creates files at '/tmp/{section}/{filename}'. Temporary files are subject to expiration cleanup (CleanupExpiredTempFiles) and are finalized by UserFileService.CreateUserFile which moves them to permanent paths via DbFileRepository.Move."
+            }
+          },
+          "required": [
+            "fileId",
+            "filePath",
+            "fileName",
+            "sizeBytes",
+            "s3Key",
+            "s3Bucket"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "File Deleted Event",
+      "description": "Published when a file is deleted from S3 via the File Management service. Replaces the monolith's DbFileRepository.Delete method which removes binary content from the active storage backend (Large Objects via NpgsqlLargeObjectManager.Unlink, filesystem via File.Delete, or blob storage via IBlobStorage.DeleteAsync) and then deletes the metadata row from the 'files' table. Also emitted as the first half of Copy-with-overwrite operations and Move-with-overwrite operations (both call Delete internally before creating the new file). The CleanupExpiredTempFiles method iterates temp files and calls Delete for each, generating one event per deleted temp file.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "file-management.file.deleted"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "File deletion payload identifying which file was removed from S3 and DynamoDB. The fileId and filePath correspond to the DbFile record that was deleted.",
+          "properties": {
+            "fileId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the file record that was deleted from DynamoDB. Corresponds to DbFile.Id used in the monolith's DELETE FROM files WHERE id = @id statement."
+            },
+            "filePath": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Normalized file path of the deleted file (lowercase, leading '/'). Preserves the monolith's path convention. Consumers can use this to clean up any path-based references or caches."
+            },
+            "s3Key": {
+              "type": "string",
+              "description": "S3 object key that was deleted. Replaces the monolith's GetBlobPath result used in IBlobStorage.DeleteAsync, the GetFileSystemPath result used in File.Delete, or the ObjectId used in NpgsqlLargeObjectManager.Unlink. Allows consumers to verify S3 cleanup or trigger cascading storage operations."
+            },
+            "s3Bucket": {
+              "type": "string",
+              "description": "S3 bucket from which the file content was deleted. Matches the bucket used in the corresponding upload event."
+            },
+            "deletedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who deleted the file. Derived from JWT claims in the Lambda event context. In the monolith, not explicitly tracked in the Delete method but inferred from the SecurityContext."
+            }
+          },
+          "required": [
+            "fileId",
+            "filePath"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
