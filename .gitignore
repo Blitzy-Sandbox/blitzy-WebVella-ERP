@@ -220,3 +220,30 @@ _Pvt_Extensions
 /WebVella.ERP.Site/Pages/WV/Pages
 **/Properties/launchSettings.json
 /.idea/.idea.WebVella.ERP3/.idea
+
+# Nx monorepo
+.nx/
+dist/
+build/
+coverage/
+tmp/
+
+# LocalStack
+.localstack/
+volume/
+localstack/
+
+# CDK
+cdk.out/
+
+# Environment files
+*.env
+.env.*
+
+# Terraform (if any)
+*.tfstate
+*.tfstate.*
+
+# IDE
+.vscode/
+.idea/

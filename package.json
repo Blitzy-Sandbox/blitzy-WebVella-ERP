@@ -1,0 +1,46 @@
+{
+  "name": "webvella-erp",
+  "version": "2.0.0",
+  "private": true,
+  "description": "WebVella ERP - Serverless microservices platform",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "nx serve frontend",
+    "build": "nx run-many --target=build --all",
+    "test": "nx run-many --target=test --all",
+    "lint": "nx run-many --target=lint --all",
+    "e2e": "nx e2e frontend-e2e",
+    "localstack:up": "docker compose up -d",
+    "localstack:down": "docker compose down",
+    "localstack:bootstrap": "cdklocal bootstrap --context localstack=true",
+    "localstack:deploy": "cdklocal deploy --all --context localstack=true",
+    "seed": "./tools/scripts/seed-test-data.sh",
+    "migrate": "./tools/scripts/run-migrations.sh"
+  },
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "libs/*",
+    "infra"
+  ],
+  "devDependencies": {
+    "nx": "^20.0.0",
+    "@nx/vite": "^20.0.0",
+    "@nx/react": "^20.0.0",
+    "@nx/js": "^20.0.0",
+    "@nx/eslint-plugin": "^20.0.0",
+    "@nx/workspace": "^20.0.0",
+    "@nx/eslint": "^20.0.0",
+    "aws-cdk-lib": "^2.170.0",
+    "aws-cdk": "^2.170.0",
+    "constructs": "^10.4.0",
+    "aws-cdk-local": "^3.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0",
+    "@playwright/test": "^1.49.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0"
+  }
+}
