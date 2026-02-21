@@ -1,0 +1,1831 @@
+openapi: "3.1.0"
+info:
+  title: "WebVella ERP - Plugin & Extension System API"
+  version: "1.0.0"
+  description: |
+    Plugin registry, sitemap management, datasource listing, and code snippet
+    management for the WebVella ERP platform.
+
+    This bounded-context service replaces the monolith's reflection-based plugin
+    discovery system (ErpPlugin abstract base, IErpService plugin initialization
+    contract) and the SDK admin controller's sitemap management endpoints.
+
+    **Owned entities (DynamoDB):** plugins, sitemap areas, sitemap groups,
+    sitemap nodes, app configuration, datasource metadata, code snippets.
+
+    **Domain events published:**
+    - `plugin-system.plugin.registered`
+    - `plugin-system.plugin.updated`
+    - `plugin-system.plugin.deregistered`
+    - `plugin-system.sitemap-area.created`
+    - `plugin-system.sitemap-area.updated`
+    - `plugin-system.sitemap-area.deleted`
+    - `plugin-system.sitemap-node.created`
+    - `plugin-system.sitemap-node.updated`
+    - `plugin-system.sitemap-node.deleted`
+  contact:
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: "http://localhost:4566/restapis/{apiId}/v1/_user_request_"
+    description: LocalStack
+    variables:
+      apiId:
+        default: local
+        description: API Gateway REST API identifier
+  - url: "https://{apiId}.execute-api.{region}.amazonaws.com/v1"
+    description: Production AWS
+    variables:
+      apiId:
+        default: ""
+        description: API Gateway REST API identifier
+      region:
+        default: us-east-1
+        description: AWS region
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Plugins
+    description: Plugin registry — register, query, update, and deregister extensions
+  - name: Sitemap
+    description: Application sitemap area and node management
+  - name: DataSources
+    description: Data source listing and metadata
+  - name: Snippets
+    description: Reusable code snippet registry
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Plugin Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/plugins:
+    get:
+      operationId: listPlugins
+      summary: List all registered plugins
+      description: |
+        Returns every plugin known to the system.  Replaces the monolith
+        endpoint `GET api/v3/en_US/plugin/list` (WebApiController line 3403)
+        which returned the in-memory `erpService.Plugins` collection discovered
+        via reflection.
+      tags:
+        - Plugins
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive substring filter applied to plugin name and description
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PluginStatus"
+          description: Filter plugins by active or inactive status
+      responses:
+        "200":
+          description: Successful retrieval of the plugin list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Plugin"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      operationId: registerPlugin
+      summary: Register a new plugin
+      description: |
+        Registers a plugin in the DynamoDB-backed plugin registry.  Replaces the
+        monolith's reflection-based `ErpPlugin` discovery with an explicit
+        registration API.  Triggers the `plugin-system.plugin.registered` SNS
+        domain event on success.
+      tags:
+        - Plugins
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginRegistrationRequest"
+      responses:
+        "201":
+          description: Plugin registered successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Plugin"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: A plugin with the same name is already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/plugins/{pluginId}:
+    parameters:
+      - $ref: "#/components/parameters/PluginIdParam"
+
+    get:
+      operationId: getPlugin
+      summary: Get plugin details by ID
+      description: |
+        Returns detailed information for a single plugin including its applied
+        patches, current status, and full configuration.
+      tags:
+        - Plugins
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Plugin details retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Plugin"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    put:
+      operationId: updatePlugin
+      summary: Update plugin configuration
+      description: |
+        Updates an existing plugin's metadata and configuration.  Triggers the
+        `plugin-system.plugin.updated` SNS domain event on success.
+      tags:
+        - Plugins
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginUpdateRequest"
+      responses:
+        "200":
+          description: Plugin updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Plugin"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      operationId: deregisterPlugin
+      summary: Deregister a plugin
+      description: |
+        Removes a plugin from the registry.  Triggers the
+        `plugin-system.plugin.deregistered` SNS domain event on success.
+      tags:
+        - Plugins
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Plugin deregistered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Sitemap Area Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/sitemap/areas:
+    get:
+      operationId: listSitemapAreas
+      summary: List sitemap areas for an application
+      description: |
+        Returns all sitemap areas belonging to the specified application.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: List of sitemap areas
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          sitemap:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/SitemapArea"
+                          node_page_dict:
+                            type: object
+                            additionalProperties: true
+                            description: Mapping of node IDs to their associated page collections
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      operationId: createSitemapArea
+      summary: Create a sitemap area
+      description: |
+        Creates a new sitemap area within an application.  Replaces the
+        monolith endpoint `POST api/v3.0/p/sdk/sitemap/area`
+        (AdminController line 55).  Returns the refreshed ordered sitemap and
+        node-page dictionary.  Triggers `plugin-system.sitemap-area.created`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SitemapAreaInput"
+      responses:
+        "200":
+          description: Area created — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/sitemap/areas/{areaId}:
+    parameters:
+      - $ref: "#/components/parameters/AreaIdParam"
+
+    get:
+      operationId: getSitemapArea
+      summary: Get a sitemap area by ID
+      description: Returns detailed information for a single sitemap area.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: Area details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapArea"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    put:
+      operationId: updateSitemapArea
+      summary: Update a sitemap area
+      description: |
+        Updates an existing sitemap area.  Replaces the monolith endpoint
+        `POST api/v3.0/p/sdk/sitemap/area/{areaId}` (AdminController line 106).
+        Returns the refreshed ordered sitemap and node-page dictionary.
+        Triggers `plugin-system.sitemap-area.updated`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SitemapAreaInput"
+      responses:
+        "200":
+          description: Area updated — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      operationId: deleteSitemapArea
+      summary: Delete a sitemap area
+      description: |
+        Deletes a sitemap area and all of its child groups and nodes.  Replaces
+        the monolith endpoint `POST api/v3.0/p/sdk/sitemap/area/{areaId}/delete`
+        (AdminController line 158).  Returns the refreshed ordered sitemap and
+        node-page dictionary.  Triggers `plugin-system.sitemap-area.deleted`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: Area deleted — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Sitemap Node Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/sitemap/nodes:
+    get:
+      operationId: listSitemapNodes
+      summary: List sitemap nodes for an application and area
+      description: Returns all nodes within the specified application and optional area.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+        - $ref: "#/components/parameters/AreaIdQueryParam"
+      responses:
+        "200":
+          description: List of sitemap nodes
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/SitemapNode"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      operationId: createSitemapNode
+      summary: Create a sitemap node
+      description: |
+        Creates a new sitemap node within an area.  Replaces the monolith
+        endpoint `POST api/v3.0/p/sdk/sitemap/node` (AdminController line 205).
+        Supports attaching pages to the node on creation.  Returns the refreshed
+        ordered sitemap and node-page dictionary.
+        Triggers `plugin-system.sitemap-node.created`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID the node belongs to
+        - name: areaId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Sitemap area ID the node belongs to
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SitemapNodeInput"
+      responses:
+        "200":
+          description: Node created — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/sitemap/nodes/aux-data:
+    get:
+      operationId: getNodeAuxData
+      summary: Get auxiliary data for sitemap node editing
+      description: |
+        Returns supporting data needed by the sitemap node editor, including the
+        full entity list, available node types, application pages without nodes,
+        and entity-linked pages.  Replaces the monolith endpoint
+        `GET api/v3.0/p/sdk/sitemap/node/get-aux-info` (AdminController
+        line 426).
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: Auxiliary data for node editor
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NodeAuxData"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/sitemap/nodes/{nodeId}:
+    parameters:
+      - $ref: "#/components/parameters/NodeIdParam"
+
+    get:
+      operationId: getSitemapNode
+      summary: Get a sitemap node by ID
+      description: Returns detailed information for a single sitemap node.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: Node details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapNode"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    put:
+      operationId: updateSitemapNode
+      summary: Update a sitemap node
+      description: |
+        Updates an existing sitemap node.  Replaces the monolith endpoint
+        `POST api/v3.0/p/sdk/sitemap/node/{nodeId}` (AdminController line 276).
+        Handles page attachment and detachment: pages included in the request
+        body are attached; pages previously attached but absent are detached.
+        Returns the refreshed ordered sitemap and node-page dictionary.
+        Triggers `plugin-system.sitemap-node.updated`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Application ID
+        - name: areaId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Sitemap area ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SitemapNodeInput"
+      responses:
+        "200":
+          description: Node updated — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      operationId: deleteSitemapNode
+      summary: Delete a sitemap node
+      description: |
+        Deletes a sitemap node.  Replaces the monolith endpoint
+        `POST api/v3.0/p/sdk/sitemap/node/{nodeId}/delete` (AdminController
+        line 380).  Returns the refreshed ordered sitemap and node-page
+        dictionary.  Triggers `plugin-system.sitemap-node.deleted`.
+      tags:
+        - Sitemap
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AppIdQueryParam"
+      responses:
+        "200":
+          description: Node deleted — returns refreshed sitemap
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SitemapResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # DataSource Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/datasources:
+    get:
+      operationId: listDataSources
+      summary: List all registered data sources
+      description: |
+        Returns every data source definition known to the system, ordered by
+        name.  Replaces the monolith endpoint
+        `GET api/v3.0/p/sdk/datasource/list` (AdminController line 39).
+      tags:
+        - DataSources
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive substring filter on data source name
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DataSourceType"
+          description: Filter by data source type
+      responses:
+        "200":
+          description: Sorted list of data sources
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/DataSource"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ---------------------------------------------------------------------------
+  # Snippet Endpoints
+  # ---------------------------------------------------------------------------
+  /v1/snippets:
+    get:
+      operationId: listSnippets
+      summary: List snippet names
+      description: |
+        Returns a paginated list of registered snippet names with optional
+        search filtering.  Replaces the monolith endpoint
+        `GET api/v3/en_US/snippets` (WebApiController line 4235).
+      tags:
+        - Snippets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive substring filter on snippet name
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: Paginated list of snippet names
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: string
+                        description: Ordered list of snippet names
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/snippets/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: The unique name of the snippet
+
+    get:
+      operationId: getSnippetContent
+      summary: Get snippet content by name
+      description: |
+        Returns the full text content of the named snippet.  Replaces the
+        monolith endpoint `GET api/v3/en_US/snippet?name=...`
+        (WebApiController line 4246).
+      tags:
+        - Snippets
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Snippet content retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Snippet"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Cognito JWT access token.  Obtain via POST /v1/auth/login on the
+        Identity service.  For LocalStack the custom Lambda authorizer validates
+        the token; in production the HTTP API Gateway native JWT authorizer is
+        used.
+
+  # ---------------------------------------------------------------------------
+  # Reusable Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    PluginIdParam:
+      name: pluginId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the plugin
+
+    AreaIdParam:
+      name: areaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the sitemap area
+
+    NodeIdParam:
+      name: nodeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the sitemap node
+
+    AppIdQueryParam:
+      name: appId
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Application ID to scope the operation
+
+    AreaIdQueryParam:
+      name: areaId
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Area ID to further filter nodes
+
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: One-based page number for paginated results
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 30
+      description: Number of items per page
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Invalid request — validation errors
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    NotFound:
+      description: Requested resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # -------------------------------------------------------------------------
+    # Shared Envelope / Error / Pagination
+    # -------------------------------------------------------------------------
+    ApiResponseEnvelope:
+      type: object
+      description: |
+        Standard response wrapper used by every endpoint.  Mirrors the
+        monolith's `BaseResponseModel` (BaseModels.cs).
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp at response creation
+        success:
+          type: boolean
+          description: Whether the operation completed without errors
+        message:
+          type: string
+          description: Human-readable summary (e.g. "Success")
+        hash:
+          type: string
+          nullable: true
+          description: Optional cache-validation hash for list endpoints
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorModel"
+          description: Validation or processing errors
+        accessWarnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessWarningModel"
+          description: Non-fatal permission warnings
+      required:
+        - timestamp
+        - success
+        - message
+        - errors
+
+    ErrorModel:
+      type: object
+      description: Structured error detail (from BaseModels.cs ErrorModel)
+      properties:
+        key:
+          type: string
+          description: Field or context key related to the error
+        value:
+          type: string
+          description: Value that caused the error
+        message:
+          type: string
+          description: Human-readable error message
+      required:
+        - key
+        - message
+
+    AccessWarningModel:
+      type: object
+      description: Non-fatal access warning (from BaseModels.cs AccessWarningModel)
+      properties:
+        key:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included in list responses
+      properties:
+        page:
+          type: integer
+          description: Current one-based page number
+        pageSize:
+          type: integer
+          description: Number of items per page
+        totalCount:
+          type: integer
+          description: Total number of items across all pages
+        totalPages:
+          type: integer
+          description: Total number of pages
+      required:
+        - page
+        - pageSize
+        - totalCount
+        - totalPages
+
+    # -------------------------------------------------------------------------
+    # Plugin Schemas
+    # -------------------------------------------------------------------------
+    PluginStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+      description: Current operational status of a plugin
+
+    Plugin:
+      type: object
+      description: |
+        Full plugin representation.  Derived from the ErpPlugin abstract base
+        class properties (ErpPlugin.cs): Name, Prefix, Url, Description,
+        Version, Company, CompanyUrl, Author, Repository, License, SettingsUrl,
+        PluginPageUrl, IconUrl plus runtime metadata.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique plugin identifier
+        name:
+          type: string
+          description: Unique short name (e.g. "sdk", "crm", "mail")
+        prefix:
+          type: string
+          nullable: true
+          description: URL prefix for plugin routes
+        url:
+          type: string
+          nullable: true
+          description: Public documentation URL for the plugin
+        description:
+          type: string
+          nullable: true
+          description: Human-readable plugin description
+        version:
+          type: integer
+          description: Monotonically increasing plugin version number
+        company:
+          type: string
+          nullable: true
+          description: Publisher company name
+        companyUrl:
+          type: string
+          nullable: true
+          description: Publisher company URL
+        author:
+          type: string
+          nullable: true
+          description: Plugin author name
+        repository:
+          type: string
+          nullable: true
+          description: Source repository URL
+        license:
+          type: string
+          nullable: true
+          description: License identifier (e.g. "Apache-2.0")
+        settingsUrl:
+          type: string
+          nullable: true
+          description: URL to the plugin settings page
+        pluginPageUrl:
+          type: string
+          nullable: true
+          description: URL to the plugin landing page
+        iconUrl:
+          type: string
+          nullable: true
+          description: URL to the plugin icon
+        configuration:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Arbitrary plugin-specific configuration key-value pairs
+        patches:
+          type: array
+          items:
+            $ref: "#/components/schemas/PatchInfo"
+          description: List of applied migration patches
+        status:
+          $ref: "#/components/schemas/PluginStatus"
+        installedOn:
+          type: string
+          format: date-time
+          description: UTC timestamp of initial registration
+        lastModifiedOn:
+          type: string
+          format: date-time
+          description: UTC timestamp of the most recent update
+      required:
+        - id
+        - name
+        - version
+        - status
+        - installedOn
+        - lastModifiedOn
+
+    PatchInfo:
+      type: object
+      description: Record of a single migration patch applied by a plugin
+      properties:
+        name:
+          type: string
+          description: Patch name (e.g. "SdkPlugin.20190101")
+        version:
+          type: integer
+          description: Patch version number
+        appliedOn:
+          type: string
+          format: date-time
+          description: UTC timestamp when the patch was applied
+      required:
+        - name
+        - version
+        - appliedOn
+
+    PluginRegistrationRequest:
+      type: object
+      description: Request body for registering a new plugin
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Unique short name for the plugin
+        prefix:
+          type: string
+          nullable: true
+          maxLength: 50
+          description: URL prefix for plugin routes
+        url:
+          type: string
+          nullable: true
+          description: Public documentation URL
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: Human-readable description
+        version:
+          type: integer
+          minimum: 1
+          description: Initial version number
+        company:
+          type: string
+          nullable: true
+          maxLength: 200
+        companyUrl:
+          type: string
+          nullable: true
+        author:
+          type: string
+          nullable: true
+          maxLength: 200
+        repository:
+          type: string
+          nullable: true
+        license:
+          type: string
+          nullable: true
+          maxLength: 100
+        settingsUrl:
+          type: string
+          nullable: true
+        pluginPageUrl:
+          type: string
+          nullable: true
+        iconUrl:
+          type: string
+          nullable: true
+        configuration:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Arbitrary plugin-specific configuration
+      required:
+        - name
+        - version
+
+    PluginUpdateRequest:
+      type: object
+      description: Request body for updating an existing plugin
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        prefix:
+          type: string
+          nullable: true
+          maxLength: 50
+        url:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        version:
+          type: integer
+          minimum: 1
+        company:
+          type: string
+          nullable: true
+          maxLength: 200
+        companyUrl:
+          type: string
+          nullable: true
+        author:
+          type: string
+          nullable: true
+          maxLength: 200
+        repository:
+          type: string
+          nullable: true
+        license:
+          type: string
+          nullable: true
+          maxLength: 100
+        settingsUrl:
+          type: string
+          nullable: true
+        pluginPageUrl:
+          type: string
+          nullable: true
+        iconUrl:
+          type: string
+          nullable: true
+        configuration:
+          type: object
+          additionalProperties: true
+          nullable: true
+        status:
+          $ref: "#/components/schemas/PluginStatus"
+
+    # -------------------------------------------------------------------------
+    # Sitemap Schemas
+    # -------------------------------------------------------------------------
+    SitemapArea:
+      type: object
+      description: |
+        Sitemap area representing a top-level navigation section.  Derived from
+        AdminController.cs CreateSitemapArea/UpdateSitemapArea request model and
+        AppService.CreateArea parameters.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique area identifier
+        name:
+          type: string
+          description: URL-safe machine name
+        label:
+          type: string
+          description: Display label
+        labelTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+          description: Locale → translated label map
+        description:
+          type: string
+          nullable: true
+          description: Human-readable description
+        descriptionTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+          description: Locale → translated description map
+        iconClass:
+          type: string
+          nullable: true
+          description: CSS icon class name (e.g. Font Awesome class)
+        color:
+          type: string
+          nullable: true
+          description: Area accent colour (hex or named)
+        weight:
+          type: number
+          format: double
+          description: Sort weight (lower values appear first)
+        showGroupNames:
+          type: boolean
+          default: true
+          description: Whether to display group labels in the navigation
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitemapGroup"
+          description: Child groups within this area
+        access:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Role IDs granted access to this area
+      required:
+        - id
+        - name
+        - label
+        - weight
+
+    SitemapAreaInput:
+      type: object
+      description: Input model for creating or updating a sitemap area
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Client-provided ID (auto-generated if omitted on create)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: URL-safe machine name
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Display label
+        labelTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        descriptionTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        iconClass:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        weight:
+          type: number
+          format: double
+          default: 10
+        showGroupNames:
+          type: boolean
+          default: true
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitemapGroupInput"
+          nullable: true
+        access:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Role IDs granted access
+      required:
+        - name
+        - label
+
+    SitemapGroup:
+      type: object
+      description: |
+        Logical grouping of sitemap nodes within an area.  Groups exist as
+        children of areas and parents of nodes.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique group identifier
+        name:
+          type: string
+          description: Machine name
+        label:
+          type: string
+          description: Display label
+        weight:
+          type: number
+          format: double
+          description: Sort weight
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitemapNode"
+          description: Child nodes within this group
+      required:
+        - id
+        - name
+        - label
+        - weight
+
+    SitemapGroupInput:
+      type: object
+      description: Input model for creating or updating a sitemap group
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        weight:
+          type: number
+          format: double
+          default: 10
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitemapNodeInput"
+          nullable: true
+      required:
+        - name
+        - label
+
+    SitemapNode:
+      type: object
+      description: |
+        Individual navigation node within a sitemap area/group.  Derived from
+        the monolith's SitemapNodeSubmit model used in AdminController
+        CreateSitemapNode (line 205) and UpdateSitemapNode (line 276).
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique node identifier
+        name:
+          type: string
+          description: URL-safe machine name
+        label:
+          type: string
+          description: Display label
+        labelTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+          description: Locale → translated label map
+        iconClass:
+          type: string
+          nullable: true
+          description: CSS icon class name
+        url:
+          type: string
+          nullable: true
+          description: Custom URL override (when type is URL)
+        weight:
+          type: number
+          format: double
+          description: Sort weight (lower values appear first)
+        type:
+          type: integer
+          description: |
+            Node type enumeration value.  Matches the monolith SitemapNodeType
+            enum.  Common values: 1 = EntityList, 2 = Application, 3 = URL.
+        access:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Role IDs granted access
+        entityId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Entity linked to this node (for entity-type nodes)
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent node ID for hierarchical nesting
+        entityListPages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Page IDs used for entity list views
+        entityCreatePages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Page IDs used for entity creation views
+        entityDetailsPages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Page IDs used for entity detail views
+        entityManagePages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Page IDs used for entity management views
+        pages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Additional page IDs attached to this node
+      required:
+        - id
+        - name
+        - label
+        - weight
+        - type
+
+    SitemapNodeInput:
+      type: object
+      description: Input model for creating or updating a sitemap node
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Client-provided ID (auto-generated if omitted on create)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        labelTranslations:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        iconClass:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        weight:
+          type: number
+          format: double
+          default: 10
+        type:
+          type: integer
+          description: Node type enumeration value
+        access:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+        entityId:
+          type: string
+          format: uuid
+          nullable: true
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        entityListPages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+        entityCreatePages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+        entityDetailsPages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+        entityManagePages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+        pages:
+          type: array
+          items:
+            type: string
+            format: uuid
+          nullable: true
+          description: Additional page IDs to attach to this node
+      required:
+        - name
+        - label
+        - type
+
+    SitemapResponse:
+      type: object
+      description: |
+        Response payload returned after sitemap mutations.  Contains the full
+        refreshed and ordered sitemap tree plus the node-to-page mapping
+        dictionary, matching the monolith's AdminController response pattern.
+      properties:
+        sitemap:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitemapArea"
+          description: Complete ordered sitemap tree
+        node_page_dict:
+          type: object
+          additionalProperties: true
+          description: Mapping of node IDs to arrays of associated page metadata
+
+    NodeAuxData:
+      type: object
+      description: |
+        Auxiliary reference data for the sitemap node editor UI.  Matches the
+        monolith's GetNodeAuxData response (AdminController line 426).
+      properties:
+        all_entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/SelectOption"
+          description: All available entities as select options (sorted by label)
+        node_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/SelectOption"
+          description: Available SitemapNodeType enum values as select options
+        app_pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppPageRecord"
+          description: Application pages not currently attached to a node
+        all_entity_pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntityPageRecord"
+          description: All entity-linked pages within the application
+
+    SelectOption:
+      type: object
+      description: Generic value/label pair used in dropdowns and selection lists
+      properties:
+        value:
+          type: string
+          description: Machine value (often a stringified UUID or integer)
+        label:
+          type: string
+          description: Human-readable display label
+      required:
+        - value
+        - label
+
+    AppPageRecord:
+      type: object
+      description: Lightweight page record for the sitemap node editor
+      properties:
+        page_id:
+          type: string
+          description: Page identifier (stringified UUID)
+        page_name:
+          type: string
+          description: Page display name
+        node_id:
+          type: string
+          nullable: true
+          description: Node ID the page is attached to (empty string if none)
+
+    EntityPageRecord:
+      type: object
+      description: Entity-linked page record for the sitemap node editor
+      properties:
+        page_id:
+          type: string
+          description: Page identifier (stringified UUID)
+        page_name:
+          type: string
+          description: Page display name
+        entity_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Entity this page belongs to
+        type:
+          type: string
+          description: Page type as stringified integer
+        node_id:
+          type: string
+          nullable: true
+          description: Node ID the page is attached to (empty string if none)
+
+    # -------------------------------------------------------------------------
+    # DataSource Schemas
+    # -------------------------------------------------------------------------
+    DataSourceType:
+      type: string
+      enum:
+        - code
+        - database
+      description: |
+        Data source type.  Code data sources execute C# code; database data
+        sources execute EQL/SQL queries.
+
+    DataSource:
+      type: object
+      description: |
+        Data source definition.  Derived from the monolith's DataSourceManager
+        and DbDataSourceRepository models.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique data source identifier
+        name:
+          type: string
+          description: Unique data source name
+        description:
+          type: string
+          nullable: true
+          description: Human-readable description
+        type:
+          $ref: "#/components/schemas/DataSourceType"
+        weight:
+          type: number
+          format: double
+          nullable: true
+          description: Display ordering weight
+        eqlText:
+          type: string
+          nullable: true
+          description: EQL query string (for database-type sources)
+        sqlText:
+          type: string
+          nullable: true
+          description: Raw SQL query (for database-type sources)
+        parameters:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataSourceParameter"
+          description: Declared query parameters
+        createdOn:
+          type: string
+          format: date-time
+        lastModifiedOn:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - type
+
+    DataSourceParameter:
+      type: object
+      description: A single parameter accepted by a data source
+      properties:
+        name:
+          type: string
+          description: Parameter name
+        type:
+          type: string
+          description: Parameter type (string, integer, uuid, etc.)
+        defaultValue:
+          type: string
+          nullable: true
+          description: Default value when not provided by the caller
+      required:
+        - name
+        - type
+
+    # -------------------------------------------------------------------------
+    # Snippet Schemas
+    # -------------------------------------------------------------------------
+    Snippet:
+      type: object
+      description: |
+        Reusable code snippet.  Derived from SnippetService in the monolith.
+      properties:
+        name:
+          type: string
+          description: Unique snippet name
+        content:
+          type: string
+          description: Full text content of the snippet
+      required:
+        - name
+        - content
