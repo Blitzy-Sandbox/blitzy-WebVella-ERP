@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/record.events.json",
+  "title": "Entity Management - Record Events",
+  "description": "JSON Schema definitions for Entity Management domain record CRUD events. These events are published via SNS when records are created, updated, or deleted through the RecordManager. This is the highest-volume event type as every data mutation across all entities flows through the Entity Management service.",
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Event type identifier following the {domain}.{entity}.{action} naming convention."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation. Enables idempotent event processing and deduplication across consumers."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp indicating when the event was emitted."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "Service name that emitted the event. Always 'entity-management' for record events."
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0",
+          "description": "Schema version for this event definition."
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per event type."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Record Created Event",
+      "description": "Published after a record is successfully created in any entity. Replaces the synchronous IErpPostCreateRecordHook.OnPostCreateRecord(entityName, record) invocation pattern from RecordHookManager.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.record.created"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "data": {
+          "type": "object",
+          "description": "Payload for the record created event. Derived from RecordManager.CreateRecord which invokes ExecutePostCreateRecordHooks(entityName, record).",
+          "properties": {
+            "entityName": {
+              "type": "string",
+              "description": "System name of the entity the record belongs to. Matches the entityName parameter from IErpPostCreateRecordHook.OnPostCreateRecord.",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "recordId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the created record."
+            },
+            "record": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Full record data as key-value pairs. Matches the dynamic EntityRecord dictionary (IDictionary<string,object>) which contains schema-less properties defined by the entity's field definitions."
+            },
+            "createdBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the user who created the record."
+            }
+          },
+          "required": [
+            "entityName",
+            "recordId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    },
+    {
+      "title": "Record Updated Event",
+      "description": "Published after a record is successfully updated in any entity. Replaces the synchronous IErpPostUpdateRecordHook.OnPostUpdateRecord(entityName, record) invocation pattern from RecordHookManager.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.record.updated"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "data": {
+          "type": "object",
+          "description": "Payload for the record updated event. Derived from RecordManager.UpdateRecord which invokes ExecutePostUpdateRecordHooks(entityName, record).",
+          "properties": {
+            "entityName": {
+              "type": "string",
+              "description": "System name of the entity the record belongs to. Matches the entityName parameter from IErpPostUpdateRecordHook.OnPostUpdateRecord.",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "recordId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the updated record."
+            },
+            "record": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Updated record data as key-value pairs. Matches the dynamic EntityRecord dictionary (IDictionary<string,object>) containing the full current state of the record after the update."
+            },
+            "changedProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of property keys that were modified in this update. Enables consumers to selectively react to changes in specific fields without diffing the entire record."
+            },
+            "updatedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the user who updated the record."
+            }
+          },
+          "required": [
+            "entityName",
+            "recordId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    },
+    {
+      "title": "Record Deleted Event",
+      "description": "Published after a record is successfully deleted from any entity. Replaces the synchronous IErpPostDeleteRecordHook.OnPostDeleteRecord(entityName, record) invocation pattern from RecordHookManager.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.record.deleted"
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management"
+        },
+        "version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "data": {
+          "type": "object",
+          "description": "Payload for the record deleted event. Derived from RecordManager.DeleteRecord which invokes ExecutePostDeleteRecordHooks(entityName, record).",
+          "properties": {
+            "entityName": {
+              "type": "string",
+              "description": "System name of the entity the record was deleted from. Matches the entityName parameter from IErpPostDeleteRecordHook.OnPostDeleteRecord.",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "recordId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the deleted record."
+            },
+            "deletedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the user who deleted the record."
+            }
+          },
+          "required": [
+            "entityName",
+            "recordId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    }
+  ]
+}
