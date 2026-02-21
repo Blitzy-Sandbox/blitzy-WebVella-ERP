@@ -4,6 +4,10 @@
   "private": true,
   "description": "WebVella ERP - Serverless microservices platform",
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "start": "nx serve frontend",
     "build": "nx run-many --target=build --all",
