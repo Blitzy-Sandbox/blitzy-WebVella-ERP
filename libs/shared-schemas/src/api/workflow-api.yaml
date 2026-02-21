@@ -1,0 +1,1487 @@
+openapi: "3.1.0"
+info:
+  title: "WebVella ERP - Workflow Engine API"
+  version: "1.0.0"
+  description: |
+    Workflow orchestration, job management, and schedule plan administration for
+    the WebVella ERP platform.
+
+    This bounded-context service replaces the monolith's in-process job system
+    (`JobManager`, `JobPool`, `JobDataService`, `ScheduleManager`) with AWS Step
+    Functions Local for orchestration and SQS-triggered Lambdas for individual
+    step execution.
+
+    **Owned entities (DynamoDB):** workflow executions, jobs, schedule plans.
+
+    **Domain events published:**
+    - `workflow.workflow.started`
+    - `workflow.workflow.completed`
+    - `workflow.workflow.failed`
+    - `workflow.workflow.cancelled`
+    - `workflow.job.created`
+    - `workflow.job.completed`
+    - `workflow.job.failed`
+    - `workflow.schedule-plan.updated`
+    - `workflow.schedule-plan.triggered`
+
+    **Performance target:** Step Functions workflow completion < 30 seconds
+    for standard approval chains (per AAP §0.8.2).
+
+    **Backward compatibility:** Legacy job and schedule plan endpoints preserve
+    full behavioral parity with the monolith's `WebApiController` endpoints
+    (`GET api/v3/en_US/jobs`, `PUT/GET/POST api/v3/en_US/scheduleplan/*`).
+  contact:
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: "http://localhost:4566/restapis/{apiId}/v1/_user_request_"
+    description: LocalStack
+    variables:
+      apiId:
+        default: local
+        description: API Gateway REST API identifier
+  - url: "https://{apiId}.execute-api.{region}.amazonaws.com/v1"
+    description: Production AWS
+    variables:
+      apiId:
+        default: ""
+        description: API Gateway REST API identifier
+      region:
+        default: us-east-1
+        description: AWS region
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Workflows
+    description: >
+      Step Functions-backed workflow orchestration — initiate, list, inspect,
+      and cancel long-running workflows that replace the monolith's JobManager
+      dispatch patterns
+  - name: Jobs
+    description: >
+      Backward-compatible job listing and management — mirrors the monolith's
+      `GET api/v3/en_US/jobs` endpoint with full query parameter parity
+  - name: Schedule Plans
+    description: >
+      Schedule plan CRUD and trigger operations — mirrors the monolith's
+      `api/v3/en_US/scheduleplan/*` endpoints for daily, weekly, monthly,
+      and interval scheduling
+
+paths:
+  # ===========================================================================
+  # Workflow Endpoints (new — Step Functions orchestration)
+  # ===========================================================================
+  /v1/workflows:
+    post:
+      operationId: initiateWorkflow
+      summary: Initiate a new workflow execution
+      description: |
+        Starts a new Step Functions execution for the specified workflow type.
+        Maps from the monolith's `JobManager.CreateJob` dispatch pattern but
+        uses Step Functions for orchestration instead of the in-process
+        `JobPool` thread executor.
+
+        An idempotency key is required to guarantee at-most-once execution
+        semantics (per AAP §0.8.5).  Duplicate requests with the same
+        idempotency key within a 24-hour window return the existing execution
+        rather than starting a new one.
+
+        Triggers the `workflow.workflow.started` SNS domain event on success.
+
+        Handled by `services/workflow/src/Functions/WorkflowHandler.cs`.
+      tags:
+        - Workflows
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowInitiationRequest"
+      responses:
+        "201":
+          description: Workflow execution initiated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WorkflowExecution"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: >
+            Duplicate idempotency key — an execution with the same key already
+            exists within the 24-hour deduplication window
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WorkflowExecution"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    get:
+      operationId: listWorkflows
+      summary: List workflow executions
+      description: |
+        Returns a paginated list of workflow executions with optional filters
+        by status, workflow type, and date range.  Replaces the monolith's
+        pattern of querying the `jobs` table for running/completed work items.
+      tags:
+        - Workflows
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/WorkflowStatus"
+          description: Filter executions by current status
+        - name: workflowType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            Filter by workflow type name (case-insensitive substring match,
+            mirrors the monolith's `typeName` ILIKE filter)
+        - name: fromDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Include only executions started on or after this UTC timestamp
+        - name: toDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Include only executions started on or before this UTC timestamp
+      responses:
+        "200":
+          description: Paginated list of workflow executions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/WorkflowExecution"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/workflows/{workflowId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowIdParam"
+
+    get:
+      operationId: getWorkflow
+      summary: Get workflow execution details
+      description: |
+        Returns the full details of a single workflow execution including its
+        step history.  Each step maps to a Lambda invocation within the Step
+        Functions state machine (replacing the monolith's `JobPool.Process`
+        in-memory execution tracking).
+      tags:
+        - Workflows
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Workflow execution details with step history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WorkflowExecution"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/workflows/{workflowId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowIdParam"
+
+    post:
+      operationId: cancelWorkflow
+      summary: Cancel a running workflow execution
+      description: |
+        Sends a stop request to the Step Functions execution.  Only executions
+        in the `running` state can be cancelled.  Triggers the
+        `workflow.workflow.cancelled` SNS domain event on success.
+
+        Maps from the monolith's `Job.AbortedBy` / `Job.CanceledBy` abort
+        pattern where a running job's status is set to `Aborted` or `Canceled`.
+      tags:
+        - Workflows
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowCancelRequest"
+      responses:
+        "200":
+          description: Workflow execution cancelled successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WorkflowExecution"
+        "400":
+          description: Workflow is not in a cancellable state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ===========================================================================
+  # Job Endpoints (backward compatible — from WebApiController line 3420)
+  # ===========================================================================
+  /v1/jobs:
+    get:
+      operationId: listJobs
+      summary: List jobs
+      description: |
+        Returns a paginated, filterable list of job records.  Provides full
+        backward compatibility with the monolith's `GET api/v3/en_US/jobs`
+        endpoint (WebApiController line 3420).
+
+        The query parameters exactly mirror the original method signature:
+        `GetJobs(startFromDate, startToDate, finishedFromDate, finishedToDate,
+        typeName, status, priority, schedulePlanId, page, pageSize)`.
+
+        Jobs represent individual units of work that were either dispatched
+        directly or triggered by a schedule plan.  In the new architecture,
+        each job maps to a Step Functions execution or a standalone Lambda
+        invocation.
+      tags:
+        - Jobs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: startFromDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Include only jobs that started on or after this UTC timestamp.
+            Maps to `started_on >= @started_from` in the monolith's SQL.
+        - name: startToDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Include only jobs that started on or before this UTC timestamp.
+            Maps to `started_on <= @started_to` in the monolith's SQL.
+        - name: finishedFromDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Include only jobs that finished on or after this UTC timestamp.
+            Maps to `finished_on >= @finished_from` in the monolith's SQL.
+        - name: finishedToDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Include only jobs that finished on or before this UTC timestamp.
+            Maps to `finished_on <= @finished_to` in the monolith's SQL.
+        - name: typeName
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            Case-insensitive substring filter on the job type name.  Maps to
+            `type_name ILIKE '%value%'` in the monolith's SQL.
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2, 3, 4, 5, 6]
+          description: >
+            Filter by job status integer.  Values: 1=Pending, 2=Running,
+            3=Canceled, 4=Failed, 5=Finished, 6=Aborted.  Maps to
+            `status = @status` in the monolith's SQL.
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2, 3, 4, 5]
+          description: >
+            Filter by job priority integer.  Values: 1=Low, 2=Medium,
+            3=High, 4=Higher, 5=Highest.  Maps to `priority = @priority`
+            in the monolith's SQL.
+        - name: schedulePlanId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: >
+            Filter to only jobs spawned by the specified schedule plan.
+            Maps to `schedule_plan_id = @schedule_plan_id`.
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: Paginated list of job records with total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Job"
+                      meta:
+                        $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # ===========================================================================
+  # Schedule Plan Endpoints (from WebApiController lines 3447-3811)
+  # ===========================================================================
+  /v1/schedule-plans:
+    get:
+      operationId: listSchedulePlans
+      summary: List all schedule plans
+      description: |
+        Returns the complete list of schedule plans.  Provides backward
+        compatibility with the monolith's `GET api/v3/en_US/scheduleplan/list`
+        endpoint (WebApiController line 3705).
+
+        Each schedule plan is returned as an `OutputSchedulePlan` object
+        with computed `startTimespan` and `endTimespan` as ISO-8601
+        date-time strings (converted from the monolith's integer-minutes
+        representation).
+      tags:
+        - Schedule Plans
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of all schedule plans
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/OutputSchedulePlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/schedule-plans/test:
+    post:
+      operationId: createTestSchedulePlan
+      summary: Create a test schedule plan
+      description: |
+        Creates a pre-configured test schedule plan for development and QA
+        purposes.  Provides backward compatibility with the monolith's
+        `GET api/v3/en_US/scheduleplan/test` endpoint (WebApiController
+        line 3760).
+
+        The test plan is created with daily frequency, all days enabled,
+        and an immediate start date.  If a plan with the generated test ID
+        already exists, the existing plan is returned.
+      tags:
+        - Schedule Plans
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Test schedule plan created or already exists
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OutputSchedulePlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/schedule-plans/{planId}:
+    parameters:
+      - $ref: "#/components/parameters/PlanIdParam"
+
+    get:
+      operationId: getSchedulePlan
+      summary: Get schedule plan details
+      description: |
+        Returns the full details of a single schedule plan by its UUID.
+        Provides backward compatibility with the monolith's
+        `GET api/v3/en_US/scheduleplan/{planId}` endpoint
+        (WebApiController line 3728).
+      tags:
+        - Schedule Plans
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Schedule plan details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OutputSchedulePlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    put:
+      operationId: updateSchedulePlan
+      summary: Update a schedule plan
+      description: |
+        Updates an existing schedule plan's configuration.  Provides backward
+        compatibility with the monolith's `PUT api/v3/en_US/scheduleplan/{planId}`
+        endpoint (WebApiController line 3450).
+
+        **Validation rules (preserved from source):**
+        - `name` is required and cannot be empty
+        - `type` must be an integer 1-4 (Interval, Daily, Weekly, Monthly)
+        - `startDate` is required; `endDate` must be after `startDate`
+        - For Daily and Interval types, at least one day must be selected
+          in `scheduledDays`
+        - For Interval type, `intervalInMinutes` must be > 0 and <= 1440
+
+        The `nextTriggerTime` is automatically recalculated after a successful
+        update.  Triggers the `workflow.schedule-plan.updated` SNS domain
+        event on success.
+      tags:
+        - Schedule Plans
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchedulePlanUpdateRequest"
+      responses:
+        "200":
+          description: Schedule plan updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponseEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/OutputSchedulePlan"
+                        description: >
+                          Array containing the updated schedule plan (single
+                          element).  Preserves the monolith's response shape
+                          where `object.data` is always an array.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/schedule-plans/{planId}/trigger:
+    parameters:
+      - $ref: "#/components/parameters/PlanIdParam"
+
+    post:
+      operationId: triggerSchedulePlan
+      summary: Trigger a schedule plan immediately
+      description: |
+        Forces a schedule plan to execute within the next minute regardless of
+        its normal schedule.  Provides backward compatibility with the
+        monolith's `POST api/v3/en_US/scheduleplan/{planId}/trigger` endpoint
+        (WebApiController line 3674).
+
+        Internally sets the plan's `nextTriggerTime` to one minute from now
+        (matching the monolith's `TriggerNowSchedulePlan` implementation in
+        `ScheduleManager`).
+
+        Triggers the `workflow.schedule-plan.triggered` SNS domain event on
+        success.
+      tags:
+        - Schedule Plans
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Schedule plan triggered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  # ---------------------------------------------------------------------------
+  # Security Schemes
+  # ---------------------------------------------------------------------------
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Cognito JWT access token.  Obtain via POST /v1/auth/login on the
+        Identity service.  For LocalStack the custom Lambda authorizer validates
+        the token; in production the HTTP API Gateway native JWT authorizer is
+        used.
+
+  # ---------------------------------------------------------------------------
+  # Reusable Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    WorkflowIdParam:
+      name: workflowId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: >
+        Unique identifier of the workflow execution.  Corresponds to the Step
+        Functions execution name or a system-generated UUID.
+
+    PlanIdParam:
+      name: planId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the schedule plan
+
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: >
+        One-based page number for paginated results.  Defaults to 1.
+        Maps to the monolith's `page` parameter.
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 30
+      description: >
+        Number of items per page.  Defaults to 30, max 500.
+        Maps to the monolith's `pageSize` parameter.
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Invalid request — validation errors
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    Forbidden:
+      description: Insufficient permissions — administrator role required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    NotFound:
+      description: Requested resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiResponseEnvelope"
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # -------------------------------------------------------------------------
+    # Shared Envelope / Error / Pagination
+    # -------------------------------------------------------------------------
+    ApiResponseEnvelope:
+      type: object
+      description: |
+        Standard response wrapper used by every endpoint.  Mirrors the
+        monolith's `BaseResponseModel` (BaseModels.cs).
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp at response creation
+        success:
+          type: boolean
+          description: Whether the operation completed without errors
+        message:
+          type: string
+          description: Human-readable summary (e.g. "Success")
+        hash:
+          type: string
+          nullable: true
+          description: Optional cache-validation hash for list endpoints
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorModel"
+          description: Validation or processing errors
+        accessWarnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessWarningModel"
+          description: Non-fatal permission warnings
+      required:
+        - timestamp
+        - success
+        - message
+        - errors
+
+    ErrorModel:
+      type: object
+      description: Structured error detail (from BaseModels.cs ErrorModel)
+      properties:
+        key:
+          type: string
+          description: Field or context key related to the error
+        value:
+          type: string
+          description: Value that caused the error
+        message:
+          type: string
+          description: Human-readable error message
+      required:
+        - key
+        - message
+
+    AccessWarningModel:
+      type: object
+      description: Non-fatal access warning (from BaseModels.cs AccessWarningModel)
+      properties:
+        key:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included in list responses
+      properties:
+        page:
+          type: integer
+          description: Current one-based page number
+        pageSize:
+          type: integer
+          description: Number of items per page
+        totalCount:
+          type: integer
+          description: Total number of items across all pages
+        totalPages:
+          type: integer
+          description: Total number of pages
+      required:
+        - page
+        - pageSize
+        - totalCount
+        - totalPages
+
+    # -------------------------------------------------------------------------
+    # Workflow Schemas (new — Step Functions orchestration)
+    # -------------------------------------------------------------------------
+    WorkflowStatus:
+      type: string
+      enum:
+        - running
+        - succeeded
+        - failed
+        - timed_out
+        - cancelled
+      description: |
+        Current status of a workflow execution.  Maps to Step Functions
+        execution statuses plus a `cancelled` state for user-initiated
+        cancellations.
+
+    WorkflowInitiationRequest:
+      type: object
+      description: |
+        Request body to initiate a new workflow execution.  The
+        `idempotencyKey` ensures at-most-once execution semantics
+        within a 24-hour deduplication window (per AAP §0.8.5).
+      properties:
+        workflowType:
+          type: string
+          description: >
+            Type name of the workflow to execute.  Maps to the monolith's
+            `JobType.Name` (e.g. "ProcessSmtpQueue", "StartTasksOnStartDate",
+            "ClearJobAndErrorLogs", "SampleJob").
+          minLength: 1
+          maxLength: 256
+        input:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Arbitrary JSON input payload passed to the Step Functions
+            execution.  Maps to the monolith's `Job.Attributes` dynamic
+            property.
+        idempotencyKey:
+          type: string
+          description: >
+            Client-provided idempotency key to prevent duplicate workflow
+            executions.  Must be unique within a 24-hour window.  Recommended
+            format: UUID v4.
+          minLength: 1
+          maxLength: 128
+        priority:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+          default: 1
+          description: >
+            Execution priority.  Values: 1=Low, 2=Medium, 3=High, 4=Higher,
+            5=Highest.  Maps to the monolith's `JobPriority` enum.
+        schedulePlanId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Optional reference to the schedule plan that triggered this
+            workflow.  Null for manually initiated workflows.
+      required:
+        - workflowType
+        - idempotencyKey
+
+    WorkflowCancelRequest:
+      type: object
+      description: Optional request body for workflow cancellation
+      properties:
+        reason:
+          type: string
+          nullable: true
+          maxLength: 1024
+          description: >
+            Human-readable reason for cancellation.  Recorded in the
+            execution history for audit purposes.
+
+    WorkflowExecution:
+      type: object
+      description: |
+        Full representation of a workflow execution.  Combines Step Functions
+        execution metadata with the monolith's `Job` model properties for
+        backward compatibility.
+      properties:
+        workflowId:
+          type: string
+          description: >
+            Unique execution identifier (UUID).  Maps to the monolith's
+            `Job.Id`.
+        executionArn:
+          type: string
+          description: >
+            AWS Step Functions execution ARN.  Format:
+            `arn:aws:states:{region}:{account}:execution:{stateMachine}:{name}`
+        workflowType:
+          type: string
+          description: >
+            Workflow type name.  Maps to the monolith's `Job.TypeName`.
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        input:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Input payload provided at initiation.  Maps to the monolith's
+            `Job.Attributes`.
+        output:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Final output of the completed workflow.  Maps to the monolith's
+            `Job.Result`.  Null while the workflow is running.
+        errorMessage:
+          type: string
+          nullable: true
+          description: >
+            Error details if the workflow failed.  Maps to the monolith's
+            `Job.ErrorMessage`.
+        priority:
+          type: integer
+          enum: [1, 2, 3, 4, 5]
+          description: >
+            Execution priority.  Values: 1=Low, 2=Medium, 3=High, 4=Higher,
+            5=Highest.
+        schedulePlanId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Schedule plan that triggered this execution (null if manual).
+        startedAt:
+          type: string
+          format: date-time
+          description: >
+            UTC timestamp when the execution started.  Maps to the
+            monolith's `Job.StartedOn`.
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp when the execution completed (succeeded, failed,
+            or cancelled).  Maps to the monolith's `Job.FinishedOn`.
+            Null while running.
+        createdAt:
+          type: string
+          format: date-time
+          description: >
+            UTC timestamp when the execution was initiated.  Maps to
+            the monolith's `Job.CreatedOn`.
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID of the user who initiated the workflow.  Maps to the
+            monolith's `Job.CreatedBy`.
+        cancelledBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID of the user who cancelled the workflow (null if not
+            cancelled).  Maps to the monolith's `Job.CanceledBy`.
+        idempotencyKey:
+          type: string
+          description: >
+            The idempotency key provided at initiation for deduplication
+            tracking.
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepExecution"
+          description: >
+            Ordered list of individual step executions within the workflow.
+            Each step corresponds to a Lambda invocation in the Step
+            Functions state machine.
+      required:
+        - workflowId
+        - executionArn
+        - workflowType
+        - status
+        - startedAt
+        - createdAt
+
+    StepExecution:
+      type: object
+      description: |
+        Represents a single step within a workflow execution.  Each step
+        maps to a state in the Step Functions state machine that invokes
+        the `services/workflow/src/Functions/StepHandler.cs` Lambda.
+      properties:
+        stepId:
+          type: string
+          description: >
+            Unique step identifier within the execution (system-generated).
+        name:
+          type: string
+          description: >
+            Human-readable step name corresponding to the state machine
+            state name.
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - succeeded
+            - failed
+            - timed_out
+            - cancelled
+          description: Current status of this individual step
+        input:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Input payload passed to this step
+        output:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Output from the step's Lambda execution.  Null while pending
+            or running.
+        errorMessage:
+          type: string
+          nullable: true
+          description: Error details if the step failed
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp when step execution began.  Null if still pending.
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp when step execution completed.  Null while
+            pending or running.
+      required:
+        - stepId
+        - name
+        - status
+
+    # -------------------------------------------------------------------------
+    # Job Schemas (backward compatible — from monolith models)
+    # -------------------------------------------------------------------------
+    JobStatus:
+      type: integer
+      enum: [1, 2, 3, 4, 5, 6]
+      description: |
+        Job status enum (preserved from source `WebVella.Erp.Jobs.JobStatus`):
+        - 1 = Pending
+        - 2 = Running
+        - 3 = Canceled
+        - 4 = Failed
+        - 5 = Finished
+        - 6 = Aborted
+
+    JobPriority:
+      type: integer
+      enum: [1, 2, 3, 4, 5]
+      description: |
+        Job priority enum (preserved from source `WebVella.Erp.Jobs.JobPriority`):
+        - 1 = Low
+        - 2 = Medium
+        - 3 = High
+        - 4 = Higher
+        - 5 = Highest
+
+    JobType:
+      type: object
+      description: |
+        Job type definition.  Derived from the monolith's `JobType` class
+        (`WebVella.Erp/Jobs/Models/JobType.cs`).  In the new architecture
+        each job type maps to a Step Functions state machine definition.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique job type identifier
+        name:
+          type: string
+          description: >
+            Human-readable job type name (e.g. "ProcessSmtpQueue",
+            "ClearJobAndErrorLogs")
+        defaultPriority:
+          $ref: "#/components/schemas/JobPriority"
+        completeClassName:
+          type: string
+          nullable: true
+          description: >
+            Legacy fully-qualified .NET class name.  Retained for backward
+            compatibility and migration reference.  In the new architecture
+            this maps to a specific Step Functions state machine ARN.
+        allowSingleInstance:
+          type: boolean
+          description: >
+            When true, only one job of this type may be running concurrently.
+            Maps to the monolith's `JobType.AllowSingleInstance` flag enforced
+            by `JobPool`.
+      required:
+        - id
+        - name
+        - defaultPriority
+        - allowSingleInstance
+
+    Job:
+      type: object
+      description: |
+        Job record providing backward compatibility with the monolith's `Job`
+        model (`WebVella.Erp/Jobs/Models/Job.cs`).  Each job represents a
+        single unit of work dispatched by the `JobManager` or spawned by a
+        `SchedulePlan`.
+
+        Property names use the monolith's JSON serialization convention
+        (snake_case via `[JsonProperty]` attributes) for API compatibility.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique job identifier
+        typeId:
+          type: string
+          format: uuid
+          description: Reference to the job type definition
+        type:
+          $ref: "#/components/schemas/JobType"
+        typeName:
+          type: string
+          description: >
+            Denormalized job type name for display and filtering
+        completeClassName:
+          type: string
+          nullable: true
+          description: >
+            Legacy fully-qualified .NET class name of the job implementation
+        attributes:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Arbitrary JSON attributes passed to the job at creation.
+            Maps to the monolith's `Job.Attributes` dynamic property.
+        result:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Job execution result payload.  Maps to the monolith's
+            `Job.Result` dynamic property.  Null until the job completes.
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        priority:
+          $ref: "#/components/schemas/JobPriority"
+        startedOn:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp when the job began executing.  Null while pending.
+        finishedOn:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp when the job finished (completed, failed, aborted,
+            or cancelled).  Null while pending or running.
+        abortedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID of the user or system (Guid.Empty) that aborted the job.
+            Null if not aborted.
+        canceledBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID of the user that cancelled the job.  Null if not cancelled.
+        errorMessage:
+          type: string
+          nullable: true
+          description: >
+            Error details if the job failed.  Includes exception message
+            and stack trace in development mode.
+        schedulePlanId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Reference to the schedule plan that spawned this job.
+            Null for manually created jobs.
+        createdOn:
+          type: string
+          format: date-time
+          description: UTC timestamp when the job was created
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the user who created the job
+        lastModifiedOn:
+          type: string
+          format: date-time
+          description: UTC timestamp of the most recent job status update
+        lastModifiedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the user who last modified the job
+      required:
+        - id
+        - typeId
+        - typeName
+        - status
+        - priority
+        - createdOn
+        - lastModifiedOn
+
+    # -------------------------------------------------------------------------
+    # Schedule Plan Schemas (from monolith SchedulePlan/OutputSchedulePlan)
+    # -------------------------------------------------------------------------
+    SchedulePlanType:
+      type: integer
+      enum: [1, 2, 3, 4]
+      description: |
+        Schedule plan type enum (preserved from source
+        `WebVella.Erp.Jobs.SchedulePlanType`):
+        - 1 = Interval — repeats every N minutes within a daily time window
+        - 2 = Daily — runs once per day at the configured time
+        - 3 = Weekly — runs on specific days of the week
+        - 4 = Monthly — runs on a monthly basis
+
+    SchedulePlanDaysOfWeek:
+      type: object
+      description: |
+        Days-of-week selection for Daily and Interval schedule types.
+        Derived from the monolith's `SchedulePlanDaysOfWeek` class.
+        At least one day must be selected for Daily and Interval types
+        (enforced by the `HasOneSelectedDay()` validation in the source).
+      properties:
+        scheduledOnSunday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Sundays
+        scheduledOnMonday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Mondays
+        scheduledOnTuesday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Tuesdays
+        scheduledOnWednesday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Wednesdays
+        scheduledOnThursday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Thursdays
+        scheduledOnFriday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Fridays
+        scheduledOnSaturday:
+          type: boolean
+          default: false
+          description: Whether the plan runs on Saturdays
+      required:
+        - scheduledOnSunday
+        - scheduledOnMonday
+        - scheduledOnTuesday
+        - scheduledOnWednesday
+        - scheduledOnThursday
+        - scheduledOnFriday
+        - scheduledOnSaturday
+
+    SchedulePlanUpdateRequest:
+      type: object
+      description: |
+        Request body for updating a schedule plan.  All fields are optional;
+        only provided fields are updated (PATCH semantics over PUT, matching
+        the monolith's property-by-property iteration in
+        `UpdateSchedulePlan`).
+
+        **Validation rules (from WebApiController lines 3473-3644):**
+        - `name`: required non-empty string if provided
+        - `type`: integer 1-4 (Interval/Daily/Weekly/Monthly) if provided
+        - `startDate`: valid ISO-8601 date-time if provided; must be before
+          `endDate`
+        - `endDate`: valid ISO-8601 date-time if provided; must be after
+          `startDate`
+        - `scheduledDays`: at least one day must be true for Daily and
+          Interval types
+        - `intervalInMinutes`: must be > 0 and <= 1440 for Interval type
+        - `jobTypeId`: must reference a valid registered job type
+        - `enabled`: boolean required if provided
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Schedule plan display name
+        type:
+          $ref: "#/components/schemas/SchedulePlanType"
+        startDate:
+          type: string
+          format: date-time
+          description: UTC start date for the schedule plan
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC end date for the schedule plan.  Null for open-ended plans.
+        scheduledDays:
+          $ref: "#/components/schemas/SchedulePlanDaysOfWeek"
+        intervalInMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: >
+            Repeat interval in minutes (only for Interval type).  Must be
+            greater than 0 and less than or equal to 1440 (24 hours).
+        startTimespan:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Daily window start time.  The monolith stores this as
+            integer minutes-since-midnight; the API accepts ISO-8601
+            date-time and extracts the time portion.
+        endTimespan:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Daily window end time.  Midnight (00:00) is treated as end-of-day
+            (1440 minutes) per the monolith's `if (EndTimespan == 0)
+            EndTimespan = 1440` logic.
+        jobTypeId:
+          type: string
+          format: uuid
+          description: >
+            Reference to a registered job type.  Must exist in the
+            system's job type registry.
+        jobAttributes:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Arbitrary JSON attributes passed to jobs created by this plan.
+        enabled:
+          type: boolean
+          description: Whether the schedule plan is active
+
+    OutputSchedulePlan:
+      type: object
+      description: |
+        Read-only schedule plan representation returned by list and detail
+        endpoints.  Derived from the monolith's `OutputSchedulePlan` class
+        (`WebVella.Erp/Jobs/Models/SchedulePlan.cs`).
+
+        Includes computed fields (`nextTriggerTime`, `lastTriggerTime`) and
+        the resolved `jobType` reference.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique schedule plan identifier
+        name:
+          type: string
+          description: Schedule plan display name
+        type:
+          $ref: "#/components/schemas/SchedulePlanType"
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC start date for the schedule plan
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC end date for the schedule plan (null for open-ended)
+        scheduledDays:
+          $ref: "#/components/schemas/SchedulePlanDaysOfWeek"
+        intervalInMinutes:
+          type: integer
+          nullable: true
+          description: >
+            Repeat interval in minutes (only for Interval type)
+        startTimespan:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Daily window start time.  In the monolith this is stored as
+            integer minutes-since-midnight; the output converts to
+            ISO-8601 date-time for API consumers.
+        endTimespan:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Daily window end time.  In the monolith this is stored as
+            integer minutes-since-midnight; the output converts to
+            ISO-8601 date-time for API consumers.
+        lastTriggerTime:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp of the last time this plan triggered a job
+        nextTriggerTime:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            UTC timestamp of the next scheduled trigger.  Recalculated
+            automatically after each update or trigger.
+        jobTypeId:
+          type: string
+          format: uuid
+          description: Reference to the registered job type
+        jobType:
+          $ref: "#/components/schemas/JobType"
+        jobAttributes:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Arbitrary JSON attributes passed to jobs created by this plan
+        enabled:
+          type: boolean
+          description: Whether the schedule plan is currently active
+        lastStartedJobId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            ID of the most recently started job spawned by this plan
+        createdOn:
+          type: string
+          format: date-time
+          description: UTC timestamp when the schedule plan was created
+        lastModifiedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID of the user who last modified the schedule plan
+        lastModifiedOn:
+          type: string
+          format: date-time
+          description: UTC timestamp of the most recent modification
+      required:
+        - id
+        - name
+        - type
+        - scheduledDays
+        - jobTypeId
+        - enabled
+        - createdOn
+        - lastModifiedOn
