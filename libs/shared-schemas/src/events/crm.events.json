@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/crm.events.json",
+  "title": "CRM - Account and Contact Events",
+  "description": "JSON Schema definitions for CRM (Contacts) domain events published via SNS when accounts or contacts are created, updated, or deleted. Derived from the monolith's NextPlugin.20190204.cs (account/contact/address entity creation with field definitions), NextPlugin.20190206.cs (salutation entity, additional contact fields), and the post-CRUD hook pattern (IErpPostCreateRecordHook, IErpPostUpdateRecordHook, IErpPostDeleteRecordHook). The CRM bounded-context service owns Account, Contact, and Address models in DynamoDB, replacing the monolith's rec_account, rec_contact, and rec_address PostgreSQL tables.",
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Standard domain event envelope used across all microservices for asynchronous communication via SNS/SQS. Replaces the monolith's synchronous post-hook invocation pattern (RecordHookManager). All event consumers MUST be idempotent; correlationId enables deduplication.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP §0.8.5."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID v4 correlation identifier for distributed request tracing and idempotency enforcement across service boundaries."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event was produced by the CRM service."
+        },
+        "source": {
+          "type": "string",
+          "const": "crm",
+          "description": "Service name that emitted the event. Always 'crm' for events in this schema. Maps to the CRM bounded-context service derived from CrmPlugin.cs (Name = 'crm') and the Next plugin's account/contact entity provisioning."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Account Created Event",
+      "description": "Published when a new account is created in the CRM service. Account fields are derived from NextPlugin.20190204.cs entity definition (GUID: 2e22b50f-e444-4b62-a171-076e51246939) which defines the account entity with fields including type (SelectField: Company=1/Person=2), first_name, last_name, email (EmailField), phone fields, and address fields. In the monolith, account creation triggers IErpPostCreateRecordHook.OnPostCreateRecord('account', record). In the target architecture, the CRM Lambda handler publishes this event to SNS after successful DynamoDB persistence.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.account.created"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Account creation payload containing core account attributes extracted from the monolith's account entity definition in NextPlugin.20190204.cs. The accountId is the DynamoDB record key replacing the monolith's rec_account table primary key.",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for the account record in DynamoDB. Replaces the monolith's rec_account.id column auto-generated GUID."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Account display name. In the monolith, accounts use first_name + last_name (Person type) or a single name (Company type) from NextPlugin.20190204.cs TextField definitions."
+            },
+            "accountType": {
+              "type": "string",
+              "description": "Account type/category. Derived from the monolith's account 'type' SelectField (NextPlugin.20190204.cs) with options: 'Company' (value=1) and 'Person' (value=2). Determines whether the account represents an organization or an individual."
+            },
+            "industry": {
+              "type": "string",
+              "description": "Industry classification for the account. Supports segmentation and reporting in the target architecture."
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "Primary email address for the account. Derived from the monolith's account 'email' EmailField (NextPlugin.20190204.cs, searchable, included in x_search index via SearchService.cs)."
+            },
+            "phone": {
+              "type": "string",
+              "description": "Primary phone number for the account. Derived from the monolith's account phone fields: fixed_phone, mobile_phone, fax_phone (PhoneField types in NextPlugin.20190204.cs). Normalized to a single primary phone in the event payload."
+            },
+            "createdBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who created the account. Derived from JWT claims in the Lambda event context, replacing the monolith's SecurityContext.CurrentUser binding."
+            }
+          },
+          "required": [
+            "accountId",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Account Updated Event",
+      "description": "Published when an existing account is updated in the CRM service. In the monolith, account updates trigger IErpPostUpdateRecordHook.OnPostUpdateRecord('account', record) which receives the full EntityRecord after persistence. In the target architecture, the CRM Lambda handler publishes this event to SNS with changedFields metadata enabling consumers (e.g., Reporting service, SearchService x_search regeneration) to perform targeted updates.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.account.updated"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Account update payload. Includes the account identifier, optional updated name, a list of changed field names for targeted downstream processing, and the identity of the user who performed the update.",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the updated account record in DynamoDB."
+            },
+            "name": {
+              "type": "string",
+              "description": "Current account display name after the update. Included to support downstream consumers that need the name for display or search index updates (x_search regeneration per SearchService.cs)."
+            },
+            "changedFields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of field names that were modified in this update. Enables consumers to perform targeted processing — e.g., the Reporting service only updates projections for changed fields, and SearchService regenerates x_search only when searchable fields change. Field names correspond to account entity fields defined in NextPlugin.20190204.cs (e.g., 'email', 'type', 'city', 'region')."
+            },
+            "updatedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who performed the update. Derived from JWT claims in the Lambda event context."
+            }
+          },
+          "required": [
+            "accountId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Account Deleted Event",
+      "description": "Published when an account is deleted from the CRM service. In the monolith, account deletion triggers IErpPostDeleteRecordHook.OnPostDeleteRecord('account', record) which receives the EntityRecord that was removed. In the target architecture, the CRM Lambda handler publishes this event to SNS after successful DynamoDB deletion, enabling downstream consumers (Reporting service for read-model cleanup, Notification service for cleanup of account-linked notifications) to perform cascading cleanup.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.account.deleted"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Account deletion payload. Contains the identifier and name of the deleted account for audit trails and downstream cleanup operations.",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the deleted account record. Consumers use this to remove or archive related data in their own datastores."
+            },
+            "name": {
+              "type": "string",
+              "description": "Account display name at time of deletion. Preserved for audit trail and human-readable logging, since the record no longer exists in the CRM datastore."
+            },
+            "deletedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who performed the deletion. Derived from JWT claims in the Lambda event context."
+            }
+          },
+          "required": [
+            "accountId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Contact Created Event",
+      "description": "Published when a new contact is created in the CRM service. Contact fields are derived from NextPlugin.20190204.cs (contact entity GUID: 39e1dd9b-827f-464d-95ea-507ade81cbd0) and NextPlugin.20190206.cs (salutation entity creation, additional contact fields including created_on, photo, x_search). In the monolith, contact creation triggers IErpPostCreateRecordHook.OnPostCreateRecord('contact', record). Contacts may be linked to accounts via the accountId foreign key relationship.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.contact.created"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Contact creation payload containing core contact attributes. Derived from the monolith's contact entity definition in NextPlugin.20190204.cs and the salutation/additional fields in NextPlugin.20190206.cs.",
+          "properties": {
+            "contactId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for the contact record in DynamoDB. Replaces the monolith's rec_contact.id column auto-generated GUID."
+            },
+            "firstName": {
+              "type": "string",
+              "description": "Contact first name. Derived from the monolith's contact 'first_name' TextField (NextPlugin.20190204.cs, required). Included in x_search index for full-text search via SearchService.cs."
+            },
+            "lastName": {
+              "type": "string",
+              "description": "Contact last name. Derived from the monolith's contact 'last_name' TextField (NextPlugin.20190204.cs, required). Included in x_search index for full-text search."
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "Contact email address. Derived from the monolith's contact 'email' EmailField (searchable, included in x_search index via SearchService.cs)."
+            },
+            "phone": {
+              "type": "string",
+              "description": "Contact phone number. Derived from the monolith's contact phone fields. Normalized to a single primary phone in the event payload."
+            },
+            "accountId": {
+              "oneOf": [
+                { "type": "string", "format": "uuid" },
+                { "type": "null" }
+              ],
+              "description": "UUID of the linked account, or null if the contact is not associated with any account. In the monolith, this relationship is managed via entity_relations (account 1:N contact). In the target architecture, the CRM service manages this as a direct foreign key reference within its own DynamoDB table."
+            },
+            "salutation": {
+              "type": "string",
+              "description": "Contact salutation (e.g., 'Mr.', 'Mrs.', 'Dr.'). Derived from the monolith's salutation entity created in NextPlugin.20190206.cs, which provides a lookup table of salutation values linked to contacts via the salutation_id GuidField."
+            },
+            "createdBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who created the contact. Derived from JWT claims in the Lambda event context, replacing the monolith's SecurityContext.CurrentUser binding."
+            }
+          },
+          "required": [
+            "contactId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Contact Updated Event",
+      "description": "Published when an existing contact is updated in the CRM service. In the monolith, contact updates trigger IErpPostUpdateRecordHook.OnPostUpdateRecord('contact', record). In the target architecture, the CRM Lambda handler publishes this event to SNS with changedFields metadata enabling consumers (e.g., Reporting service for read-model updates, SearchService for x_search regeneration per NextPlugin.20190206.cs) to perform targeted downstream processing.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.contact.updated"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Contact update payload. Includes the contact identifier, a list of changed field names for targeted downstream processing, and the identity of the user who performed the update.",
+          "properties": {
+            "contactId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the updated contact record in DynamoDB."
+            },
+            "changedFields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of field names that were modified in this update. Enables consumers to perform targeted processing — e.g., the Reporting service only updates projections for changed fields, and SearchService regenerates x_search only when searchable fields (firstName, lastName, email) change. Field names correspond to contact entity fields defined in NextPlugin.20190204.cs and NextPlugin.20190206.cs."
+            },
+            "updatedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who performed the update. Derived from JWT claims in the Lambda event context."
+            }
+          },
+          "required": [
+            "contactId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Contact Deleted Event",
+      "description": "Published when a contact is deleted from the CRM service. In the monolith, contact deletion triggers IErpPostDeleteRecordHook.OnPostDeleteRecord('contact', record) which receives the EntityRecord that was removed. In the target architecture, the CRM Lambda handler publishes this event to SNS after successful DynamoDB deletion, enabling downstream consumers (Reporting service, linked Account update notifications) to perform cascading cleanup.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "crm.contact.deleted"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Contact deletion payload. Contains the identifier and name fields of the deleted contact for audit trails and downstream cleanup operations.",
+          "properties": {
+            "contactId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the deleted contact record. Consumers use this to remove or archive related data in their own datastores."
+            },
+            "firstName": {
+              "type": "string",
+              "description": "Contact first name at time of deletion. Preserved for audit trail and human-readable logging."
+            },
+            "lastName": {
+              "type": "string",
+              "description": "Contact last name at time of deletion. Preserved for audit trail and human-readable logging."
+            },
+            "deletedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user who performed the deletion. Derived from JWT claims in the Lambda event context."
+            }
+          },
+          "required": [
+            "contactId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
