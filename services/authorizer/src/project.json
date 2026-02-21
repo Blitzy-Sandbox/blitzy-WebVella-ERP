@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "authorizer",
+  "root": "services/authorizer",
+  "sourceRoot": "services/authorizer/src",
+  "projectType": "application",
+  "tags": ["scope:authorizer", "type:service", "runtime:nodejs"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/services/authorizer",
+        "main": "services/authorizer/src/index.ts",
+        "tsConfig": "services/authorizer/tsconfig.json",
+        "bundle": true,
+        "format": ["cjs"],
+        "platform": "node",
+        "target": "node22",
+        "external": ["@aws-sdk/*"]
+      }
+    },
+    "test": {
+      "executor": "@nx/vite:test",
+      "outputs": ["{options.reportsDirectory}"],
+      "options": {
+        "reportsDirectory": "../../../coverage/services/authorizer",
+        "passWithNoTests": true
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"]
+    }
+  }
+}
