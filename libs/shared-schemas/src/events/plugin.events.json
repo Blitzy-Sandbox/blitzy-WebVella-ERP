@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/plugin.events.json",
+  "title": "Plugin System - Plugin Events",
+  "description": "JSON Schema definitions for Plugin / Extension System domain events published via SNS. Covers plugin registration and deregistration lifecycle events. Derived from the monolith's ErpPlugin.cs abstract base class metadata properties (Name, Version, Description, Author, Company, Prefix, etc.) decorated with [JsonProperty] attributes for JSON serialization. The Plugin System service owns plugin metadata in DynamoDB, replacing the legacy plugin_data PostgreSQL table keyed by ErpPlugin.Name.",
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Standard domain event envelope used across all microservices for asynchronous communication via SNS/SQS. Replaces the monolith's synchronous post-hook invocation pattern (RecordHookManager). All event consumers MUST be idempotent; correlationId enables deduplication.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP §0.8.5."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID v4 correlation identifier for distributed request tracing and idempotency enforcement across service boundaries."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event was produced by the plugin-system service."
+        },
+        "source": {
+          "type": "string",
+          "const": "plugin-system",
+          "description": "Service name that emitted the event. Always 'plugin-system' for events in this schema. Maps to ErpPlugin.cs plugin lifecycle in the monolith, now handled by the Plugin System bounded-context service."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Plugin Registered Event",
+      "description": "Published when a plugin is registered with the Plugin System service. Captures the core metadata properties from the ErpPlugin abstract base class that are decorated with [JsonProperty] attributes. In the monolith, plugin registration occurs during IErpService.InitializePlugins() which discovers ErpPlugin subclasses via reflection and calls Initialize(IServiceProvider). In the target architecture, registration is an explicit API operation that persists plugin metadata to DynamoDB and publishes this event.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "plugin-system.plugin.registered"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Plugin registration payload containing metadata derived from ErpPlugin.cs properties. The pluginId is the DynamoDB record ID; name serves as the unique key (matching the monolith's plugin_data table key).",
+          "properties": {
+            "pluginId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for the plugin record in DynamoDB. Replaces the auto-generated GUID used in the monolith's plugin_data table INSERT (ErpPlugin.SavePluginData line: cmd.Parameters.Add(new NpgsqlParameter('@id', Guid.NewGuid())))."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Plugin name used as the unique registry key. Maps directly to ErpPlugin.Name ([JsonProperty('name')]). In the monolith, this is the key for the plugin_data table (e.g., 'sdk' for SdkPlugin). Must be unique across all registered plugins."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Plugin version string. In the monolith, ErpPlugin.Version is an integer representing a patch level; in the target architecture this is a semantic version string (e.g., '1.0.0') for richer version management."
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable plugin description. Maps to ErpPlugin.Description ([JsonProperty('description')]). Provides context about the plugin's purpose and capabilities."
+            },
+            "author": {
+              "type": "string",
+              "description": "Plugin author name. Maps to ErpPlugin.Author ([JsonProperty('author')]). Identifies the individual or team responsible for the plugin."
+            },
+            "company": {
+              "type": "string",
+              "description": "Company or organization that developed the plugin. Maps to ErpPlugin.Company ([JsonProperty('company')])."
+            },
+            "prefix": {
+              "type": "string",
+              "description": "Plugin prefix used for namespacing entity names and other plugin-scoped identifiers. Maps to ErpPlugin.Prefix ([JsonProperty('prefix')]). In the monolith, used to avoid naming collisions between plugins."
+            },
+            "url": {
+              "oneOf": [
+                { "type": "string", "format": "uri" },
+                { "type": "null" }
+              ],
+              "description": "Plugin homepage or documentation URL. Maps to ErpPlugin.Url ([JsonProperty('url')]). Nullable when no URL is available."
+            },
+            "repository": {
+              "oneOf": [
+                { "type": "string", "format": "uri" },
+                { "type": "null" }
+              ],
+              "description": "Source code repository URL. Maps to ErpPlugin.Repository ([JsonProperty('repository')]). Nullable when no public repository exists."
+            },
+            "license": {
+              "type": "string",
+              "description": "License type or SPDX identifier for the plugin. Maps to ErpPlugin.License ([JsonProperty('license')]). Informs consumers of usage rights and restrictions."
+            },
+            "registeredBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user or system principal that performed the plugin registration. Derived from the JWT claims in the Lambda event context."
+            }
+          },
+          "required": [
+            "pluginId",
+            "name",
+            "version"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Plugin Deregistered Event",
+      "description": "Published when a plugin is deregistered (removed) from the Plugin System service. In the monolith, plugin removal was not an explicit operation — plugins were discovered via reflection at startup. In the target architecture, deregistration is an explicit API operation that removes the plugin metadata from DynamoDB and publishes this event to notify downstream consumers (e.g., Reporting service for read-model cleanup, Workflow service for scheduled job removal).",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "plugin-system.plugin.deregistered"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Plugin deregistration payload identifying which plugin was removed and the context of the removal.",
+          "properties": {
+            "pluginId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the plugin record that was deregistered from DynamoDB."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Plugin name that was deregistered. Maps to ErpPlugin.Name. Consumers can use this to clean up any plugin-specific resources or references."
+            },
+            "version": {
+              "type": "string",
+              "description": "Version of the plugin that was deregistered. Useful for audit trails and determining which specific version was removed."
+            },
+            "deregisteredBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user or system principal that performed the plugin deregistration. Derived from the JWT claims in the Lambda event context."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Human-readable reason for the deregistration. Supports audit compliance and operational diagnostics (e.g., 'Deprecated — replaced by v2.0', 'Security vulnerability', 'License expired')."
+            }
+          },
+          "required": [
+            "pluginId",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
