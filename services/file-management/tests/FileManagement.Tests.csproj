@@ -1,19 +1,102 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FileManagement.Tests.csproj — .NET 9 Test Project for File Management Service
+
+    Purpose: MSBuild test project file for the File Management service's test suite.
+    Contains unit tests (Moq-based) and integration tests (against LocalStack).
+
+    Source mapping:
+      - WebVella.Erp/WebVella.Erp.csproj (original monolith project structure reference)
+
+    This test project validates:
+      - UploadHandler / DownloadHandler Lambda functions
+      - S3Service file content operations
+      - FileMetadataRepository DynamoDB persistence
+      - Domain event publishing (file-management.file.created/updated/deleted)
+      - Presigned URL generation and validation
+
+    Testing strategy per AAP §0.8.4:
+      - Unit tests: xunit + Moq for isolated service/handler testing
+      - Integration tests: xunit against LocalStack (NO mocked AWS SDK calls)
+      - Code coverage: coverlet.collector targeting >80% coverage
+      - Assertions: FluentAssertions for readable test assertions
+
+    Self-contained: This test project references ONLY ../FileManagement.csproj.
+    Zero cross-service project references per AAP §0.8.1.
+
+    Excluded legacy dependencies per AAP design rules:
+      - NO Npgsql (no PostgreSQL — S3 + DynamoDB replaces file storage)
+      - NO Storage.Net (replaced by AWSSDK.S3)
+      - NO Newtonsoft.Json (use System.Text.Json for AOT compatibility)
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 matching the service project (FileManagement.csproj) -->
     <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Test project identity and configuration -->
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RootNamespace>WebVellaErp.FileManagement.Tests</RootNamespace>
+
+    <!-- Build properties for test project flexibility -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
   </PropertyGroup>
+
+  <!-- Test framework packages: xunit per AAP §0.8.4 -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Mocking and assertion libraries for unit tests -->
+  <ItemGroup>
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="FluentAssertions" Version="8.0.1" />
   </ItemGroup>
+
+  <!-- AWS SDK packages for integration tests against LocalStack.
+       Per AAP §0.8.4: integration tests run against LocalStack (NO mocked AWS SDK calls).
+       Pattern: docker compose up -d → test → docker compose down.
+       Versions aligned with FileManagement.csproj service project for consistency. -->
+  <ItemGroup>
+    <!-- S3 SDK for integration tests verifying file upload/download/presigned URL operations -->
+    <PackageReference Include="AWSSDK.S3" Version="3.7.410.10" />
+    <!-- DynamoDB SDK for integration tests verifying file metadata persistence -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+    <!-- SNS SDK for integration tests verifying domain event publishing -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+    <!-- SQS SDK for integration tests subscribing to SNS topics and verifying event delivery -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+  </ItemGroup>
+
+  <!-- AWS Lambda test utilities for handler testing -->
+  <ItemGroup>
+    <!-- Lambda core types for ILambdaContext mocking in handler tests -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <!-- API Gateway event types for constructing test request/response objects -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+    <!-- TestLambdaContext and TestLambdaLogger for Lambda handler unit tests -->
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="3.0.1" />
+  </ItemGroup>
+
+  <!-- Project under test: File Management service (self-contained bounded context).
+       Per AAP §0.8.1: Do NOT reference any other service project. -->
   <ItemGroup>
     <ProjectReference Include="../FileManagement.csproj" />
   </ItemGroup>
+
 </Project>
