@@ -1,0 +1,32 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "shared-cdk-constructs",
+  "sourceRoot": "libs/shared-cdk-constructs/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/shared-cdk-constructs",
+        "main": "libs/shared-cdk-constructs/src/index.ts",
+        "tsConfig": "libs/shared-cdk-constructs/tsconfig.lib.json",
+        "assets": []
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["libs/shared-cdk-constructs/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/libs/shared-cdk-constructs"],
+      "options": {
+        "jestConfig": "libs/shared-cdk-constructs/jest.config.ts"
+      }
+    }
+  }
+}
