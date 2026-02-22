@@ -1,0 +1,173 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Workflow Engine Microservice — Test Project
+
+    Contains both unit tests (with Moq mocks for isolated handler/service testing)
+    and integration tests (against LocalStack for real DynamoDB, Step Functions,
+    SNS, SQS, and SSM operations).
+
+    Namespace: WebVellaErp.Workflow.Tests
+    Assembly:  WebVellaErp.Workflow.Tests
+
+    Source mapping:
+      - WebVella.Erp/Jobs/JobManager.cs        → unit tests for WorkflowService
+      - WebVella.Erp/Jobs/JobPool.cs           → unit tests for StepHandler
+      - WebVella.Erp/Jobs/SheduleManager.cs    → unit tests for SchedulePlan models
+      - WebVella.Erp/Jobs/JobDataService.cs    → integration tests for DynamoDB persistence
+      - WebVella.Erp/WebVella.Erp.csproj       → project structure reference
+
+    Test classes (members_exposed):
+      Unit:        WorkflowServiceTests, WorkflowHandlerTests, StepHandlerTests
+      Integration: DynamoDbPersistenceTests, StepFunctionsExecutionTests,
+                   SqsTriggerTests, SnsEventPublishingTests
+
+    Per AAP Section 0.8.4: >80% coverage target, all integration tests against LocalStack.
+    Per AAP Section 0.8.2: workflow completion < 30 seconds for standard approval chains.
+    Per AAP Section 0.8.1: no mocked AWS SDK calls in integration tests.
+  -->
+
+  <PropertyGroup>
+    <!-- Target .NET 9 matching the Workflow.csproj service project -->
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <AssemblyName>WebVellaErp.Workflow.Tests</AssemblyName>
+    <RootNamespace>WebVellaErp.Workflow.Tests</RootNamespace>
+
+    <!-- Test project configuration — not packable, marked as test project for dotnet test discovery -->
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- No XML documentation for test projects -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- Allow warning-level issues in test code without failing the build -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <!-- No Native AOT — test projects run on standard CLR runtime.
+         Do NOT include PublishAot, StripSymbols, SelfContained, RuntimeIdentifier,
+         or EnableTrimming — these are for the main service project only. -->
+  </PropertyGroup>
+
+  <!-- Testing Framework NuGet Packages (per AAP Section 0.6.1 and 0.8.4) -->
+  <ItemGroup>
+    <!-- Test SDK runner: required for dotnet test to discover and execute xUnit assemblies -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+
+    <!-- xUnit: .NET unit test framework providing [Fact], [Theory], [InlineData], Assert,
+         IAsyncLifetime, IClassFixture for all workflow unit and integration tests -->
+    <PackageReference Include="xunit" Version="2.9.3" />
+
+    <!-- xUnit VSTest adapter: enables test discovery/execution via dotnet test, VS Test Explorer,
+         and CI runners (GitHub Actions) -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Moq: .NET mocking library for creating mock implementations of IWorkflowService,
+         IAmazonStepFunctions, IAmazonDynamoDB, IAmazonSQS, IAmazonSimpleNotificationService,
+         ILogger in unit tests per AAP Section 0.8.4 -->
+    <PackageReference Include="Moq" Version="4.20.72" />
+
+    <!-- FluentAssertions: expressive assertion syntax (Should().Be(), Should().NotBeNull(),
+         Should().BeTrue(), Should().BeFalse(), Should().HaveCount(), Should().Contain(),
+         Should().BeEquivalentTo()) for readable test assertions on workflow service results,
+         handler responses, and domain model properties -->
+    <PackageReference Include="FluentAssertions" Version="7.0.0" />
+
+    <!-- Coverlet: code coverage collector for >80% coverage target per AAP Section 0.8.4.
+         Integrates with 'dotnet test' and 'XPlat Code Coverage' collector for Cobertura reports -->
+    <PackageReference Include="coverlet.collector" Version="6.0.3">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    AWS SDK NuGet Packages for Integration Tests against LocalStack
+    Per AAP Section 0.8.4: "All integration and E2E tests MUST execute against LocalStack.
+    No mocked AWS SDK calls in integration tests."
+    Pattern: docker compose up -d → test → docker compose down
+
+    CRITICAL: Versions MUST be >= Workflow.csproj's versions to avoid NU1605 package
+    downgrade errors. Each version comment documents the minimum required.
+  -->
+  <ItemGroup>
+    <!-- DynamoDB SDK: integration testing single-table design for workflow state and
+         schedule plan persistence — PutItemRequest, GetItemRequest, QueryRequest,
+         CreateTableRequest for DynamoDbPersistenceTests.
+         Version matches Workflow.csproj's 3.7.405.38 -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- Step Functions SDK: integration testing workflow execution, state machine creation,
+         and step orchestration — StartExecutionRequest, DescribeExecutionRequest,
+         CreateStateMachineRequest, ListExecutionsRequest for StepFunctionsExecutionTests.
+         Per AAP Section 0.8.2: verify workflow completion < 30 seconds.
+         Version must be >= Workflow.csproj's 3.7.500 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.StepFunctions" Version="3.7.500" />
+
+    <!-- SNS SDK: verifying domain event publishing against LocalStack —
+         workflow.workflow.created, workflow.workflow.started, workflow.workflow.completed,
+         workflow.workflow.failed, workflow.step.completed events per AAP Section 0.8.5.
+         Used by SnsEventPublishingTests via PublishRequest, CreateTopicRequest, SubscribeRequest.
+         Version must be >= Workflow.csproj's 3.7.400.97 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SQS SDK: verifying SQS-triggered Lambda handler processing and dead-letter queue
+         behavior against LocalStack per AAP Section 0.8.5 naming convention workflow-{queue}-dlq.
+         Used by SqsTriggerTests via SendMessageRequest, ReceiveMessageRequest,
+         CreateQueueRequest, GetQueueAttributesRequest.
+         Version must be >= Workflow.csproj's 3.7.400.97 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK: verifying workflow service configuration retrieval from
+         SSM SecureString secrets. Per AAP Section 0.8.6: all secrets via SSM SecureString,
+         NEVER environment variables. Used by integration tests via GetParameterRequest,
+         PutParameterRequest.
+         Version must be >= Workflow.csproj's 3.7.405.18 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+  </ItemGroup>
+
+  <!-- Lambda Event Types and Test Utilities -->
+  <ItemGroup>
+    <!-- Lambda test context utilities: providing TestLambdaContext and TestLambdaLogger stubs
+         for simulating Lambda invocations of WorkflowHandler and StepHandler in unit tests
+         without requiring actual Lambda runtime -->
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="3.0.0" />
+
+    <!-- API Gateway event type definitions: constructing APIGatewayHttpApiV2ProxyRequest
+         and APIGatewayHttpApiV2ProxyResponse objects for WorkflowHandler unit and
+         integration tests — the HTTP API v2 event format used by API Gateway -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+
+    <!-- SQS event type definitions: constructing SQSEvent and SQSEvent.SQSMessage objects
+         for StepHandler SQS-trigger unit and integration tests, plus SQSBatchResponse
+         for partial batch failure reporting -->
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.0" />
+  </ItemGroup>
+
+  <!-- Additional Dependencies -->
+  <ItemGroup>
+    <!-- JSON serialization: backward-compatible serialization testing of workflow models
+         and DynamoDB integration test data setup. Version 13.0.4 matches Workflow.csproj.
+         Used types: JsonConvert.SerializeObject(), JsonConvert.DeserializeObject(),
+         JObject, JToken -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+
+    <!-- DI container: configuring test ServiceProvider with real AWS SDK clients pointed
+         at LocalStack endpoints, replicating production Lambda DI configuration with
+         test-specific overrides. Used types: ServiceCollection, ServiceProvider,
+         AddSingleton(), AddTransient(), BuildServiceProvider() -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Project Reference to the main Workflow Engine service -->
+  <ItemGroup>
+    <ProjectReference Include="../Workflow.csproj" />
+  </ItemGroup>
+
+</Project>
