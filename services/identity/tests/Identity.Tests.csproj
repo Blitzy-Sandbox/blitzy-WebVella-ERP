@@ -1,19 +1,102 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Identity & Access Management Service — Test Project
+    
+    Contains both unit tests (with Moq mocks for isolated handler/service testing)
+    and integration tests (against LocalStack for real Cognito, DynamoDB, SNS, SSM operations).
+    
+    Namespace: WebVellaErp.Identity.Tests
+    Assembly:  WebVellaErp.Identity.Tests
+    
+    Source mapping:
+      - WebVella.Erp/Api/SecurityManager.cs   → unit tests for UserHandler, RoleHandler, PermissionService
+      - WebVella.Erp/Api/SecurityContext.cs    → unit tests for PermissionService
+      - WebVella.Erp.Web/Services/AuthService.cs → unit tests for AuthHandler, CognitoService
+      - WebVella.Erp/WebVella.Erp.csproj       → project structure reference
+    
+    Test classes:
+      Unit:        AuthHandlerTests, UserHandlerTests, RoleHandlerTests,
+                   CognitoServiceTests, PermissionServiceTests, UserRepositoryTests
+      Integration: LocalStackFixture, AuthFlowIntegrationTests, UserCrudIntegrationTests,
+                   RoleCrudIntegrationTests, UserMigrationIntegrationTests,
+                   DynamoDbPersistenceIntegrationTests
+    
+    Per AAP Section 0.8.4: >80% coverage target, all integration tests against LocalStack.
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 matching the Identity.csproj service project -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <RootNamespace>WebVellaErp.Identity.Tests</RootNamespace>
+    <AssemblyName>WebVellaErp.Identity.Tests</AssemblyName>
+
+    <!-- Test project configuration — not packable, marked as test project -->
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- No Native AOT — test projects run on standard CLR runtime -->
+    <!-- No PublishAot, no StripSymbols, no SelfContained, no RuntimeIdentifier -->
   </PropertyGroup>
+
+  <!-- Testing Framework NuGet Packages (per AAP Section 0.6.1) -->
   <ItemGroup>
+    <!-- Test SDK runner: required for dotnet test to discover and execute xUnit assemblies -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+
+    <!-- xUnit: .NET unit test framework providing [Fact], [Theory], [InlineData], Assert, IAsyncLifetime, IClassFixture -->
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+
+    <!-- xUnit VSTest adapter: enables test discovery/execution via dotnet test and CI runners -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Moq: .NET mocking library for creating mocks of IAmazonDynamoDB, IAmazonCognitoIdentityProvider, etc. -->
     <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="FluentAssertions" Version="8.0.1" />
+
+    <!-- FluentAssertions: expressive assertion syntax (Should().Be(), Should().NotBeNull(), Should().Throw()) -->
+    <PackageReference Include="FluentAssertions" Version="7.0.0" />
+
+    <!-- Coverlet: code coverage collector for >80% coverage target per AAP Section 0.8.4 -->
+    <PackageReference Include="coverlet.collector" Version="6.0.3">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
+
+  <!--
+    AWS SDK NuGet Packages for Integration Tests against LocalStack
+    Per AAP: "All integration and E2E tests MUST execute against LocalStack.
+    No mocked AWS SDK calls in integration tests."
+  -->
+  <ItemGroup>
+    <!-- Cognito SDK: integration testing user pool operations, auth flows, user migration from MD5 -->
+    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.407.7" />
+
+    <!-- DynamoDB SDK: integration testing single-table design, user/role CRUD, GSI queries -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK: verifying domain event publishing (identity.user.created, identity.role.updated, etc.) -->
+    <!-- Version must be >= Identity.csproj's 3.7.400.97 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SSM SDK: verifying CognitoService retrieves COGNITO_CLIENT_SECRET from SSM SecureString -->
+    <!-- Version must be >= Identity.csproj's 3.7.405.18 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- DI container: configuring test ServiceProvider with real AWS SDK clients pointed at LocalStack -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Project Reference to the main Identity & Access Management service -->
   <ItemGroup>
     <ProjectReference Include="../Identity.csproj" />
   </ItemGroup>
+
 </Project>
