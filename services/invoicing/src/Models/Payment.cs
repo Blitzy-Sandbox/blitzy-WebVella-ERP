@@ -16,7 +16,7 @@ namespace WebVellaErp.Invoicing.Models
     /// AOT-compatible serialization for .NET 9 Native AOT Lambda functions.
     /// </para>
     /// </summary>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<PaymentMethod>))]
     public enum PaymentMethod
     {
         /// <summary>Wire transfer or ACH payment.</summary>

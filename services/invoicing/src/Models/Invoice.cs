@@ -15,7 +15,7 @@ namespace WebVellaErp.Invoicing.Models
     /// <see cref="JsonStringEnumConverter"/> for AOT-compatible JSON output.
     /// Integer backing values preserved for database storage and ordering.
     /// </remarks>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<InvoiceStatus>))]
     [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
     public enum InvoiceStatus
     {
@@ -184,7 +184,7 @@ namespace WebVellaErp.Invoicing.Models
         /// </summary>
         [JsonPropertyName("status")]
         [JsonProperty(PropertyName = "status")]
-        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<InvoiceStatus>))]
         public InvoiceStatus Status { get; set; }
 
         /// <summary>
