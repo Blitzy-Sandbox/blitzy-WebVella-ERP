@@ -1,4 +1,4 @@
-import { useMemo, Children, type ReactNode } from 'react';
+import { useMemo, Children, type ReactNode, type JSX } from 'react';
 
 // ---------------------------------------------------------------------------
 // Type Definitions
