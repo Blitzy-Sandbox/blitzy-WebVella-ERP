@@ -1,26 +1,194 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Notifications Microservice — .NET 9 Native AOT Lambda Project
+
+    Replaces the monolithic WebVella.Erp.Plugins.Mail.csproj (Microsoft.NET.Sdk.Razor
+    targeting net10.0 with ProjectReferences to WebVella.Erp.Web.csproj and
+    WebVella.Erp.csproj, MailKit 4.14.1 for SMTP sending) with a targeted .NET 9
+    Lambda project configured for Native AOT compilation.
+
+    This self-contained bounded-context service handles:
+      - Email sending/queuing via SES v2 stub (replacing MailKit SmtpClient)
+      - Webhook dispatch for external integrations
+      - SQS-triggered queue processing (replacing in-process JobPool)
+      - Domain event publishing via SNS (replacing synchronous HookManager)
+      - Notification metadata persistence via DynamoDB (replacing PostgreSQL)
+
+    Namespace: WebVellaErp.Notifications
+    Assembly:  WebVellaErp.Notifications
+
+    Source mapping:
+      Primary:   WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj
+      Secondary: WebVella.Erp/WebVella.Erp.csproj
+
+    Key differences from monolith source:
+      REMOVES: Microsoft.NET.Sdk.Razor (pure Lambda service, no Razor/MVC),
+               AddRazorSupportForMvc (not needed in Lambda),
+               MailKit 4.14.1 (replaced by SES v2 stub + third-party SMTP stub
+               per AAP §0.3.2), ProjectReference to WebVella.Erp.Web (self-contained),
+               ProjectReference to WebVella.Erp (self-contained),
+               NuGet packaging metadata (Version, Authors, PackageLicenseExpression),
+               Npgsql (no PostgreSQL — DynamoDB only), Irony.NetCore (no EQL engine),
+               CsvHelper (not needed), Ical.Net (not needed), Storage.Net (not needed)
+      ADDS:    AWSSDK.SimpleEmailV2 (SES v2 email sending replacing MailKit),
+               AWSSDK.DynamoDBv2 (notification metadata replacing PostgreSQL),
+               AWSSDK.SimpleNotificationService (domain events replacing HookManager),
+               AWSSDK.SQS (queue operations replacing in-process JobPool),
+               AWSSDK.SimpleSystemsManagement (secrets via SSM SecureString),
+               Amazon.Lambda.SQSEvents (SQS trigger event types for QueueProcessor),
+               Amazon.Lambda.* hosting packages for Native AOT Lambda execution
+      KEEPS:   AutoMapper 14.0.0, Newtonsoft.Json 13.0.4 for backward compatibility
+
+    Self-contained bounded context: This service has ZERO cross-service project
+    references per AAP rule — each bounded context owns its own datastore, Lambda
+    functions, API routes, and tests.
+
+    Exported namespaces (members_exposed):
+      - WebVellaErp.Notifications.Functions.EmailHandler
+      - WebVellaErp.Notifications.Functions.WebhookHandler
+      - WebVellaErp.Notifications.Functions.QueueProcessor
+      - WebVellaErp.Notifications.Services.ISmtpService
+      - WebVellaErp.Notifications.Services.SmtpService
+      - WebVellaErp.Notifications.DataAccess.INotificationRepository
+      - WebVellaErp.Notifications.DataAccess.NotificationRepository
+      - WebVellaErp.Notifications.Models.Email
+      - WebVellaErp.Notifications.Models.EmailAddress
+      - WebVellaErp.Notifications.Models.EmailStatus
+      - WebVellaErp.Notifications.Models.EmailPriority
+      - WebVellaErp.Notifications.Models.SmtpServiceConfig
+      - WebVellaErp.Notifications.Models.Notification
+      - WebVellaErp.Notifications.Models.NotificationEvent
+      - WebVellaErp.Notifications.Models.WebhookConfig
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 (NOT net10.0 as in source monolith) per AAP specification -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Library</OutputType>
     <AssemblyName>WebVellaErp.Notifications</AssemblyName>
     <RootNamespace>WebVellaErp.Notifications</RootNamespace>
+
+    <!-- Remove satellite resource assemblies for non-English languages to minimize
+         Lambda package size (target < 250MB unzipped per AAP §0.8.2) -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Native AOT configuration for Lambda cold start optimization (target < 1 second
+         per AAP §0.8.2) and Lambda package size optimization (target < 250MB unzipped).
+         SelfContained + RuntimeIdentifier required for linux-x64 Lambda execution.
+         EnableTrimming reduces deployment package size by removing unused framework code. -->
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Exclude test project artifacts from SDK globbing into main service compilation.
+         Test project lives under tests/ subdirectory with its own .csproj. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer.
+       Provides IServiceCollection, WebApplicationBuilder, ILogger, IConfiguration,
+       IMemoryCache, and the full ASP.NET Core middleware pipeline that is bridged to
+       API Gateway HTTP API v2 events by the Lambda hosting package. -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
+  <!-- AWS Lambda hosting and runtime -->
   <ItemGroup>
+    <!-- Converts API Gateway HTTP API v2 requests/responses to ASP.NET Core pipeline.
+         Used by Lambda handler classes (EmailHandler, WebhookHandler) via
+         APIGatewayHttpApiV2ProxyFunction base class. Replaces the monolith's Kestrel/IIS
+         hosting (WebVella.Erp.Site/Program.cs + Startup.cs) with serverless execution. -->
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+
+    <!-- Lambda runtime interface: ILambdaContext, ILambdaLogger, LambdaSerializerAttribute.
+         Required for all .NET Lambda function handlers in this service. -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+
+    <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
+         DefaultLambdaJsonSerializer and SourceGeneratorLambdaJsonSerializer preferred
+         over Newtonsoft.Json for Lambda event serialization per AAP §0.8.2.
+         Enables Native AOT compilation with < 1 second cold starts. -->
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
-    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
-    <PackageReference Include="AutoMapper" Version="14.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+
+    <!-- SQS event type definitions — provides SQSEvent and SQSBatchResponse types for
+         the QueueProcessor and WebhookHandler SQS-triggered Lambda functions. Used for
+         deserializing SQS trigger payloads and returning partial batch failure responses
+         (SQSBatchResponse.BatchItemFailure) for at-least-once delivery guarantees
+         per AAP §0.8.5 operational requirements. -->
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.1" />
   </ItemGroup>
+
+  <!-- AWS SDK packages for service infrastructure -->
+  <ItemGroup>
+    <!-- DynamoDB SDK for notification metadata persistence using single-table design
+         with composite PK/SK keys. Replaces the monolith's PostgreSQL email and
+         smtp_service tables (created by MailPlugin patches) via Npgsql/EqlCommand.
+         Stores email records, SMTP service configurations, and webhook configurations.
+         Used types: IAmazonDynamoDB, AmazonDynamoDBClient, AmazonDynamoDBConfig,
+         GetItemRequest, PutItemRequest, QueryRequest, DeleteItemRequest, ScanRequest,
+         AttributeValue -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SES v2 SDK for email sending — provides IAmazonSimpleEmailServiceV2 for
+         sending emails as an SES stub replacing MailKit SmtpClient.Connect/Authenticate/
+         Send/Disconnect from the monolith's SmtpInternalService.cs. Stubbed for
+         third-party SaaS integration per AAP §0.3.2.
+         Used types: IAmazonSimpleEmailServiceV2, AmazonSimpleEmailServiceV2Client,
+         SendEmailRequest, SendEmailResponse -->
+    <PackageReference Include="AWSSDK.SimpleEmailV2" Version="3.7.401.2" />
+
+    <!-- SNS SDK for domain event publishing — publishes notifications.email.sent,
+         notifications.email.queued, notifications.email.failed,
+         notifications.webhook.dispatched, notifications.smtp_service.created events
+         per AAP §0.8.5 event naming convention ({domain}.{entity}.{action}).
+         Replaces the monolith's synchronous in-process HookManager/RecordHookManager
+         post-CRUD hooks from Mail plugin's SmtpServiceHook and EmailHook classes.
+         Used types: IAmazonSimpleNotificationService, AmazonSimpleNotificationServiceClient,
+         PublishRequest, PublishResponse -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SQS SDK for queue operations — sends messages to the notifications-email-queue
+         for async email processing and interacts with dead-letter queues
+         (notifications-email-queue-dlq per AAP §0.8.5 DLQ naming convention
+         {service}-{queue}-dlq). Replaces the monolith's in-process JobPool bounded
+         20-thread executor used by ProcessSmtpQueueJob.
+         Used types: IAmazonSQS, AmazonSQSClient, SendMessageRequest,
+         ReceiveMessageRequest -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK for secrets retrieval — provides GetParameter with
+         WithDecryption=true to securely retrieve SMTP credentials and other secrets
+         as SSM SecureString. Per AAP §0.8.6: all secrets via SSM SecureString,
+         NEVER environment variables.
+         Used types: IAmazonSimpleSystemsManagement, AmazonSimpleSystemsManagementClient,
+         GetParameterRequest, GetParameterResponse -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+  </ItemGroup>
+
+  <!-- Business logic libraries carried from monolith source (WebVella.Erp.csproj) -->
+  <ItemGroup>
+    <!-- Object mapping between DynamoDB AttributeValue dictionaries and domain models
+         (Email, SmtpServiceConfig, WebhookConfig, Notification). Same version (14.0.0)
+         as source monolith WebVella.Erp.csproj for consistent model transformation
+         patterns. Used by NotificationRepository for serialization/deserialization.
+         Used types: IMapper, MapperConfiguration, Profile -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization compatibility — backward-compatible DTO serialization for
+         Email, SmtpServiceConfig, and WebhookConfig models that may be consumed by
+         existing API clients. Dual-attribute pattern with System.Text.Json for AOT
+         compatibility. Same version (13.0.4) as source monolith. System.Text.Json
+         used for all new code paths (AOT compat).
+         Used types: JsonConvert, JsonProperty, JsonIgnore -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+
 </Project>
