@@ -1,0 +1,50 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "inventory",
+  "root": "services/inventory",
+  "sourceRoot": "services/inventory/src",
+  "projectType": "application",
+  "tags": ["service:inventory", "lang:dotnet", "scope:backend"],
+  "implicitDependencies": ["shared-schemas"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/bin"],
+      "options": {
+        "command": "dotnet publish -c Release -r linux-x64 --self-contained true",
+        "cwd": "services/inventory"
+      },
+      "dependsOn": []
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test",
+        "cwd": "services/inventory/tests"
+      },
+      "dependsOn": ["build"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format --verify-no-changes",
+        "cwd": "services/inventory"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project Inventory.csproj",
+        "cwd": "services/inventory"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cdklocal deploy InventoryStack --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    }
+  }
+}
