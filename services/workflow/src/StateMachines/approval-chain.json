@@ -1,0 +1,271 @@
+{
+  "Comment": "Standard approval chain workflow for the WebVella ERP workflow service. Orchestrates multi-step approval processes as individual Lambda step invocations, replacing the monolith's JobPool.Process() bounded 20-thread pool pattern with a declarative Step Functions state machine. All task states propagate idempotency keys and correlation IDs for distributed tracing. Total execution constrained to 30 seconds per AAP performance requirements.",
+  "StartAt": "ValidateRequest",
+  "TimeoutSeconds": 30,
+  "States": {
+    "ValidateRequest": {
+      "Type": "Task",
+      "Comment": "Validates the incoming workflow request payload, checks required fields (workflowId, correlationId, approvalChain definition), and determines if approval routing is needed. Replaces the monolith's JobPool.Process() initial job instantiation via Activator.CreateInstance.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "validate",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.validationResult",
+      "Next": "CheckApprovalRequired",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "CheckApprovalRequired": {
+      "Type": "Choice",
+      "Comment": "Routes the workflow based on validation result. If the request requires approval (e.g., amount exceeds threshold, entity type mandates review), routes to the approval submission flow. Otherwise, proceeds directly to action execution.",
+      "Choices": [
+        {
+          "Variable": "$.validationResult.requiresApproval",
+          "BooleanEquals": true,
+          "Next": "SubmitForApproval"
+        }
+      ],
+      "Default": "ExecuteAction"
+    },
+    "SubmitForApproval": {
+      "Type": "Task",
+      "Comment": "Submits the workflow for approval by persisting the approval request to DynamoDB and publishing an SNS notification event (workflow.approval.requested) per AAP Section 0.8.5 event naming convention ({domain}.{entity}.{action}). Notifies designated approvers via the notifications service.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "submit-approval",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.approvalSubmission",
+      "Next": "WaitForApproval",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "WaitForApproval": {
+      "Type": "Wait",
+      "Comment": "Polling interval for approval status check. Set to 5 seconds to balance responsiveness with the overall 30-second timeout budget. The top-level TimeoutSeconds ensures this loop cannot exceed the performance requirement.",
+      "Seconds": 5,
+      "Next": "CheckApprovalStatus"
+    },
+    "CheckApprovalStatus": {
+      "Type": "Task",
+      "Comment": "Reads the current approval status from DynamoDB via the StepHandler Lambda. Returns the approval decision (approved, rejected, or pending) for downstream evaluation. Uses consistent reads to ensure latest state.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "check-approval-status",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.approvalStatus",
+      "Next": "EvaluateApproval",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "EvaluateApproval": {
+      "Type": "Choice",
+      "Comment": "Routes the workflow based on the approval decision. Approved workflows proceed to action execution. Rejected workflows are handled gracefully with SNS notification. Pending workflows loop back to the wait state (protected by the 30-second top-level timeout). Unknown statuses route to failure handling.",
+      "Choices": [
+        {
+          "Variable": "$.approvalStatus.status",
+          "StringEquals": "approved",
+          "Next": "ExecuteAction"
+        },
+        {
+          "Variable": "$.approvalStatus.status",
+          "StringEquals": "rejected",
+          "Next": "HandleRejection"
+        },
+        {
+          "Variable": "$.approvalStatus.status",
+          "StringEquals": "pending",
+          "Next": "WaitForApproval"
+        }
+      ],
+      "Default": "HandleFailure"
+    },
+    "ExecuteAction": {
+      "Type": "Task",
+      "Comment": "Executes the main business logic action via the StepHandler Lambda. This is the core execution step that replaces the monolith's instance.Execute(context) call within JobPool.Process(). The Lambda performs the actual domain operation (e.g., record update, entity modification, cross-service coordination).",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "execute",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.executionResult",
+      "Next": "PublishCompletion",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "PublishCompletion": {
+      "Type": "Task",
+      "Comment": "Publishes the workflow.workflow.completed SNS domain event per AAP Section 0.8.5 event naming convention ({domain}.{entity}.{action}). Updates the DynamoDB workflow state to 'completed'. Replaces the monolith's job.Status = JobStatus.Finished / jobService.UpdateJob(job) pattern from JobPool.Process() lines 124-126.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "publish-completion",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.completionResult",
+      "Next": "Succeeded",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "HandleRejection": {
+      "Type": "Task",
+      "Comment": "Handles workflow rejection by publishing the workflow.approval.rejected SNS event and updating the DynamoDB workflow state to 'rejected'. Ensures approvers and requestors are notified of the rejection outcome.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "handle-rejection",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.rejectionResult",
+      "Next": "Failed",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "HandleFailure",
+          "ResultPath": "$.errorInfo"
+        }
+      ]
+    },
+    "HandleFailure": {
+      "Type": "Task",
+      "Comment": "Terminal error handler for the approval chain workflow. Publishes the workflow.workflow.failed SNS event per AAP Section 0.8.5 event naming convention. Sends failure details to the workflow-approval-dlq dead-letter queue per AAP Section 0.8.5 DLQ naming convention ({service}-{queue}-dlq). Updates DynamoDB workflow state to 'failed'. Replaces the monolith's catch block in JobPool.Process() lines 128-148 that logged errors and set job.Status = JobStatus.Failed.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "handle-failure",
+        "payload.$": "$",
+        "idempotencyKey.$": "$.workflowId",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.failureResult",
+      "Next": "Failed",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "Succeeded": {
+      "Type": "Succeed",
+      "Comment": "Terminal success state. The approval chain workflow completed successfully — the action was executed and the completion event was published."
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ApprovalChainFailed",
+      "Cause": "Workflow was rejected or encountered an error"
+    }
+  }
+}
