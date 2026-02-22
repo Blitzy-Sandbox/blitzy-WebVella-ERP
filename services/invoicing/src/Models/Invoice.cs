@@ -40,7 +40,7 @@ namespace WebVellaErp.Invoicing.Models
     /// Backing integer values (Before=1, After=2) are preserved from the source monolith
     /// to ensure backward compatibility with existing serialized data and API contracts.
     /// </remarks>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<CurrencySymbolPlacement>))]
     [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
     public enum CurrencySymbolPlacement
     {
