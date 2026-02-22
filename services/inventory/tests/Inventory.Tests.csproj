@@ -1,19 +1,134 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Inventory (Project Management) Microservice — xUnit Test Project
+
+    Contains both unit tests and integration tests for the Inventory microservice.
+    Unit tests use Moq to isolate service and repository logic, while integration
+    tests run against LocalStack (DynamoDB, SNS, SQS, Step Functions) per AAP §0.8.4:
+    "All integration and E2E tests MUST run against LocalStack — no mocked AWS SDK calls."
+
+    Test classes (members_exposed):
+      Unit:
+        - WebVellaErp.Inventory.Tests.Unit.TaskServiceTests
+        - WebVellaErp.Inventory.Tests.Unit.InventoryRepositoryTests
+      Integration:
+        - WebVellaErp.Inventory.Tests.Integration.LocalStackFixture
+        - WebVellaErp.Inventory.Tests.Integration.TaskHandlerIntegrationTests
+        - WebVellaErp.Inventory.Tests.Integration.TimelogHandlerIntegrationTests
+        - WebVellaErp.Inventory.Tests.Integration.StepFunctionsIntegrationTests
+        - WebVellaErp.Inventory.Tests.Integration.SnsEventPublishingTests
+
+    Source mapping:
+      Primary:   WebVella.Erp.Plugins.Project/WebVella.Erp.Plugins.Project.csproj
+      Secondary: WebVella.Erp/WebVella.Erp.csproj
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 matching the main Inventory.csproj target framework -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Test project identity -->
+    <RootNamespace>WebVellaErp.Inventory.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- No AOT — test projects do not need Native AOT compilation -->
   </PropertyGroup>
+
+  <!-- Test framework packages -->
   <ItemGroup>
+    <!-- MSTest SDK runner for dotnet test CLI integration and test host infrastructure -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+
+    <!-- xUnit test framework: [Fact], [Theory], [InlineData], Assert, IAsyncLifetime, IClassFixture -->
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+
+    <!-- VSTest adapter enabling test discovery and execution via dotnet test and CI runners -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Mocking library for unit tests: Mock<IInventoryRepository>, Mock<IAmazonDynamoDB>,
+         Mock<IAmazonSimpleNotificationService>, Mock<ILogger>, Mock<IConfiguration> -->
     <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="FluentAssertions" Version="8.0.1" />
+
+    <!-- Expressive assertion library: Should().Be(), Should().NotBeNull(), Should().HaveCount(),
+         Should().Throw() for readable test verification. Target >80% coverage per AAP §0.8.4 -->
+    <PackageReference Include="FluentAssertions" Version="7.0.0" />
+
+    <!-- Code coverage collector for Cobertura/OpenCover report generation.
+         Integrates with 'dotnet test' collect option for CI pipeline coverage validation -->
+    <PackageReference Include="coverlet.collector" Version="6.0.3">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
+
+  <!-- AWS SDK packages for integration tests against LocalStack.
+       Per AAP §0.8.4: "All integration and E2E tests MUST run against LocalStack —
+       no mocked AWS SDK calls in integration tests." -->
   <ItemGroup>
-    <ProjectReference Include="../Inventory.csproj" />
+    <!-- DynamoDB SDK for verifying task/timelog/comment/project persistence in
+         single-table design (PK/SK + GSI1, GSI2, GSI3) against LocalStack -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK for verifying domain event publishing (inventory.task.created,
+         inventory.task.updated, inventory.timelog.created, inventory.timelog.deleted) -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SQS SDK for verifying SNS to SQS event flow by polling subscription queues
+         to confirm domain events arrive correctly -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.63" />
+
+    <!-- Step Functions SDK for verifying StartTasksOnStartDate scheduled workflow
+         transitions tasks from Not Started to In Progress -->
+    <PackageReference Include="AWSSDK.StepFunctions" Version="3.7.500" />
+
+    <!-- Cognito SDK for building APIGatewayHttpApiV2ProxyRequest objects with
+         JWT authorizer claims for user identity simulation in integration tests -->
+    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.407.7" />
+
+    <!-- Lambda test utilities providing TestLambdaContext for mock ILambdaContext
+         instances across all integration test classes -->
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="2.0.0" />
+
+    <!-- API Gateway event types (APIGatewayHttpApiV2ProxyRequest/Response) for
+         constructing HTTP API v2 event payloads in integration tests -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
   </ItemGroup>
+
+  <!-- Microsoft.Extensions packages for test configuration, DI, and logging -->
+  <ItemGroup>
+    <!-- Configuration abstractions for building test IConfiguration instances
+         with AWS_ENDPOINT_URL, DynamoDB:TableName, SNS:InventoryTopicArn -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
+
+    <!-- JSON configuration provider for loading appsettings.test.json with
+         LocalStack endpoint URLs and DynamoDB table/SNS topic configurations -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+
+    <!-- DI container for integration test setup: configuring real AWS SDK clients
+         pointed at LocalStack endpoints with proper service resolution -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+
+    <!-- Logging abstractions for ILogger<T> mock creation in unit tests and
+         real ILogger setup in integration tests (LocalStackFixture) -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+
+    <!-- Console logging provider for visible log output during integration test
+         runs against LocalStack for debugging and diagnostic purposes -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Project reference to the main Inventory service for testing all public types:
+       Functions (TaskHandler, TimelogHandler), Services (ITaskService, TaskService),
+       DataAccess (IInventoryRepository, InventoryRepository), and all Models -->
+  <ItemGroup>
+    <ProjectReference Include="..\Inventory.csproj" />
+  </ItemGroup>
+
 </Project>
