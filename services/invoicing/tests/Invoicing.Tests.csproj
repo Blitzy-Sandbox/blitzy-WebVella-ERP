@@ -1,19 +1,143 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Invoicing / Billing Service — Test Project
+
+    Contains both unit tests (with Moq mocks for isolated service-level testing)
+    and integration tests (against LocalStack RDS PostgreSQL, SNS, SSM, SQS).
+
+    CRITICAL: This is one of only two ACID-critical services (with Reporting)
+    using RDS PostgreSQL (NOT DynamoDB). The test project includes Npgsql and
+    FluentMigrator references for PostgreSQL integration and migration tests.
+
+    Namespace: WebVellaErp.Invoicing.Tests
+    Assembly:  WebVellaErp.Invoicing.Tests
+
+    Source mapping:
+      - WebVella.Erp/Api/RecordManager.cs         → unit tests for InvoiceService, PaymentService
+      - WebVella.Erp/Database/DbRecordRepository.cs → integration tests for InvoiceRepository
+      - WebVella.Erp/Database/DbRepository.cs      → migration integration tests
+      - WebVella.Erp/Api/Definitions.cs            → model and enum tests
+      - WebVella.Erp/WebVella.Erp.csproj           → project structure reference
+
+    Test classes:
+      Unit:        InvoiceServiceTests, PaymentServiceTests,
+                   TaxCalculationServiceTests, LineItemCalculationServiceTests
+      Integration: LocalStackFixture, InvoiceRepositoryIntegrationTests,
+                   InvoiceLifecycleIntegrationTests, EventPublishingIntegrationTests,
+                   MigrationIntegrationTests
+
+    Per AAP Section 0.8.4: >80% coverage target, all integration tests against LocalStack.
+    Financial precision: all monetary amounts use decimal, never double or float.
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 matching the Invoicing.csproj service project -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <RootNamespace>WebVellaErp.Invoicing.Tests</RootNamespace>
+    <AssemblyName>WebVellaErp.Invoicing.Tests</AssemblyName>
+
+    <!-- Test project configuration — not packable, marked as test project for dotnet test discovery -->
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- No Native AOT — test projects run on standard CLR runtime -->
+    <!-- No PublishAot, no StripSymbols, no SelfContained, no RuntimeIdentifier -->
   </PropertyGroup>
+
+  <!-- Testing Framework NuGet Packages (per AAP Section 0.6.1) -->
   <ItemGroup>
+    <!-- Test SDK runner: required for dotnet test to discover and execute xUnit assemblies -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+
+    <!-- xUnit: .NET unit test framework providing [Fact], [Theory], [InlineData], Assert, IAsyncLifetime, IClassFixture -->
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+
+    <!-- xUnit VSTest adapter: enables test discovery/execution via dotnet test, VS Test Explorer, and CI runners -->
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Moq: .NET mocking library for creating mocks of IInvoiceRepository, IAmazonSimpleNotificationService,
+         IAmazonSimpleSystemsManagement, ILogger, and other interfaces for isolated service-level testing -->
     <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="FluentAssertions" Version="8.0.1" />
+
+    <!-- FluentAssertions: expressive assertion syntax (Should().Be(), Should().NotBeNull(), Should().Throw(),
+         Should().BeApproximately()) — particularly important for financial precision assertions on decimal values -->
+    <PackageReference Include="FluentAssertions" Version="7.0.0" />
+
+    <!-- Coverlet: code coverage collector for >80% coverage target per AAP Section 0.8.4.
+         Integrates with dotnet test - -collect:"XPlat Code Coverage" for Cobertura/OpenCover reports -->
+    <PackageReference Include="coverlet.collector" Version="6.0.3">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
+
+  <!--
+    AWS SDK NuGet Packages for Integration Tests against LocalStack
+    Per AAP Section 0.8.4: "All integration and E2E tests MUST execute against LocalStack.
+    No mocked AWS SDK calls in integration tests."
+    Pattern: docker compose up -d → test → docker compose down
+  -->
+  <ItemGroup>
+    <!-- SNS SDK: verifying domain event publishing against LocalStack —
+         invoicing.invoice.created, invoicing.invoice.paid, invoicing.invoice.voided,
+         invoicing.payment.processed events published to SNS topics.
+         Version must be >= Invoicing.csproj's 3.7.400.97 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SSM SDK: verifying DB_CONNECTION_STRING retrieval from SSM SecureString (never env vars).
+         Per AAP Section 0.8.6: secrets via SSM Parameter Store SecureString.
+         Version must be >= Invoicing.csproj's 3.7.405.18 to avoid NU1605 package downgrade -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- SQS SDK: event verification pattern — subscribe test queues to SNS topics to read
+         published domain events in EventPublishingIntegrationTests.
+         Used by LocalStackFixture to provide IAmazonSQS client for assertions -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.63" />
+
+    <!-- DI container: configuring test ServiceProvider with real AWS SDK clients pointed at LocalStack
+         endpoints and real NpgsqlConnection for RDS PostgreSQL, mimicking Lambda runtime DI wiring -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    RDS PostgreSQL Packages for ACID-Critical Integration Tests
+    CRITICAL: The Invoicing service is one of only two services (with Reporting) using
+    RDS PostgreSQL — NOT DynamoDB. Integration tests MUST connect to LocalStack-hosted
+    PostgreSQL for ACID transaction verification.
+  -->
+  <ItemGroup>
+    <!-- PostgreSQL ADO.NET provider: CRUD operations with ACID transactions, lifecycle tests,
+         and migration schema verification. Version 9.0.4 matches Invoicing.csproj exactly -->
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+
+    <!-- FluentMigrator: database schema migration framework for migration verification tests.
+         Verifies InitialCreate migration creates invoices, invoice_line_items, and payments tables
+         with correct column types, constraints, and indexes.
+         Version 6.2.0 matches Invoicing.csproj exactly -->
+    <PackageReference Include="FluentMigrator" Version="6.2.0" />
+
+    <!-- FluentMigrator Runner: execution runner with DI integration (AddFluentMigratorCore,
+         ConfigureRunner, IMigrationRunner) for running migrations in test setup/teardown.
+         Version 6.2.0 matches Invoicing.csproj exactly -->
+    <PackageReference Include="FluentMigrator.Runner" Version="6.2.0" />
+
+    <!-- FluentMigrator PostgreSQL runner: provides AddPostgres() extension for PostgreSQL DDL
+         generation and execution against LocalStack-hosted RDS PostgreSQL.
+         Version 6.2.0 matches Invoicing.csproj exactly -->
+    <PackageReference Include="FluentMigrator.Runner.Postgres" Version="6.2.0" />
+  </ItemGroup>
+
+  <!-- Project Reference to the main Invoicing / Billing service -->
   <ItemGroup>
     <ProjectReference Include="../Invoicing.csproj" />
   </ItemGroup>
+
 </Project>
