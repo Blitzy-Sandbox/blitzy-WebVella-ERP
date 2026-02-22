@@ -1,26 +1,143 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CRM / Contacts Microservice - .NET 9 Native AOT Lambda Project
+
+    Replaces the monolithic WebVella.Erp.Plugins.Crm/WebVella.Erp.Plugins.Crm.csproj
+    (Microsoft.NET.Sdk.Razor targeting net10.0 with ProjectReferences to the monolith's
+    WebVella.Erp.Web.csproj and WebVella.Erp.csproj) with a targeted .NET 9 Lambda
+    project configured for Native AOT compilation. This self-contained bounded-context
+    service handles account CRUD, contact CRUD, address management, salutation lookups,
+    and CRM search indexing — all backed by DynamoDB single-table design with domain
+    events published via SNS replacing the monolith's synchronous hook system.
+
+    Namespace: WebVellaErp.Crm
+    Assembly:  WebVellaErp.Crm
+
+    Source mapping:
+      Primary:   WebVella.Erp.Plugins.Crm/WebVella.Erp.Plugins.Crm.csproj
+      Secondary: WebVella.Erp/WebVella.Erp.csproj
+
+    Key differences from monolith source:
+      REMOVES: Microsoft.NET.Sdk.Razor (pure Lambda service, no Razor/MVC),
+               FrameworkReference to Microsoft.AspNetCore.App replaced by Lambda hosting,
+               ProjectReference to WebVella.Erp.Web + WebVella.Erp (self-contained),
+               Npgsql (no PostgreSQL — DynamoDB only), Irony.NetCore (EQL grammar
+               replaced by DynamoDB QueryAdapter), Ical.Net (recurrence in Workflow
+               service), Storage.Net (S3 replaces), CsvHelper (not needed for CRM),
+               System.Drawing.Common, MimeMapping
+      ADDS:    All AWSSDK packages (DynamoDB, SNS, SSM),
+               Amazon.Lambda.* hosting packages for serverless execution
+      KEEPS:   AutoMapper 14.0.0, Newtonsoft.Json 13.0.4 for JSON compatibility
+
+    Exported namespaces (members_exposed):
+      - WebVellaErp.Crm.Functions.AccountHandler
+      - WebVellaErp.Crm.Functions.ContactHandler
+      - WebVellaErp.Crm.Models.Account
+      - WebVellaErp.Crm.Models.Contact
+      - WebVellaErp.Crm.Services.SearchService
+      - WebVellaErp.Crm.DataAccess.CrmRepository
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 (NOT net10.0 as in source monolith) per AAP specification -->
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Library</OutputType>
     <AssemblyName>WebVellaErp.Crm</AssemblyName>
     <RootNamespace>WebVellaErp.Crm</RootNamespace>
+
+    <!-- Remove satellite resource assemblies for non-English languages to minimize
+         Lambda package size (target < 250MB unzipped per AAP §0.8.2) -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Native AOT configuration for Lambda cold start optimization (target < 1 second)
+         and Lambda package size optimization (target < 250MB unzipped per AAP §0.8.2) -->
     <PublishAot>true</PublishAot>
     <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Exclude test project artifacts from SDK globbing into main service compilation -->
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer.
+       Provides IServiceCollection, WebApplicationBuilder, ILogger, IMemoryCache,
+       IConfiguration, and the full ASP.NET Core middleware pipeline used by
+       AccountHandler and ContactHandler via Startup.ConfigureServices() DI. -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
-    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
-    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
-    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
-    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
-    <PackageReference Include="AutoMapper" Version="14.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 
+  <!-- AWS Lambda hosting and runtime -->
+  <ItemGroup>
+    <!-- Converts API Gateway HTTP API v2 requests/responses to ASP.NET Core pipeline.
+         Used by AccountHandler and ContactHandler via APIGatewayHttpApiV2ProxyFunction
+         base class. Replaces the monolith's Kestrel/IIS hosting (WebVella.Erp.Site/
+         Program.cs + Startup.cs) with serverless Lambda execution. -->
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+
+    <!-- Lambda runtime interface: ILambdaContext, ILambdaLogger, LambdaSerializerAttribute.
+         Required for all .NET Lambda function handlers in this service. -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+
+    <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
+         DefaultLambdaJsonSerializer preferred over Newtonsoft.Json for new code paths
+         per AAP specification. Enables Native AOT compilation with < 1 second cold starts
+         per AAP §0.8.2. -->
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
   </ItemGroup>
+
+  <!-- AWS SDK packages for service infrastructure -->
+  <ItemGroup>
+    <!-- DynamoDB SDK for CRM entity persistence using single-table design with composite
+         PK/SK keys and GSIs. Replaces the monolith's PostgreSQL rec_account, rec_contact,
+         rec_address tables via Npgsql/EqlCommand. CRM entities (accounts, contacts,
+         addresses, salutations) are stored in a single DynamoDB table with
+         PK=ENTITY#{entityName}, SK=RECORD#{recordId} pattern.
+         Used types: IAmazonDynamoDB, AmazonDynamoDBClient, GetItemRequest, PutItemRequest,
+         QueryRequest, UpdateItemRequest, DeleteItemRequest, BatchWriteItemRequest,
+         AttributeValue, ConditionalCheckFailedException -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK for publishing domain events (crm.account.created, crm.account.updated,
+         crm.contact.created, crm.contact.updated, crm.contact.deleted). Replaces the
+         monolith's synchronous in-process HookManager/RecordHookManager post-CRUD hooks
+         from Next plugin's account/contact hooks with async event-driven architecture.
+         Used types: IAmazonSimpleNotificationService, AmazonSimpleNotificationServiceClient,
+         PublishRequest, MessageAttributeValue -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK for retrieving secrets as SecureString with
+         WithDecryption=true. Per AAP §0.8.6: all secrets via SSM SecureString, NEVER
+         environment variables. Used for DynamoDB table name, SNS topic ARN, and
+         service-specific configuration.
+         Used types: IAmazonSimpleSystemsManagement, AmazonSimpleSystemsManagementClient,
+         GetParameterRequest, GetParameterResponse -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+  </ItemGroup>
+
+  <!-- Business logic libraries carried from monolith source (WebVella.Erp.csproj) -->
+  <ItemGroup>
+    <!-- Object mapping between DynamoDB AttributeValue dictionaries and domain models
+         (Account, Contact, Address, Salutation). Same version (14.0.0) as source monolith
+         WebVella.Erp.csproj for consistent model transformation patterns. Used by
+         CrmRepository for serialization/deserialization.
+         Used types: IMapper, MapperConfiguration, Profile -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization compatibility for backward-compatible DTO serialization.
+         Provides JsonConvert for x_search composite fields and nested object fields
+         stored as JSON strings in DynamoDB (matching the monolith's PostgreSQL column
+         format). Same version (13.0.4) as source monolith. System.Text.Json used for
+         all other serialization (AOT compat).
+         Used types: JsonConvert, JsonConvert.SerializeObject(), JsonConvert.DeserializeObject() -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+
 </Project>
