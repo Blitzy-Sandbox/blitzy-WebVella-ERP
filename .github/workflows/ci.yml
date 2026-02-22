@@ -1,0 +1,192 @@
+# =============================================================================
+# WebVella ERP — Continuous Integration Pipeline
+# =============================================================================
+# Runs on every push to main and every pull request targeting main.
+# Validates the Nx monorepo by linting, building, unit-testing, and
+# integration-testing all affected projects, with integration tests
+# executing against a full LocalStack environment.
+#
+# Key design decisions:
+#   - Nx affected commands ensure only changed projects are validated,
+#     keeping CI fast on incremental changes.
+#   - LocalStack Pro is started via the official localstack/setup-localstack
+#     GitHub Action (AAP §0.6.1). CDK stacks are deployed to LocalStack
+#     before integration tests run, so every test hits real AWS-compatible
+#     APIs — zero mocked SDK calls (AAP §0.8.4).
+#   - Both Node.js 22 and .NET SDK 9.0 are installed because the monorepo
+#     contains TypeScript services (authorizer, infra, frontend, shared libs)
+#     and .NET 9 Lambda services (identity, entity-management, crm, etc.).
+#   - cdklocal wraps the CDK CLI, routing all CloudFormation/API calls to
+#     LocalStack (AAP §0.7.6 dual-target strategy).
+#
+# References:
+#   AAP §0.6.1  — localstack/setup-localstack GitHub Action
+#   AAP §0.7.6  — Dual-target CDK: cdklocal --context localstack=true
+#   AAP §0.8.1  — LocalStack-exclusive testing
+#   AAP §0.8.4  — Integration tests against LocalStack, >80% unit coverage
+#   AAP §0.8.6  — Environment variables, secrets via SSM
+#   AAP §0.9.3  — Nx monorepo with nx affected
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ---------------------------------------------------------------------------
+# Concurrency: cancel any in-flight run for the same PR / branch so that
+# only the latest push is validated. Saves runner minutes on rapid pushes.
+# ---------------------------------------------------------------------------
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Lint · Test · Build · Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # -----------------------------------------------------------------------
+    # Job-level environment variables
+    # -----------------------------------------------------------------------
+    # These are available to every step in the job. LocalStack default
+    # credentials (test/test) and endpoint are set here so that all SDK
+    # calls and CDK commands route to the local emulator automatically.
+    # -----------------------------------------------------------------------
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      IS_LOCAL: 'true'
+      NX_CLOUD_ACCESS_TOKEN: ''
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      # =====================================================================
+      # 1. Repository checkout (full history for Nx affected diffing)
+      # =====================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # =====================================================================
+      # 2. Nx SHAs — sets NX_BASE and NX_HEAD for affected calculation
+      # =====================================================================
+      - name: Set Nx SHAs
+        uses: nrwl/nx-set-shas@v4
+
+      # =====================================================================
+      # 3. Node.js 22 LTS — matches the monorepo engine requirement
+      # =====================================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # =====================================================================
+      # 4. .NET SDK 9.0 — required for the 10 .NET Lambda services
+      # =====================================================================
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # =====================================================================
+      # 5. Install npm dependencies (deterministic via lockfile)
+      # =====================================================================
+      - name: Install npm dependencies
+        run: npm ci
+
+      # =====================================================================
+      # 6. Start LocalStack Pro via the official GitHub Action
+      #    (AAP §0.6.1 — handles image pull, container start, health check)
+      # =====================================================================
+      - name: Start LocalStack
+        uses: localstack/setup-localstack@v0.2.3
+        with:
+          image-tag: 'latest'
+          use-pro: 'true'
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+      # =====================================================================
+      # 7. Install CDK CLI tools globally
+      #    cdklocal wraps the cdk CLI and routes API calls to LocalStack.
+      # =====================================================================
+      - name: Install CDK CLI tools
+        run: npm install -g aws-cdk-local aws-cdk
+
+      # =====================================================================
+      # 8. CDK Bootstrap — prepares the LocalStack environment for CDK
+      #    deployments (creates the CDKToolkit stack with staging bucket).
+      # =====================================================================
+      - name: CDK Bootstrap LocalStack
+        run: cdklocal bootstrap --context localstack=true
+
+      # =====================================================================
+      # 9. CDK Deploy — deploys all infrastructure stacks to LocalStack
+      #    so that integration tests have real DynamoDB tables, Cognito
+      #    user pools, S3 buckets, SNS topics, SQS queues, etc.
+      # =====================================================================
+      - name: Deploy CDK Stacks to LocalStack
+        run: |
+          cd infra
+          cdklocal deploy --all --require-approval never --context localstack=true
+
+      # =====================================================================
+      # 10. Lint — runs ESLint on all affected TypeScript projects
+      # =====================================================================
+      - name: Lint
+        run: npx nx affected --target=lint
+
+      # =====================================================================
+      # 11. Unit Tests — runs Vitest / xUnit on affected projects
+      # =====================================================================
+      - name: Unit Tests
+        run: npx nx affected --target=test
+
+      # =====================================================================
+      # 12. Integration Tests — runs against live LocalStack services
+      #     (AAP §0.8.4: ALL integration tests MUST run against LocalStack)
+      # =====================================================================
+      - name: Integration Tests
+        run: npx nx affected --target=integration-test
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          IS_LOCAL: 'true'
+
+      # =====================================================================
+      # 13. Build — compiles all affected projects (TypeScript + .NET)
+      # =====================================================================
+      - name: Build
+        run: npx nx affected --target=build
+
+      # =====================================================================
+      # 14. CDK Synth — validates that all stacks synthesize valid
+      #     CloudFormation templates without deployment errors.
+      # =====================================================================
+      - name: CDK Synth Validation
+        run: |
+          cd infra
+          cdklocal synth --context localstack=true
+
+      # =====================================================================
+      # 15. Upload test results and coverage as build artifacts
+      # =====================================================================
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            **/test-results/
+            **/coverage/
+          retention-days: 7
