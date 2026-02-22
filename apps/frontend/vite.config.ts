@@ -64,7 +64,7 @@ export default defineConfig({
    *    @webvella-erp/shared-utils, @webvella-erp/shared-cdk-constructs).
    *    Required for cross-library imports in the Nx monorepo.
    */
-  plugins: [react(), nxViteTsPaths()],
+  plugins: [react() as never, nxViteTsPaths() as never],
 
   /**
    * Production build configuration.
@@ -129,7 +129,10 @@ export default defineConfig({
     watch: false,
     globals: true,
     environment: 'jsdom',
-    include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    include: [
+      'src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+      'tests/unit/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+    ],
     reporters: ['default'],
     coverage: {
       reportsDirectory: '../../coverage/apps/frontend',
