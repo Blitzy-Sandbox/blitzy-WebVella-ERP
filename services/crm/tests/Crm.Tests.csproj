@@ -1,19 +1,134 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Crm.Tests.csproj — .NET 9 Test Project for CRM Bounded-Context Microservice
+
+    Purpose: MSBuild project file for the CRM service test suite. Contains unit tests
+    (Moq-based isolated testing) and integration tests (against LocalStack DynamoDB/SNS).
+
+    Source mapping:
+      Primary:   WebVella.Erp.Plugins.Crm/WebVella.Erp.Plugins.Crm.csproj
+      Secondary: WebVella.Erp/WebVella.Erp.csproj
+
+    This test project validates:
+      - AccountHandler / ContactHandler Lambda function handlers
+      - SearchService CRM entity search indexing for DynamoDB
+      - CrmRepository DynamoDB single-table persistence operations
+      - Domain event publishing (crm.account.created, crm.account.updated,
+        crm.contact.created, crm.contact.updated, crm.contact.deleted)
+      - Account and Contact model validation and serialization
+
+    Testing strategy per AAP §0.8.4:
+      - Unit tests: xunit + Moq for isolated service/handler testing (>80% coverage)
+      - Integration tests: xunit against LocalStack (NO mocked AWS SDK calls)
+      - Code coverage: coverlet.collector targeting >80% coverage
+      - Assertions: FluentAssertions for readable test assertions
+
+    Self-contained: This test project references ONLY ../Crm.csproj.
+    Zero cross-service project references per AAP §0.8.1.
+
+    Excluded legacy dependencies per AAP design rules:
+      - NO Npgsql (no PostgreSQL — CRM uses DynamoDB only)
+      - NO FluentMigrator (no RDS PostgreSQL in CRM service)
+      - NO Irony.NetCore (no EQL grammar — DynamoDB queries directly)
+      - NO CsvHelper, Ical.Net, Storage.Net (not needed for CRM tests)
+      - NO PublishAot (test projects do not need Native AOT compilation)
+      - NO Microsoft.AspNetCore.App FrameworkReference (not an ASP.NET Core project)
+  -->
+
   <PropertyGroup>
+    <!-- Target .NET 9 matching the service project (Crm.csproj) -->
     <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Test project identity -->
+    <RootNamespace>WebVellaErp.Crm.Tests</RootNamespace>
+    <AssemblyName>WebVellaErp.Crm.Tests</AssemblyName>
+
+    <!-- Test project configuration -->
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <OutputType>Library</OutputType>
+
+    <!-- Strict compilation for test code quality -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Remove satellite resource assemblies for non-English languages to match
+         main project configuration and keep test output clean -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <!-- Test framework packages: xunit per AAP §0.6.1 and §0.8.4 -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Mocking and assertion libraries for unit tests per AAP §0.6.1 -->
+  <ItemGroup>
+    <!-- .NET mocking library for isolated unit testing of services and handlers -->
     <PackageReference Include="Moq" Version="4.20.72" />
+    <!-- Fluent assertion library for readable, expressive test assertions -->
     <PackageReference Include="FluentAssertions" Version="8.0.1" />
   </ItemGroup>
+
+  <!-- AWS SDK packages for integration tests against LocalStack.
+       Per AAP §0.8.4: integration tests run against LocalStack (NO mocked AWS SDK calls).
+       Pattern: docker compose up -d → test → docker compose down.
+       Versions aligned with Crm.csproj service project for consistency. -->
   <ItemGroup>
-    <ProjectReference Include="../Crm.csproj" />
+    <!-- DynamoDB SDK for integration tests verifying CRM entity persistence
+         (account, contact, address, salutation CRUD via CrmRepository) -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+    <!-- SNS SDK for integration tests verifying domain event publishing
+         (crm.account.created/updated, crm.contact.created/updated/deleted) -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
   </ItemGroup>
+
+  <!-- AWS Lambda test utilities for handler testing -->
+  <ItemGroup>
+    <!-- TestLambdaContext and TestLambdaLogger for Lambda handler unit tests.
+         Provides mock implementations of ILambdaContext for testing AccountHandler
+         and ContactHandler without actual Lambda runtime. -->
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="3.0.1" />
+    <!-- API Gateway HTTP API v2 event types for constructing test request/response
+         objects that simulate real API Gateway invocations to Lambda handlers. -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+  </ItemGroup>
+
+  <!-- Configuration and logging packages for test setup and infrastructure.
+       These enable IConfiguration-based test settings and ILogger injection
+       for integration test fixtures. -->
+  <ItemGroup>
+    <!-- IConfiguration root builder for test-specific configuration -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
+    <!-- JSON file-based configuration provider for test appsettings -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+    <!-- Environment variable configuration provider for LocalStack endpoint overrides -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.0" />
+    <!-- ILogger and ILoggerFactory for test service construction -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <!-- NullLogger and NullLoggerFactory for unit tests that require ILogger without output -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- Project under test: CRM bounded-context service (self-contained).
+       Makes all CRM types accessible: Functions (AccountHandler, ContactHandler),
+       Models (Account, Contact), Services (SearchService),
+       DataAccess (CrmRepository).
+       Per AAP §0.8.1: Do NOT reference any other service project — self-contained
+       bounded context. Do NOT reference monolith projects (WebVella.Erp, etc.). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Crm.csproj" />
+  </ItemGroup>
+
 </Project>
