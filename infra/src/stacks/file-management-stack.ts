@@ -450,9 +450,8 @@ export class FileManagementStack extends cdk.Stack {
       timeoutSeconds: 60,
       description:
         'File Management upload handler — presigned URL generation, metadata creation, ' +
-        'multi-file upload, file move/rename, and file deletion. Replaces ' +
-        'DbFileRepository CRUD and UserFileService upload logic. Publishes ' +
-        'file-management.file.{uploaded,moved,deleted} domain events.',
+        'multi-file upload, move/rename, and deletion. Replaces DbFileRepository ' +
+        'CRUD and UserFileService logic.',
       environment: uploadHandlerEnv,
       additionalPolicies: [s3ReadWritePolicy, dynamoDbCrudPolicy, snsPublishPolicy],
     });
