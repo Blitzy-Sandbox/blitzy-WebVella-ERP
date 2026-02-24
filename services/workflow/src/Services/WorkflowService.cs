@@ -718,8 +718,9 @@ namespace WebVellaErp.Workflow.Services
             if (schedulePlan.Id == Guid.Empty)
                 schedulePlan.Id = Guid.NewGuid();
 
-            // Source line 42: compute initial trigger time
-            schedulePlan.NextTriggerTime = FindSchedulePlanNextTriggerDate(schedulePlan);
+            // Source line 42: compute initial trigger time (only when not explicitly pre-set by caller)
+            if (!schedulePlan.NextTriggerTime.HasValue)
+                schedulePlan.NextTriggerTime = FindSchedulePlanNextTriggerDate(schedulePlan);
             schedulePlan.CreatedOn = DateTime.UtcNow;
             schedulePlan.LastModifiedOn = DateTime.UtcNow;
 
@@ -1914,8 +1915,8 @@ namespace WebVellaErp.Workflow.Services
             {
                 Id = GetGuidAttribute(item, "id"),
                 TypeId = GetGuidAttribute(item, "type_id"),
-                TypeName = GetStringAttribute(item, "type_name"),
-                CompleteClassName = GetStringAttribute(item, "complete_class_name"),
+                TypeName = GetNullableStringAttribute(item, "type_name"),
+                CompleteClassName = GetNullableStringAttribute(item, "complete_class_name"),
                 Status = (WorkflowStatus)GetIntAttribute(item, "status"),
                 Priority = (WorkflowPriority)GetIntAttribute(item, "priority"),
                 CreatedOn = GetDateTimeAttribute(item, "created_on"),
@@ -1924,24 +1925,24 @@ namespace WebVellaErp.Workflow.Services
                 FinishedOn = GetNullableDateTimeAttribute(item, "finished_on"),
                 AbortedBy = GetNullableGuidAttribute(item, "aborted_by"),
                 CanceledBy = GetNullableGuidAttribute(item, "canceled_by"),
-                ErrorMessage = GetStringAttribute(item, "error_message"),
+                ErrorMessage = GetNullableStringAttribute(item, "error_message"),
                 SchedulePlanId = GetNullableGuidAttribute(item, "schedule_plan_id"),
                 CreatedBy = GetNullableGuidAttribute(item, "created_by"),
                 LastModifiedBy = GetNullableGuidAttribute(item, "last_modified_by"),
-                StepFunctionsExecutionArn = GetStringAttribute(item, "step_functions_execution_arn")
+                StepFunctionsExecutionArn = GetNullableStringAttribute(item, "step_functions_execution_arn")
             };
 
             // Deserialize JSON attributes
             var attrsStr = GetStringAttribute(item, "attributes");
             if (!string.IsNullOrEmpty(attrsStr))
             {
-                workflow.Attributes = JsonSerializer.Deserialize<Dictionary<string, object>>(attrsStr) ?? new Dictionary<string, object>();
+                workflow.Attributes = DeserializeDictionaryWithPrimitives(attrsStr);
             }
 
             var resultStr = GetStringAttribute(item, "result");
             if (!string.IsNullOrEmpty(resultStr))
             {
-                workflow.Result = JsonSerializer.Deserialize<Dictionary<string, object>>(resultStr) ?? new Dictionary<string, object>();
+                workflow.Result = DeserializeDictionaryWithPrimitives(resultStr);
             }
 
             return workflow;
@@ -2071,7 +2072,7 @@ namespace WebVellaErp.Workflow.Services
             var jobAttrsStr = GetStringAttribute(item, "job_attributes");
             if (!string.IsNullOrEmpty(jobAttrsStr))
             {
-                plan.JobAttributes = JsonSerializer.Deserialize<Dictionary<string, object>>(jobAttrsStr) ?? new Dictionary<string, object>();
+                plan.JobAttributes = DeserializeDictionaryWithPrimitives(jobAttrsStr);
             }
 
             return plan;
@@ -2103,6 +2104,78 @@ namespace WebVellaErp.Workflow.Services
             if (item.TryGetValue(key, out var attr) && attr.S != null && !attr.NULL)
                 return attr.S;
             return string.Empty;
+        }
+
+        /// <summary>
+        /// Retrieves a nullable string attribute from a DynamoDB item.
+        /// Returns <c>null</c> when the attribute is missing, marked NULL, or has a null S value.
+        /// Used for Workflow model properties typed as <c>string?</c> (ErrorMessage, TypeName, etc.).
+        /// </summary>
+        private static string? GetNullableStringAttribute(Dictionary<string, AttributeValue> item, string key)
+        {
+            if (item.TryGetValue(key, out var attr) && attr.S != null && !attr.NULL)
+                return attr.S;
+            return null;
+        }
+
+        /// <summary>
+        /// Deserializes a JSON string into <c>Dictionary&lt;string, object&gt;</c> with proper CLR types.
+        /// <see cref="JsonSerializer.Deserialize{T}"/> for <c>Dictionary&lt;string, object&gt;</c> yields
+        /// <see cref="JsonElement"/> values, which fail FluentAssertions equivalence checks against
+        /// primitive CLR types. This method resolves <see cref="JsonElement"/> values to <c>string</c>,
+        /// <c>long</c>/<c>double</c>, <c>bool</c>, or <c>null</c>.
+        /// </summary>
+        private static Dictionary<string, object> DeserializeDictionaryWithPrimitives(string json)
+        {
+            var raw = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+            if (raw == null)
+                return new Dictionary<string, object>();
+
+            var result = new Dictionary<string, object>(raw.Count);
+            foreach (var kvp in raw)
+            {
+                result[kvp.Key] = ConvertJsonElement(kvp.Value);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Converts a <see cref="JsonElement"/> to the most appropriate CLR primitive type.
+        /// </summary>
+        private static object ConvertJsonElement(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    return element.GetString()!;
+                case JsonValueKind.Number:
+                    if (element.TryGetInt64(out var longVal))
+                        return longVal;
+                    return element.GetDouble();
+                case JsonValueKind.True:
+                    return true;
+                case JsonValueKind.False:
+                    return false;
+                case JsonValueKind.Null:
+                case JsonValueKind.Undefined:
+                    return null!;
+                case JsonValueKind.Array:
+                {
+                    var list = new List<object>();
+                    foreach (var item in element.EnumerateArray())
+                        list.Add(ConvertJsonElement(item));
+                    return list;
+                }
+                case JsonValueKind.Object:
+                {
+                    var dict = new Dictionary<string, object>();
+                    foreach (var prop in element.EnumerateObject())
+                        dict[prop.Name] = ConvertJsonElement(prop.Value);
+                    return dict;
+                }
+                default:
+                    return element.GetRawText();
+            }
         }
 
         private static Guid GetGuidAttribute(Dictionary<string, AttributeValue> item, string key)

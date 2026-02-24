@@ -56,6 +56,9 @@ services:
     environment:
       # --- Authentication ---
       - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:-}
+      # --- Pro Feature Toggle ---
+      # Set to 0 to use community edition when no auth token is available
+      - ACTIVATE_PRO=${ACTIVATE_PRO:-0}
 
       # --- Debug & Logging ---
       - DEBUG=${DEBUG:-0}
