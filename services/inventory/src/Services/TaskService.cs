@@ -30,6 +30,7 @@ namespace WebVellaErp.Inventory.Services
         Task StopTaskTimelogAsync(Guid taskId);
         Task SetStatusAsync(Guid taskId, Guid statusId);
         Task<List<Models.Task>> GetTasksThatNeedStartingAsync();
+        Task<Models.Task> CreateTaskAsync(Models.Task task);
 
         // ── Task Lifecycle Hook Operations ──
         Task<Models.Task> PrepopulateNewTaskAsync(Guid currentUserId, Guid? projectIdFromQuery);
@@ -37,6 +38,8 @@ namespace WebVellaErp.Inventory.Services
         Task PostCreateTaskAsync(Models.Task record, Guid currentUserId);
         Task PreUpdateTaskAsync(Models.Task record, Guid currentUserId, List<string> errors);
         Task PostUpdateTaskAsync(Models.Task record, Guid currentUserId);
+        Task AddWatcherAsync(Guid taskId, Guid userId);
+        Task RemoveWatcherAsync(Guid taskId, Guid userId);
 
         // ── Timelog Operations ──
         Task CreateTimelogAsync(Guid? id, Guid? createdBy, DateTime? createdOn, DateTime? loggedOn, int minutes, bool isBillable, string body, List<string> scope, List<Guid> relatedRecords);
@@ -361,6 +364,31 @@ namespace WebVellaErp.Inventory.Services
             return tasksToStart;
         }
 
+        /// <inheritdoc />
+        /// <summary>
+        /// Creates a new task record by delegating to the repository.
+        /// This is the raw persistence operation — callers should invoke
+        /// ValidateTaskCreation() before and PostCreateTaskAsync() after.
+        /// </summary>
+        public async Task<Models.Task> CreateTaskAsync(Models.Task task)
+        {
+            if (task == null) throw new ArgumentNullException(nameof(task));
+            _logger.LogInformation("Creating task {TaskId} with subject '{Subject}'", task.Id, task.Subject);
+
+            if (task.Id == Guid.Empty)
+            {
+                task.Id = Guid.NewGuid();
+            }
+            if (task.CreatedOn == default)
+            {
+                task.CreatedOn = DateTime.UtcNow;
+            }
+
+            var created = await _repository.CreateTaskAsync(task);
+            _logger.LogInformation("Task {TaskId} created successfully", created.Id);
+            return created;
+        }
+
         // ═══════════════════════════════════════════════════════════════════════
         //  TASK LIFECYCLE HOOK OPERATIONS
         // ═══════════════════════════════════════════════════════════════════════
@@ -602,6 +630,28 @@ namespace WebVellaErp.Inventory.Services
                 updatedBy = currentUserId,
                 timestamp = DateTime.UtcNow
             });
+        }
+
+        /// <inheritdoc />
+        /// <summary>
+        /// Adds a user as a watcher on a task by delegating to the repository.
+        /// Replaces monolith RecordManager.CreateRelationManyToManyRecord(watchRelation.Id, userId, taskId).
+        /// </summary>
+        public async Task AddWatcherAsync(Guid taskId, Guid userId)
+        {
+            _logger.LogInformation("Adding watcher {UserId} to task {TaskId}", userId, taskId);
+            await _repository.AddTaskWatcherAsync(taskId, userId);
+        }
+
+        /// <inheritdoc />
+        /// <summary>
+        /// Removes a user from the watcher list on a task by delegating to the repository.
+        /// Replaces monolith RecordManager.RemoveRelationManyToManyRecord(watchRelation.Id, userId, taskId).
+        /// </summary>
+        public async Task RemoveWatcherAsync(Guid taskId, Guid userId)
+        {
+            _logger.LogInformation("Removing watcher {UserId} from task {TaskId}", userId, taskId);
+            await _repository.RemoveTaskWatcherAsync(taskId, userId);
         }
 
         // ═══════════════════════════════════════════════════════════════════════
