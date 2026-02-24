@@ -1685,6 +1685,19 @@ namespace WebVellaErp.Workflow.Services
                             await UpdateWorkflowAsync(workflow).ConfigureAwait(false);
                             await PublishWorkflowEventAsync("started", workflow).ConfigureAwait(false);
                         }
+                        else
+                        {
+                            // Step Functions execution failed to start (exception was caught internally)
+                            _logger.LogWarning(
+                                "Step Functions execution failed to start for workflow {WorkflowId} (type '{TypeName}'). Marking as Failed.",
+                                workflow.Id, workflow.TypeName);
+
+                            workflow.Status = WorkflowStatus.Failed;
+                            workflow.ErrorMessage = "Step Functions execution failed to start.";
+                            workflow.FinishedOn = DateTime.UtcNow;
+                            await UpdateWorkflowAsync(workflow).ConfigureAwait(false);
+                            await PublishWorkflowEventAsync("failed", workflow).ConfigureAwait(false);
+                        }
                     }
                     catch (Exception ex)
                     {
