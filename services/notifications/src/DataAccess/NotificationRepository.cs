@@ -802,7 +802,7 @@ namespace WebVellaErp.Notifications.DataAccess
                     ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                     {
                         [":entityType"] = new AttributeValue { S = ENTITY_TYPE_WEBHOOK },
-                        [":channel"] = new AttributeValue { S = channel },
+                        [":channel"] = new AttributeValue { S = channel.ToLowerInvariant() },
                         [":enabled"] = new AttributeValue { BOOL = true }
                     }
                 };
@@ -1140,7 +1140,7 @@ namespace WebVellaErp.Notifications.DataAccess
                 // Domain attributes (all 7 properties from WebhookConfig model)
                 ["id"] = new AttributeValue { S = config.Id.ToString() },
                 ["endpoint_url"] = new AttributeValue { S = config.EndpointUrl ?? string.Empty },
-                ["channel"] = new AttributeValue { S = config.Channel ?? string.Empty },
+                ["channel"] = new AttributeValue { S = config.Channel?.ToLowerInvariant() ?? string.Empty },
                 ["max_retries"] = new AttributeValue { N = config.MaxRetries.ToString() },
                 ["retry_interval_seconds"] = new AttributeValue { N = config.RetryIntervalSeconds.ToString() },
                 ["is_enabled"] = new AttributeValue { BOOL = config.IsEnabled },
