@@ -74,6 +74,11 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!-- Allow test project to access internal members (test-friendly constructor) -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebVellaErp.Workflow.Tests" />
+  </ItemGroup>
+
   <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer.
        Provides IServiceCollection, IApplicationBuilder, IWebHostBuilder, ILogger,
        IConfiguration, and the full ASP.NET Core middleware pipeline.
@@ -92,6 +97,11 @@
     <!-- Lambda runtime interface: ILambdaContext, LambdaSerializerAttribute.
          Required for all .NET Lambda function handlers. -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+
+    <!-- SQS event types — provides SQSEvent and SQSEvent.SQSMessage used by
+         WorkflowHandler.HandleScheduleEvent for EventBridge/SQS-triggered
+         schedule and workflow processing. -->
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.0" />
 
     <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
          DefaultLambdaJsonSerializer and SourceGeneratorLambdaJsonSerializer preferred
