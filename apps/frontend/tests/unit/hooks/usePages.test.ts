@@ -84,7 +84,7 @@ const mockPage: ErpPage = {
   id: 'a1000000-0000-0000-0000-000000000001',
   weight: 1,
   label: 'Contacts',
-  labelTranslations: {},
+  labelTranslations: [],
   name: 'contact-list',
   iconClass: 'fa fa-address-book',
   system: false,
@@ -94,8 +94,8 @@ const mockPage: ErpPage = {
   areaId: 'd1000000-0000-0000-0000-000000000001',
   nodeId: 'e1000000-0000-0000-0000-000000000001',
   isRazorBody: false,
-  razorBody: null,
-  layout: null,
+  razorBody: '',
+  layout: '',
   body: [],
 };
 
@@ -103,7 +103,7 @@ const mockSecondPage: ErpPage = {
   id: 'a2000000-0000-0000-0000-000000000002',
   weight: 2,
   label: 'Accounts',
-  labelTranslations: {},
+  labelTranslations: [],
   name: 'account-list',
   iconClass: 'fa fa-building',
   system: false,
@@ -113,8 +113,8 @@ const mockSecondPage: ErpPage = {
   areaId: 'd1000000-0000-0000-0000-000000000001',
   nodeId: 'e2000000-0000-0000-0000-000000000002',
   isRazorBody: false,
-  razorBody: null,
-  layout: null,
+  razorBody: '',
+  layout: '',
   body: [],
 };
 
@@ -122,7 +122,7 @@ const mockHomePage: ErpPage = {
   id: 'a3000000-0000-0000-0000-000000000003',
   weight: 0,
   label: 'Home',
-  labelTranslations: {},
+  labelTranslations: [],
   name: 'home',
   iconClass: 'fa fa-home',
   system: true,
@@ -132,8 +132,8 @@ const mockHomePage: ErpPage = {
   areaId: null,
   nodeId: null,
   isRazorBody: false,
-  razorBody: null,
-  layout: null,
+  razorBody: '',
+  layout: '',
   body: [],
 };
 
@@ -1054,7 +1054,7 @@ describe('useCreateBodyNode', () => {
     await act(async () => {
       result.current.mutate({
         pageId: mockPage.id,
-        parentId: null,
+        parentId: undefined,
         containerId: 'content',
         componentName: 'PcGrid',
         weight: 1,
@@ -1264,7 +1264,7 @@ describe('useMoveBodyNode', () => {
       result.current.mutate({
         pageId: mockPage.id,
         nodeId: mockChildNode.id,
-        newParentId: null,
+        newParentId: undefined,
         newContainerId: 'content',
         newWeight: 1,
       });
