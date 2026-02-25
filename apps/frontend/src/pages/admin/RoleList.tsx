@@ -37,6 +37,12 @@ import type { ErpRole } from '../../types/user';
 import { DataTable } from '../../components/data-table/DataTable';
 import type { DataTableColumn } from '../../components/data-table/DataTable';
 
+/**
+ * Type alias adding an index signature so that `RoleRecord` satisfies the
+ * `Record<string, unknown>` constraint required by `DataTable<T>`.
+ */
+type RoleRecord = ErpRole & { [key: string]: unknown };
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -183,7 +189,7 @@ function RoleList(): React.ReactElement {
   const { data, isLoading, isError } = useRoles();
 
   // Extract the role array from the API response envelope
-  const roles: ErpRole[] = data?.object ?? [];
+  const roles: RoleRecord[] = (data?.object ?? []) as RoleRecord[];
 
   // Total count for DataTable pagination
   // Mirrors: Model.TotalCount = Records.TotalCount (list.cshtml.cs line 82)
@@ -198,13 +204,13 @@ function RoleList(): React.ReactElement {
    *   2. name  — 200px width, "name" label
    *   3. description — auto width, "description" label
    */
-  const columns = useMemo<DataTableColumn<ErpRole>[]>(
+  const columns = useMemo<DataTableColumn<RoleRecord>[]>(
     () => [
       {
         id: 'action',
         label: '',
         width: '1%',
-        cell: (_value: unknown, record: ErpRole) => {
+        cell: (_value: unknown, record: RoleRecord) => {
           if (isBuiltInRole(record.name)) {
             // Built-in role — show disabled lock button
             // Mirrors: list.cshtml lines 21–23
@@ -299,7 +305,7 @@ function RoleList(): React.ReactElement {
        * bordered=true, hover=true match monolith flags.
        * emptyText="No roles found" matches the monolith's empty alert.
        * ──────────────────────────────────────────────────────────── */}
-      <DataTable<ErpRole>
+      <DataTable<RoleRecord>
         data={roles}
         columns={columns}
         bordered={true}
