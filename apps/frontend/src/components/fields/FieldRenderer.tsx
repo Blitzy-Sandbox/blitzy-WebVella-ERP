@@ -183,9 +183,13 @@ export interface FieldRendererProps extends BaseFieldProps {
  * GeographyField (21) renders as TextField since geography data is displayed
  * as text in the UI layer.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Field components
+// have domain-specific prop interfaces extending BaseFieldProps with narrower
+// value/onChange types. The map stores them generically; FieldRenderer ensures
+// correct props are passed at render time.
 const FIELD_COMPONENT_MAP: Record<
   number,
-  React.LazyExoticComponent<React.ComponentType<BaseFieldProps>>
+  React.LazyExoticComponent<React.ComponentType<any>>
 > = {
   [FieldType.AutoNumberField as number]: lazy(
     () => import('./AutonumberField')
