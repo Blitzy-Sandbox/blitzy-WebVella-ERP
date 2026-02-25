@@ -237,7 +237,7 @@ const FIELD_COMPONENT_MAP: Record<
   ),
   [FieldType.SelectField as number]: lazy(
     () => import('./SelectField')
-  ),
+  ) as React.LazyExoticComponent<React.ComponentType<BaseFieldProps>>,
   [FieldType.TextField as number]: lazy(
     () => import('./TextField')
   ),
