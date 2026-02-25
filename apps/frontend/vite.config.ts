@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
 /**
@@ -64,7 +65,7 @@ export default defineConfig({
    *    @webvella-erp/shared-utils, @webvella-erp/shared-cdk-constructs).
    *    Required for cross-library imports in the Nx monorepo.
    */
-  plugins: [react() as never, nxViteTsPaths() as never],
+  plugins: [react() as never, tailwindcss() as never, nxViteTsPaths() as never],
 
   /**
    * Production build configuration.
