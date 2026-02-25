@@ -180,7 +180,7 @@ function createSuccessResponse<T>(object: T): {
   errors: BaseResponseModel['errors'];
   message: BaseResponseModel['message'];
   timestamp: BaseResponseModel['timestamp'];
-  hash: BaseResponseModel['hash'];
+  hash: string | undefined;
   object: T;
   statusCode: number;
 } {
