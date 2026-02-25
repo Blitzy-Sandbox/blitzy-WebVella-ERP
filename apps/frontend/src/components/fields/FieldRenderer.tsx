@@ -212,8 +212,8 @@ const FIELD_COMPONENT_MAP: Record<
     () => import('./HtmlField')
   ),
   [FieldType.ImageField as number]: lazy(
-    () => import('./ImageField')
-  ),
+    () => import('./ImageField'),
+  ) as React.LazyExoticComponent<React.ComponentType<BaseFieldProps>>,
   [FieldType.MultiLineTextField as number]: lazy(
     () => import('./TextareaField')
   ),
