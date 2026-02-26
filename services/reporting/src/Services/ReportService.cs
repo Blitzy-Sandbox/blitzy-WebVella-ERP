@@ -1480,7 +1480,9 @@ namespace WebVellaErp.Reporting.Services
                     continue;
 
                 // Split by comma (source line 307: .Split(",", ...))
-                var parts = line.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                // Use StringSplitOptions.None to preserve empty values between commas
+                // e.g., "userId,guid,,true" must produce ["userId","guid","","true"] (4 parts)
+                var parts = line.Split(',', StringSplitOptions.None);
 
                 // Validate part count (source lines 308-309)
                 if (parts.Length < 3 || parts.Length > 4)
@@ -1555,7 +1557,7 @@ namespace WebVellaErp.Reporting.Services
         /// Replaces <c>EqlBuilder.Build()</c> validation logic (source lines 136-148, 207-228).
         /// Validates SQL syntax using PostgreSQL EXPLAIN command.
         /// </remarks>
-        public async Task ValidateReportQueryAsync(
+        public virtual async Task ValidateReportQueryAsync(
             string sqlQuery, List<ReportParameter>? parameters,
             CancellationToken cancellationToken = default)
         {
