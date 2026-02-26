@@ -9,6 +9,9 @@ import {
 import type { SchedulePlan } from '../../hooks/useWorkflows';
 import { DataTable } from '../../components/data-table/DataTable';
 import type { DataTableColumn } from '../../components/data-table/DataTable';
+
+/** Extended SchedulePlan with index signature for DataTable<T extends Record<string, unknown>> */
+type SchedulePlanRow = SchedulePlan & { [key: string]: unknown };
 import Drawer from '../../components/common/Drawer';
 import Modal, { ModalSize } from '../../components/common/Modal';
 import TabNav from '../../components/common/TabNav';
@@ -330,14 +333,17 @@ export default function SchedulePlanList(): ReactNode {
 
   /* ── Filtered data ────────────────────────────────────────── */
   const filteredPlans = useMemo(() => {
-    const items = schedulePlansData?.items ?? [];
+    const responseObj = (schedulePlansData as unknown as Record<string, unknown>)?.object;
+    const items: SchedulePlanRow[] = Array.isArray((responseObj as Record<string, unknown>)?.items)
+      ? ((responseObj as Record<string, unknown>).items as SchedulePlanRow[])
+      : [];
     if (!nameFilter.trim()) return items;
     const lower = nameFilter.toLowerCase();
-    return items.filter((plan) => (plan.name ?? '').toLowerCase().includes(lower));
+    return items.filter((plan: SchedulePlanRow) => (plan.name ?? '').toLowerCase().includes(lower));
   }, [schedulePlansData, nameFilter]);
 
   /* ── DataTable column definitions (6 columns matching source) */
-  const columns: DataTableColumn<SchedulePlan>[] = useMemo(
+  const columns: DataTableColumn<SchedulePlanRow>[] = useMemo(
     () => [
       {
         id: 'actions',
@@ -527,7 +533,7 @@ export default function SchedulePlanList(): ReactNode {
       )}
 
       {/* Data table */}
-      <DataTable<SchedulePlan>
+      <DataTable<SchedulePlanRow>
         data={filteredPlans}
         columns={columns}
         totalCount={filteredPlans.length}
