@@ -113,7 +113,10 @@ namespace WebVellaErp.Reporting.Tests.Integration
             // Step 1: Generate unique database name
             // PostgreSQL limits identifiers to 63 chars (matching EntityManager.cs validation).
             // Using Guid.NewGuid() hex format ensures globally unique names across parallel test runs.
-            _databaseName = $"reporting_test_{Guid.NewGuid():N}".Substring(0, MaxIdentifierLength);
+            var rawName = $"reporting_test_{Guid.NewGuid():N}";
+            _databaseName = rawName.Length > MaxIdentifierLength
+                ? rawName.Substring(0, MaxIdentifierLength)
+                : rawName;
 
             // Step 2: Build master connection string for admin operations (CREATE/DROP DATABASE)
             _masterConnectionString = BuildConnectionString(MasterDatabase);
