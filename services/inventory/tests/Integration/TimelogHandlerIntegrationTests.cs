@@ -36,7 +36,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
     /// <see cref="APIGatewayHttpApiV2ProxyRequest"/>, and verifies both the HTTP
     /// response and the resulting DynamoDB state via direct SDK queries.
     /// </summary>
-    public class TimelogHandlerIntegrationTests : IClassFixture<LocalStackFixture>
+    [Collection("LocalStack")]
+    public class TimelogHandlerIntegrationTests
     {
         // ═══════════════════════════════════════════════════════════════════════
         //  FIELDS & CONSTRUCTOR

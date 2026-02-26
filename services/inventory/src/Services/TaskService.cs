@@ -476,10 +476,13 @@ namespace WebVellaErp.Inventory.Services
         {
             _logger.LogInformation("Post-create processing for task {TaskId} by user {UserId}", record.Id, currentUserId);
 
-            // Step 1: Persist the task record via repository (source: RecordManager.CreateRecord)
+            // Step 1: Update audit fields on the already-persisted task (source: RecordManager.CreateRecord)
+            // Note: The task was already created by CreateTaskAsync in the handler.
+            // PostCreateTaskAsync runs post-creation hooks (watchers, feed, SNS) and updates audit fields.
             record.CreatedBy = currentUserId;
             record.CreatedOn = record.CreatedOn == default ? DateTime.UtcNow : record.CreatedOn;
-            var createdTask = await _repository.CreateTaskAsync(record);
+            await _repository.UpdateTaskAsync(record);
+            var createdTask = record;
 
             try
             {

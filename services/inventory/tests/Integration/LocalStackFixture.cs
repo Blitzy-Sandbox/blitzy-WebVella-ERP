@@ -19,6 +19,19 @@ using Xunit;
 namespace WebVellaErp.Inventory.Tests.Integration
 {
     /// <summary>
+    /// xUnit collection definition that shares a single <see cref="LocalStackFixture"/>
+    /// instance across all test classes decorated with <c>[Collection("LocalStack")]</c>.
+    /// This prevents parallel fixture initialization which would cause DynamoDB table
+    /// creation race conditions (both classes targeting the same "inventory-table-test" table).
+    /// Tests within this collection run sequentially, ensuring clean resource lifecycle.
+    /// </summary>
+    [CollectionDefinition("LocalStack")]
+    public class LocalStackCollection : ICollectionFixture<LocalStackFixture>
+    {
+        // This class has no code — it only serves as the anchor for the CollectionDefinition attribute.
+    }
+
+    /// <summary>
     /// Shared xUnit <see cref="IAsyncLifetime"/> fixture class that initializes the
     /// LocalStack-backed test infrastructure for all Inventory service integration tests.
     ///
