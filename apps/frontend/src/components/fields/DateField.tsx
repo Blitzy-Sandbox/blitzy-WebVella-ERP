@@ -107,26 +107,48 @@ function normalizeToBcp47(locale: string): string {
  * - **Edit mode** — Renders a native `<input type="date">` with Tailwind
  *   styling. Accepts and emits ISO date strings ("YYYY-MM-DD").
  *
- * The FieldRenderer parent component handles label rendering, access
- * control, visibility toggling, error display, and description text.
- * DateField is responsible only for the inner field content.
+ * The component self-manages visibility (isVisible), access control
+ * (full / readonly / forbidden), and error styling. The FieldRenderer
+ * parent handles label rendering, description text, and field type
+ * dispatch.
  */
-function DateField(props: DateFieldProps): React.JSX.Element {
+function DateField(props: DateFieldProps): React.JSX.Element | null {
   const {
     name,
     fieldId,
     value,
     onChange,
     mode = 'edit',
+    access = 'full',
     required = false,
     disabled = false,
     error,
     className,
     placeholder,
     emptyValueMessage = 'no data',
+    accessDeniedMessage = 'access denied',
+    isVisible = true,
     locale,
     useCurrentTimeAsDefault = false,
   } = props;
+
+  /* ── Visibility guard ── render nothing when the field is hidden */
+  if (!isVisible) {
+    return null;
+  }
+
+  /* ── Access guard ── forbidden access renders a deny message instead of the field */
+  if (access === 'forbidden') {
+    return (
+      <span role="alert" className="text-sm text-red-600 italic">
+        {accessDeniedMessage}
+      </span>
+    );
+  }
+
+  /* Derive effective disabled state: readonly access forces the input disabled */
+  const isReadonly = access === 'readonly';
+  const effectiveDisabled = disabled || isReadonly;
 
   /*
    * Track whether the default-today behaviour has been consumed.
@@ -276,7 +298,7 @@ function DateField(props: DateFieldProps): React.JSX.Element {
       value={effectiveValue ?? ''}
       onChange={handleChange}
       placeholder={placeholder}
-      disabled={disabled}
+      disabled={effectiveDisabled}
       required={required}
       className={inputClasses}
       aria-invalid={error ? true : undefined}
