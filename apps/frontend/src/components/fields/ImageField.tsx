@@ -105,16 +105,16 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
     label,
     labelMode: _labelMode,
     mode = 'display',
-    access: _access,
+    access = 'full',
     required = false,
     disabled = false,
     error,
     className,
     placeholder,
     description: _description,
-    isVisible: _isVisible,
+    isVisible = true,
     emptyValueMessage = 'no data',
-    accessDeniedMessage: _accessDeniedMessage,
+    accessDeniedMessage = 'access denied',
     locale: _locale,
   } = props;
 
@@ -319,10 +319,50 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
   }, []);
 
   /* ================================================================ */
+  /*  Visibility and Access Control Guards                              */
+  /* ================================================================ */
+
+  // Phase 1: Visibility check — render nothing when hidden
+  if (!isVisible) {
+    return <></>;
+  }
+
+  // Phase 2: Access control — forbidden renders lock message
+  if (access === 'forbidden') {
+    return (
+      <div className={className}>
+        <div
+          className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400"
+          role="status"
+          aria-label="Access denied"
+        >
+          <svg
+            className="h-4 w-4 shrink-0"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <span>{accessDeniedMessage}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Phase 3: Compute effective disabled and mode from access level
+  const effectiveDisabled = disabled || access === 'readonly';
+  const effectiveMode = access === 'readonly' ? 'display' : mode;
+
+  /* ================================================================ */
   /*  Render — DISPLAY MODE                                            */
   /* ================================================================ */
 
-  if (mode === 'display') {
+  if (effectiveMode === 'display') {
     // No image value
     if (!value && !previewUrl) {
       return (
@@ -378,7 +418,7 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
 
   const hasImage = Boolean(imageSrc) && !imageBroken;
   const isUploading = uploadState === 'uploading';
-  const effectiveDisabled = disabled || isUploading;
+  const editDisabled = effectiveDisabled || isUploading;
 
   return (
     <div className={className ?? ''} data-field-name={name}>
@@ -390,7 +430,7 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
         name={name}
         accept={accept}
         onChange={handleInputChange}
-        disabled={effectiveDisabled}
+        disabled={editDisabled}
         className="sr-only"
         aria-label={label ?? placeholder ?? `Select image for ${name}`}
         required={required && !value}
@@ -413,12 +453,12 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
             />
           </div>
 
-          {!effectiveDisabled && (
+          {!editDisabled && (
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleSelectClick}
-                disabled={effectiveDisabled}
+                disabled={editDisabled}
                 className="inline-flex items-center rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Change
@@ -426,7 +466,7 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
               <button
                 type="button"
                 onClick={handleRemove}
-                disabled={effectiveDisabled}
+                disabled={editDisabled}
                 className="inline-flex items-center rounded-md bg-white px-3 py-1.5 text-sm font-medium text-red-600 shadow-sm ring-1 ring-inset ring-red-300 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Remove
@@ -447,23 +487,23 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
               : error
                 ? 'border-red-300 bg-red-50'
                 : 'border-gray-300 bg-gray-50',
-            effectiveDisabled
+            editDisabled
               ? 'cursor-not-allowed opacity-60'
               : 'cursor-pointer hover:border-gray-400',
           ]
             .filter(Boolean)
             .join(' ')}
           role="button"
-          tabIndex={effectiveDisabled ? -1 : 0}
-          onClick={effectiveDisabled ? undefined : handleSelectClick}
+          tabIndex={editDisabled ? -1 : 0}
+          onClick={editDisabled ? undefined : handleSelectClick}
           onKeyDown={(e: React.KeyboardEvent) => {
-            if (!effectiveDisabled && (e.key === 'Enter' || e.key === ' ')) {
+            if (!editDisabled && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault();
               handleSelectClick();
             }
           }}
           aria-label={placeholder ?? `Select or drop an image for ${name}`}
-          aria-disabled={effectiveDisabled || undefined}
+          aria-disabled={editDisabled || undefined}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? `${name}-error` : undefined}
         >
@@ -500,10 +540,17 @@ function ImageField(props: ImageFieldProps): React.JSX.Element {
         </div>
       )}
 
-      {/* Upload error */}
+      {/* Upload error from upload process */}
       {uploadError && (
         <p className="mt-1.5 text-sm text-red-600" role="alert">
           {uploadError}
+        </p>
+      )}
+
+      {/* Validation error from parent form */}
+      {error && (
+        <p className="text-sm text-red-600 mt-1" id={`${name}-error`} role="alert">
+          {error}
         </p>
       )}
     </div>
