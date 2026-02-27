@@ -102,7 +102,7 @@ function formatPhoneForDisplay(phone: string): string {
  * - Full accessibility support (aria-invalid, aria-describedby, aria-label)
  * - Tailwind CSS styling with error, disabled, and readonly state variants
  */
-function PhoneField(props: PhoneFieldProps): React.JSX.Element {
+function PhoneField(props: PhoneFieldProps): React.JSX.Element | null {
   const {
     // Identity
     name,
@@ -131,6 +131,25 @@ function PhoneField(props: PhoneFieldProps): React.JSX.Element {
     label,
     labelMode,
   } = props;
+
+  /* ──────────────────────────────────────────────────────────────────────── */
+  /*  Visibility & Access Guards                                             */
+  /* ──────────────────────────────────────────────────────────────────────── */
+
+  // When the field is hidden, render nothing — consistent with UrlField, PasswordField, etc.
+  if (!isVisible) {
+    return null;
+  }
+
+  // When access is forbidden, render an alert message instead of the field control.
+  // This provides a defense-in-depth layer in addition to FieldRenderer-level checks.
+  if (access === 'forbidden') {
+    return (
+      <span role="alert" data-field-name={name}>
+        {accessDeniedMessage}
+      </span>
+    );
+  }
 
   /**
    * Track whether the input is currently focused.
