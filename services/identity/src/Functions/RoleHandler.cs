@@ -563,6 +563,133 @@ public class RoleHandler
         }
     }
 
+    /// <summary>
+    /// DELETE /v1/roles/{roleId} — Deletes an existing role.
+    /// System roles (Administrator, Regular, Guest) cannot be deleted.
+    /// Replaces the monolith's SecurityManager role deletion logic with system-role protection.
+    /// </summary>
+    public async Task<APIGatewayHttpApiV2ProxyResponse> HandleDeleteRole(
+        APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+    {
+        var correlationId = GetCorrelationId(request);
+        try
+        {
+            _logger.LogInformation(
+                "DeleteRole invoked. CorrelationId={CorrelationId}, RequestId={RequestId}",
+                correlationId, context.AwsRequestId);
+
+            // ── Authentication ──────────────────────────────────────────
+            var caller = ExtractCallerFromContext(request);
+            if (caller == null)
+            {
+                return BuildResponse(401, new
+                {
+                    success = false,
+                    timestamp = DateTime.UtcNow,
+                    message = "Authentication required.",
+                    correlationId
+                });
+            }
+
+            // ── Authorization — admin-only (mirrors SecurityContext permission check) ──
+            if (!_permissionService.HasMetaPermission(caller))
+            {
+                _logger.LogWarning(
+                    "DeleteRole forbidden. UserId={UserId}, CorrelationId={CorrelationId}",
+                    caller.Id, correlationId);
+
+                return BuildResponse(403, new
+                {
+                    success = false,
+                    timestamp = DateTime.UtcNow,
+                    message = "Only administrators can manage roles.",
+                    correlationId
+                });
+            }
+
+            // ── Validate roleId path parameter ──────────────────────────
+            string? roleIdStr = null;
+            request.PathParameters?.TryGetValue("roleId", out roleIdStr);
+
+            if (string.IsNullOrWhiteSpace(roleIdStr) || !Guid.TryParse(roleIdStr, out var roleId))
+            {
+                return BuildResponse(400, new
+                {
+                    success = false,
+                    timestamp = DateTime.UtcNow,
+                    message = "Invalid or missing roleId path parameter.",
+                    correlationId
+                });
+            }
+
+            // ── System role protection — per Definitions.cs lines 15-17 ─
+            if (SystemRoleIds.Contains(roleId))
+            {
+                _logger.LogWarning(
+                    "DeleteRole blocked — system role. RoleId={RoleId}, CorrelationId={CorrelationId}",
+                    roleId, correlationId);
+
+                var errors = new Dictionary<string, string>
+                {
+                    { "roleId", "Cannot delete system role" }
+                };
+                return BuildValidationErrorResponse(errors, correlationId);
+            }
+
+            // ── Verify role exists ──────────────────────────────────────
+            var existingRole = await _userRepository.GetRoleByIdAsync(roleId, CancellationToken.None);
+            if (existingRole == null)
+            {
+                return BuildResponse(404, new
+                {
+                    success = false,
+                    timestamp = DateTime.UtcNow,
+                    message = $"Role with ID '{roleId}' was not found.",
+                    correlationId
+                });
+            }
+
+            // ── Delete the role ─────────────────────────────────────────
+            await _userRepository.DeleteRoleAsync(roleId, CancellationToken.None);
+
+            // ── Publish domain event: identity.role.deleted ─────────────
+            await PublishDomainEventAsync("identity.role.deleted", new
+            {
+                eventType = "identity.role.deleted",
+                roleId = existingRole.Id,
+                name = existingRole.Name,
+                timestamp = DateTime.UtcNow,
+                correlationId
+            }, correlationId);
+
+            _logger.LogInformation(
+                "DeleteRole completed. RoleId={RoleId}, Name={Name}, CorrelationId={CorrelationId}",
+                existingRole.Id, existingRole.Name, correlationId);
+
+            return BuildResponse(200, new
+            {
+                success = true,
+                timestamp = DateTime.UtcNow,
+                message = "Role deleted successfully.",
+                correlationId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "DeleteRole failed. CorrelationId={CorrelationId}, Error={Error}",
+                correlationId, ex.Message);
+
+            return BuildResponse(500, new
+            {
+                success = false,
+                timestamp = DateTime.UtcNow,
+                message = "An internal error occurred while deleting the role.",
+                correlationId
+            });
+        }
+    }
+
     #region Private Helpers
 
     /// <summary>
