@@ -5,9 +5,9 @@
  * Supports edit mode with native HTML number input (min/max/step constraints)
  * and display mode with locale-aware decimal formatting via toLocaleString().
  *
- * This component renders ONLY the input/display content. Label rendering,
- * error display, description, access control, and visibility are handled
- * by the parent FieldRenderer component.
+ * This component handles visibility, access control (full/readonly/forbidden),
+ * error message display, and renders input/display content. Label rendering
+ * and description are handled by the parent FieldRenderer component.
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -203,9 +203,27 @@ function NumberField(props: NumberFieldProps): React.JSX.Element {
   const hasError = Boolean(error);
   const errorId = hasError ? `${name}-error` : undefined;
 
-  // ── Render: Display mode ────────────────────────────────────────────────
+  // ── Render: Visibility gate ──────────────────────────────────────────────
 
-  if (mode === 'display') {
+  if (!isVisible) {
+    return <React.Fragment />;
+  }
+
+  // ── Render: Access denied ─────────────────────────────────────────────
+
+  if (access === 'forbidden') {
+    return (
+      <div className={className}>
+        <span className="text-sm text-gray-500 italic">
+          {accessDeniedMessage}
+        </span>
+      </div>
+    );
+  }
+
+  // ── Render: Display / Read-only mode ──────────────────────────────────
+
+  if (mode === 'display' || access === 'readonly') {
     if (formattedDisplayValue === null) {
       return (
         <span className={`${DISPLAY_EMPTY_CLASSES}${className ? ` ${className}` : ''}`}>
@@ -232,22 +250,31 @@ function NumberField(props: NumberFieldProps): React.JSX.Element {
     .join(' ');
 
   return (
-    <input
-      type="number"
-      id={controlId}
-      name={name}
-      value={effectiveInputValue}
-      onChange={handleChange}
-      placeholder={placeholder}
-      disabled={disabled}
-      required={required}
-      aria-invalid={hasError || undefined}
-      aria-describedby={errorId}
-      {...(min !== null && min !== undefined ? { min } : {})}
-      {...(max !== null && max !== undefined ? { max } : {})}
-      {...(step !== null && step !== undefined ? { step } : {})}
-      className={inputClasses}
-    />
+    <>
+      <input
+        type="number"
+        id={controlId}
+        name={name}
+        value={effectiveInputValue}
+        onChange={handleChange}
+        placeholder={placeholder}
+        disabled={disabled}
+        required={required}
+        aria-invalid={hasError || undefined}
+        aria-describedby={errorId}
+        {...(min !== null && min !== undefined ? { min } : {})}
+        {...(max !== null && max !== undefined ? { max } : {})}
+        {...(step !== null && step !== undefined ? { step } : {})}
+        className={inputClasses}
+      />
+
+      {/* Error message rendered as accessible alert */}
+      {hasError && (
+        <p id={errorId} className="mt-1 text-xs text-red-600" role="alert">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
 
