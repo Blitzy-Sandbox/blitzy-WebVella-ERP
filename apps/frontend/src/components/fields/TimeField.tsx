@@ -157,6 +157,25 @@ function TimeField(props: TimeFieldProps): React.JSX.Element {
     labelMode,
   } = props;
 
+  /* ──────────────────────────────────────────────────────────────────────── */
+  /*  Visibility & Access Guards                                             */
+  /* ──────────────────────────────────────────────────────────────────────── */
+
+  // When the field is hidden, render nothing — consistent with EmailField, PhoneField, etc.
+  if (!isVisible) {
+    return null as unknown as React.JSX.Element;
+  }
+
+  // When access is forbidden, render an alert message instead of the field control.
+  // This provides a defense-in-depth layer in addition to FieldRenderer-level checks.
+  if (access === 'forbidden') {
+    return (
+      <span role="alert" data-field-name={name}>
+        {accessDeniedMessage}
+      </span>
+    );
+  }
+
   // Compute a stable field ID for accessibility linking
   const fieldId = props.fieldId ?? `field-${name}`;
 
