@@ -80,7 +80,11 @@ vi.mock('../../../src/api/client', () => ({
  */
 function createDefaultProps(
   overrides: Partial<FileFieldProps> = {},
-): FileFieldProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FileField
+  // accepts BaseFieldProps at the type level (for FieldRenderer compatibility)
+  // then internally casts to FileFieldProps. Use `any` so the narrower
+  // onChange signature doesn't conflict with BaseFieldProps.onChange.
+): any {
   return {
     name: 'test_file',
     value: null,
