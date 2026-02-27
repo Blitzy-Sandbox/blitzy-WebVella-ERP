@@ -104,7 +104,7 @@ function currentIsoDatetime(): string {
  * DateTimeField renders a date-time picker in edit mode and a formatted
  * localized datetime string in display mode.
  */
-function DateTimeField(props: DateTimeFieldProps): React.JSX.Element {
+function DateTimeField(props: DateTimeFieldProps): React.JSX.Element | null {
   const {
     name,
     fieldId,
@@ -118,7 +118,7 @@ function DateTimeField(props: DateTimeFieldProps): React.JSX.Element {
     className,
     placeholder,
     description,
-    isVisible,
+    isVisible = true,
     emptyValueMessage = 'no data',
     accessDeniedMessage = 'access denied',
     locale,
@@ -132,6 +132,25 @@ function DateTimeField(props: DateTimeFieldProps): React.JSX.Element {
     recordId,
     apiUrl,
   } = props;
+
+  /* --- Visibility guard --- */
+  if (!isVisible) {
+    return null;
+  }
+
+  /* --- Access-denied guard (forbidden access) --- */
+  if (access === 'forbidden') {
+    return (
+      <span
+        role="alert"
+        data-field-name={name}
+        data-field-mode={mode}
+        className="text-sm text-red-600"
+      >
+        {accessDeniedMessage}
+      </span>
+    );
+  }
 
   /* --- useCurrentTimeAsDefault initialisation --- */
   const [defaultApplied, setDefaultApplied] = useState(false);
