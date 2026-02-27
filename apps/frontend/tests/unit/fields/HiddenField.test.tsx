@@ -178,7 +178,7 @@ describe('HiddenField', () => {
       // render normally — only `isVisible === false` suppresses output.
       const props = createDefaultProps();
       // Do not set isVisible — leave it as undefined
-      delete (props as Record<string, unknown>).isVisible;
+      delete (props as unknown as Record<string, unknown>).isVisible;
       const { container } = render(<HiddenField {...props} />);
 
       const input = container.querySelector('input[type="hidden"]');
@@ -453,7 +453,7 @@ describe('HiddenField', () => {
       // even when no onChange callback is provided.
       const props = createDefaultProps({ value: 'no-callback' });
       // Explicitly ensure no onChange
-      delete (props as Record<string, unknown>).onChange;
+      delete (props as unknown as Record<string, unknown>).onChange;
 
       const { container } = render(<HiddenField {...props} />);
 
