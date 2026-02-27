@@ -1210,7 +1210,21 @@ namespace WebVellaErp.Notifications.Functions
                 }
 
                 // Handle default service setup — maps to source line 22
-                await _smtpService.HandleDefaultServiceSetupAsync(config, ct);
+                var defaultErrors = await _smtpService.HandleDefaultServiceSetupAsync(config, ct);
+                if (defaultErrors.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "EmailHandler.HandleCreateSmtpServiceAsync: Default service validation failed. " +
+                        "ErrorCount={ErrorCount}, CorrelationId={CorrelationId}",
+                        defaultErrors.Count, correlationId);
+
+                    return BuildResponse(400, new EmailHandlerResponse
+                    {
+                        Success = false,
+                        Message = "Validation failed.",
+                        Errors = defaultErrors
+                    }, correlationId);
+                }
 
                 // Persist the new SMTP service config
                 await _repository.SaveSmtpServiceAsync(config, ct);
@@ -1320,7 +1334,21 @@ namespace WebVellaErp.Notifications.Functions
                 }
 
                 // Handle default service setup — maps to source line 30
-                await _smtpService.HandleDefaultServiceSetupAsync(config, ct);
+                var defaultErrors = await _smtpService.HandleDefaultServiceSetupAsync(config, ct);
+                if (defaultErrors.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "EmailHandler.HandleUpdateSmtpServiceAsync: Default service validation failed. " +
+                        "ErrorCount={ErrorCount}, CorrelationId={CorrelationId}",
+                        defaultErrors.Count, correlationId);
+
+                    return BuildResponse(400, new EmailHandlerResponse
+                    {
+                        Success = false,
+                        Message = "Validation failed.",
+                        Errors = defaultErrors
+                    }, correlationId);
+                }
 
                 // Persist the updated SMTP service config
                 await _repository.SaveSmtpServiceAsync(config, ct);
