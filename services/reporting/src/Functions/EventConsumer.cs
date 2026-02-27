@@ -418,11 +418,8 @@ public class EventConsumer
         var connectionString = await GetConnectionStringAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var (connection, transaction) = await CreateDatabaseScopeAsync(
+            connectionString, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug(
             "EventConsumer: Transaction started for EventId={EventId}",
@@ -499,8 +496,11 @@ public class EventConsumer
                 .ConfigureAwait(false);
 
             // 9. Commit the ACID transaction
-            await transaction.CommitAsync(cancellationToken)
-                .ConfigureAwait(false);
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             _logger.LogDebug(
                 "EventConsumer: Transaction committed for EventId={EventId}",
@@ -516,20 +516,29 @@ public class EventConsumer
                 "EventConsumer: Rolling back transaction for EventId={EventId}",
                 domainEvent.EventId);
 
-            try
+            if (transaction != null)
             {
-                await transaction.RollbackAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception rollbackEx)
-            {
-                _logger.LogError(
-                    rollbackEx,
-                    "EventConsumer: Rollback failed for EventId={EventId}",
-                    domainEvent.EventId);
+                try
+                {
+                    await transaction.RollbackAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(
+                        rollbackEx,
+                        "EventConsumer: Rollback failed for EventId={EventId}",
+                        domainEvent.EventId);
+                }
             }
 
             throw; // Propagate so HandleSqsEvent records BatchItemFailure
+        }
+        finally
+        {
+            // Dispose connection and transaction resources
+            if (transaction != null) await transaction.DisposeAsync();
+            if (connection != null) await connection.DisposeAsync();
         }
     }
 
@@ -637,8 +646,8 @@ public class EventConsumer
     /// </summary>
     private async Task HandleEntityCreatedAsync(
         DomainEvent domainEvent,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation(
@@ -649,7 +658,7 @@ public class EventConsumer
             domainEvent.EventId);
 
         await _projectionService!.ProcessEntityCreatedAsync(
-            domainEvent, connection, transaction, cancellationToken)
+            domainEvent, connection!, transaction!, cancellationToken)
             .ConfigureAwait(false);
 
         _logger.LogInformation(
@@ -668,8 +677,8 @@ public class EventConsumer
     /// </summary>
     private async Task HandleEntityUpdatedAsync(
         DomainEvent domainEvent,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation(
@@ -680,7 +689,7 @@ public class EventConsumer
             domainEvent.EventId);
 
         await _projectionService!.ProcessEntityUpdatedAsync(
-            domainEvent, connection, transaction, cancellationToken)
+            domainEvent, connection!, transaction!, cancellationToken)
             .ConfigureAwait(false);
 
         _logger.LogInformation(
@@ -699,8 +708,8 @@ public class EventConsumer
     /// </summary>
     private async Task HandleEntityDeletedAsync(
         DomainEvent domainEvent,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         var isFinancial = _projectionService!.IsFinancialEntity(
@@ -716,7 +725,7 @@ public class EventConsumer
             isFinancial);
 
         await _projectionService.ProcessEntityDeletedAsync(
-            domainEvent, connection, transaction, cancellationToken)
+            domainEvent, connection!, transaction!, cancellationToken)
             .ConfigureAwait(false);
 
         _logger.LogInformation(
@@ -736,10 +745,10 @@ public class EventConsumer
     /// implements the idempotency guarantee required by the at-least-once
     /// delivery model of SQS (per AAP §0.8.5).
     /// </summary>
-    private static async Task<bool> IsEventAlreadyProcessedAsync(
+    protected virtual async Task<bool> IsEventAlreadyProcessedAsync(
         Guid eventId,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         const string sql =
@@ -759,11 +768,11 @@ public class EventConsumer
     /// <c>reporting.processed_events</c> table using
     /// <c>ON CONFLICT DO NOTHING</c> to handle races gracefully.
     /// </summary>
-    private static async Task RecordProcessedEventAsync(
+    protected virtual async Task RecordProcessedEventAsync(
         Guid eventId,
         string eventType,
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
+        NpgsqlConnection? connection,
+        NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
         const string sql = @"
@@ -778,6 +787,30 @@ public class EventConsumer
 
         await cmd.ExecuteNonQueryAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    // ── Database Scope Factory ────────────────────────────────────────
+
+    /// <summary>
+    /// Creates a new <see cref="NpgsqlConnection"/> and begins a
+    /// transaction for ACID-safe event processing. This method is
+    /// <c>protected virtual</c> so that unit tests can override it
+    /// to return <c>(null, null)</c> — avoiding real database I/O
+    /// while still exercising the full event-routing pipeline via
+    /// mocked <see cref="IProjectionService"/> and
+    /// <see cref="IReportRepository"/> instances.
+    /// </summary>
+    protected virtual async Task<(NpgsqlConnection? Connection, NpgsqlTransaction? Transaction)>
+        CreateDatabaseScopeAsync(
+            string connectionString,
+            CancellationToken cancellationToken)
+    {
+        var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var transaction = await connection
+            .BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return (connection, transaction);
     }
 
     // ── Connection & Service Initialization ───────────────────────────
