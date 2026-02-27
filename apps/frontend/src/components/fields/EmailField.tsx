@@ -68,7 +68,7 @@ export interface EmailFieldProps extends Omit<BaseFieldProps, 'value' | 'onChang
  * @param props — EmailFieldProps
  * @returns The rendered email field element
  */
-function EmailField(props: EmailFieldProps): React.JSX.Element {
+function EmailField(props: EmailFieldProps): React.JSX.Element | null {
   const {
     // Identity
     name,
@@ -97,6 +97,25 @@ function EmailField(props: EmailFieldProps): React.JSX.Element {
     label,
     labelMode,
   } = props;
+
+  /* ──────────────────────────────────────────────────────────────────────── */
+  /*  Visibility & Access Guards                                             */
+  /* ──────────────────────────────────────────────────────────────────────── */
+
+  // When the field is hidden, render nothing — consistent with PhoneField, UrlField, etc.
+  if (!isVisible) {
+    return null;
+  }
+
+  // When access is forbidden, render an alert message instead of the field control.
+  // This provides a defense-in-depth layer in addition to FieldRenderer-level checks.
+  if (access === 'forbidden') {
+    return (
+      <span role="alert" data-field-name={name}>
+        {accessDeniedMessage}
+      </span>
+    );
+  }
 
   /**
    * Track native browser email validation feedback.
