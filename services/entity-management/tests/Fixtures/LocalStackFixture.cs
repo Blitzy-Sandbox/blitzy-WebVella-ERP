@@ -263,12 +263,21 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// Creates the Entity Metadata DynamoDB table with:
         /// - PK (HASH, String) + SK (RANGE, String) key schema
         /// - GSI1 (GSI1PK HASH + GSI1SK RANGE) for name-based entity lookups and listing
+        /// - GSI2 (GSI2PK HASH + GSI2SK RANGE) for relation-based lookups (required by GetAllRelations)
         /// Per AAP §0.7.3: PK=ENTITY#{entityId}, SK=META|FIELD#{fieldId}|RELATION#{relationId}
         /// </summary>
         private async Task CreateEntityMetadataTableAsync()
         {
             try
             {
+                // Delete existing table first to ensure correct schema (including GSI2)
+                try
+                {
+                    await DynamoDbClient.DeleteTableAsync(new DeleteTableRequest { TableName = EntityMetadataTableName });
+                    // Brief delay to allow LocalStack to process the deletion
+                    await Task.Delay(500);
+                }
+                catch (Amazon.DynamoDBv2.Model.ResourceNotFoundException) { /* Table doesn't exist yet — OK */ }
                 var request = new CreateTableRequest
                 {
                     TableName = EntityMetadataTableName,
@@ -282,7 +291,9 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
                         new AttributeDefinition("PK", ScalarAttributeType.S),
                         new AttributeDefinition("SK", ScalarAttributeType.S),
                         new AttributeDefinition("GSI1PK", ScalarAttributeType.S),
-                        new AttributeDefinition("GSI1SK", ScalarAttributeType.S)
+                        new AttributeDefinition("GSI1SK", ScalarAttributeType.S),
+                        new AttributeDefinition("GSI2PK", ScalarAttributeType.S),
+                        new AttributeDefinition("GSI2SK", ScalarAttributeType.S)
                     },
                     GlobalSecondaryIndexes = new List<GlobalSecondaryIndex>
                     {
@@ -293,6 +304,20 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
                             {
                                 new KeySchemaElement("GSI1PK", KeyType.HASH),
                                 new KeySchemaElement("GSI1SK", KeyType.RANGE)
+                            },
+                            Projection = new Projection
+                            {
+                                ProjectionType = ProjectionType.ALL
+                            },
+                            ProvisionedThroughput = new ProvisionedThroughput(5, 5)
+                        },
+                        new GlobalSecondaryIndex
+                        {
+                            IndexName = "GSI2",
+                            KeySchema = new List<KeySchemaElement>
+                            {
+                                new KeySchemaElement("GSI2PK", KeyType.HASH),
+                                new KeySchemaElement("GSI2SK", KeyType.RANGE)
                             },
                             Projection = new Projection
                             {
@@ -323,6 +348,14 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         {
             try
             {
+                // Delete existing table first to ensure correct schema
+                try
+                {
+                    await DynamoDbClient.DeleteTableAsync(new DeleteTableRequest { TableName = RecordStorageTableName });
+                    await Task.Delay(500);
+                }
+                catch (Amazon.DynamoDBv2.Model.ResourceNotFoundException) { /* Table doesn't exist yet — OK */ }
+
                 var request = new CreateTableRequest
                 {
                     TableName = RecordStorageTableName,
@@ -336,7 +369,9 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
                         new AttributeDefinition("PK", ScalarAttributeType.S),
                         new AttributeDefinition("SK", ScalarAttributeType.S),
                         new AttributeDefinition("GSI1PK", ScalarAttributeType.S),
-                        new AttributeDefinition("GSI1SK", ScalarAttributeType.S)
+                        new AttributeDefinition("GSI1SK", ScalarAttributeType.S),
+                        new AttributeDefinition("GSI2PK", ScalarAttributeType.S),
+                        new AttributeDefinition("GSI2SK", ScalarAttributeType.S)
                     },
                     GlobalSecondaryIndexes = new List<GlobalSecondaryIndex>
                     {
@@ -347,6 +382,20 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
                             {
                                 new KeySchemaElement("GSI1PK", KeyType.HASH),
                                 new KeySchemaElement("GSI1SK", KeyType.RANGE)
+                            },
+                            Projection = new Projection
+                            {
+                                ProjectionType = ProjectionType.ALL
+                            },
+                            ProvisionedThroughput = new ProvisionedThroughput(5, 5)
+                        },
+                        new GlobalSecondaryIndex
+                        {
+                            IndexName = "GSI2",
+                            KeySchema = new List<KeySchemaElement>
+                            {
+                                new KeySchemaElement("GSI2PK", KeyType.HASH),
+                                new KeySchemaElement("GSI2SK", KeyType.RANGE)
                             },
                             Projection = new Projection
                             {
