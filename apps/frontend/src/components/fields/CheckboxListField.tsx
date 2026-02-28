@@ -131,7 +131,7 @@ function coerceToStringArray(raw: unknown): string[] {
  * @param props - BaseFieldProps with optional CheckboxListFieldProps extensions
  * @returns React element representing the checkbox list field
  */
-function CheckboxListField(props: BaseFieldProps): React.JSX.Element {
+function CheckboxListField(props: BaseFieldProps): React.JSX.Element | null {
   const {
     /* Identity */
     name,
