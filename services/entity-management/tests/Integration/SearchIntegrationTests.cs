@@ -462,8 +462,10 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             using var doc = JsonDocument.Parse(response.Body);
             var root = doc.RootElement;
 
-            // ResponseModel.Object contains the SearchResultList, serialized as a JSON array
-            if (root.TryGetProperty("Object", out var objectElement) &&
+            // ResponseModel.Object contains the SearchResultList, serialized as a JSON array.
+            // SearchHandler serializes with camelCase property names (System.Text.Json default).
+            if ((root.TryGetProperty("object", out var objectElement) ||
+                 root.TryGetProperty("Object", out objectElement)) &&
                 objectElement.ValueKind == JsonValueKind.Array)
             {
                 var results = new List<SearchResult>();
@@ -486,7 +488,12 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
         private static bool ParseSuccess(APIGatewayHttpApiV2ProxyResponse response)
         {
             using var doc = JsonDocument.Parse(response.Body);
-            return doc.RootElement.TryGetProperty("Success", out var prop) && prop.GetBoolean();
+            // SearchHandler serializes with camelCase — check both casings for resilience.
+            if (doc.RootElement.TryGetProperty("success", out var prop))
+                return prop.GetBoolean();
+            if (doc.RootElement.TryGetProperty("Success", out prop))
+                return prop.GetBoolean();
+            return false;
         }
 
         /// <summary>
@@ -496,7 +503,9 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
         private static SearchResult? ParseSingleResult(APIGatewayHttpApiV2ProxyResponse response)
         {
             using var doc = JsonDocument.Parse(response.Body);
-            if (doc.RootElement.TryGetProperty("Object", out var objectElement) &&
+            // SearchHandler serializes with camelCase — check both casings for resilience.
+            if ((doc.RootElement.TryGetProperty("object", out var objectElement) ||
+                 doc.RootElement.TryGetProperty("Object", out objectElement)) &&
                 objectElement.ValueKind == JsonValueKind.Object)
             {
                 return JsonSerializer.Deserialize<SearchResult>(

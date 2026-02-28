@@ -132,16 +132,44 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             {
                 entity.RecordPermissions = permissions;
             }
+            // Add text_field that many tests reference for record CRUD operations
+            if (!entity.Fields.Any(f => f.Name == "text_field"))
+            {
+                entity.Fields.Add(TestDataHelper.CreateTextField("text_field"));
+            }
             await _fixture.SeedEntityAsync(entity);
             return entity;
         }
 
         /// <summary>
-        /// Seeds a test entity with all 21 field types for normalization tests.
+        /// Seeds a test entity with standard fields AND all 19 custom field types
+        /// that record normalization and field round-trip tests expect.
         /// </summary>
         private async Task<Entity> SeedEntityWithAllFieldTypesAsync(string entityName, Guid? entityId = null)
         {
             var entity = TestDataHelper.CreateTestEntityWithStandardFields(entityName, entityId ?? Guid.NewGuid());
+
+            // Add all 19 custom field types the record tests expect
+            entity.Fields.Add(TestDataHelper.CreateTextField("text_field"));
+            entity.Fields.Add(TestDataHelper.CreateNumberField("number_field"));
+            entity.Fields.Add(TestDataHelper.CreateCheckboxField("checkbox_field"));
+            entity.Fields.Add(TestDataHelper.CreateDateField("date_field"));
+            entity.Fields.Add(TestDataHelper.CreateDateTimeField("datetime_field"));
+            entity.Fields.Add(TestDataHelper.CreateGuidField("guid_field"));
+            entity.Fields.Add(TestDataHelper.CreateSelectField("select_field"));
+            entity.Fields.Add(TestDataHelper.CreateMultiSelectField("multiselect_field"));
+            entity.Fields.Add(TestDataHelper.CreateEmailField("email_field"));
+            entity.Fields.Add(TestDataHelper.CreatePhoneField("phone_field"));
+            entity.Fields.Add(TestDataHelper.CreateUrlField("url_field"));
+            entity.Fields.Add(TestDataHelper.CreateCurrencyField("currency_field"));
+            entity.Fields.Add(TestDataHelper.CreatePercentField("percent_field"));
+            entity.Fields.Add(TestDataHelper.CreatePasswordField("password_field"));
+            entity.Fields.Add(TestDataHelper.CreateFileField("file_field"));
+            entity.Fields.Add(TestDataHelper.CreateImageField("image_field"));
+            entity.Fields.Add(TestDataHelper.CreateHtmlField("html_field"));
+            entity.Fields.Add(TestDataHelper.CreateMultiLineTextField("multiline_field"));
+            entity.Fields.Add(TestDataHelper.CreateGeographyField("geography_field"));
+
             await _fixture.SeedEntityAsync(entity);
             return entity;
         }
@@ -644,7 +672,7 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             using var sqsClient = CreateSqsClient();
             var queueName = "test-record-created-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var queueUrl = await CreateSqsSubscriptionAsync(
-                sqsClient, _fixture.RecordCreatedTopicArn, queueName);
+                sqsClient, _fixture.UnifiedEventsTopicArn, queueName);
 
             try
             {
@@ -705,7 +733,7 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             using var sqsClient = CreateSqsClient();
             var queueName = "test-record-updated-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var queueUrl = await CreateSqsSubscriptionAsync(
-                sqsClient, _fixture.RecordUpdatedTopicArn, queueName);
+                sqsClient, _fixture.UnifiedEventsTopicArn, queueName);
 
             try
             {
@@ -767,7 +795,7 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             using var sqsClient = CreateSqsClient();
             var queueName = "test-record-deleted-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var queueUrl = await CreateSqsSubscriptionAsync(
-                sqsClient, _fixture.RecordDeletedTopicArn, queueName);
+                sqsClient, _fixture.UnifiedEventsTopicArn, queueName);
 
             try
             {
@@ -887,7 +915,7 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
 
             // Assert
             response.Success.Should().BeFalse();
-            response.Message.Should().Contain("ID is missing");
+            response.Message.Should().Contain("Missing ID field");
         }
 
         /// <summary>
@@ -1120,11 +1148,15 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             await _fixture.SeedEntityAsync(targetEntity);
 
             // Create a OneToMany relation: origin(id) -> target(origin_id)
+            // Use the actual "id" GuidField from each entity so validation passes
+            var originIdFieldId = originEntity.Fields.First(f => f.Name == "id").Id;
+            var targetIdFieldId = targetEntity.Fields.First(f => f.Name == "id").Id;
             var relation = TestDataHelper.CreateOneToManyRelation(
-                "origin_target_rel",
-                originEntityId,
-                targetEntityId,
-                Guid.NewGuid());
+                name: "origin_target_rel",
+                originEntityId: originEntityId,
+                originFieldId: originIdFieldId,
+                targetEntityId: targetEntityId,
+                targetFieldId: targetIdFieldId);
 
             // Persist relation via EntityService
             var relResp = await _entityService.CreateRelation(relation);
@@ -1172,13 +1204,17 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             await _fixture.SeedEntityAsync(entity1);
             await _fixture.SeedEntityAsync(entity2);
 
-            // Create ManyToMany relation
+            // Create ManyToMany relation — use actual "id" GuidField IDs
             var relationId = Guid.NewGuid();
+            var e1IdFieldId = entity1.Fields.First(f => f.Name == "id").Id;
+            var e2IdFieldId = entity2.Fields.First(f => f.Name == "id").Id;
             var relation = TestDataHelper.CreateManyToManyRelation(
-                "m2m_test_rel",
-                entity1Id,
-                entity2Id,
-                relationId);
+                name: "m2m_test_rel",
+                id: relationId,
+                originEntityId: entity1Id,
+                originFieldId: e1IdFieldId,
+                targetEntityId: entity2Id,
+                targetFieldId: e2IdFieldId);
 
             var relResp = await _entityService.CreateRelation(relation);
             relResp.Success.Should().BeTrue(
@@ -1227,11 +1263,15 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
             await _fixture.SeedEntityAsync(entity2);
 
             var relationId = Guid.NewGuid();
+            var e1IdFieldId = entity1.Fields.First(f => f.Name == "id").Id;
+            var e2IdFieldId = entity2.Fields.First(f => f.Name == "id").Id;
             var relation = TestDataHelper.CreateManyToManyRelation(
-                "m2m_del_rel",
-                entity1Id,
-                entity2Id,
-                relationId);
+                name: "m2m_del_rel",
+                id: relationId,
+                originEntityId: entity1Id,
+                originFieldId: e1IdFieldId,
+                targetEntityId: entity2Id,
+                targetFieldId: e2IdFieldId);
 
             var relResp = await _entityService.CreateRelation(relation);
             relResp.Success.Should().BeTrue(
@@ -1273,11 +1313,12 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
         [Fact]
         public async Task CreateRecord_WithoutCreatePermission_ReturnsForbidden()
         {
-            // Arrange — seed entity with EMPTY create permissions (no role can create)
+            // Arrange — seed entity with restricted create permissions (only a non-existent role)
             var entityName = "crud_test_perm_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            var nonExistentRoleId = Guid.NewGuid(); // role that doesn't match any known role
             var permissions = new RecordPermissions
             {
-                CanCreate = new List<Guid>(), // no roles allowed
+                CanCreate = new List<Guid> { nonExistentRoleId }, // only unknown role allowed
                 CanRead = new List<Guid> { SystemIds.AdministratorRoleId },
                 CanUpdate = new List<Guid> { SystemIds.AdministratorRoleId },
                 CanDelete = new List<Guid> { SystemIds.AdministratorRoleId }

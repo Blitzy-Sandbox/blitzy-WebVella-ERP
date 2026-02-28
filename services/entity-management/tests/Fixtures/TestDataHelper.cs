@@ -1145,13 +1145,20 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// <returns>DynamoDB item dictionary with AttributeValue entries.</returns>
         public static Dictionary<string, AttributeValue> CreateEntityMetadataItem(Entity entity)
         {
+            // Attribute names and GSI1PK value MUST match EntityRepository constants:
+            // ENTITY_DATA_ATTR = "entityData", GSI1PK uses ToLowerInvariant()
+            var settings = new Newtonsoft.Json.JsonSerializerSettings
+            {
+                TypeNameHandling = Newtonsoft.Json.TypeNameHandling.Auto,
+                NullValueHandling = Newtonsoft.Json.NullValueHandling.Include,
+                Formatting = Newtonsoft.Json.Formatting.None
+            };
             return new Dictionary<string, AttributeValue>
             {
                 ["PK"] = new AttributeValue { S = $"ENTITY#{entity.Id}" },
                 ["SK"] = new AttributeValue { S = "META" },
-                ["EntityName"] = new AttributeValue { S = entity.Name },
-                ["EntityJson"] = new AttributeValue { S = JsonSerializer.Serialize(entity) },
-                ["GSI1PK"] = new AttributeValue { S = $"ENTITY_NAME#{entity.Name}" },
+                ["entityData"] = new AttributeValue { S = Newtonsoft.Json.JsonConvert.SerializeObject(entity, settings) },
+                ["GSI1PK"] = new AttributeValue { S = $"ENTITY_NAME#{entity.Name.ToLowerInvariant()}" },
                 ["GSI1SK"] = new AttributeValue { S = "META" }
             };
         }
@@ -1165,12 +1172,19 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// <returns>DynamoDB item dictionary with AttributeValue entries.</returns>
         public static Dictionary<string, AttributeValue> CreateFieldMetadataItem(Guid entityId, Field field)
         {
+            // Attribute name MUST match EntityRepository FIELD_DATA_ATTR = "fieldData"
+            // Serialize with TypeNameHandling.Auto for polymorphic deserialization
+            var settings = new Newtonsoft.Json.JsonSerializerSettings
+            {
+                TypeNameHandling = Newtonsoft.Json.TypeNameHandling.Auto,
+                NullValueHandling = Newtonsoft.Json.NullValueHandling.Include,
+                Formatting = Newtonsoft.Json.Formatting.None
+            };
             return new Dictionary<string, AttributeValue>
             {
                 ["PK"] = new AttributeValue { S = $"ENTITY#{entityId}" },
                 ["SK"] = new AttributeValue { S = $"FIELD#{field.Id}" },
-                ["FieldName"] = new AttributeValue { S = field.Name },
-                ["FieldJson"] = new AttributeValue { S = JsonSerializer.Serialize(field, field.GetType()) }
+                ["fieldData"] = new AttributeValue { S = Newtonsoft.Json.JsonConvert.SerializeObject(field, field.GetType(), settings) }
             };
         }
 
@@ -1182,12 +1196,22 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// <returns>DynamoDB item dictionary with AttributeValue entries.</returns>
         public static Dictionary<string, AttributeValue> CreateRelationMetadataItem(EntityRelation relation)
         {
+            // Attribute name MUST match EntityRepository RELATION_DATA_ATTR = "relationData"
+            // PK pattern: ENTITY#{originEntityId}, SK: RELATION#{relationId}
+            // Plus GSI2 for global relation lookup: GSI2PK=RELATION#{relationId}, GSI2SK=META
+            var settings = new Newtonsoft.Json.JsonSerializerSettings
+            {
+                TypeNameHandling = Newtonsoft.Json.TypeNameHandling.Auto,
+                NullValueHandling = Newtonsoft.Json.NullValueHandling.Include,
+                Formatting = Newtonsoft.Json.Formatting.None
+            };
             return new Dictionary<string, AttributeValue>
             {
-                ["PK"] = new AttributeValue { S = $"RELATION#{relation.Id}" },
-                ["SK"] = new AttributeValue { S = "META" },
-                ["RelationName"] = new AttributeValue { S = relation.Name },
-                ["RelationJson"] = new AttributeValue { S = JsonSerializer.Serialize(relation) }
+                ["PK"] = new AttributeValue { S = $"ENTITY#{relation.OriginEntityId}" },
+                ["SK"] = new AttributeValue { S = $"RELATION#{relation.Id}" },
+                ["relationData"] = new AttributeValue { S = Newtonsoft.Json.JsonConvert.SerializeObject(relation, settings) },
+                ["GSI2PK"] = new AttributeValue { S = $"RELATION#{relation.Id}" },
+                ["GSI2SK"] = new AttributeValue { S = "META" }
             };
         }
 

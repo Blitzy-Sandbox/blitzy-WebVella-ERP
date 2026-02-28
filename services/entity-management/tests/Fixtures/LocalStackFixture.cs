@@ -99,6 +99,12 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// </summary>
         private const string RecordDeletedTopicName = "entity-management-record-deleted";
 
+        /// <summary>
+        /// Unified events topic name matching RecordService.PublishDomainEvent
+        /// which publishes all record events to "{prefix}entity-management-events".
+        /// </summary>
+        private const string UnifiedEventsTopicName = "entity-management-events";
+
         #endregion
 
         #region S3 Bucket Name Constants
@@ -153,6 +159,12 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
         /// ARN of the record-deleted SNS topic, populated during InitializeAsync.
         /// </summary>
         public string RecordDeletedTopicArn { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// ARN for the unified "entity-management-events" SNS topic that
+        /// RecordService.PublishDomainEvent actually publishes to.
+        /// </summary>
+        public string UnifiedEventsTopicArn { get; private set; } = string.Empty;
 
         #endregion
 
@@ -487,6 +499,11 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
             var recordDeletedResponse = await SnsClient.CreateTopicAsync(
                 new CreateTopicRequest { Name = RecordDeletedTopicName });
             RecordDeletedTopicArn = recordDeletedResponse.TopicArn;
+
+            // Create unified events topic that RecordService.PublishDomainEvent targets
+            var unifiedEventsResponse = await SnsClient.CreateTopicAsync(
+                new CreateTopicRequest { Name = UnifiedEventsTopicName });
+            UnifiedEventsTopicArn = unifiedEventsResponse.TopicArn;
         }
 
         #endregion
@@ -559,7 +576,8 @@ namespace WebVellaErp.EntityManagement.Tests.Fixtures
                 EntityCreatedTopicArn,
                 RecordCreatedTopicArn,
                 RecordUpdatedTopicArn,
-                RecordDeletedTopicArn
+                RecordDeletedTopicArn,
+                UnifiedEventsTopicArn
             };
 
             foreach (var topicArn in topicArns)
