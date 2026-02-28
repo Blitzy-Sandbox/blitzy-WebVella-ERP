@@ -478,7 +478,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Migrated from: BaseField.cs lines 368-412
         /// </summary>
         /// <returns>The FieldType enum value corresponding to this field's concrete type.</returns>
-        public FieldType GetFieldType()
+        public virtual FieldType GetFieldType()
         {
             if (this is AutoNumberField)
                 return FieldType.AutoNumberField;

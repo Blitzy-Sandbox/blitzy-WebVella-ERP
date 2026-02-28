@@ -1507,10 +1507,14 @@ namespace WebVellaErp.EntityManagement.Services
                 return true;
             }
 
-            // Default: allow access (JWT validated at API Gateway level)
-            // Fine-grained role-based checks can be added here when JWT
-            // claims include mapped Cognito group → role GUID mappings
-            return true;
+            // Default: deny access when specific roles are required but the
+            // current user's roles (from JWT claims) do not match. In the
+            // microservice architecture, the API Gateway validates the JWT
+            // but entity-level permission enforcement requires role matching.
+            // Until JWT claim extraction is wired in, this denies access
+            // when RecordPermissions restrict the operation to specific roles
+            // that do not include the Administrator role.
+            return false;
         }
 
         // =====================================================================
