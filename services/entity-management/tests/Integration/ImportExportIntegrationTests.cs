@@ -338,8 +338,18 @@ namespace WebVellaErp.EntityManagement.Tests.Integration
                 nameField, amountField, activeField
             });
 
-            // Generate CSV content with 5 rows
-            var csvContent = TestDataHelper.GenerateTestCsvContent(entity, 5);
+            // Generate CSV content with 5 rows — exclude the "id" column so
+            // that the handler treats every row as a CREATE (empty/missing id).
+            // GenerateTestCsvContent includes all entity.Fields, which populates
+            // the "id" GuidField with Guid.NewGuid(), causing the handler to
+            // route rows to UpdateRecord on non-existent records.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("name,amount,active");
+            for (int i = 0; i < 5; i++)
+            {
+                sb.AppendLine($"test_value_{i},{i},{(i % 2 == 0).ToString().ToLower()}");
+            }
+            var csvContent = sb.ToString();
             var fileName = $"{entityName}_import.csv";
             var fileTempPath = await UploadCsvToS3(csvContent, fileName);
 
