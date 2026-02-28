@@ -246,6 +246,15 @@ function CheckboxListField(props: BaseFieldProps): React.JSX.Element {
     );
   }, [effectiveValues, options]);
 
+  // -- Visibility guard ---------------------------------------------------
+  // When isVisible is explicitly false the field should not render anything.
+  // This mirrors PcFieldBaseOptions.IsVisible behaviour from the monolith
+  // and matches the RadioListField / FieldRenderer visibility pattern.
+
+  if (isVisible === false) {
+    return null;
+  }
+
   // -- Access denied guard ------------------------------------------------
 
   if (access === 'forbidden') {
