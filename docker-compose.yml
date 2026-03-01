@@ -184,7 +184,6 @@ services:
       - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_core_
-      - RabbitMQ__Host=rabbitmq
       - Messaging__Transport=RabbitMQ
       - Messaging__RabbitMQ__Host=rabbitmq
       - Messaging__RabbitMQ__Username=guest
@@ -193,7 +192,7 @@ services:
       - Jwt__Issuer=webvella-erp
       - Jwt__Audience=webvella-erp
       - Jobs__Enabled=true
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -231,7 +230,7 @@ services:
       - Jwt__Audience=webvella-erp
       - Jobs__Enabled=true
       - ServiceUrls__CoreService=http://core-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -270,7 +269,7 @@ services:
       - Jobs__Enabled=true
       - ServiceUrls__CoreService=http://core-service:8080
       - ServiceUrls__CrmService=http://crm-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -311,7 +310,7 @@ services:
       - Smtp__Enabled=false
       - Smtp__Host=
       - Smtp__Port=25
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -352,7 +351,7 @@ services:
       - ServiceUrls__CrmService=http://crm-service:8080
       - ServiceUrls__ProjectService=http://project-service:8080
       - ServiceUrls__MailService=http://mail-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -390,8 +389,8 @@ services:
       - Jwt__Issuer=webvella-erp
       - Jwt__Audience=webvella-erp
       - Jobs__Enabled=true
-      - Services__CoreServiceUrl=http://core-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -412,12 +411,18 @@ services:
     ports:
       - "5000:8080"
     depends_on:
-      - core-service
-      - crm-service
-      - project-service
-      - mail-service
-      - reporting-service
-      - admin-service
+      core-service:
+        condition: service_started
+      crm-service:
+        condition: service_started
+      project-service:
+        condition: service_started
+      mail-service:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+      admin-service:
+        condition: service_started
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - Services__Core=http://core-service:8080

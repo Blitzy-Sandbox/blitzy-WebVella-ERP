@@ -254,7 +254,7 @@ services:
       - Jwt__Audience=webvella-erp
       # --- Application settings ---
       - Jobs__Enabled=true
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -306,7 +306,7 @@ services:
       # --- Application settings ---
       - Jobs__Enabled=true
       - ServiceUrls__CoreService=http://core-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -359,7 +359,7 @@ services:
       - Jobs__Enabled=true
       - ServiceUrls__CoreService=http://core-service:8080
       - ServiceUrls__CrmService=http://crm-service:8080
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -414,7 +414,115 @@ services:
       - Smtp__Enabled=false
       - Smtp__Host=
       - Smtp__Port=25
-      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Reporting Service — Aggregation and event-sourced projections (CQRS light)
+  # Shares the postgres-core instance with a separate database (erp_reporting).
+  # ---------------------------------------------------------------------------
+
+  reporting-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Reporting/Dockerfile
+    container_name: erp-ls-reporting-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_reporting;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_reporting_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - ServiceUrls__CoreService=http://core-service:8080
+      - ServiceUrls__CrmService=http://crm-service:8080
+      - ServiceUrls__ProjectService=http://project-service:8080
+      - ServiceUrls__MailService=http://mail-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Admin/SDK Service — Code generation, log management, entity designer
+  # Shares the postgres-core instance with a separate database (erp_admin).
+  # ---------------------------------------------------------------------------
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Admin/Dockerfile
+    container_name: erp-ls-admin-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_admin;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_admin_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
       - Settings__Lang=en
       - Settings__Locale=en-US
       - Settings__TimeZoneName=FLE Standard Time
@@ -435,20 +543,32 @@ services:
     ports:
       - "5000:8080"
     depends_on:
-      - core-service
-      - crm-service
-      - project-service
-      - mail-service
+      core-service:
+        condition: service_started
+      crm-service:
+        condition: service_started
+      project-service:
+        condition: service_started
+      mail-service:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+      admin-service:
+        condition: service_started
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - Services__Core=http://core-service:8080
       - Services__Crm=http://crm-service:8080
       - Services__Project=http://project-service:8080
       - Services__Mail=http://mail-service:8080
+      - Services__Reporting=http://reporting-service:8080
+      - Services__Admin=http://admin-service:8080
       - ServiceRoutes__CoreServiceUrl=http://core-service:8080
       - ServiceRoutes__CrmServiceUrl=http://crm-service:8080
       - ServiceRoutes__ProjectServiceUrl=http://project-service:8080
       - ServiceRoutes__MailServiceUrl=http://mail-service:8080
+      - ServiceRoutes__ReportingServiceUrl=http://reporting-service:8080
+      - ServiceRoutes__AdminServiceUrl=http://admin-service:8080
       # --- LocalStack AWS overrides (gateway may need S3 for static assets) ---
       - AWS__ServiceURL=http://localstack:4566
       - AWS__AuthenticationRegion=us-east-1

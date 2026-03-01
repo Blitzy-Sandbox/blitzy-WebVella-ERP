@@ -106,6 +106,9 @@
     <PackageVersion Include="Testcontainers.LocalStack" Version="4.10.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.10.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
+    <!-- NOTE: AAP 0.6.1 specifies xunit.runner.visualstudio 2.9.3, but that version is
+         not available on NuGet. Using 3.0.0 as the closest available version.
+         This is a known and accepted deviation from the AAP specification. -->
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.0" />
 
   </ItemGroup>
