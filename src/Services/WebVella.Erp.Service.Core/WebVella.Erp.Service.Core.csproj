@@ -8,6 +8,7 @@
     <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="MassTransit" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
