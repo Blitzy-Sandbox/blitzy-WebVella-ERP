@@ -39,7 +39,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
     ///   - TaskService.HandleTimelogCreationHookAsync (line 833): inventory.timelog.created event
     ///   - TaskService.HandleTimelogDeletionHookAsync (line 907): inventory.timelog.deleted event
     /// </summary>
-    public class SnsEventPublishingTests : IClassFixture<LocalStackFixture>
+    [Collection("LocalStack")]
+    public class SnsEventPublishingTests
     {
         #region Fields and Constants
 
@@ -131,6 +132,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
 
             // Build the task JSON body with snake_case property names matching handler's JsonOptions.
             // The handler deserializes to Models.Task using SnakeCaseLower naming policy.
+            // l_related_records is required by ValidateTaskCreation — must contain at least one project GUID
+            var projectId = Guid.NewGuid();
             var taskPayload = new
             {
                 id = taskId.ToString(),
@@ -138,7 +141,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
                 status_id = NotStartedStatusId.ToString(),
                 type_id = BugTaskTypeId.ToString(),
                 priority = "medium",
-                owner_id = SystemUserId.ToString()
+                owner_id = SystemUserId.ToString(),
+                l_related_records = JsonSerializer.Serialize(new[] { projectId })
             };
 
             var request = BuildApiRequest(
@@ -524,6 +528,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
             await PurgeSqsQueue();
 
             var taskId = Guid.NewGuid();
+            // l_related_records is required by ValidateTaskCreation — must contain at least one project GUID
+            var projectId = Guid.NewGuid();
             var taskPayload = new
             {
                 id = taskId.ToString(),
@@ -531,7 +537,8 @@ namespace WebVellaErp.Inventory.Tests.Integration
                 status_id = NotStartedStatusId.ToString(),
                 type_id = BugTaskTypeId.ToString(),
                 priority = "high",
-                owner_id = SystemUserId.ToString()
+                owner_id = SystemUserId.ToString(),
+                l_related_records = JsonSerializer.Serialize(new[] { projectId })
             };
 
             var request = BuildApiRequest(

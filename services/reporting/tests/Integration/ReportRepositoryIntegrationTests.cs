@@ -114,7 +114,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that GetReportByIdAsync returns a fully-populated report when
         /// queried with an existing report ID. All 12 column types are validated.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetReportByIdAsync_WithExistingId_ReturnsReport()
         {
             // Arrange — create a report via the repository
@@ -146,7 +146,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// that does not match any existing report definition. Mirrors monolith behavior
         /// from DbDataSourceRepository.Get(Guid id) where null is returned if Rows.Count == 0.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetReportByIdAsync_WithNonExistentId_ReturnsNull()
         {
             // Act — query with a random GUID that has no matching row
@@ -165,7 +165,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that GetReportByNameAsync returns a matching report when queried
         /// with an existing report name. Validates all fields match the original.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetReportByNameAsync_WithExistingName_ReturnsReport()
         {
             // Arrange
@@ -190,7 +190,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that GetReportByNameAsync returns null when queried with a name
         /// that does not match any existing report definition.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetReportByNameAsync_WithNonExistentName_ReturnsNull()
         {
             // Act
@@ -209,7 +209,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GetAllReportsAsync returns paginated results with correct page
         /// size and accurate total count across all pages.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetAllReportsAsync_WithMultipleReports_ReturnsPaginatedResults()
         {
             // Arrange — insert 5 reports with deterministic names
@@ -231,7 +231,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GetAllReportsAsync respects the sortBy and sortOrder parameters,
         /// returning reports in the specified alphabetical order by name.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetAllReportsAsync_WithSorting_ReturnsSortedResults()
         {
             // Arrange — insert reports with specific names for sort verification
@@ -258,7 +258,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GetAllReportsAsync returns an empty list with zero total count
         /// when no report definitions exist in the database.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetAllReportsAsync_EmptyTable_ReturnsEmptyListWithZeroTotal()
         {
             // Act — query an empty table (all 4 params are required)
@@ -279,7 +279,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// returns true on success. Validates round-trip for UUID, varchar, text, jsonb,
         /// boolean, integer, and timestamptz columns via independent read-back.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateReportAsync_WithValidReport_InsertsAndReturnsTrue()
         {
             // Arrange
@@ -317,7 +317,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// database NULL, preserving the nullable semantics of the description column.
         /// This test documents and validates the current null-handling behavior.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateReportAsync_NullDescription_NormalizesToEmptyString()
         {
             // Arrange — create a report with explicitly null description
@@ -342,7 +342,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// (BeginTransaction → INSERT → Commit). After the method returns,
         /// data must be committed and visible via an independent database connection.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateReportAsync_VerifyAcidTransaction()
         {
             // Arrange
@@ -371,7 +371,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// when updating an existing report. Validates name, description, sql_template,
         /// and weight changes persist correctly.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpdateReportAsync_WithExistingReport_UpdatesAndReturnsTrue()
         {
             // Arrange — create initial report
@@ -407,7 +407,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that UpdateReportAsync changes the updated_at timestamp,
         /// confirming the audit trail is maintained on update operations.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpdateReportAsync_VerifyUpdatedAtChanged()
         {
             // Arrange — create report and capture initial timestamps
@@ -441,7 +441,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// in the update DTO. Even though the SQL UPDATE sets all 9 mutable columns,
         /// fields passed with their original values should remain unchanged in storage.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpdateReportAsync_PartialFieldUpdate_PreservesUnchangedFields()
         {
             // Arrange — create a report with distinctive field values
@@ -488,7 +488,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that DeleteReportAsync removes an existing report and subsequent
         /// GetReportByIdAsync returns null, confirming hard deletion.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task DeleteReportAsync_WithExistingReport_DeletesSuccessfully()
         {
             // Arrange
@@ -507,7 +507,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that DeleteReportAsync is idempotent — deleting a non-existent
         /// report ID does not throw an exception.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task DeleteReportAsync_WithNonExistentId_DoesNotThrow()
         {
             // Act — delete a random GUID with no matching row; should not throw
@@ -529,7 +529,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that UpsertProjectionAsync inserts a new projection when no
         /// matching composite key exists, and the projection is retrievable afterward.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertProjectionAsync_NewProjection_InsertsSuccessfully()
         {
             // Arrange
@@ -555,7 +555,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// the same composite key (source_domain, source_entity, source_record_id) is used.
         /// The ON CONFLICT DO UPDATE behavior should reflect the latest upsert data.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertProjectionAsync_ExistingProjection_UpdatesData()
         {
             // Arrange — insert initial projection
@@ -588,7 +588,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// correctly through PostgreSQL's jsonb type. Tests nested objects, arrays,
         /// and various JSON value types (string, number, boolean, null).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertProjectionAsync_VerifyJsonbStorage()
         {
             // Arrange — create projection with complex nested JSONB payload
@@ -634,7 +634,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// queried with an existing composite key (source_domain, source_entity,
         /// source_record_id).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetProjectionAsync_WithExistingCompositeKey_ReturnsProjection()
         {
             // Arrange
@@ -658,7 +658,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that GetProjectionAsync returns null when no projection matches
         /// the provided composite key.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetProjectionAsync_WithNonExistentKey_ReturnsNull()
         {
             // Act — query with keys that have no matching projection
@@ -678,7 +678,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GetProjectionsByDomainAsync returns paginated results filtered by
         /// source_domain with correct page size limiting.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetProjectionsByDomainAsync_WithMultipleProjections_ReturnsPaginated()
         {
             // Arrange — insert 3 CRM projections and 2 invoicing projections
@@ -706,7 +706,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GetProjectionsByDomainAsync returns an empty list when queried
         /// with a domain that has no matching projections.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetProjectionsByDomainAsync_WithNonExistentDomain_ReturnsEmptyList()
         {
             // Act — GetProjectionsByDomainAsync returns List<ProjectionDto>
@@ -726,7 +726,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that DeleteProjectionAsync performs a hard delete — the projection
         /// is completely removed from the database and subsequent queries return null.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task DeleteProjectionAsync_WithExistingProjection_RemovesCompletely()
         {
             // Arrange
@@ -755,7 +755,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <c>{"deleted": true, "deleted_at": "..."}</c> flags.
         /// This supports financial entity audit requirements per AAP §0.7.2.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task SoftDeleteProjectionAsync_WithExistingProjection_SetsSoftDeleteFlags()
         {
             // Arrange — create a projection with known data
@@ -799,7 +799,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that UpsertEventOffsetAsync inserts a new event offset entry
         /// for a domain that has no existing offset record.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertEventOffsetAsync_NewDomain_InsertsOffset()
         {
             // Arrange
@@ -819,7 +819,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// the same source_domain is upserted again. The ON CONFLICT DO UPDATE
         /// behavior should reflect the latest event ID.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertEventOffsetAsync_ExistingDomain_UpdatesOffset()
         {
             // Arrange — insert initial offset
@@ -841,7 +841,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// After two upserts for the same domain, exactly one row should exist,
         /// confirming ON CONFLICT DO UPDATE behavior rather than duplicate insertion.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpsertEventOffsetAsync_VerifyUniqueConstraint()
         {
             // Arrange — upsert twice for the same domain
@@ -870,7 +870,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that GetLastEventIdAsync returns the correct last event ID
         /// for a domain that has a previously stored offset.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetLastEventIdAsync_WithExistingDomain_ReturnsLastEventId()
         {
             // Arrange
@@ -890,7 +890,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// previously stored offset — the expected state on first-time event processing
         /// for a new domain consumer.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetLastEventIdAsync_WithNonExistentDomain_ReturnsNull()
         {
             // Act — query a domain that has never had an offset stored

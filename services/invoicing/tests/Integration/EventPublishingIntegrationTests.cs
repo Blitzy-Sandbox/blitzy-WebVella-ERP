@@ -106,7 +106,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// <see cref="InvoiceEventPublisher"/> publishes to the test topic.
         ///
         /// <para>
-        /// xUnit creates a new test class instance per [Fact] method, so each test
+        /// xUnit creates a new test class instance per [RdsFact] method, so each test
         /// runs with its own isolated SNS → SQS channel, preventing cross-test
         /// message interference.
         /// </para>
@@ -243,7 +243,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// invoked after record creation.
         /// </para>
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishInvoiceCreated_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -283,7 +283,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// invoked after record updates.
         /// </para>
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishInvoiceUpdated_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -323,7 +323,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// publishes a correctly structured <c>invoicing.invoice.issued</c> domain event
         /// when an invoice transitions to <see cref="InvoiceStatus.Issued"/>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishInvoiceIssued_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -360,7 +360,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// publishes a correctly structured <c>invoicing.invoice.paid</c> domain event
         /// when an invoice transitions to <see cref="InvoiceStatus.Paid"/>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishInvoicePaid_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -397,7 +397,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// publishes a correctly structured <c>invoicing.invoice.voided</c> domain event
         /// when an invoice transitions to <see cref="InvoiceStatus.Voided"/>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishInvoiceVoided_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -435,7 +435,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// The event payload must contain the Payment data including <c>InvoiceId</c> and
         /// the exact <c>Amount</c> (193.05m) for financial accuracy verification.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PublishPaymentProcessed_ShouldPublishToSNSTopic()
         {
             // Arrange
@@ -482,7 +482,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///   <item><c>payload</c> — non-null object containing event-specific data</item>
         /// </list>
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task EventEnvelope_ShouldContainAllRequiredFields()
         {
             // Arrange — publish an invoice.created event as the representative case
@@ -564,7 +564,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// </list>
         /// </para>
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task SNSMessageAttributes_ShouldBeSetForFiltering()
         {
             // Arrange

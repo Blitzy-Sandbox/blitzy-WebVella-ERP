@@ -542,6 +542,22 @@ namespace WebVellaErp.FileManagement.Services
             ArgumentException.ThrowIfNullOrWhiteSpace(sourceObjectKey);
             ArgumentException.ThrowIfNullOrWhiteSpace(destinationObjectKey);
 
+            // Guard: skip self-move to prevent the copy-to-self + delete pattern from
+            // destroying the only copy of the file.  This legitimately occurs when a file
+            // is "moved" to a new logical path that shares the same extension — because
+            // GenerateObjectKey() is deterministic on (fileId, extension), the S3 key
+            // does not change even though the DynamoDB metadata filepath does.
+            // Mirrors the monolith's File.Move() behaviour which is a no-op when
+            // source == destination.
+            if (string.Equals(sourceObjectKey, destinationObjectKey, StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Move skipped: source and destination S3 keys are identical ({ObjectKey}) " +
+                    "in bucket {BucketName}. Metadata-only move — no S3 operation required",
+                    sourceObjectKey, _bucketName);
+                return;
+            }
+
             try
             {
                 // S3 has no native move — implement as copy + delete.

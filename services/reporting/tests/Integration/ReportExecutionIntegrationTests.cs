@@ -302,7 +302,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// execute parameterized SQL query → verify aggregated results match seeded data.
         /// Validates replacement of DataSourceManager.Execute() (source lines 470-512).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task FullLifecycle_CreateReport_ExecuteQuery_VerifyResults()
         {
             // Arrange — clean slate and seed projection data
@@ -393,7 +393,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Create report → update its SQL query → execute updated version → verify new results.
         /// Validates report update and re-execution flow.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task FullLifecycle_CreateReport_UpdateReport_ExecuteUpdated()
         {
             // Arrange
@@ -465,7 +465,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests GUID parameter binding. Source lines 360-378: guid type with null,
         /// guid.empty, valid GUID handling.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_GuidParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -517,7 +517,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Tests integer parameter binding. Source lines 379-394.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_IntParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -569,7 +569,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests decimal parameter binding with proper precision for financial calculations.
         /// Source lines 395-407.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_DecimalParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -622,7 +622,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests date parameter binding including "now" and "utc_now" special values.
         /// Source lines 408-429.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_DateParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -671,7 +671,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests text parameter binding including "null" and "string.empty" special values.
         /// Source lines 430-442.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_TextParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -722,7 +722,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests boolean parameter binding with "true"/"false"/"null" values.
         /// Source lines 443-458.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_BoolParameter_ResolvesCorrectly()
         {
             await CleanDatabaseAsync();
@@ -773,7 +773,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verify null parameter values are handled per source pattern — returning null
         /// for empty/whitespace values across all types.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_NullParameterValue_HandlesGracefully()
         {
             await CleanDatabaseAsync();
@@ -819,7 +819,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// When IgnoreParseErrors=true, invalid parameter values return null instead of
         /// throwing exceptions — matching DataSourceManager.GetDataSourceParameterValue behavior.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_IgnoreParseErrors_ReturnsNullInsteadOfThrowing()
         {
             await CleanDatabaseAsync();
@@ -871,7 +871,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// When execution request omits parameters, default values from report definition
         /// are used — matching source lines 479-481 fallback to ds.Parameters defaults.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_DefaultParameters_UsedWhenNotProvided()
         {
             await CleanDatabaseAsync();
@@ -921,7 +921,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verify DB_CONNECTION_STRING retrieved from LocalStack SSM SecureString.
         /// Per AAP Section 0.8.6: secrets via SSM SecureString, never environment variables.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_ConnectionStringFromSsm_RetrievesSuccessfully()
         {
             // Arrange — verify SSM parameter exists in LocalStack
@@ -957,7 +957,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// When SSM parameter is missing or invalid, verify service returns 503 health check failure.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ExecuteReport_InvalidSsmParameter_Returns503()
         {
             // Arrange — create handler with bad connection (simulating invalid SSM value)
@@ -982,7 +982,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Call HandleHealthCheck() — verify 200 with healthy status including
         /// database connectivity (SELECT 1) and SNS connectivity verification.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HealthCheck_AllServicesHealthy_Returns200()
         {
             // Arrange
@@ -1006,7 +1006,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Configure handler with bad connection string — verify 503 unhealthy response.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HealthCheck_DatabaseDown_Returns503()
         {
             // Arrange — handler with unreachable database
@@ -1033,7 +1033,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Build APIGatewayHttpApiV2ProxyRequest with JSON body, call HandleCreateReport,
         /// verify 201 response with created report definition.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleCreateReport_ValidRequest_Returns201()
         {
             await CleanDatabaseAsync();
@@ -1059,7 +1059,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// with validation error (matching source DataSourceManager.Create lines 172-173
         /// uniqueness check).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleCreateReport_DuplicateName_Returns400()
         {
             await CleanDatabaseAsync();
@@ -1086,7 +1086,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Create report, then get by ID — verify 200 response with matching report data.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleGetReport_ExistingId_Returns200()
         {
             await CleanDatabaseAsync();
@@ -1119,7 +1119,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Get with random GUID — verify 404 (matching source line 474: "DataSource not found.").
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleGetReport_NonExistentId_Returns404()
         {
             var handler = CreateReportHandler();
@@ -1140,7 +1140,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Create 5 reports, list with page=1 pageSize=2 — verify paginated response.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleListReports_WithPagination_Returns200()
         {
             await CleanDatabaseAsync();
@@ -1181,7 +1181,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Create, update — verify 200 with updated fields.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleUpdateReport_ExistingReport_Returns200()
         {
             await CleanDatabaseAsync();
@@ -1224,7 +1224,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Create, delete — verify 200, then get returns 404.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleDeleteReport_ExistingReport_Returns200()
         {
             await CleanDatabaseAsync();
@@ -1265,7 +1265,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verify validation error for empty name — matching source DataSourceManager.Create
         /// line 170-171 name validation.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleCreateReport_EmptyName_Returns400()
         {
             var handler = CreateReportHandler();
@@ -1294,7 +1294,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verify validation error for empty query — matching source line 175-176.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleCreateReport_EmptyQuery_Returns400()
         {
             var handler = CreateReportHandler();
@@ -1324,7 +1324,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Execute report with non-existent ID — matching source line 474:
         /// "DataSource not found." → 404.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleExecuteReport_NonExistentReport_Returns404()
         {
             var handler = CreateReportHandler();
@@ -1356,7 +1356,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// one report created (per AAP Section 0.8.5: idempotency keys on all write
         /// endpoints and event handlers).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task HandleCreateReport_WithIdempotencyKey_PreventsDuplicate()
         {
             await CleanDatabaseAsync();

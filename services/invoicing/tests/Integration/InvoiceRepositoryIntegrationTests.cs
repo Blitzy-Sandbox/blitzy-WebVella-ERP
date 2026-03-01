@@ -77,7 +77,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern derived from source DbRepository.InsertRecord lines 517-553:
         /// parameterized NpgsqlCommand execution with transaction scope.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateInvoiceAsync_PersistsInvoiceAndLineItems_InACIDTransaction()
         {
             // Arrange
@@ -172,7 +172,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// persists only the invoice header with zero line item rows. Confirms the repository
         /// handles the empty collection gracefully without errors.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateInvoiceAsync_WithEmptyLineItems_PersistsInvoiceOnly()
         {
             // Arrange
@@ -213,7 +213,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern derived from source DbRecordRepository.Find lines 206-245:
         /// SELECT * FROM {table} WHERE id=@id
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetInvoiceByIdAsync_ReturnsInvoiceWithAllLineItems()
         {
             // Arrange — persist an invoice with 3 line items
@@ -246,7 +246,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///
         /// Pattern derived from source DbRecordRepository line 236: return null when no rows.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task GetInvoiceByIdAsync_NonExistentId_ReturnsNull()
         {
             // Act — query with a random non-existent ID
@@ -265,7 +265,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// results. Creates 15 invoices and verifies that 3 pages of 5 items each are returned
         /// with the correct total count.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ListInvoicesAsync_WithPagination_ReturnsCorrectPage()
         {
             // Arrange — create 15 test invoices with sequential invoice numbers
@@ -296,7 +296,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// invoices by <see cref="InvoiceStatus"/>. Creates 3 Draft and 2 Issued invoices,
         /// then verifies each status filter returns the correct count and all items match.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ListInvoicesAsync_WithStatusFilter_ReturnsFilteredResults()
         {
             // Arrange — 3 Draft invoices
@@ -333,7 +333,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// invoices by customer ID (Guid). Creates invoices for 2 different customers and
         /// verifies the filter returns only the targeted customer's invoices.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ListInvoicesAsync_WithCustomerFilter_ReturnsFilteredResults()
         {
             // Arrange — invoices for customer 1
@@ -375,7 +375,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern derived from source DbRepository.UpdateRecord lines 555-587:
         /// UPDATE {table} SET ... WHERE id=@id within a transaction scope.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpdateInvoiceAsync_ReplacesLineItems_InTransaction()
         {
             // Arrange — create invoice with 2 line items
@@ -420,7 +420,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// All monetary fields are verified with exact <c>Should().Be()</c> — NEVER
         /// <c>BeApproximately()</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task UpdateInvoiceAsync_UpdateMonetaryValues_PreservesDecimalPrecision()
         {
             // Arrange — create invoice with initial monetary values
@@ -456,7 +456,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// status to <see cref="InvoiceStatus.Voided"/> and returns <c>true</c> indicating
         /// the void operation was applied.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task VoidInvoiceAsync_SetsVoidedStatus_ReturnsTrue()
         {
             // Arrange — create a Draft invoice
@@ -486,7 +486,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Per AAP §0.8.5: Idempotency keys on all write endpoints — VoidInvoiceAsync
         /// uses WHERE clause for idempotent void.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task VoidInvoiceAsync_AlreadyVoided_ReturnsFalse_IdempotentWhereClause()
         {
             // Arrange — create and void an invoice
@@ -520,7 +520,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///
         /// Pattern derived from source DbRepository.InsertRecord: parameterized INSERT.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreatePaymentAsync_PersistsPaymentRecord()
         {
             // Arrange — create parent invoice first (FK reference)
@@ -566,7 +566,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// all payments associated with a given invoice, ordered by <c>payment_date</c>,
         /// with exact <c>decimal</c> amount precision on each payment record.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ListPaymentsForInvoiceAsync_ReturnsAllPaymentsForInvoice()
         {
             // Arrange — create parent invoice
@@ -642,7 +642,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern derived from source DbConnection.cs lines 161-179:
         /// BeginTransaction / RollbackTransaction ACID envelope.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateInvoiceAsync_OnLineItemFailure_RollsBackEntireTransaction()
         {
             // Arrange — build an invoice with a line item whose InvoiceId

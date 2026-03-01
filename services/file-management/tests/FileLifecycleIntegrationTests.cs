@@ -119,7 +119,13 @@ public class FileLifecycleIntegrationTests : IAsyncLifetime
             new AmazonSQSConfig { ServiceURL = LocalStackEndpoint });
 
         // --- HTTP Client for presigned URL tests ---
-        _httpClient = new HttpClient();
+        // LocalStack presigned URLs may use HTTPS with self-signed certificates,
+        // so we disable SSL validation for integration testing only.
+        var httpHandler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        _httpClient = new HttpClient(httpHandler);
 
         // --- Create S3 bucket ---
         await _s3Client.PutBucketAsync(_testBucketName);
@@ -329,8 +335,15 @@ public class FileLifecycleIntegrationTests : IAsyncLifetime
         var moveExists = await _s3Service.FileExistsAsync(moveObjectKey);
         moveExists.Should().BeTrue("moved file should exist at new S3 key");
 
-        var oldKeyExists = await _s3Service.FileExistsAsync(copyObjectKey);
-        oldKeyExists.Should().BeFalse("file should not exist at old S3 key after move");
+        // GenerateObjectKey is deterministic on (fileId, extension). When the source
+        // and destination paths share the same extension the S3 key does not change and
+        // MoveFileAsync correctly performs a metadata-only no-op. Only assert that the
+        // old key is deleted when the S3 keys actually differ.
+        if (!string.Equals(copyObjectKey, moveObjectKey, StringComparison.Ordinal))
+        {
+            var oldKeyExists = await _s3Service.FileExistsAsync(copyObjectKey);
+            oldKeyExists.Should().BeFalse("file should not exist at old S3 key after move");
+        }
 
         var movedFound = await _metadataRepository.FindByFilePathAsync(moveDestPath);
         movedFound.Should().NotBeNull("moved metadata should be found at new path");
@@ -410,8 +423,14 @@ public class FileLifecycleIntegrationTests : IAsyncLifetime
         var permanentS3Exists = await _s3Service.FileExistsAsync(permanentObjectKey);
         permanentS3Exists.Should().BeTrue("finalized file should exist at permanent S3 key");
 
-        var tempS3Gone = await _s3Service.FileExistsAsync(tempMeta.ObjectKey);
-        tempS3Gone.Should().BeFalse("temp S3 key should be removed after finalization");
+        // When the temp ObjectKey and permanent ObjectKey are identical (same fileId +
+        // same extension), MoveFileAsync correctly no-ops so the S3 object stays in place.
+        // Only assert the temp key is removed when the keys actually differ.
+        if (!string.Equals(tempMeta.ObjectKey, permanentObjectKey, StringComparison.Ordinal))
+        {
+            var tempS3Gone = await _s3Service.FileExistsAsync(tempMeta.ObjectKey);
+            tempS3Gone.Should().BeFalse("temp S3 key should be removed after finalization");
+        }
 
         // Cleanup
         await _s3Service.DeleteFileAsync(permanentObjectKey);

@@ -273,6 +273,18 @@ namespace WebVellaErp.Inventory.Tests.Integration
         /// </summary>
         private async Task CreateDynamoDbTableAsync()
         {
+            // Ensure idempotent table creation: delete pre-existing table from interrupted test runs
+            try
+            {
+                await DynamoDbClient.DeleteTableAsync(new DeleteTableRequest { TableName = TableName });
+                // Wait briefly for table deletion to propagate in LocalStack
+                await Task.Delay(500);
+            }
+            catch (Amazon.DynamoDBv2.Model.ResourceNotFoundException)
+            {
+                // Table does not exist — proceed to create
+            }
+
             var createTableRequest = new CreateTableRequest
             {
                 TableName = TableName,

@@ -65,7 +65,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Line item totals: Line1 = 2×50.00 = 100.00, Line2 = 1×75.50 = 75.50
         /// SubTotal = 175.50, TaxAmount = 17.55 (10%), TotalAmount = 193.05
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateIssuePayFullLifecycle_ShouldTransitionToPaid()
         {
             // ── Arrange ──
@@ -197,7 +197,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// The repository's VoidInvoiceAsync uses an idempotent WHERE guard
         /// (WHERE status != 'Voided') per AAP §0.8.5.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CreateAndVoidLifecycle_ShouldTransitionToVoided()
         {
             // ── Arrange ──
@@ -240,7 +240,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// invoice and that the sum of all payments exactly equals the invoice total
         /// using decimal precision. Two payments: 75.00 + 125.00 = 200.00.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task PartialPaymentFlow_ShouldTrackMultiplePayments()
         {
             // ── Arrange ──
@@ -344,7 +344,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// validation pattern: remaining = total - sumOfPreviousPayments.
         /// Invoice: $100. Payment 1: $80. Remaining: $20. Attempted: $30 (exceeds).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task ConcurrentPayment_AmountExceedingBalance_ShouldBeDetectable()
         {
             // ── Arrange ──
@@ -434,7 +434,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// (index: uq_invoices_number) rejects duplicate invoice numbers with
         /// a PostgresException (SqlState 23505 — unique_violation).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task InvoiceNumberUniqueness_ShouldRejectDuplicateNumbers()
         {
             // ── Arrange ──
@@ -476,7 +476,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// lose precision if stored as float/double. All assertions use exact
         /// .Should().Be() — NEVER .BeApproximately().
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task CurrencyPrecision_MaintainedThroughLifecycle()
         {
             // ── Arrange ──
@@ -583,7 +583,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// header nor any line items are persisted. Verified via both repository
         /// read and direct SQL query to confirm zero orphaned rows.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task TransactionRollback_OnFailure_ShouldNotPersistPartialData()
         {
             // ── Arrange ──

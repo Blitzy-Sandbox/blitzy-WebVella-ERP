@@ -92,7 +92,13 @@ public class S3IntegrationTests : IAsyncLifetime
         _s3Service = new S3Service(_s3Client, logger, configuration);
 
         // HttpClient for presigned URL tests (Phase 4)
-        _httpClient = new HttpClient();
+        // LocalStack presigned URLs may use HTTPS with self-signed certificates,
+        // so we disable SSL validation for integration testing only.
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        _httpClient = new HttpClient(handler);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

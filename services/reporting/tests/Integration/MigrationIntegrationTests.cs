@@ -396,7 +396,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Source reference: DbRepository.CreatePostgresqlExtensions() line 30:
         /// CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_CreatesUuidOsspExtension()
         {
             // Arrange & Act
@@ -415,7 +415,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// After running Up(), verifies the reporting schema exists via information_schema.schemata.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_CreatesReportingSchema()
         {
             // Arrange & Act
@@ -439,7 +439,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies report_definitions table exists in the reporting schema after Up().
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_CreatesReportDefinitionsTable()
         {
             RunMigrationUp();
@@ -455,7 +455,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// return_total, weight, created_by, created_at, updated_at.
         /// Source reference: DbDataSourceRepository INSERT columns mapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReportDefinitionsTable_HasAllColumns()
         {
             RunMigrationUp();
@@ -481,7 +481,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies PK constraint named pk_report_definitions exists on the id column.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReportDefinitionsTable_HasPrimaryKey()
         {
             RunMigrationUp();
@@ -507,7 +507,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies UNIQUE constraint/index uq_report_definitions_name exists on the name column.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReportDefinitionsTable_HasUniqueNameConstraint()
         {
             RunMigrationUp();
@@ -530,7 +530,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies read_model_projections table exists in the reporting schema after Up().
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_CreatesReadModelProjectionsTable()
         {
             RunMigrationUp();
@@ -545,7 +545,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// id, source_domain, source_entity, source_record_id, projection_data,
         /// created_at, updated_at.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReadModelProjectionsTable_HasAllColumns()
         {
             RunMigrationUp();
@@ -567,7 +567,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies composite index idx_rmp_domain_entity_record on
         /// (source_domain, source_entity, source_record_id).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReadModelProjectionsTable_HasCompositeIndex()
         {
             RunMigrationUp();
@@ -588,7 +588,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies GIN index idx_rmp_projection_data on projection_data JSONB column.
         /// Per AAP Section 0.7.4: JSONB with GIN index for efficient query projections.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_ReadModelProjectionsTable_HasGinIndex()
         {
             RunMigrationUp();
@@ -613,7 +613,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies event_offsets table exists in the reporting schema after Up().
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_CreatesEventOffsetsTable()
         {
             RunMigrationUp();
@@ -627,7 +627,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies event_offsets has exactly 4 columns:
         /// id, source_domain, last_event_id, last_processed_at.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_EventOffsetsTable_HasAllColumns()
         {
             RunMigrationUp();
@@ -646,7 +646,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies UNIQUE constraint uq_event_offsets_source_domain on source_domain column.
         /// Ensures each domain has exactly one offset tracking record.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_EventOffsetsTable_HasUniqueDomainConstraint()
         {
             RunMigrationUp();
@@ -673,7 +673,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// event_offsets.id.
         /// Source reference: DBTypeConverter GuidField → uuid mapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyUuidColumnTypes()
         {
             RunMigrationUp();
@@ -701,7 +701,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// read_model_projections.source_domain (100), read_model_projections.source_entity (100),
         /// event_offsets.source_domain (100), event_offsets.last_event_id (255).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyVarcharColumnTypes()
         {
             RunMigrationUp();
@@ -733,7 +733,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// report_definitions.description, report_definitions.sql_template.
         /// Source reference: DBTypeConverter TextField → text mapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyTextColumnTypes()
         {
             RunMigrationUp();
@@ -758,7 +758,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// read_model_projections.projection_data.
         /// Per AAP Section 0.7.4: upgraded from text to JSONB for efficient query projections.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyJsonbColumnTypes()
         {
             RunMigrationUp();
@@ -783,7 +783,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies data_type = 'boolean' for: report_definitions.return_total.
         /// Source reference: DBTypeConverter CheckboxField → boolean mapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyBooleanColumnTypes()
         {
             RunMigrationUp();
@@ -796,7 +796,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies data_type = 'integer' for: report_definitions.weight.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyIntegerColumnTypes()
         {
             RunMigrationUp();
@@ -813,7 +813,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// event_offsets.last_processed_at.
         /// Source reference: DBTypeConverter DateTimeField → timestamptz mapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyTimestamptzColumnTypes()
         {
             RunMigrationUp();
@@ -844,7 +844,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// 1. Querying information_schema.columns for column_default containing uuid_generate_v4()
         /// 2. Inserting a row WITHOUT specifying id and verifying a valid UUID is auto-generated
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyUuidGenerateDefault()
         {
             RunMigrationUp();
@@ -885,7 +885,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// 1. Querying information_schema.columns for column_default containing now()
         /// 2. Inserting a row WITHOUT specifying timestamps and verifying they are populated
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyTimestampDefaults()
         {
             RunMigrationUp();
@@ -931,7 +931,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Inserts a report_definitions row WITHOUT specifying return_total and verifies
         /// it defaults to true (matching the migration's .WithDefaultValue(true)).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyReturnTotalDefault()
         {
             RunMigrationUp();
@@ -952,7 +952,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Inserts a report_definitions row WITHOUT specifying weight and verifies
         /// it defaults to 0 (matching the migration's .WithDefaultValue(0)).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyWeightDefault()
         {
             RunMigrationUp();
@@ -980,7 +980,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// 3. reporting.report_definitions — dropped third
         /// Queries information_schema.tables for each and verifies 0 results.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Down_DropsTablesInCorrectOrder()
         {
             // Arrange — run Up() to create all objects
@@ -1007,7 +1007,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// After Down(), verifies the reporting schema no longer exists by querying
         /// information_schema.schemata. The Down() method uses DROP SCHEMA IF EXISTS ... CASCADE.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Down_DropsReportingSchema()
         {
             // Arrange
@@ -1032,7 +1032,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// The extension should NOT be dropped as other schemas may depend on it.
         /// The Down() migration intentionally omits DROP EXTENSION.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Down_PreservesUuidOsspExtension()
         {
             // Arrange
@@ -1070,7 +1070,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         ///   <item>uq_event_offsets_source_domain — UNIQUE on event_offsets.source_domain</item>
         /// </list>
         /// </summary>
-        [Fact]
+        [RdsFact]
         public async Task Up_VerifyAllIndexes()
         {
             RunMigrationUp();

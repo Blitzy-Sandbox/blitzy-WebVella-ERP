@@ -32,6 +32,7 @@ namespace WebVellaErp.Identity.Tests.Integration
     /// </summary>
     public class RoleCrudIntegrationTests : IClassFixture<LocalStackFixture>
     {
+        private readonly LocalStackFixture _fixture;
         private readonly IAmazonCognitoIdentityProvider _cognitoClient;
         private readonly IAmazonDynamoDB _dynamoDbClient;
         private readonly string _userPoolId;
@@ -45,6 +46,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// <param name="fixture">Shared LocalStack fixture providing pre-configured AWS clients.</param>
         public RoleCrudIntegrationTests(LocalStackFixture fixture)
         {
+            _fixture = fixture;
             _cognitoClient = fixture.CognitoClient;
             _dynamoDbClient = fixture.DynamoDbClient;
             _userPoolId = fixture.UserPoolId;
@@ -269,7 +271,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// - DynamoDB item has correct PK, SK, id, name, description, EntityType
         /// - Cognito group exists with matching name
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateRole_WithValidData_PersistsInDynamoDbAndCognitoGroup()
         {
             // Arrange
@@ -341,7 +343,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///     valEx.AddError("name", "Role with same name already exists");
         /// </code>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateRole_WithDuplicateName_FailsWithValidationError()
         {
             // Arrange — Create first role with unique name
@@ -379,7 +381,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///     valEx.AddError("name", "Name is required.");
         /// </code>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateRole_WithEmptyName_FailsWithValidationError()
         {
             // Act — Validate empty role name
@@ -398,7 +400,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// from <c>SecurityManager.SaveRole()</c> lines 316, 335.
         /// Whitespace-only strings ("   ") are treated identically to empty strings.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateRole_WithWhitespaceName_FailsWithValidationError()
         {
             // Act — Validate whitespace-only role name
@@ -424,7 +426,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// </code>
         /// Description is always updated regardless of whether it changed.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateRole_ChangeDescription_PersistsNewDescription()
         {
             // Arrange — Create role with original description
@@ -472,7 +474,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// (<c>if (existingRole.Name != role.Name)</c>). If the new name is unique,
         /// the update proceeds.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateRole_ChangeName_ValidatesUniquenessAndPersists()
         {
             // Arrange — Create two roles with distinct names
@@ -543,7 +545,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///     valEx.AddError("name", "Role with same name already exists");
         /// </code>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateRole_ChangeNameToDuplicate_FailsWithValidationError()
         {
             // Arrange — Create two roles with distinct names
@@ -581,7 +583,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///     role.Description = String.Empty;
         /// </code>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateRole_NullDescription_DefaultsToEmptyString()
         {
             // Arrange — Create role with initial description
@@ -637,7 +639,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Reference: <c>Definitions.cs</c> line 15:
         /// <c>AdministratorRoleId = new Guid("BDC56420-CAF0-4030-8A0E-D264938E0CDA")</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task DeleteSystemRole_Administrator_IsRejected()
         {
             // Arrange — Use well-known Administrator role ID from Role model
@@ -663,7 +665,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Reference: <c>Definitions.cs</c> line 16:
         /// <c>RegularRoleId = new Guid("F16EC6DB-626D-4C27-8DE0-3E7CE542C55F")</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task DeleteSystemRole_Regular_IsRejected()
         {
             // Arrange — Use well-known Regular role ID from Role model
@@ -689,7 +691,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Reference: <c>Definitions.cs</c> line 17:
         /// <c>GuestRoleId = new Guid("987148B1-AFA8-4B33-8616-55861E5FD065")</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task DeleteSystemRole_Guest_IsRejected()
         {
             // Arrange — Use well-known Guest role ID from Role model
@@ -721,7 +723,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Per AAP Section 0.7.5: "System roles map to Cognito groups"
         /// This pattern extends to all roles, not just system roles.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateRole_AlsoCreatesCognitoGroup()
         {
             // Arrange
@@ -769,7 +771,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// 1. The old Cognito group is removed (GetGroup throws GroupNotFoundException)
         /// 2. A new Cognito group is created with the updated name
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateRoleName_UpdatesCognitoGroup()
         {
             // Arrange — Create role with initial name
@@ -861,7 +863,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// The scan uses <c>EntityType = ROLE_META</c> filter to return only role items
         /// from the single-table design DynamoDB table.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetAllRoles_ReturnsAllCreatedRoles()
         {
             // Arrange — Create 3 test roles with unique names

@@ -35,6 +35,7 @@ namespace WebVellaErp.Identity.Tests.Integration
     /// </summary>
     public class AuthFlowIntegrationTests : IClassFixture<LocalStackFixture>
     {
+        private readonly LocalStackFixture _fixture;
         private readonly IAmazonCognitoIdentityProvider _cognitoClient;
         private readonly IAmazonDynamoDB _dynamoDbClient;
         private readonly string _userPoolId;
@@ -51,6 +52,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// AWS SDK clients (CognitoClient, DynamoDbClient) and resource identifiers (UserPoolId, ClientId).</param>
         public AuthFlowIntegrationTests(LocalStackFixture fixture)
         {
+            _fixture = fixture;
             _cognitoClient = fixture.CognitoClient;
             _dynamoDbClient = fixture.DynamoDbClient;
             _userPoolId = fixture.UserPoolId;
@@ -206,7 +208,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// In the new architecture, Cognito handles all credential validation, token issuance,
         /// and claims management natively via the ADMIN_USER_PASSWORD_AUTH flow.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithValidCredentials_ReturnsTokens()
         {
             // Arrange: Create a unique test user to avoid interference with parallel tests
@@ -247,7 +249,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Cognito natively validates the password against its securely stored hash and throws
         /// NotAuthorizedException for password mismatches.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithInvalidPassword_Throws401()
         {
             // Arrange: Create user with known password
@@ -281,7 +283,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Cognito throws UserNotFoundException when the user does not exist (or NotAuthorizedException
         /// if the user pool has PreventUserExistenceErrors enabled to prevent user enumeration).
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithNonExistentUser_Throws401()
         {
             // Arrange: Use a unique email that was never registered in the user pool
@@ -306,7 +308,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// authentication at the provider level (throws NotAuthorizedException or
         /// UserNotConfirmedException depending on Cognito implementation).
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithDisabledUser_ThrowsError()
         {
             // Arrange: Create user, then disable them
@@ -356,7 +358,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// they expire (short-lived). For immediate revocation, the custom Lambda authorizer
         /// checks token validity against Cognito.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Logout_AfterLogin_InvalidatesSession()
         {
             // Arrange: Create user and perform initial login to obtain tokens
@@ -427,7 +429,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// the refresh token and Cognito issues new access and ID tokens without the application
         /// needing to re-validate credentials or manually build tokens.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task TokenRefresh_WithValidRefreshToken_ReturnsNewAccessToken()
         {
             // Arrange: Create user and login to get initial token set
@@ -482,7 +484,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// In Cognito, invalid refresh tokens are immediately rejected with
         /// NotAuthorizedException — no ambiguous null return.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task TokenRefresh_WithInvalidRefreshToken_ThrowsError()
         {
             // Act & Assert: Fabricated refresh token should be rejected by Cognito
@@ -525,7 +527,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// (minimum length 3, no complexity requirements) specifically to allow the legacy
         /// system password "erp" which would not meet standard Cognito password policies.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task SystemUser_CanBeCreatedAndAuthenticated()
         {
             // Arrange: Create the system user with default credentials from the monolith
@@ -567,7 +569,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// token.Substring(7). The extracted token was then passed to
         /// AuthService.GetValidSecurityTokenAsync for HS256 signature validation.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task BearerTokenParsing_WithValidAuthHeader_ExtractsToken()
         {
             // Arrange: Construct a valid Authorization header with a JWT-like token string
@@ -590,7 +592,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// where headers containing only "Bearer" (6 chars) or "Bearer " (7 chars with trailing
         /// space but no actual token) are treated as invalid — there is no token to extract.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task BearerTokenParsing_WithShortHeader_ReturnsNull()
         {
             // Arrange: Header value "Bearer" (6 chars, no trailing space or token)
@@ -612,7 +614,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// to be skipped, leaving token as null. The middleware then proceeded to call
         /// _next(context) without attaching any user identity.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task BearerTokenParsing_WithEmptyHeader_ReturnsNull()
         {
             await Task.CompletedTask; // Maintain async Task signature for consistency
@@ -646,7 +648,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Cognito service with an appropriate exception (InvalidParameterException,
         /// NotAuthorizedException, or UserNotFoundException depending on implementation).
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithEmptyEmail_Fails()
         {
             // Act & Assert: Empty email should cause Cognito to reject the auth request
@@ -666,7 +668,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// In Cognito, empty PASSWORD in the auth parameters will be rejected by the
         /// Cognito service with an appropriate exception.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task Login_WithEmptyPassword_Fails()
         {
             // Arrange: Use a unique email (user doesn't need to exist for empty password validation)

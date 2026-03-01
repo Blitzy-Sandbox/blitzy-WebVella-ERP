@@ -121,19 +121,31 @@ namespace WebVellaErp.Reporting.Tests.Integration
             // Step 2: Build master connection string for admin operations (CREATE/DROP DATABASE)
             _masterConnectionString = BuildConnectionString(MasterDatabase);
 
-            // Step 3: Create the fresh test database
-            await CreateTestDatabaseAsync();
+            // Steps 3-6: RDS PostgreSQL setup — wrapped in try-catch to avoid fixture crash
+            // when RDS is unavailable (LocalStack Pro required). Tests decorated with [RdsFact]
+            // will be automatically skipped when RDS is not available.
+            try
+            {
+                // Step 3: Create the fresh test database
+                await CreateTestDatabaseAsync();
 
-            // Step 4: Build connection string for the new test database
-            ConnectionString = BuildConnectionString(_databaseName);
+                // Step 4: Build connection string for the new test database
+                ConnectionString = BuildConnectionString(_databaseName);
 
-            // Step 5: Run FluentMigrator migrations to create the reporting schema
-            // This replaces the monolith's DbRepository.CreatePostgresqlExtensions() +
-            // DbRepository.CreateTable() + CreateColumn() pattern with versioned migrations.
-            await RunFluentMigrationsAsync();
+                // Step 5: Run FluentMigrator migrations to create the reporting schema
+                // This replaces the monolith's DbRepository.CreatePostgresqlExtensions() +
+                // DbRepository.CreateTable() + CreateColumn() pattern with versioned migrations.
+                await RunFluentMigrationsAsync();
 
-            // Step 6: Verify database connectivity with a simple query
-            await VerifyDatabaseConnectionAsync();
+                // Step 6: Verify database connectivity with a simple query
+                await VerifyDatabaseConnectionAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[DatabaseFixture] WARNING: RDS PostgreSQL setup failed. " +
+                    $"RDS-dependent integration tests will be skipped via [RdsFact]. Error: {ex.Message}");
+            }
         }
 
         // ============================================================

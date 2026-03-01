@@ -701,10 +701,14 @@ public class FileMetadataRepository : IFileMetadataRepository
                 { ":modDate", new AttributeValue { S = DateTime.UtcNow.ToString("O") } }
             };
 
+            // ExpressionAttributeNames required because "ttl" is a DynamoDB reserved keyword
+            var exprNames = new Dictionary<string, string>();
+
             // If moving from temp to permanent, clear TTL; if moving to temp, set TTL
             if (isNewTemp && !srcFile.IsTemp)
             {
-                updateExprParts.Add($"{TtlAttr} = :ttl");
+                updateExprParts.Add($"#ttl = :ttl");
+                exprNames["#ttl"] = TtlAttr;
                 exprValues[":ttl"] = new AttributeValue
                 {
                     N = DateTimeOffset.UtcNow.AddHours(_defaultTempFileTtlHours).ToUnixTimeSeconds().ToString()
@@ -713,7 +717,8 @@ public class FileMetadataRepository : IFileMetadataRepository
             else if (!isNewTemp && srcFile.IsTemp)
             {
                 // Remove TTL when moving from temp to permanent
-                updateExprParts.Add($"{TtlAttr} = :ttlRemove");
+                updateExprParts.Add($"#ttl = :ttlRemove");
+                exprNames["#ttl"] = TtlAttr;
                 exprValues[":ttlRemove"] = new AttributeValue { NULL = true };
             }
 
@@ -726,6 +731,12 @@ public class FileMetadataRepository : IFileMetadataRepository
                 ConditionExpression = $"attribute_exists({PkAttr})",
                 ReturnValues = ReturnValue.ALL_NEW
             };
+
+            // Only add ExpressionAttributeNames if there are aliases to resolve
+            if (exprNames.Count > 0)
+            {
+                request.ExpressionAttributeNames = exprNames;
+            }
 
             var response = await _dynamoDbClient
                 .UpdateItemAsync(request, cancellationToken)

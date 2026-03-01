@@ -39,6 +39,7 @@ namespace WebVellaErp.Identity.Tests.Integration
     /// </summary>
     public class UserMigrationIntegrationTests : IClassFixture<LocalStackFixture>
     {
+        private readonly LocalStackFixture _fixture;
         private readonly IAmazonCognitoIdentityProvider _cognitoClient;
         private readonly IAmazonDynamoDB _dynamoDbClient;
         private readonly string _userPoolId;
@@ -56,6 +57,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// AWS SDK clients and resource identifiers.</param>
         public UserMigrationIntegrationTests(LocalStackFixture fixture)
         {
+            _fixture = fixture;
             _cognitoClient = fixture.CognitoClient;
             _dynamoDbClient = fixture.DynamoDbClient;
             _userPoolId = fixture.UserPoolId;
@@ -336,7 +338,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// as the monolith's PasswordUtil.GetMd5Hash, ensuring legacy users can authenticate
         /// during the MD5→Cognito migration window.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetMd5Hash_WithKnownInput_ProducesCorrectHash()
         {
             // Arrange: Known input "erp" — the default system user password
@@ -361,7 +363,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///   if (string.IsNullOrWhiteSpace(input))
         ///       return string.Empty;
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetMd5Hash_WithEmptyInput_ReturnsEmptyString()
         {
             // Act
@@ -379,7 +381,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Verifies that ComputeMd5Hash returns string.Empty for whitespace-only input,
         /// matching the string.IsNullOrWhiteSpace check on PasswordUtil.cs line 13.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetMd5Hash_WithWhitespaceInput_ReturnsEmptyString()
         {
             // Act
@@ -400,7 +402,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///   StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         ///   return (0 == comparer.Compare(hashOfInput, hash));
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task VerifyMd5Hash_WithCorrectInput_ReturnsTrue()
         {
             // Arrange
@@ -426,7 +428,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// hash casing. The monolith's PasswordUtil.VerifyMd5Hash handles this correctly
         /// with OrdinalIgnoreCase, and our migration must preserve this behavior.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task VerifyMd5Hash_IsCaseInsensitive()
         {
             // Arrange: compute hash (lowercase by default due to "x2" format)
@@ -460,7 +462,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         ///
         /// Test: hash a non-ASCII string with UTF-8 and Unicode — the results MUST differ.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetMd5Hash_UsesUtf8NotUnicode()
         {
             // Arrange: non-ASCII input where UTF-8 and Unicode produce different byte sequences
@@ -502,7 +504,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// password verification logic. If the MD5 hash matches, the Lambda creates the
         /// user in Cognito with the provided password."
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task MigrateUser_WithCorrectMd5Hash_CreatesUserInCognito()
         {
             // Arrange: unique user for test isolation
@@ -574,7 +576,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// - AuthenticationResult is not null
         /// - AccessToken is returned (proves Cognito issued real JWT tokens)
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task MigrateUser_PostMigration_CognitoAuthWorks()
         {
             // Arrange: unique user for test isolation
@@ -628,7 +630,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// - Migration returns false (password verification failed)
         /// - User does NOT exist in Cognito (AdminGetUser throws UserNotFoundException)
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task MigrateUser_WithWrongPassword_DoesNotCreateInCognito()
         {
             // Arrange: store legacy user with MD5 hash of "CorrectPass"
@@ -677,7 +679,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Per AAP Section 0.8.5: "All event consumers MUST be idempotent."
         /// Per AAP Section 0.8.5: "Idempotency keys on all write endpoints and event handlers."
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task MigrateUser_IdempotentMigration_SecondAttemptDoesNotFail()
         {
             // Arrange: unique user for test isolation
@@ -744,7 +746,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// - User is created in Cognito with correct attributes
         /// - Login via Cognito succeeds with the original password
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task SystemDefaultUser_MigratesFromMd5()
         {
             // Arrange: use the well-known FirstUserId from User model

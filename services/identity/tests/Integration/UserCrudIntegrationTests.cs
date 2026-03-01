@@ -48,6 +48,7 @@ namespace WebVellaErp.Identity.Tests.Integration
     /// </summary>
     public class UserCrudIntegrationTests : IClassFixture<LocalStackFixture>
     {
+        private readonly LocalStackFixture _fixture;
         private readonly IAmazonCognitoIdentityProvider _cognitoClient;
         private readonly IAmazonDynamoDB _dynamoDbClient;
         private readonly string _userPoolId;
@@ -64,6 +65,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// and resource identifiers.</param>
         public UserCrudIntegrationTests(LocalStackFixture fixture)
         {
+            _fixture = fixture;
             _cognitoClient = fixture.CognitoClient;
             _dynamoDbClient = fixture.DynamoDbClient;
             _userPoolId = fixture.UserPoolId;
@@ -503,7 +505,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// - GSI1 query (EMAIL#{email}) finds the user (email lookup index)
         /// - GSI2 query (USERNAME#{username}) finds the user (username lookup index)
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithValidData_PersistsInCognitoAndDynamoDb()
         {
             // Arrange
@@ -584,7 +586,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// This ensures that no field is lost during the migration from PostgreSQL
         /// <c>rec_user</c> table to DynamoDB single-table design.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithAllAttributes_PreservesAllFields()
         {
             // Arrange
@@ -671,7 +673,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Replaces: <c>SecurityManager.SaveUser()</c> UPDATE path (source lines 202-252)
         /// which called <c>recMan.UpdateRecord("user", record)</c>.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateUser_ChangeAttributes_PersistsChanges()
         {
             // Arrange
@@ -757,7 +759,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// monolith's <c>SecurityManager.SaveUser()</c> (source lines 269-270):
         /// <c>"Username is already registered to another user. It must be unique."</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithDuplicateUsername_FailsWithValidationError()
         {
             // Arrange
@@ -809,7 +811,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// UPDATE path (source lines 212-213):
         /// <c>"Username is already registered to another user. It must be unique."</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateUser_WithDuplicateUsername_FailsWithValidationError()
         {
             // Arrange
@@ -863,7 +865,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// monolith's <c>SecurityManager.SaveUser()</c> (source lines 274-275):
         /// <c>"Email is already registered to another user. It must be unique."</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithDuplicateEmail_FailsWithValidationError()
         {
             // Arrange
@@ -916,7 +918,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Error message matches exactly: <c>"Email is not valid."</c>
         /// (source SecurityManager.cs lines 276-277).
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithInvalidEmail_FailsWithValidationError()
         {
             // Arrange
@@ -951,7 +953,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// (source lines 279-280):
         /// <c>"Password is required."</c>
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithoutPassword_FailsWithValidationError()
         {
             // Arrange
@@ -998,7 +1000,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// (source SecurityManager.cs lines 246, 284) which used PostgreSQL many-to-many
         /// <c>rel_user_role</c> join table.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task CreateUser_WithRoles_AssignsToCorrectCognitoGroups()
         {
             // Arrange
@@ -1070,7 +1072,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// Replaces: <c>SecurityManager.GetUsers(params Guid[] roleIds)</c>
         /// (source lines 167-184) which built dynamic EQL with <c>$user_role.id</c> filters.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetUsersByRole_ReturnsCorrectUsers()
         {
             // Arrange — Create 3 users
@@ -1172,7 +1174,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// (source lines 350-356) which set <c>DateTime.UtcNow</c> via
         /// <c>CurrentContext.RecordRepository.Update("user", storageRecordData)</c>.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task UpdateUserLastLoginTime_PersistsTimestamp()
         {
             // Arrange
@@ -1257,7 +1259,7 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// user profiles. This tests the listing pattern that replaces the monolith's
         /// EQL-based user listing.
         /// </summary>
-        [Fact]
+        [CognitoFact]
         public async Task GetAllUsers_ReturnsAllCreatedUsers()
         {
             // Arrange — Create 3 test users in DynamoDB

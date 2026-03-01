@@ -539,7 +539,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// into <c>reporting.read_model_projections</c> with correct domain, entity, record ID,
         /// and projection data containing the full record.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithCreatedEvent_InsertsReadModelProjection()
         {
@@ -588,7 +588,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that a <c>crm.contact.updated</c> event updates an existing read-model
         /// projection (not duplicates it). Inserts a projection first, then sends an update event.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithUpdatedEvent_UpdatesReadModelProjection()
         {
@@ -636,7 +636,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// (hard delete for non-financial entities). For financial entities (<c>invoicing.*</c>),
         /// soft-delete is tested separately.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithDeletedEvent_DeletesReadModelProjection()
         {
@@ -679,7 +679,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// are now replaced by async SQS events. Messages arriving via SNS subscription
         /// contain an outer SNS notification envelope requiring unwrapping.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithSnsWrappedMessage_UnwrapsCorrectly()
         {
@@ -766,7 +766,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// "All event consumers MUST be idempotent." Sends the same domain event twice;
         /// the second processing must be detected as duplicate and skipped.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_DuplicateEvent_SkipsProcessing()
         {
@@ -801,7 +801,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>
         /// Verifies that duplicate event detection logs a warning message.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_DuplicateEvent_LogsWarning()
         {
@@ -835,7 +835,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Identity bounded context:
         /// <c>identity.user.created</c>, <c>identity.user.updated</c>, <c>identity.user.deleted</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_IdentityEvents_ProcessesCorrectly()
         {
@@ -880,7 +880,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Entity Management bounded context:
         /// <c>entity-management.entity.created</c>, <c>entity-management.entity.updated</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_EntityManagementEvents_ProcessesCorrectly()
         {
@@ -917,7 +917,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <c>crm.account.created</c>, <c>crm.contact.created</c>,
         /// <c>crm.contact.updated</c>, <c>crm.contact.deleted</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_CrmEvents_ProcessesCorrectly()
         {
@@ -973,7 +973,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Inventory bounded context:
         /// <c>inventory.task.created</c>, <c>inventory.timelog.created</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_InventoryEvents_ProcessesCorrectly()
         {
@@ -1011,7 +1011,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <c>invoicing.invoice.created</c>, <c>invoicing.payment.processed</c>.
         /// Invoicing is a financial domain — soft-delete behavior is tested separately.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_InvoicingEvents_ProcessesCorrectly()
         {
@@ -1048,7 +1048,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Notifications bounded context:
         /// <c>notifications.email.sent</c>, <c>notifications.email.failed</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_NotificationsEvents_ProcessesCorrectly()
         {
@@ -1085,7 +1085,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the File Management bounded context:
         /// <c>file-management.file.uploaded</c>, <c>file-management.file.deleted</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_FileManagementEvents_ProcessesCorrectly()
         {
@@ -1121,7 +1121,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Workflow bounded context:
         /// <c>workflow.workflow.started</c>, <c>workflow.workflow.completed</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WorkflowEvents_ProcessesCorrectly()
         {
@@ -1156,7 +1156,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Tests event processing from the Plugin System bounded context:
         /// <c>plugin-system.plugin.registered</c>, <c>plugin-system.plugin.updated</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_PluginSystemEvents_ProcessesCorrectly()
         {
@@ -1197,7 +1197,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that events following the <c>{domain}.{entity}.{action}</c> format
         /// per AAP §0.8.5 are processed successfully.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_ValidEventFormat_ProcessesSuccessfully()
         {
@@ -1233,7 +1233,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// level and skipped without causing failure. The message is consumed (acknowledged)
         /// but no projection is created.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_UnknownEventType_LogsWarningAndSkips()
         {
@@ -1301,7 +1301,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         ///
         /// Per AAP §0.8.5: DLQ naming convention <c>{service}-{queue}-dlq</c>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_FailedMessage_RoutesToDlq()
         {
@@ -1383,7 +1383,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <see cref="SQSBatchResponse.BatchItemFailure"/> for the failed message,
         /// while the other 2 messages are processed successfully.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_PartialBatchFailure_ReportsFailedMessageIds()
         {
@@ -1504,7 +1504,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// to read-model projection metadata per AAP §0.8.5:
         /// "Structured JSON logging with correlation-ID propagation from all Lambda functions."
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithCorrelationId_PropagatesThroughProcessing()
         {
@@ -1558,7 +1558,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Verifies that when no correlation-ID is present in SQS message attributes,
         /// the message's <c>MessageId</c> is used as a fallback correlation-ID.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_WithoutCorrelationId_UsesMessageIdAsFallback()
         {
@@ -1638,7 +1638,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Per AAP §0.8.1: financial entities must preserve complete audit history.
         /// The invoicing domain is classified as financial per <see cref="IProjectionService.IsFinancialEntity"/>.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_InvoicingDeleteEvent_PerformsSoftDelete()
         {
@@ -1691,7 +1691,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// Non-financial entities do not require audit trail preservation, so hard-delete
         /// is used to keep the read model clean.
         /// </summary>
-        [Fact]
+        [RdsFact]
         [Trait("Category", "Integration")]
         public async Task HandleSqsEvent_NonFinancialDeleteEvent_PerformsHardDelete()
         {

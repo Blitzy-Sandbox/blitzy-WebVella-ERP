@@ -92,6 +92,37 @@ namespace WebVellaErp.Identity.Tests.Integration
         public string RoleEventsTopicArn { get; private set; } = string.Empty;
 
         /// <summary>
+        /// Indicates whether the Cognito Identity Provider service is available in the
+        /// current LocalStack environment. LocalStack Community Edition does not include
+        /// Cognito — it requires LocalStack Pro. When Cognito is unavailable, tests that
+        /// depend on Cognito operations should be dynamically skipped via
+        /// <see cref="SkipIfCognitoUnavailable"/>.
+        /// </summary>
+        public bool CognitoAvailable { get; private set; } = true;
+
+        /// <summary>
+        /// Human-readable reason why Cognito is not available. Empty when Cognito IS available.
+        /// Used as the skip reason in dynamically skipped tests.
+        /// </summary>
+        public string CognitoSkipReason { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// Helper method for integration test classes to call at the start of any test
+        /// that requires Cognito. Uses the xUnit 2.x dynamic skip mechanism: throwing
+        /// an exception whose message begins with <c>$XunitDynamicSkip$</c> causes the
+        /// test runner to report the test as Skipped rather than Failed.
+        /// See xUnit.Sdk.DynamicSkipToken (internal) — the contract is: any exception
+        /// whose message starts with "$XunitDynamicSkip$" will be treated as a skip.
+        /// </summary>
+        public void SkipIfCognitoUnavailable()
+        {
+            if (!CognitoAvailable)
+            {
+                throw new Exception($"$XunitDynamicSkip${CognitoSkipReason}");
+            }
+        }
+
+        /// <summary>
         /// Constructor configures all AWS SDK clients for LocalStack.
         /// Reads endpoint from AWS_ENDPOINT_URL environment variable
         /// (falls back to http://localhost:4566 which is the standard LocalStack port).
@@ -150,17 +181,38 @@ namespace WebVellaErp.Identity.Tests.Integration
             // Table has PK/SK primary key + GSI1 for email lookups + GSI2 for username lookups
             await CreateDynamoDbTableAsync();
 
-            // Step 2: Create Cognito User Pool with relaxed password policy for testing
-            // Allows simple passwords like "erp" (the system default user password)
-            await CreateCognitoUserPoolAsync();
+            // Steps 2-4: Cognito provisioning — wrapped in try-catch because Cognito
+            // is a LocalStack Pro feature and may not be available in the current environment.
+            // When Cognito is unavailable, CognitoAvailable is set to false and tests
+            // that depend on Cognito will be dynamically skipped via SkipIfCognitoUnavailable().
+            try
+            {
+                // Step 2: Create Cognito User Pool with relaxed password policy for testing
+                // Allows simple passwords like "erp" (the system default user password)
+                await CreateCognitoUserPoolAsync();
 
-            // Step 3: Create Cognito App Client with required auth flows
-            // Enables ADMIN_USER_PASSWORD_AUTH, REFRESH_TOKEN_AUTH, USER_PASSWORD_AUTH
-            await CreateCognitoAppClientAsync();
+                // Step 3: Create Cognito App Client with required auth flows
+                // Enables ADMIN_USER_PASSWORD_AUTH, REFRESH_TOKEN_AUTH, USER_PASSWORD_AUTH
+                await CreateCognitoAppClientAsync();
 
-            // Step 4: Create Default Cognito Groups matching system roles
-            // Maps to: administrator, regular, guest (from Definitions.cs)
-            await CreateCognitoGroupsAsync();
+                // Step 4: Create Default Cognito Groups matching system roles
+                // Maps to: administrator, regular, guest (from Definitions.cs)
+                await CreateCognitoGroupsAsync();
+            }
+            catch (Amazon.CognitoIdentityProvider.AmazonCognitoIdentityProviderException ex)
+            {
+                // Cognito is not available — likely running against LocalStack Community Edition
+                // which does not include the cognito-idp service. Mark Cognito as unavailable
+                // so tests can be dynamically skipped instead of failing.
+                CognitoAvailable = false;
+                CognitoSkipReason = $"Cognito is not available in the current LocalStack environment: {ex.Message}";
+            }
+            catch (System.Net.Http.HttpRequestException ex)
+            {
+                // Network-level failure connecting to LocalStack Cognito endpoint
+                CognitoAvailable = false;
+                CognitoSkipReason = $"Cannot connect to LocalStack Cognito endpoint: {ex.Message}";
+            }
 
             // Step 5: Create SNS Topics for identity domain events
             // Topics: identity-user-events, identity-role-events

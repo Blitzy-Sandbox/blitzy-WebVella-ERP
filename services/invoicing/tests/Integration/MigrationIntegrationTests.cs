@@ -160,7 +160,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Per AAP §0.4.2: Database-Per-Service with schema-level isolation.
         /// Pattern from source DbRepository.CreatePostgresqlExtensions (line 30).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesInvoicingSchema()
         {
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -181,7 +181,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern from source DbRepository.CreatePostgresqlExtensions (line 30):
         ///   CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesUuidOsspExtension()
         {
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -212,7 +212,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///   - text (TextField/MultiLineTextField, line 70)
         ///   - character varying (SelectField, line 68)
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesInvoicesTable_WithCorrectColumns()
         {
             var columns = GetColumnInfo("invoicing", "invoices");
@@ -244,7 +244,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Pattern from source DbRepository.CreateColumn (line 241-242):
         ///   if (isPrimaryKey) sql += " PRIMARY KEY";
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_InvoicesTable_HasPrimaryKey_OnId()
         {
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -272,7 +272,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// FluentMigrator's Create.Index(...).WithOptions().Unique() creates a UNIQUE INDEX
         /// (not a UNIQUE CONSTRAINT), so we verify via pg_indexes.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_InvoicesTable_HasUniqueConstraint_OnNumber()
         {
             // Verify the unique index exists
@@ -301,7 +301,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Verifies that InitialCreate.Up() creates the invoicing.invoice_line_items table
         /// with exactly 8 columns having the correct data types and nullability.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesLineItemsTable_WithCorrectColumns()
         {
             var columns = GetColumnInfo("invoicing", "invoice_line_items");
@@ -328,7 +328,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///   ALTER TABLE "{targetTable}" ADD CONSTRAINT "{relName}" FOREIGN KEY ("{targetField}")
         ///   REFERENCES "{originTable}" ("{originField}");
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_LineItemsTable_HasForeignKey_ToInvoices()
         {
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -381,7 +381,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Verifies that InitialCreate.Up() creates the invoicing.payments table
         /// with exactly 9 columns having the correct data types and nullability.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesPaymentsTable_WithCorrectColumns()
         {
             var columns = GetColumnInfo("invoicing", "payments");
@@ -408,7 +408,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// Payments must be preserved for audit trail integrity even if the
         /// invoice record undergoes status changes or corrections.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_PaymentsTable_HasForeignKey_ToInvoices()
         {
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -462,7 +462,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// the three invoicing tables. Pattern from source DbRepository.CreateIndex
         /// (line 468): CREATE INDEX IF NOT EXISTS "{indexName}" ON "{tableName}" ("{columnName}")
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_CreatesAllExpectedIndexes()
         {
             // Invoices table indexes
@@ -503,7 +503,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// have uuid_generate_v4() as default value for random UUID generation.
         /// Pattern from source DbRepository.cs line 233 (updated from uuid_generate_v1() to v4).
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_IdColumns_HaveUuidGenerateV4Default()
         {
             // Verify invoices.id default
@@ -541,7 +541,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///   - invoices.last_modified_on
         ///   - payments.created_on
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void InitialCreate_TimestampColumns_HaveNowDefault()
         {
             // Verify invoices.created_on default
@@ -587,7 +587,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         ///
         /// After verification, re-runs Up() to restore state for subsequent tests.
         /// </summary>
-        [Fact]
+        [RdsFact]
         public void Down_DropsAllTablesInCorrectOrder()
         {
             // Pre-condition: verify all tables exist before running Down()
