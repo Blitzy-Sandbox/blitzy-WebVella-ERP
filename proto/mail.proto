@@ -1,0 +1,7 @@
+syntax = "proto3";
+option csharp_namespace = "WebVella.Erp.Service.Mail.Grpc";
+package mail;
+
+// Minimal stub — full implementation by proto agent
+service MailService {
+}
