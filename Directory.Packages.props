@@ -89,8 +89,9 @@
     <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.1" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />
 
-    <!-- Authentication — JWT Bearer for cross-service token propagation -->
+    <!-- Authentication — JWT Bearer and Identity Model for cross-service token propagation -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.15.0" />
 
     <!-- EF Core — Database-per-service migrations -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.1" />
