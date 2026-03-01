@@ -1,0 +1,495 @@
+##############################################################################
+# WebVella ERP Microservices — LocalStack Overlay Docker Compose
+#
+# LocalStack-specific Docker Compose override file for validating cloud-native
+# features (SNS, SQS, S3) using LocalStack in Docker containers.
+#
+# Per AAP Sections 0.4.1, 0.7.4, and 0.8.3.
+#
+# Usage (standalone — full stack with LocalStack):
+#   docker compose -f docker-compose.localstack.yml up -d
+#
+# Usage (overlay on base compose):
+#   docker compose -f docker-compose.yml -f docker-compose.localstack.yml up -d
+#
+# Key differences from docker-compose.yml:
+#   - Adds LocalStack container emulating AWS SNS, SQS, S3 on port 4566
+#   - Switches messaging transport from RabbitMQ to SNS/SQS via LocalStack
+#   - Injects AWS__ServiceURL env var on all application services
+#   - Mounts init-aws.sh for automatic SNS/SQS/S3 resource provisioning
+#   - All cloud-native features validated without external cloud dependencies
+#
+# The API Gateway remains the single entry point on port 5000, preserving
+# backward compatibility with the /api/v3/ REST contract (AAP 0.8.1).
+##############################################################################
+
+services:
+
+  # ===========================================================================
+  # LOCALSTACK — AWS Service Emulator (SNS, SQS, S3)
+  # ===========================================================================
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: erp-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs,sns,s3
+      - DEBUG=1
+      - AWS_DEFAULT_REGION=us-east-1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "./infrastructure/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+      - localstack-data:/var/lib/localstack
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ===========================================================================
+  # INFRASTRUCTURE SERVICES
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Database-per-service model (AAP 0.1.2)
+  # Each service gets its own PostgreSQL instance with isolated database.
+  # Connection string pattern from Config.json:
+  #   Server=<host>;Port=5432;User Id=dev;Password=dev;Database=<dbname>;
+  #   Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+  # ---------------------------------------------------------------------------
+
+  postgres-core:
+    image: postgres:16-alpine
+    container_name: erp-ls-postgres-core
+    environment:
+      POSTGRES_DB: erp_core
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "15432:5432"
+    volumes:
+      - ls-postgres-core-data:/var/lib/postgresql/data
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-crm:
+    image: postgres:16-alpine
+    container_name: erp-ls-postgres-crm
+    environment:
+      POSTGRES_DB: erp_crm
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "15433:5432"
+    volumes:
+      - ls-postgres-crm-data:/var/lib/postgresql/data
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-project:
+    image: postgres:16-alpine
+    container_name: erp-ls-postgres-project
+    environment:
+      POSTGRES_DB: erp_project
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "15434:5432"
+    volumes:
+      - ls-postgres-project-data:/var/lib/postgresql/data
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_project"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-mail:
+    image: postgres:16-alpine
+    container_name: erp-ls-postgres-mail
+    environment:
+      POSTGRES_DB: erp_mail
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "15435:5432"
+    volumes:
+      - ls-postgres-mail-data:/var/lib/postgresql/data
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_mail"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis — Distributed caching (AAP 0.1.2, replacing IMemoryCache)
+  # ---------------------------------------------------------------------------
+
+  redis:
+    image: redis:7-alpine
+    container_name: erp-ls-redis
+    ports:
+      - "16379:6379"
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Message broker (kept for MassTransit local transport fallback)
+  # In LocalStack mode, SNS/SQS is the primary messaging transport, but
+  # RabbitMQ remains available for backward compatibility and hybrid scenarios.
+  # ---------------------------------------------------------------------------
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: erp-ls-rabbitmq
+    ports:
+      - "15672:5672"
+      - "25672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - erp-localstack-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ===========================================================================
+  # APPLICATION SERVICES — LocalStack-configured
+  #
+  # Key overrides vs docker-compose.yml:
+  #   - AWS__ServiceURL points to LocalStack container on port 4566
+  #   - AWS__UseLocalStack=true enables LocalStack-aware SDK configuration
+  #   - AWS__AuthenticationRegion=us-east-1 for SNS/SQS/S3 operations
+  #   - Messaging__Transport=AmazonSQS switches from RabbitMQ to SNS/SQS
+  #   - Services depend on localstack healthcheck (condition: service_healthy)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Core Platform Service — Entity, Record, Security, File, Search, DataSource
+  # ---------------------------------------------------------------------------
+
+  core-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Core/Dockerfile
+    container_name: erp-ls-core-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_core_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback (still available) ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- File storage via S3 on LocalStack ---
+      - Storage__Provider=S3
+      - Storage__S3__ServiceURL=http://localstack:4566
+      - Storage__S3__BucketName=erp-files
+      - Storage__S3__Region=us-east-1
+      - Storage__S3__AccessKey=test
+      - Storage__S3__SecretKey=test
+      - Storage__S3__ForcePathStyle=true
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - Jobs__Enabled=true
+      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # CRM Service — Account, Contact, Case, Address, Salutation
+  # ---------------------------------------------------------------------------
+
+  crm-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Crm/Dockerfile
+    container_name: erp-ls-crm-service
+    depends_on:
+      postgres-crm:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-crm;Port=5432;User Id=dev;Password=dev;Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_crm_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Project/Task Service — Task, Timelog, Comment, Feed, Reporting
+  # ---------------------------------------------------------------------------
+
+  project-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Project/Dockerfile
+    container_name: erp-ls-project-service
+    depends_on:
+      postgres-project:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-project;Port=5432;User Id=dev;Password=dev;Database=erp_project;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_project_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - ServiceUrls__CrmService=http://crm-service:8080
+      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Mail/Notification Service — Email, SMTP, Queue Processing
+  # ---------------------------------------------------------------------------
+
+  mail-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Mail/Dockerfile
+    container_name: erp-ls-mail-service
+    depends_on:
+      postgres-mail:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Default=Server=postgres-mail;Port=5432;User Id=dev;Password=dev;Database=erp_mail;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_mail_
+      # --- LocalStack AWS overrides (AAP 0.8.3) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- Messaging via SNS/SQS through LocalStack ---
+      - Messaging__Transport=AmazonSQS
+      - Messaging__AmazonSQS__ServiceURL=http://localstack:4566
+      - Messaging__AmazonSQS__Region=us-east-1
+      - Messaging__AmazonSQS__AccessKey=test
+      - Messaging__AmazonSQS__SecretKey=test
+      # --- RabbitMQ fallback ---
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      # --- JWT / Auth ---
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      # --- Application settings ---
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Smtp__Enabled=false
+      - Smtp__Host=
+      - Smtp__Port=25
+      - Settings__EncryptionKey=BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API Gateway / BFF — Single entry point, routes to backend microservices
+  # Exposes port 5000 preserving backward compatibility with /api/v3/ (AAP 0.8.1)
+  # ---------------------------------------------------------------------------
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/WebVella.Erp.Gateway/Dockerfile
+    container_name: erp-ls-gateway
+    ports:
+      - "5000:8080"
+    depends_on:
+      - core-service
+      - crm-service
+      - project-service
+      - mail-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Services__Core=http://core-service:8080
+      - Services__Crm=http://crm-service:8080
+      - Services__Project=http://project-service:8080
+      - Services__Mail=http://mail-service:8080
+      - ServiceRoutes__CoreServiceUrl=http://core-service:8080
+      - ServiceRoutes__CrmServiceUrl=http://crm-service:8080
+      - ServiceRoutes__ProjectServiceUrl=http://project-service:8080
+      - ServiceRoutes__MailServiceUrl=http://mail-service:8080
+      # --- LocalStack AWS overrides (gateway may need S3 for static assets) ---
+      - AWS__ServiceURL=http://localstack:4566
+      - AWS__AuthenticationRegion=us-east-1
+      - AWS__UseLocalStack=true
+      # --- JWT / Auth ---
+      - Settings__Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Settings__Jwt__Issuer=webvella-erp
+      - Settings__Jwt__Audience=webvella-erp
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+      - Settings__DevelopmentMode=true
+      - Settings__AppName=WebVella Next
+    networks:
+      - erp-localstack-network
+    restart: unless-stopped
+
+# =============================================================================
+# NAMED VOLUMES — Persistent data storage for LocalStack validation stack
+# Uses separate volume names (ls- prefix) to avoid conflicts with the base
+# docker-compose.yml volumes when both stacks are used on the same host.
+# =============================================================================
+
+volumes:
+  localstack-data:
+    driver: local
+  ls-postgres-core-data:
+    driver: local
+  ls-postgres-crm-data:
+    driver: local
+  ls-postgres-project-data:
+    driver: local
+  ls-postgres-mail-data:
+    driver: local
+
+# =============================================================================
+# NETWORKS — Isolated network for LocalStack validation stack
+# Uses a separate network (erp-localstack-network) to avoid conflicts with
+# the base docker-compose.yml network when both stacks run simultaneously.
+# =============================================================================
+
+networks:
+  erp-localstack-network:
+    driver: bridge
