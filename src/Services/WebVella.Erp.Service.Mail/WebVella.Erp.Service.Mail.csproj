@@ -1,10 +1,105 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Mail/Notification Microservice Project
+    =======================================
+    Standalone independently-deployable ASP.NET Core Web API service for email
+    management, SMTP queue processing, and notification delivery.
+
+    Replaces:
+      - WebVella.Erp.Plugins.Mail.csproj  (plugin library — Razor SDK)
+      - WebVella.Erp.Site.Mail.csproj      (site host — Web SDK)
+
+    Key Changes from Monolith:
+      1. SDK: Microsoft.NET.Sdk.Razor -> Microsoft.NET.Sdk.Web (standalone web API)
+      2. ProjectReferences to WebVella.Erp, WebVella.Erp.Web removed
+      3. SharedKernel ProjectReference replaces old monolith core references
+      4. FrameworkReference to Microsoft.AspNetCore.App is implicit in Web SDK
+      5. Added microservice infrastructure: gRPC, MassTransit, Redis, EF Core, JWT
+      6. Versions managed centrally via root Directory.Packages.props (CPM)
+  -->
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>$(AssemblyName)</RootNamespace>
-    <!-- Stub project: will be replaced by actual implementation -->
+    <RootNamespace>WebVella.Erp.Service.Mail</RootNamespace>
+    <AssemblyName>WebVella.Erp.Service.Mail</AssemblyName>
+    <Version>1.7.7</Version>
+    <Description>Mail/Notification microservice for WebVella ERP. Provides SMTP email sending, queue processing, and notification management via REST, gRPC, and event-driven interfaces.</Description>
   </PropertyGroup>
+
+  <!-- =================================================================== -->
+  <!-- PRESERVED PACKAGES — Carried forward from monolith plugin/site host -->
+  <!-- Versions are managed centrally via root Directory.Packages.props    -->
+  <!-- =================================================================== -->
   <ItemGroup>
+    <!-- Core mail sending engine (from WebVella.Erp.Plugins.Mail.csproj) -->
+    <PackageReference Include="MailKit" />
+    <!-- ASP.NET Core Newtonsoft.Json integration (from WebVella.Erp.Site.Mail.csproj) -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <!-- Object mapping / DTO transformations for Email and SmtpService entities -->
+    <PackageReference Include="AutoMapper" />
+    <!-- JSON serialization for all API contracts and EntityRecord payloads -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- HTML parsing for inline image processing in SmtpInternalService -->
+    <PackageReference Include="HtmlAgilityPack" />
+    <!--
+      NOTE: Npgsql ADO.NET driver is NOT referenced directly to avoid NU1605
+      package downgrade conflict. Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
+      requires Npgsql >= 10.0.0, while root CPM pins Npgsql at 9.0.4 for monolith
+      compatibility. The driver is available transitively via:
+        - Npgsql.EntityFrameworkCore.PostgreSQL (provides Npgsql 10.0.x)
+        - SharedKernel ProjectReference (provides Npgsql for EQL/DB helpers)
+    -->
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- NEW PACKAGES — Required for microservice architecture (AAP 0.6.1)   -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- gRPC server hosting for inter-service communication -->
+    <PackageReference Include="Grpc.AspNetCore" />
+    <!--
+      NOTE: Google.Protobuf is NOT referenced directly to avoid NU1605 package
+      downgrade conflict. Grpc.AspNetCore 2.71.0 requires Google.Protobuf >= 3.30.2,
+      while root CPM pins it at 3.29.3. Protobuf is available transitively via
+      Grpc.AspNetCore at the correct version.
+    -->
+    <!-- Protobuf/gRPC code generation (build-time only) -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+    <!-- Message bus abstraction for event-driven async communication -->
+    <PackageReference Include="MassTransit" />
+    <!-- RabbitMQ transport for local/Docker messaging -->
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <!-- Amazon SQS/SNS transport for LocalStack deployment validation -->
+    <PackageReference Include="MassTransit.AmazonSQS" />
+    <!-- Distributed Redis caching replacing monolith IMemoryCache -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Redis client library for cache operations -->
+    <PackageReference Include="StackExchange.Redis" />
+    <!-- JWT Bearer authentication for cross-service token propagation -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <!-- EF Core PostgreSQL provider for database-per-service migrations -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- EF Core design-time tooling for migration generation (build-time only) -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- PROJECT REFERENCES                                                  -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Shared Kernel: cross-cutting contracts, DTOs, events, EQL engine,
+         database helpers, security context, utilities, and exceptions -->
     <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
   </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- gRPC PROTOCOL BUFFER DEFINITIONS                                    -->
+  <!-- Proto files are centralized in the repository proto/ directory.     -->
+  <!-- Grpc.Tools generates server-side C# code at build time.            -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="..\..\..\proto\mail.proto" GrpcServices="Server" Link="Protos\mail.proto" />
+  </ItemGroup>
+
 </Project>
