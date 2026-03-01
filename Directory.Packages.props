@@ -94,8 +94,8 @@
     <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.15.0" />
 
     <!-- EF Core — Database-per-service migrations -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.1" />
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
 
     <!-- Testing — xUnit, mocking, assertions, and integration test infrastructure -->
     <PackageVersion Include="FluentAssertions" Version="7.2.0" />
