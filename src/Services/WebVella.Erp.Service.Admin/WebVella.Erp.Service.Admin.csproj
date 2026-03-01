@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>$(AssemblyName)</RootNamespace>
+    <!-- Stub project: will be replaced by actual implementation -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>
