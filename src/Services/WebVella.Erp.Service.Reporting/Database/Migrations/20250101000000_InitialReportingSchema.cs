@@ -29,6 +29,7 @@ namespace WebVella.Erp.Service.Reporting.Database.Migrations
     /// Column types match PostgreSQL types used by the monolith's entity system:
     /// uuid, text, timestamptz, numeric, boolean, varchar(N).
     /// </summary>
+    [Migration("20250101000000_InitialReportingSchema")]
     public partial class InitialReportingSchema : Migration
     {
         /// <summary>

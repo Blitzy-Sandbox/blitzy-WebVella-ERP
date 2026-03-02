@@ -88,10 +88,22 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: core
     spec:
+      # Pod-level security context — enforces non-root execution for all
+      # containers in this pod. Defense-in-depth alongside Dockerfile's
+      # USER $APP_UID directive.
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: core-service
           image: webvella-erp/core-service:latest
           imagePullPolicy: IfNotPresent
+          # Container-level security context — restricts container capabilities
+          # to the minimum required for the Core service.
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions

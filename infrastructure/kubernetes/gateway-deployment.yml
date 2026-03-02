@@ -94,6 +94,9 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: gateway
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: gateway
           # ---------------------------------------------------------------
@@ -103,6 +106,10 @@ spec:
           # ---------------------------------------------------------------
           image: webvella-erp/gateway:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions

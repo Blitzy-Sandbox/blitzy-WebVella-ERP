@@ -76,7 +76,8 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         {
             var containerName = $"redis-integration-test-{Guid.NewGuid():N}";
 
-            _container = new ContainerBuilder(ContainerImage)
+            _container = new ContainerBuilder()
+                .WithImage(ContainerImage)
                 .WithPortBinding(RedisPort, true)
                 .WithName(containerName)
                 .WithWaitStrategy(

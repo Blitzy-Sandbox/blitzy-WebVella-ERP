@@ -22,6 +22,7 @@ package webvella.erp.admin;
 option csharp_namespace = "WebVella.Erp.Service.Admin.Grpc";
 
 import "google/protobuf/struct.proto";
+import "common.proto";
 
 // =============================================================================
 // AdminService — Primary gRPC service for the Admin/SDK microservice.
@@ -149,7 +150,7 @@ message EvaluateMetaChangesResponse {
   repeated MetaChangeEntry changes = 3;
 
   // Error details if the evaluation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 
   // Human-readable status message.
   string message = 5;
@@ -198,7 +199,7 @@ message ClearLogsResponse {
   string message = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // =============================================================================
@@ -219,7 +220,7 @@ message ListDataSourcesResponse {
   repeated DataSourceEntry data_sources = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a single datasource registration in the ERP system.
@@ -287,7 +288,7 @@ message SitemapAreaResponse {
   string message = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 
   // The updated sitemap data after the operation, represented as a
   // dynamic structure containing the ordered sitemap and node_page_dict.
@@ -383,7 +384,7 @@ message SitemapNodeResponse {
   string message = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 
   // The updated sitemap data after the operation, represented as a
   // dynamic structure containing the ordered sitemap and node_page_dict.
@@ -472,7 +473,7 @@ message GetNodeAuxDataResponse {
   google.protobuf.Struct aux_data = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 
   // Human-readable status message.
   string message = 4;
@@ -482,16 +483,6 @@ message GetNodeAuxDataResponse {
 // Shared Types
 // =============================================================================
 
-// Represents an error entry in API responses. Mirrors the monolith's
-// WebVella.Erp.Api.Models.ErrorModel used throughout the BaseResponseModel
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel used throughout the BaseResponseModel
 // envelope pattern (success, errors, timestamp, message, object).
-message ErrorModel {
-  // Machine-readable error key identifying the error category or field.
-  string key = 1;
-
-  // The error value or affected field value.
-  string value = 2;
-
-  // Human-readable error message describing the issue.
-  string message = 3;
-}

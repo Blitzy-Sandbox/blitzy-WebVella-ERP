@@ -24,6 +24,7 @@ package webvella.erp.crm;
 option csharp_namespace = "WebVella.Erp.Service.Crm.Grpc";
 
 import "google/protobuf/timestamp.proto";
+import "common.proto";
 
 // =============================================================================
 // CRM Service Definition
@@ -181,7 +182,7 @@ message GetAccountResponse {
   AccountRecord account = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a CRM account record with all fields from the monolith's
@@ -311,7 +312,7 @@ message ListAccountsResponse {
   int32 total_count = 3;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to create a new account record.
@@ -351,7 +352,7 @@ message GetContactResponse {
   ContactRecord contact = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a CRM contact record with all fields from the monolith's
@@ -468,7 +469,7 @@ message ListContactsResponse {
   int32 total_count = 3;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to create a new contact record.
@@ -509,7 +510,7 @@ message GetCaseResponse {
   CaseRecord case_record = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a CRM case record with all fields from the monolith's
@@ -602,7 +603,7 @@ message ListCasesResponse {
   int32 total_count = 3;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to create a new case record.
@@ -642,7 +643,7 @@ message GetAddressResponse {
   AddressRecord address = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a CRM address record (NextPlugin.20190204.cs).
@@ -710,7 +711,7 @@ message ListAddressesResponse {
   int32 total_count = 3;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to create a new address record.
@@ -751,7 +752,7 @@ message CrmRecordResponse {
   string message = 3;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 
   // ISO 8601 timestamp of when the response was generated.
   string timestamp = 5;
@@ -790,25 +791,13 @@ message RegenerateSearchIndexResponse {
   string message = 2;
 
   // Error details if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // =============================================================================
 // Shared Types
 // =============================================================================
 
-// Represents an error entry in the response.
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
 // Mirrors WebVella.Erp.Api.Models.ErrorModel used in the monolith's
-// BaseResponseModel.Errors list. Each error has a key for programmatic
-// identification, a value for the field/property that caused the error,
-// and a human-readable message.
-message ErrorModel {
-  // Programmatic error key/code (e.g., field name, validation rule).
-  string key = 1;
-
-  // Value that caused the error (e.g., the invalid input).
-  string value = 2;
-
-  // Human-readable error description.
-  string message = 3;
-}
+// BaseResponseModel.Errors list.

@@ -109,10 +109,17 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: project
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: project-service
           image: webvella-erp/project-service:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions

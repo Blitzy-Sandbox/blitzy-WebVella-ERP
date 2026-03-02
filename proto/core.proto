@@ -24,6 +24,7 @@ option csharp_namespace = "WebVella.Erp.Service.Core.Grpc";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
+import "common.proto";
 
 // =============================================================================
 // Service Definitions
@@ -197,18 +198,8 @@ service SecurityGrpcService {
 // Shared Types
 // =============================================================================
 
-// ErrorModel mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.
-// All API responses use this envelope pattern for error reporting.
-message ErrorModel {
-  // Error classification key (e.g., field name or error category)
-  string key = 1;
-
-  // The value that caused the error (e.g., invalid field value)
-  string value = 2;
-
-  // Human-readable error description
-  string message = 3;
-}
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.
 
 // RecordPermissionsProto mirrors WebVella.Erp.Api.Models.RecordPermissions.
 // Contains lists of role GUIDs (as strings) authorized for each operation.
@@ -367,7 +358,7 @@ message EntityResponse {
   EntityProto entity = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 
   // MD5 hash for cache validation
   string hash = 6;
@@ -388,7 +379,7 @@ message EntityListResponse {
   repeated EntityProto entities = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 
   // MD5 hash for cache validation
   string hash = 6;
@@ -519,7 +510,7 @@ message FieldResponse {
   FieldProto field = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // FieldListResponse is the standard response envelope for multi-field operations.
@@ -537,7 +528,7 @@ message FieldListResponse {
   repeated FieldProto fields = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // =============================================================================
@@ -643,7 +634,7 @@ message EntityRelationResponse {
   EntityRelationProto relation = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // EntityRelationListResponse is the standard response envelope for multi-relation operations.
@@ -661,7 +652,7 @@ message EntityRelationListResponse {
   repeated EntityRelationProto relations = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // =============================================================================
@@ -793,7 +784,7 @@ message QueryResponse {
   google.protobuf.Struct result = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // QueryCountResponse returns a count of matching records without data.
@@ -811,7 +802,7 @@ message QueryCountResponse {
   int64 count = 4;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // =============================================================================
@@ -902,7 +893,7 @@ message GetUserResponse {
   ErpUserProto user = 2;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // GetUsersRequest retrieves users, optionally filtered by role IDs.
@@ -922,7 +913,7 @@ message GetUsersResponse {
   repeated ErpUserProto users = 2;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // GetAllRolesRequest retrieves all roles. No parameters required.
@@ -939,7 +930,7 @@ message GetAllRolesResponse {
   repeated ErpRoleProto roles = 2;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // SaveUserRequest creates or updates a user record.
@@ -963,7 +954,7 @@ message SaveUserResponse {
   string message = 2;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // SaveRoleRequest creates or updates a role record.
@@ -983,7 +974,7 @@ message SaveRoleResponse {
   string message = 2;
 
   // List of validation or processing errors
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // UpdateUserLastLoginRequest updates a user's last login timestamp to now.

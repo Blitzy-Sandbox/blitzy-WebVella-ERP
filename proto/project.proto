@@ -28,6 +28,7 @@ package webvella.erp.project;
 option csharp_namespace = "WebVella.Erp.Service.Project.Grpc";
 
 import "google/protobuf/timestamp.proto";
+import "common.proto";
 
 // =============================================================================
 // Service Definition
@@ -173,18 +174,8 @@ enum TasksDueType {
 // Shared Types
 // =============================================================================
 
-// ErrorModel represents a single validation or processing error.
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
 // Mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.Errors.
-message ErrorModel {
-  // The field or property key associated with the error.
-  string key = 1;
-
-  // The error value or code.
-  string value = 2;
-
-  // A human-readable error message.
-  string message = 3;
-}
 
 // =============================================================================
 // Project Messages
@@ -205,7 +196,7 @@ message GetProjectResponse {
   ProjectRecord project = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a project entity record.
@@ -248,7 +239,7 @@ message GetProjectTimelogsResponse {
   repeated TimelogRecord timelogs = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // =============================================================================
@@ -270,7 +261,7 @@ message GetTaskResponse {
   TaskRecord task = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a task entity record with all domain fields.
@@ -361,7 +352,7 @@ message GetTaskQueueResponse {
   repeated TaskRecord tasks = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to retrieve all available task statuses (empty message).
@@ -377,7 +368,7 @@ message GetTaskStatusesResponse {
   repeated TaskStatusRecord statuses = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Represents a task status entity record.
@@ -418,7 +409,7 @@ message SetTaskStatusResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to start or stop watching a task for a user.
@@ -442,7 +433,7 @@ message SetTaskWatchResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to start the timelog timer for a task.
@@ -460,7 +451,7 @@ message StartTaskTimelogResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to stop the timelog timer for a task.
@@ -478,7 +469,7 @@ message StopTaskTimelogResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to retrieve tasks needing to be started (empty message).
@@ -518,7 +509,7 @@ message SetCalculationFieldsResponse {
   string project_owner_id = 4;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 5;
+  repeated webvella.erp.common.ErrorModel errors = 5;
 }
 
 // =============================================================================
@@ -589,7 +580,7 @@ message CreateTimelogResponse {
   string message = 3;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to delete a timelog entry.
@@ -607,7 +598,7 @@ message DeleteTimelogResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to query timelogs within a date range.
@@ -634,7 +625,7 @@ message GetTimelogsForPeriodResponse {
   repeated TimelogRecord timelogs = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Request to start a timelog for a task via the controller flow.
@@ -653,7 +644,7 @@ message StartTimelogResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // =============================================================================
@@ -690,7 +681,7 @@ message CreateCommentResponse {
   string message = 3;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // Request to delete a comment and all its child comments.
@@ -708,7 +699,7 @@ message DeleteCommentResponse {
   string message = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // =============================================================================
@@ -743,5 +734,5 @@ message CreateFeedItemResponse {
   string feed_item_id = 2;
 
   // List of errors if the operation failed.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }

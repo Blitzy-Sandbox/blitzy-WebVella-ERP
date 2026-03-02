@@ -87,7 +87,9 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
             "erp_core",
             "erp_crm",
             "erp_project",
-            "erp_mail"
+            "erp_mail",
+            "erp_reporting",
+            "erp_admin"
         };
 
         /// <summary>
@@ -131,6 +133,18 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         /// Format matches Config.json pattern with Database=erp_mail.
         /// </summary>
         public string MailConnectionString { get; private set; }
+
+        /// <summary>
+        /// Connection string for the erp_reporting database owned by the Reporting service.
+        /// Format matches Config.json pattern with Database=erp_reporting.
+        /// </summary>
+        public string ReportingConnectionString { get; private set; }
+
+        /// <summary>
+        /// Connection string for the erp_admin database owned by the Admin/SDK service.
+        /// Format matches Config.json pattern with Database=erp_admin.
+        /// </summary>
+        public string AdminConnectionString { get; private set; }
 
         /// <summary>
         /// The hostname of the PostgreSQL container on the Docker host.
@@ -204,6 +218,8 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
             CrmConnectionString = BuildConnectionString("erp_crm");
             ProjectConnectionString = BuildConnectionString("erp_project");
             MailConnectionString = BuildConnectionString("erp_mail");
+            ReportingConnectionString = BuildConnectionString("erp_reporting");
+            AdminConnectionString = BuildConnectionString("erp_admin");
 
             // Step 5: Enable required PostgreSQL extensions per database.
             // Source: DbRepository.CreatePostgresqlExtensions() in WebVella.Erp/Database/DbRepository.cs
@@ -257,19 +273,21 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         /// Returns the connection string for the specified database name.
         ///
         /// Supported database names match the AAP 0.7.4 Docker Compose topology:
-        ///   - "erp_core"    → Core Platform service database
-        ///   - "erp_crm"     → CRM service database
-        ///   - "erp_project" → Project/Task service database
-        ///   - "erp_mail"    → Mail/Notification service database
+        ///   - "erp_core"      → Core Platform service database
+        ///   - "erp_crm"       → CRM service database
+        ///   - "erp_project"   → Project/Task service database
+        ///   - "erp_mail"      → Mail/Notification service database
+        ///   - "erp_reporting" → Reporting service database
+        ///   - "erp_admin"     → Admin/SDK service database
         /// </summary>
         /// <param name="databaseName">
-        /// The database name (one of: erp_core, erp_crm, erp_project, erp_mail).
+        /// The database name (one of: erp_core, erp_crm, erp_project, erp_mail, erp_reporting, erp_admin).
         /// </param>
         /// <returns>
         /// The full ADO.NET connection string for the specified database.
         /// </returns>
         /// <exception cref="ArgumentException">
-        /// Thrown when the database name is not one of the four known service databases.
+        /// Thrown when the database name is not one of the six known service databases.
         /// </exception>
         public string GetConnectionString(string databaseName)
         {
@@ -283,10 +301,14 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
                     return ProjectConnectionString;
                 case "erp_mail":
                     return MailConnectionString;
+                case "erp_reporting":
+                    return ReportingConnectionString;
+                case "erp_admin":
+                    return AdminConnectionString;
                 default:
                     throw new ArgumentException(
                         $"Unknown database name: '{databaseName}'. " +
-                        "Expected one of: erp_core, erp_crm, erp_project, erp_mail.",
+                        "Expected one of: erp_core, erp_crm, erp_project, erp_mail, erp_reporting, erp_admin.",
                         nameof(databaseName));
             }
         }
@@ -357,13 +379,13 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         /// lines 37-43 for NpgsqlConnection creation.
         /// </summary>
         /// <param name="databaseName">
-        /// The database name (one of: erp_core, erp_crm, erp_project, erp_mail).
+        /// The database name (one of: erp_core, erp_crm, erp_project, erp_mail, erp_reporting, erp_admin).
         /// </param>
         /// <returns>
         /// An opened NpgsqlConnection to the specified database. The caller must dispose it.
         /// </returns>
         /// <exception cref="ArgumentException">
-        /// Thrown when the database name is not one of the four known service databases.
+        /// Thrown when the database name is not one of the six known service databases.
         /// </exception>
         public async Task<NpgsqlConnection> CreateRawConnectionAsync(string databaseName)
         {

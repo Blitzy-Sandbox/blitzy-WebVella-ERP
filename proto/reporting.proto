@@ -34,6 +34,7 @@ package webvella.erp.reporting;
 option csharp_namespace = "WebVella.Erp.Service.Reporting.Grpc";
 
 import "google/protobuf/timestamp.proto";
+import "common.proto";
 
 // =============================================================================
 // Service Definition
@@ -160,7 +161,7 @@ message GetTimelogReportResponse {
 
   // Validation or processing errors, if any.
   // Mirrors the ErrorModel list from BaseResponseModel.Errors.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // Response message for GetTaskSummaryReport RPC.
@@ -178,7 +179,7 @@ message GetTaskSummaryReportResponse {
   int32 total_hours_logged = 3;
 
   // Validation or processing errors, if any.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // =============================================================================
@@ -262,26 +263,6 @@ message TaskStatusSummary {
 // Shared Types
 // =============================================================================
 
-// ErrorModel mirrors WebVella.Erp.Api.Models.ErrorModel, which is the standard
-// error representation used across all WebVella ERP API responses.
-//
-// In the monolith, ErrorModel is part of BaseResponseModel.Errors and is used
-// by ValidationException.AddError(key, value) throughout the codebase.
-//
-// Example usage in ReportService.GetTimelogData():
-//   valEx.AddError("month", "Invalid month.")    → key="month", message="Invalid month."
-//   valEx.AddError("year", "Invalid year.")       → key="year", message="Invalid year."
-//   valEx.AddError("accountId", "Account...not found.") → key="accountId", message="..."
-message ErrorModel {
-  // The field or parameter key associated with this error.
-  // Examples: "month", "year", "accountId"
-  string key = 1;
-
-  // The error value or code, providing machine-readable error identification.
-  string value = 2;
-
-  // Human-readable error message describing what went wrong.
-  // Examples: "Invalid month.", "Invalid year.",
-  //           "Account with ID:{id} not found."
-  string message = 3;
-}
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel, the standard error representation
+// used across all WebVella ERP API responses in BaseResponseModel.Errors.

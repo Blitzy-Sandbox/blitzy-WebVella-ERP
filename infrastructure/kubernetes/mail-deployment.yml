@@ -106,10 +106,17 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: mail
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: mail-service
           image: webvella-erp/mail-service:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions

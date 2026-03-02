@@ -28,6 +28,7 @@ package webvella.erp.mail;
 option csharp_namespace = "WebVella.Erp.Service.Mail.Grpc";
 
 import "google/protobuf/timestamp.proto";
+import "common.proto";
 
 // =============================================================================
 // Service Definition
@@ -166,7 +167,7 @@ message SendEmailResponse {
   string message = 3;
 
   // Validation or server errors encountered during sending.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // QueueEmailRequest enqueues an email for deferred background processing.
@@ -215,7 +216,7 @@ message QueueEmailResponse {
   string message = 3;
 
   // Validation errors encountered during queuing.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // GetEmailRequest retrieves a single email record by its unique ID.
@@ -235,7 +236,7 @@ message GetEmailResponse {
   EmailProto email = 2;
 
   // Errors encountered during lookup.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // ListEmailsRequest provides pagination and filtering for email queries.
@@ -271,7 +272,7 @@ message ListEmailsResponse {
   int32 total_count = 3;
 
   // Errors encountered during query.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // =============================================================================
@@ -370,7 +371,7 @@ message GetSmtpServiceResponse {
   SmtpServiceProto smtp_service = 2;
 
   // Errors encountered during lookup.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // CreateSmtpServiceRequest creates a new SMTP service configuration.
@@ -405,7 +406,7 @@ message SmtpServiceResponse {
   string message = 2;
 
   // Validation or server errors.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // SmtpServiceProto represents an SMTP service configuration record.
@@ -486,7 +487,7 @@ message TestSmtpServiceResponse {
   string message = 2;
 
   // Errors encountered during testing.
-  repeated ErrorModel errors = 3;
+  repeated webvella.erp.common.ErrorModel errors = 3;
 }
 
 // SetDefaultSmtpServiceRequest marks the specified SMTP service as default.
@@ -523,7 +524,7 @@ message ProcessMailQueueResponse {
   string message = 3;
 
   // Errors encountered during queue processing.
-  repeated ErrorModel errors = 4;
+  repeated webvella.erp.common.ErrorModel errors = 4;
 }
 
 // =============================================================================
@@ -590,16 +591,6 @@ enum EmailStatus {
   EMAIL_STATUS_FAILED = 4;
 }
 
-// ErrorModel represents a validation or server error.
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
 // Source: WebVella.Erp.Api.Models.ErrorModel — used across all services
 // in the BaseResponseModel.Errors collection.
-message ErrorModel {
-  // Error field/property key (e.g., "name", "port", "recipient_email").
-  string key = 1;
-
-  // The invalid value that triggered the error.
-  string value = 2;
-
-  // Human-readable error description.
-  string message = 3;
-}

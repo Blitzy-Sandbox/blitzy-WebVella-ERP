@@ -106,10 +106,17 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: reporting
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: reporting-service
           image: webvella-erp/reporting-service:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions

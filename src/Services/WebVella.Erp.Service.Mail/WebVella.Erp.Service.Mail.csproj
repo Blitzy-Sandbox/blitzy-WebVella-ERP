@@ -99,7 +99,8 @@
   <!-- Grpc.Tools generates server-side C# code at build time.            -->
   <!-- =================================================================== -->
   <ItemGroup>
-    <Protobuf Include="..\..\..\proto\mail.proto" GrpcServices="Server" Link="Protos\mail.proto" />
+    <Protobuf Include="..\..\..\proto\common.proto" GrpcServices="None" ProtoRoot="..\..\..\proto" Link="Protos\common.proto" />
+    <Protobuf Include="..\..\..\proto\mail.proto" GrpcServices="Server" ProtoRoot="..\..\..\proto" Link="Protos\mail.proto" />
   </ItemGroup>
 
 </Project>

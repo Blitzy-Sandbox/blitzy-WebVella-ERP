@@ -97,10 +97,17 @@ spec:
         app.kubernetes.io/part-of: webvella-erp
         app.kubernetes.io/component: admin
     spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
       containers:
         - name: admin-service
           image: webvella-erp/admin-service:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
           # -----------------------------------------------------------------
           # Port definitions
