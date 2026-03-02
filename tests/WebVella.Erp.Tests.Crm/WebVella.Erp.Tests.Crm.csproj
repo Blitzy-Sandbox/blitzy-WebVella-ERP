@@ -10,4 +10,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Services\WebVella.Erp.Service.Crm\WebVella.Erp.Service.Crm.csproj" />
+  </ItemGroup>
 </Project>
