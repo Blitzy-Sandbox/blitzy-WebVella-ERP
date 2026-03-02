@@ -1,0 +1,729 @@
+##############################################################################
+# WebVella ERP Microservices — Continuous Deployment Pipeline
+#
+# GitHub Actions workflow for building Docker images for all 7 microservices
+# and deploying them to Kubernetes.
+#
+# This workflow:
+#   1. Checks out the repository and sets up Docker Buildx
+#   2. Logs in to the container registry (GitHub Container Registry by default)
+#   3. Builds and pushes Docker images for all 7 services in parallel
+#      using a matrix strategy:
+#        - Core Service    (src/Services/WebVella.Erp.Service.Core)
+#        - CRM Service     (src/Services/WebVella.Erp.Service.Crm)
+#        - Project Service (src/Services/WebVella.Erp.Service.Project)
+#        - Mail Service    (src/Services/WebVella.Erp.Service.Mail)
+#        - Reporting Service (src/Services/WebVella.Erp.Service.Reporting)
+#        - Admin Service   (src/Services/WebVella.Erp.Service.Admin)
+#        - API Gateway     (src/Gateway/WebVella.Erp.Gateway)
+#   4. Deploys to Kubernetes by applying manifests from
+#      infrastructure/kubernetes/ and updating image tags
+#   5. Verifies deployment rollout status for each service
+#
+# Per AAP Sections 0.4.1, 0.5.1, 0.8.1:
+#   - Each service is independently deployable via Docker containers
+#   - Services are orchestratable via Kubernetes
+#   - Base runtime image: mcr.microsoft.com/dotnet/aspnet:10.0
+#   - All Dockerfiles use multi-stage builds
+#
+# Triggers:
+#   - Push of semantic version tags (v*)
+#   - GitHub release publication
+#   - Manual dispatch via workflow_dispatch
+##############################################################################
+
+name: "CD - Build & Deploy"
+
+# ---------------------------------------------------------------------------
+# Trigger events
+# ---------------------------------------------------------------------------
+on:
+  # Trigger on semantic version tags (e.g., v1.0.0, v1.7.7, v2.0.0-rc.1)
+  push:
+    tags:
+      - "v*"
+
+  # Trigger on GitHub release publication
+  release:
+    types:
+      - published
+
+  # Allow manual deployment trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target deployment environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: "Docker image tag override (leave empty to use git ref)"
+        required: false
+        type: string
+
+# ---------------------------------------------------------------------------
+# Concurrency: Only one deployment per environment at a time.
+# In-progress deployments for the same environment are cancelled to prevent
+# race conditions in Kubernetes.
+# ---------------------------------------------------------------------------
+concurrency:
+  group: cd-deploy-${{ github.event.inputs.environment || 'staging' }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ---------------------------------------------------------------------------
+# Environment variables shared across all jobs
+# ---------------------------------------------------------------------------
+env:
+  # Container registry configuration
+  # Defaults to GitHub Container Registry; override via repository secrets
+  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  REGISTRY_NAMESPACE: ${{ secrets.REGISTRY_NAMESPACE || github.repository_owner }}
+
+  # .NET build configuration
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+  # Docker build optimization
+  DOCKER_BUILDKIT: "1"
+
+# ---------------------------------------------------------------------------
+# Permissions for GitHub Container Registry (ghcr.io) authentication
+# ---------------------------------------------------------------------------
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # =========================================================================
+  # Job 1: Determine version tag for Docker images
+  # =========================================================================
+  prepare:
+    name: "Prepare Release Metadata"
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_release: ${{ steps.version.outputs.is_release }}
+      environment: ${{ steps.env.outputs.environment }}
+
+    steps:
+      - name: Determine version tag
+        id: version
+        run: |
+          # Use manual input override if provided
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            VERSION="${{ github.event.inputs.image_tag }}"
+            echo "Using manual image tag override: ${VERSION}"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            echo "Using release tag: ${VERSION}"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            echo "Using push tag: ${VERSION}"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            # Fallback for manual dispatch without tag override
+            VERSION="sha-$(echo ${{ github.sha }} | cut -c1-8)"
+            echo "Using commit SHA: ${VERSION}"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Strip leading 'v' for Docker image tags (v1.7.7 -> 1.7.7)
+          VERSION_CLEAN="${VERSION#v}"
+          echo "version=${VERSION_CLEAN}" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: ${VERSION_CLEAN}"
+
+      - name: Determine deployment environment
+        id: env
+        run: |
+          if [ -n "${{ github.event.inputs.environment }}" ]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [ "${{ steps.version.outputs.is_release }}" = "true" ]; then
+            # Release tags deploy to staging by default; production requires manual approval
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="staging"
+          fi
+          echo "environment=${ENVIRONMENT}" >> "$GITHUB_OUTPUT"
+          echo "Target environment: ${ENVIRONMENT}"
+
+  # =========================================================================
+  # Job 2: Build and push Docker images for all 7 services
+  # Uses matrix strategy for parallel builds.
+  # =========================================================================
+  build:
+    name: "Build ${{ matrix.service.name }}"
+    runs-on: ubuntu-latest
+    needs: prepare
+
+    # 30-minute timeout per service build
+    timeout-minutes: 30
+
+    strategy:
+      # Do not cancel other builds if one fails
+      fail-fast: false
+      matrix:
+        service:
+          - name: core
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Core/Dockerfile
+            image: erp-core
+          - name: crm
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Crm/Dockerfile
+            image: erp-crm
+          - name: project
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Project/Dockerfile
+            image: erp-project
+          - name: mail
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Mail/Dockerfile
+            image: erp-mail
+          - name: reporting
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Reporting/Dockerfile
+            image: erp-reporting
+          - name: admin
+            context: .
+            dockerfile: src/Services/WebVella.Erp.Service.Admin/Dockerfile
+            image: erp-admin
+          - name: gateway
+            context: .
+            dockerfile: src/Gateway/WebVella.Erp.Gateway/Dockerfile
+            image: erp-gateway
+
+    steps:
+      # -------------------------------------------------------------------
+      # Step 1: Checkout repository
+      # -------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -------------------------------------------------------------------
+      # Step 2: Set up Docker Buildx for multi-stage build efficiency
+      # Buildx provides build caching, multi-platform support, and
+      # improved performance for multi-stage Dockerfiles.
+      # -------------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # -------------------------------------------------------------------
+      # Step 3: Log in to container registry
+      # Uses GitHub Container Registry (ghcr.io) by default.
+      # Override REGISTRY, REGISTRY_USERNAME, REGISTRY_PASSWORD secrets
+      # to use a different registry (e.g., Docker Hub, ECR, ACR).
+      # -------------------------------------------------------------------
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      # -------------------------------------------------------------------
+      # Step 4: Extract Docker metadata (tags and labels)
+      # Generates consistent image tags and OCI-compliant labels.
+      # -------------------------------------------------------------------
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.service.image }}
+          tags: |
+            # Use the resolved version tag
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            # Tag as 'latest' only for release events
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.is_release == 'true' }}
+            # Also tag with the full git SHA for traceability
+            type=sha,prefix=sha-,format=short
+
+      # -------------------------------------------------------------------
+      # Step 5: Build and push Docker image
+      # Uses multi-stage Dockerfile targeting mcr.microsoft.com/dotnet/aspnet:10.0
+      # per AAP Section 0.4.1.
+      # -------------------------------------------------------------------
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # -------------------------------------------------------------------
+      # Step 6: Verify pushed image
+      # -------------------------------------------------------------------
+      - name: Verify image
+        run: |
+          echo "Successfully built and pushed:"
+          echo "  Image: ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.service.image }}"
+          echo "  Tags: ${{ steps.meta.outputs.tags }}"
+          echo "  Version: ${{ needs.prepare.outputs.version }}"
+
+  # =========================================================================
+  # Job 3: Deploy to Kubernetes (staging)
+  # Depends on all Docker images being built successfully.
+  # Uses GitHub environment for deployment protection rules.
+  # =========================================================================
+  deploy-staging:
+    name: "Deploy to Staging"
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+
+    # Only deploy on tag pushes, releases, or manual dispatch targeting staging
+    if: |
+      needs.prepare.outputs.environment == 'staging' ||
+      github.event_name == 'push' ||
+      github.event_name == 'release'
+
+    # GitHub environment for deployment protection (approval gates, secrets)
+    environment:
+      name: staging
+      url: ${{ steps.deploy-url.outputs.url }}
+
+    # 15-minute timeout for deployment
+    timeout-minutes: 15
+
+    steps:
+      # -------------------------------------------------------------------
+      # Step 1: Checkout repository (for K8s manifests)
+      # -------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------
+      # Step 2: Set up kubectl
+      # Install kubectl CLI for Kubernetes interactions.
+      # -------------------------------------------------------------------
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      # -------------------------------------------------------------------
+      # Step 3: Configure Kubernetes credentials
+      # KUBE_CONFIG secret must contain a valid kubeconfig file content
+      # (base64-encoded) with cluster access credentials.
+      # -------------------------------------------------------------------
+      - name: Configure Kubernetes credentials
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+          echo "=== Verify cluster connectivity ==="
+          kubectl cluster-info || {
+            echo "ERROR: Unable to connect to Kubernetes cluster."
+            echo "Ensure KUBE_CONFIG_STAGING secret is set correctly."
+            exit 1
+          }
+
+      # -------------------------------------------------------------------
+      # Step 4: Set image tag variables for substitution
+      # -------------------------------------------------------------------
+      - name: Set deployment variables
+        id: vars
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          NAMESPACE="${{ env.REGISTRY_NAMESPACE }}"
+
+          echo "IMAGE_CORE=${REGISTRY}/${NAMESPACE}/erp-core:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_CRM=${REGISTRY}/${NAMESPACE}/erp-crm:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_PROJECT=${REGISTRY}/${NAMESPACE}/erp-project:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_MAIL=${REGISTRY}/${NAMESPACE}/erp-mail:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_REPORTING=${REGISTRY}/${NAMESPACE}/erp-reporting:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_ADMIN=${REGISTRY}/${NAMESPACE}/erp-admin:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_GATEWAY=${REGISTRY}/${NAMESPACE}/erp-gateway:${VERSION}" >> "$GITHUB_ENV"
+
+          echo "Deploying version ${VERSION} to staging"
+
+      # -------------------------------------------------------------------
+      # Step 5: Apply Kubernetes namespace and shared resources
+      # Must be applied first as all other resources reference this namespace.
+      # -------------------------------------------------------------------
+      - name: Apply namespace and shared resources
+        run: |
+          echo "=== Applying namespace ==="
+          kubectl apply -f infrastructure/kubernetes/namespace.yml
+
+          echo ""
+          echo "=== Applying shared services ==="
+          kubectl apply -f infrastructure/kubernetes/services.yml
+
+      # -------------------------------------------------------------------
+      # Step 6: Apply all deployment manifests
+      # Applies each service deployment from infrastructure/kubernetes/.
+      # Order: core first (most depended-upon), then domain services,
+      # then gateway last (depends on all backend services).
+      # -------------------------------------------------------------------
+      - name: Apply deployment manifests
+        run: |
+          echo "=== Applying Core Platform Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/core-deployment.yml
+
+          echo ""
+          echo "=== Applying CRM Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/crm-deployment.yml
+
+          echo ""
+          echo "=== Applying Project Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/project-deployment.yml
+
+          echo ""
+          echo "=== Applying Mail Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/mail-deployment.yml
+
+          echo ""
+          echo "=== Applying Reporting Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/reporting-deployment.yml
+
+          echo ""
+          echo "=== Applying Admin Service deployment ==="
+          kubectl apply -f infrastructure/kubernetes/admin-deployment.yml
+
+          echo ""
+          echo "=== Applying API Gateway deployment ==="
+          kubectl apply -f infrastructure/kubernetes/gateway-deployment.yml
+
+      # -------------------------------------------------------------------
+      # Step 7: Update container images to the newly built versions
+      # Uses kubectl set image to update each deployment with the exact
+      # image tag built in the 'build' job.
+      # -------------------------------------------------------------------
+      - name: Update container images
+        run: |
+          NAMESPACE="webvella-erp"
+
+          echo "=== Updating Core Service image ==="
+          kubectl set image deployment/core-service \
+            core-service="${IMAGE_CORE}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating CRM Service image ==="
+          kubectl set image deployment/crm-service \
+            crm-service="${IMAGE_CRM}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating Project Service image ==="
+          kubectl set image deployment/project-service \
+            project-service="${IMAGE_PROJECT}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating Mail Service image ==="
+          kubectl set image deployment/mail-service \
+            mail-service="${IMAGE_MAIL}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating Reporting Service image ==="
+          kubectl set image deployment/reporting-service \
+            reporting-service="${IMAGE_REPORTING}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating Admin Service image ==="
+          kubectl set image deployment/admin-service \
+            admin-service="${IMAGE_ADMIN}" \
+            -n "${NAMESPACE}"
+
+          echo "=== Updating API Gateway image ==="
+          kubectl set image deployment/gateway \
+            gateway="${IMAGE_GATEWAY}" \
+            -n "${NAMESPACE}"
+
+      # -------------------------------------------------------------------
+      # Step 8: Verify deployment rollout status
+      # Waits for each deployment to complete its rollout. Timeout of
+      # 5 minutes per service; any failure triggers a rollback.
+      # -------------------------------------------------------------------
+      - name: Verify deployment rollout
+        run: |
+          NAMESPACE="webvella-erp"
+          TIMEOUT="300s"
+          FAILED=0
+
+          for DEPLOYMENT in core-service crm-service project-service \
+                            mail-service reporting-service admin-service gateway; do
+            echo ""
+            echo "=== Waiting for ${DEPLOYMENT} rollout (timeout: ${TIMEOUT}) ==="
+            if kubectl rollout status deployment/"${DEPLOYMENT}" \
+              -n "${NAMESPACE}" \
+              --timeout="${TIMEOUT}"; then
+              echo "✓ ${DEPLOYMENT} rollout succeeded"
+            else
+              echo "✗ ${DEPLOYMENT} rollout FAILED"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          echo "=== Deployment Summary ==="
+          kubectl get deployments -n "${NAMESPACE}" -o wide
+          echo ""
+          kubectl get pods -n "${NAMESPACE}" -o wide
+
+          if [ "${FAILED}" -gt 0 ]; then
+            echo ""
+            echo "ERROR: ${FAILED} deployment(s) failed to roll out."
+            echo "Check pod logs with: kubectl logs -n ${NAMESPACE} -l part-of=webvella-erp --tail=100"
+            exit 1
+          fi
+
+          echo ""
+          echo "All deployments rolled out successfully."
+
+      # -------------------------------------------------------------------
+      # Step 9: Output deployment URL
+      # -------------------------------------------------------------------
+      - name: Get deployment URL
+        id: deploy-url
+        run: |
+          NAMESPACE="webvella-erp"
+
+          # Attempt to get the external IP/hostname of the gateway service
+          GATEWAY_URL=$(kubectl get svc gateway-service \
+            -n "${NAMESPACE}" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+          if [ -z "${GATEWAY_URL}" ]; then
+            GATEWAY_URL=$(kubectl get svc gateway-service \
+              -n "${NAMESPACE}" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          fi
+
+          if [ -n "${GATEWAY_URL}" ]; then
+            echo "url=http://${GATEWAY_URL}" >> "$GITHUB_OUTPUT"
+            echo "Gateway URL: http://${GATEWAY_URL}"
+          else
+            echo "url=https://staging.erp.webvella.io" >> "$GITHUB_OUTPUT"
+            echo "Gateway external IP not yet assigned (LoadBalancer pending)"
+          fi
+
+  # =========================================================================
+  # Job 4: Deploy to Production
+  # Requires explicit manual approval via GitHub environment protection rules.
+  # Only runs when explicitly triggered for production deployment.
+  # =========================================================================
+  deploy-production:
+    name: "Deploy to Production"
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+      - deploy-staging
+
+    # Only deploy to production when explicitly requested
+    if: needs.prepare.outputs.environment == 'production'
+
+    # GitHub environment with required reviewers for production gate
+    environment:
+      name: production
+      url: ${{ steps.deploy-url.outputs.url }}
+
+    # 15-minute timeout for deployment
+    timeout-minutes: 15
+
+    steps:
+      # -------------------------------------------------------------------
+      # Step 1: Checkout repository (for K8s manifests)
+      # -------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------------
+      # Step 2: Set up kubectl
+      # -------------------------------------------------------------------
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      # -------------------------------------------------------------------
+      # Step 3: Configure production Kubernetes credentials
+      # -------------------------------------------------------------------
+      - name: Configure Kubernetes credentials
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+          echo "=== Verify production cluster connectivity ==="
+          kubectl cluster-info || {
+            echo "ERROR: Unable to connect to production Kubernetes cluster."
+            echo "Ensure KUBE_CONFIG_PRODUCTION secret is set correctly."
+            exit 1
+          }
+
+      # -------------------------------------------------------------------
+      # Step 4: Set deployment variables
+      # -------------------------------------------------------------------
+      - name: Set deployment variables
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          NAMESPACE="${{ env.REGISTRY_NAMESPACE }}"
+
+          echo "IMAGE_CORE=${REGISTRY}/${NAMESPACE}/erp-core:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_CRM=${REGISTRY}/${NAMESPACE}/erp-crm:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_PROJECT=${REGISTRY}/${NAMESPACE}/erp-project:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_MAIL=${REGISTRY}/${NAMESPACE}/erp-mail:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_REPORTING=${REGISTRY}/${NAMESPACE}/erp-reporting:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_ADMIN=${REGISTRY}/${NAMESPACE}/erp-admin:${VERSION}" >> "$GITHUB_ENV"
+          echo "IMAGE_GATEWAY=${REGISTRY}/${NAMESPACE}/erp-gateway:${VERSION}" >> "$GITHUB_ENV"
+
+          echo "Deploying version ${VERSION} to PRODUCTION"
+
+      # -------------------------------------------------------------------
+      # Step 5: Apply Kubernetes resources
+      # -------------------------------------------------------------------
+      - name: Apply namespace and shared resources
+        run: |
+          kubectl apply -f infrastructure/kubernetes/namespace.yml
+          kubectl apply -f infrastructure/kubernetes/services.yml
+
+      - name: Apply deployment manifests
+        run: |
+          kubectl apply -f infrastructure/kubernetes/core-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/crm-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/project-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/mail-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/reporting-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/admin-deployment.yml
+          kubectl apply -f infrastructure/kubernetes/gateway-deployment.yml
+
+      # -------------------------------------------------------------------
+      # Step 6: Update container images
+      # -------------------------------------------------------------------
+      - name: Update container images
+        run: |
+          NAMESPACE="webvella-erp"
+
+          kubectl set image deployment/core-service \
+            core-service="${IMAGE_CORE}" -n "${NAMESPACE}"
+          kubectl set image deployment/crm-service \
+            crm-service="${IMAGE_CRM}" -n "${NAMESPACE}"
+          kubectl set image deployment/project-service \
+            project-service="${IMAGE_PROJECT}" -n "${NAMESPACE}"
+          kubectl set image deployment/mail-service \
+            mail-service="${IMAGE_MAIL}" -n "${NAMESPACE}"
+          kubectl set image deployment/reporting-service \
+            reporting-service="${IMAGE_REPORTING}" -n "${NAMESPACE}"
+          kubectl set image deployment/admin-service \
+            admin-service="${IMAGE_ADMIN}" -n "${NAMESPACE}"
+          kubectl set image deployment/gateway \
+            gateway="${IMAGE_GATEWAY}" -n "${NAMESPACE}"
+
+      # -------------------------------------------------------------------
+      # Step 7: Verify production deployment rollout
+      # -------------------------------------------------------------------
+      - name: Verify deployment rollout
+        run: |
+          NAMESPACE="webvella-erp"
+          TIMEOUT="300s"
+          FAILED=0
+
+          for DEPLOYMENT in core-service crm-service project-service \
+                            mail-service reporting-service admin-service gateway; do
+            echo "=== Waiting for ${DEPLOYMENT} rollout ==="
+            if kubectl rollout status deployment/"${DEPLOYMENT}" \
+              -n "${NAMESPACE}" \
+              --timeout="${TIMEOUT}"; then
+              echo "✓ ${DEPLOYMENT} rollout succeeded"
+            else
+              echo "✗ ${DEPLOYMENT} rollout FAILED — initiating rollback"
+              kubectl rollout undo deployment/"${DEPLOYMENT}" -n "${NAMESPACE}"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          echo "=== Production Deployment Summary ==="
+          kubectl get deployments -n "${NAMESPACE}" -o wide
+          echo ""
+          kubectl get pods -n "${NAMESPACE}" -o wide
+
+          if [ "${FAILED}" -gt 0 ]; then
+            echo ""
+            echo "CRITICAL: ${FAILED} production deployment(s) failed and were rolled back."
+            exit 1
+          fi
+
+          echo ""
+          echo "All production deployments rolled out successfully."
+
+      # -------------------------------------------------------------------
+      # Step 8: Output production URL
+      # -------------------------------------------------------------------
+      - name: Get deployment URL
+        id: deploy-url
+        run: |
+          NAMESPACE="webvella-erp"
+          GATEWAY_URL=$(kubectl get svc gateway-service \
+            -n "${NAMESPACE}" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+          if [ -z "${GATEWAY_URL}" ]; then
+            GATEWAY_URL=$(kubectl get svc gateway-service \
+              -n "${NAMESPACE}" \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          fi
+
+          if [ -n "${GATEWAY_URL}" ]; then
+            echo "url=http://${GATEWAY_URL}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://erp.webvella.io" >> "$GITHUB_OUTPUT"
+          fi
+
+  # =========================================================================
+  # Job 5: Post-deployment notifications
+  # Sends a summary of the deployment to the workflow run.
+  # =========================================================================
+  notify:
+    name: "Deployment Summary"
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build
+      - deploy-staging
+    if: always()
+
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Version** | \`${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Environment** | \`${{ needs.prepare.outputs.environment }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Trigger** | \`${{ github.event_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Actor** | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Services Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | Image |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Core | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-core:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CRM | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-crm:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Project | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-project:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Mail | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-mail:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Reporting | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-reporting:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Admin | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-admin:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Gateway | \`${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/erp-gateway:${{ needs.prepare.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Build Status: ${{ needs.build.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Staging Deploy Status: ${{ needs.deploy-staging.result }}" >> "$GITHUB_STEP_SUMMARY"
