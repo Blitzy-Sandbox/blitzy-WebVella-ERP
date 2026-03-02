@@ -95,6 +95,7 @@
 
     <!-- EF Core — Database-per-service migrations -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
 
     <!-- Testing — xUnit, mocking, assertions, and integration test infrastructure -->
