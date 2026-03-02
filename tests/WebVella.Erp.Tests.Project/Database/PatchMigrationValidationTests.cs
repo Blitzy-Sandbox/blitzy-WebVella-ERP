@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using WebVella.Erp.Service.Project.Database;
@@ -97,6 +98,7 @@ namespace WebVella.Erp.Tests.Project.Database
         {
             var options = new DbContextOptionsBuilder<ProjectDbContext>()
                 .UseNpgsql(_connectionString)
+                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
                 .Options;
             return new ProjectDbContext(options);
         }

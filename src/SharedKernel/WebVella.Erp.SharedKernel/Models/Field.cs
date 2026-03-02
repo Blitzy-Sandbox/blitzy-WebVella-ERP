@@ -274,7 +274,6 @@ namespace WebVella.Erp.SharedKernel.Models
             Searchable = false;
             Auditable = false;
             System = false;
-            Permissions = null;
             EnableSecurity = false;
             Permissions = new FieldPermissions();
         }

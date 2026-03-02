@@ -54,6 +54,8 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 RABBITMQ_HOST="${RABBITMQ_HOST:-localhost}"
 RABBITMQ_MGMT_PORT="${RABBITMQ_MGMT_PORT:-15672}"
 RABBITMQ_USER="${RABBITMQ_USER:-guest}"
+# NOTE: "guest" is the standard RabbitMQ default for local development and Docker Compose.
+# Production deployments MUST override via RABBITMQ_PASSWORD environment variable.
 RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-guest}"
 
 # --- LocalStack (from docker-compose.localstack.yml: port 4566, SQS/SNS/S3) ---

@@ -357,7 +357,7 @@ namespace WebVella.Erp.SharedKernel.Models
 		public object Relation { get; set; }
 
 		[JsonProperty(PropertyName = "fields")]
-		public new List<Field> Fields { get; set; }
+		public List<Field> Fields { get; set; }
 
 		[JsonIgnore]
 		public string Entity { get; set; }
