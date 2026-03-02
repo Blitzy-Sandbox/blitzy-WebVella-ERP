@@ -117,6 +117,7 @@
          not available on NuGet. Using 3.0.0 as the closest available version.
          This is a known and accepted deviation from the AAP specification. -->
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
 
   </ItemGroup>
 
