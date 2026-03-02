@@ -1,14 +1,139 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Mail Service Test Project
+    =========================
+    xUnit test project for the Mail/Notification microservice.
+    Contains unit tests for SmtpService business logic, integration tests for
+    MailController REST endpoints, ProcessMailQueueJob tests, event handler tests,
+    MailDbContext migration tests, and gRPC client integration tests.
+
+    Replaces the stub project with full test infrastructure including:
+      - xUnit 2.9.3 test framework with FluentAssertions and Moq
+      - WebApplicationFactory for controller integration testing
+      - Testcontainers for isolated PostgreSQL database tests
+      - gRPC client stubs generated from mail.proto for gRPC integration tests
+      - MailKit for SmtpService send/queue test helpers
+
+    Versions managed centrally via root Directory.Packages.props (CPM).
+  -->
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Mail</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Mail</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Stub project: will be replaced by actual implementation -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <!-- =================================================================== -->
+  <!-- ASP.NET Core Shared Framework                                        -->
+  <!-- Required for WebApplicationFactory, HttpClient test infrastructure,  -->
+  <!-- MailController test hosting, middleware pipeline testing, and gRPC    -->
+  <!-- test server hosting.                                                 -->
+  <!-- =================================================================== -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="Newtonsoft.Json" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- TEST FRAMEWORK PACKAGES (AAP 0.6.1)                                  -->
+  <!-- Versions managed centrally via root Directory.Packages.props          -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Test platform SDK — required by dotnet test for host init and discovery -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- xUnit test framework — [Fact], [Theory], [InlineData] attributes -->
+    <PackageReference Include="xunit" />
+    <!-- VS/CLI test runner adapter for xUnit -->
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!-- Code coverage collector for >=80% coverage reporting (AAP 0.8.2) -->
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- TESTING UTILITY PACKAGES (AAP 0.6.1)                                 -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Fluent assertion library — .Should().Be(), .Should().Throw<T>() etc. -->
+    <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library — Mock<T>, It.IsAny<T>, Times.Once() -->
+    <PackageReference Include="Moq" />
+    <!-- WebApplicationFactory<T> for in-memory MailController REST testing -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- TESTCONTAINERS — Docker-based Integration Test Infrastructure        -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Base Testcontainers — container builder, wait strategies, networks -->
+    <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL Testcontainers — isolated PostgreSQL 16 for DB tests -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- ADDITIONAL PACKAGES — Mail Service Test Dependencies                 -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- JSON serialization matching monolith — API response shape assertions -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- SMTP library — SecureSocketOptions, MimeMessage, MailboxAddress for
+         SmtpService send/queue test helpers and email composition validation -->
+    <PackageReference Include="MailKit" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- gRPC CLIENT PACKAGES — Mail Service gRPC Integration Tests           -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- gRPC client — GrpcChannel.ForAddress() for service connection -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!--
+      NOTE: Google.Protobuf is NOT referenced directly to avoid NU1605 package
+      downgrade conflict. Grpc.AspNetCore 2.71.0 (via Mail service) requires
+      Google.Protobuf >= 3.30.2, while root CPM pins it at 3.29.3. Protobuf
+      runtime is available transitively via:
+        - WebVella.Erp.Service.Mail -> Grpc.AspNetCore (provides Google.Protobuf 3.30.2+)
+    -->
+    <!-- Build-time protobuf/gRPC code generation for client stubs -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- PROJECT REFERENCES                                                   -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Mail/Notification microservice under test — provides SmtpService,
+         MailController, MailGrpcService, ProcessMailQueueJob, MailDbContext,
+         event publishers/subscribers for unit and integration testing -->
+    <ProjectReference Include="..\..\src\Services\WebVella.Erp.Service.Mail\WebVella.Erp.Service.Mail.csproj" />
+    <!-- SharedKernel contracts and utilities — DTOs, event types, EQL engine,
+         database helpers, security context, utilities, exceptions used in
+         test assertions, mock setups, and test fixtures -->
+    <ProjectReference Include="..\..\src\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- gRPC PROTOCOL BUFFER DEFINITIONS                                     -->
+  <!-- Proto files are centralized in the repository proto/ directory.      -->
+  <!-- Grpc.Tools generates CLIENT-side C# stubs at build time for          -->
+  <!-- MailService.MailServiceClient used in gRPC integration tests.        -->
+  <!-- NOTE: GrpcServices="Client" (NOT Server) — tests consume as clients  -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="..\..\proto\common.proto" GrpcServices="None" ProtoRoot="..\..\proto" Link="Protos\common.proto" />
+    <Protobuf Include="..\..\proto\mail.proto" GrpcServices="Client" ProtoRoot="..\..\proto" Link="Protos\mail.proto" />
+  </ItemGroup>
+
 </Project>
