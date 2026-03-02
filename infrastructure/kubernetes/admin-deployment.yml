@@ -1,0 +1,325 @@
+# =============================================================================
+# WebVella ERP Microservices — Admin/SDK Service Deployment
+# =============================================================================
+# Kubernetes Deployment manifest for the Admin/SDK Service
+# (WebVella.Erp.Service.Admin). Extracted from the WebVella.Erp.Plugins.SDK
+# plugin, this service owns the administrative and developer tooling domain
+# within the WebVella ERP microservices architecture.
+#
+# Responsibilities:
+#   - Admin console operations (entity designer, platform configuration)
+#   - Code generation (CodeGenService — C# entity/controller scaffolding)
+#   - Log management (LogService — system log viewing and filtering)
+#   - Entity designer tools (visual entity/field/relation management UI)
+#   - Background job: ClearJobAndErrorLogsJob (scheduled cleanup of stale
+#     job execution records and error logs from the admin database)
+#   - SDK API surface (api/v3.0/p/sdk/* endpoints migrated to AdminController)
+#
+# Cross-Service Dependencies:
+#   - Core service (http://core-service:8080): Entity metadata operations,
+#     entity/field/relation CRUD via gRPC (EntityGrpcService), record lookups
+#     (RecordGrpcService), and security validation (SecurityGrpcService).
+#     The Admin service delegates all entity management operations to Core
+#     and provides an administrative UI/API layer on top.
+#   - RabbitMQ (rabbitmq-service): Asynchronous event-driven communication
+#     via MassTransit. Subscribes to entity metadata change events from Core
+#     to keep admin caches current. Replaces the monolith's in-process hook
+#     system and PostgreSQL LISTEN/NOTIFY pub/sub.
+#   - Redis (redis-service): Distributed caching for entity metadata with
+#     event-driven invalidation across service replicas.
+#
+# Database:
+#   - Owns its own PostgreSQL database (erp_admin) per the database-per-service
+#     model (AAP Section 0.1.2). Contains admin-specific tables for SDK
+#     configuration, code generation templates, and admin audit logs.
+#     Connection pooling: MinPoolSize=1, MaxPoolSize=100 per AAP 0.8.3.
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#   Apply services.yml to create ClusterIP service definitions:
+#     kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/admin-deployment.yml
+#
+# Per AAP Section 0.4.1 — Target Design / Refactored Structure Planning.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-service
+  namespace: webvella-erp
+  labels:
+    app: admin-service
+    app.kubernetes.io/name: admin-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Admin/SDK Service deployment — provides administrative console, code
+      generation (CodeGenService), log management (LogService), entity designer
+      tools, and platform configuration API. Runs the ClearJobAndErrorLogsJob
+      background worker for scheduled cleanup of stale job records and error
+      logs. Extracted from WebVella.Erp.Plugins.SDK.
+spec:
+  # -------------------------------------------------------------------------
+  # Replica count: Default 1 for development. The Admin service is a
+  # low-traffic, administrative-focused service typically accessed by
+  # platform administrators and developers. Single replica is sufficient
+  # for most deployments; scale horizontally only if admin API load demands.
+  # -------------------------------------------------------------------------
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: admin-service
+
+  # -------------------------------------------------------------------------
+  # Rolling update strategy ensures zero-downtime deployments.
+  # maxSurge: 1 — allows one additional pod during rollout
+  # maxUnavailable: 0 — never takes down the existing pod before the new
+  #   one is ready (ensures continuous admin API availability during deploys)
+  # -------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: admin-service
+        app.kubernetes.io/name: admin-service
+        app.kubernetes.io/part-of: webvella-erp
+        app.kubernetes.io/component: admin
+    spec:
+      containers:
+        - name: admin-service
+          image: webvella-erp/admin-service:latest
+          imagePullPolicy: IfNotPresent
+
+          # -----------------------------------------------------------------
+          # Port definitions
+          # -----------------------------------------------------------------
+          ports:
+            # REST API endpoint — admin console, code generation, log
+            # management, entity designer, and SDK configuration operations
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # -----------------------------------------------------------------
+          # Resource allocation
+          # -----------------------------------------------------------------
+          # Admin service receives standard resource allocations appropriate
+          # for a low-traffic administrative service. Handles admin console
+          # operations, code generation, log queries, and the scheduled
+          # ClearJobAndErrorLogsJob background worker.
+          # -----------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -----------------------------------------------------------------
+          # Environment Variables
+          # -----------------------------------------------------------------
+          env:
+            # ---------------------------------------------------------------
+            # Database Configuration (database-per-service model)
+            # ---------------------------------------------------------------
+            # Admin service owns its own PostgreSQL database (erp_admin) per
+            # AAP Section 0.1.2 and 0.7.4. Connection string follows Npgsql
+            # format with pooling configured per AAP 0.8.3:
+            #   MinPoolSize=1, MaxPoolSize=100, CommandTimeout=120
+            # Database contains: admin-specific tables for SDK configuration,
+            #   code generation templates, job execution logs, and error logs.
+            # Pattern: Server=postgres-admin;Port=5432;User Id=dev;
+            #   Password=dev;Database=erp_admin;Pooling=true;MinPoolSize=1;
+            #   MaxPoolSize=100;CommandTimeout=120;
+            # ---------------------------------------------------------------
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: admin-db-connection-string
+
+            # ---------------------------------------------------------------
+            # ASP.NET Core Runtime Configuration
+            # ---------------------------------------------------------------
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # ---------------------------------------------------------------
+            # Distributed Redis Cache
+            # ---------------------------------------------------------------
+            # Used for entity metadata caching with event-driven invalidation
+            # across service replicas. The Admin service caches entity
+            # definitions, field types, and relation metadata for the entity
+            # designer and code generation tools.
+            # Replaces the monolith's IMemoryCache (1-hour TTL) with
+            # distributed cache coherence.
+            # Per AAP Section 0.1.2 and 0.5.1 (Cache.cs transformation).
+            # ---------------------------------------------------------------
+            - name: Redis__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: redis-connection-string
+
+            # ---------------------------------------------------------------
+            # RabbitMQ Message Broker
+            # ---------------------------------------------------------------
+            # Used for asynchronous inter-service event-driven communication
+            # via MassTransit. Replaces the monolith's in-process hook system
+            # and PostgreSQL LISTEN/NOTIFY pub/sub.
+            #
+            # Admin subscribes to events:
+            #   - EntityMetadataChanged (from Core) — invalidate admin caches
+            #     for entity designer and code generation tools
+            #   - JobCompleted, JobFailed (from Core) — update admin job
+            #     monitoring dashboard
+            # Admin publishes events:
+            #   - AdminConfigChanged — notify other services of platform
+            #     configuration updates made through admin console
+            # ---------------------------------------------------------------
+            - name: RabbitMq__Host
+              value: "rabbitmq-service"
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-password
+
+            # ---------------------------------------------------------------
+            # JWT Authentication Configuration
+            # ---------------------------------------------------------------
+            # Admin service validates JWT tokens issued by the Core service.
+            # All services share the same signing key, issuer, and audience
+            # to enable cross-service identity propagation without callback
+            # to the Core authentication service.
+            # Admin API endpoints require authentication — only platform
+            # administrators with appropriate role claims can access admin
+            # console operations, code generation, and log management.
+            # Values sourced from WebVella.Erp.Site/Config.json Settings:Jwt.
+            # Per AAP Section 0.8.3 — JWT propagation across services.
+            # ---------------------------------------------------------------
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-key
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-audience
+
+            # ---------------------------------------------------------------
+            # Cross-Service Communication — Core Service URL
+            # ---------------------------------------------------------------
+            # Admin service communicates with the Core Platform Service for:
+            #   - Entity metadata operations (entity/field/relation CRUD)
+            #     via EntityGrpcService — the admin entity designer delegates
+            #     all entity management to Core and presents an admin UI layer
+            #   - Record lookups via RecordGrpcService — admin log queries
+            #     and data browsing
+            #   - Security validation via SecurityGrpcService — admin user
+            #     authorization and role-based access control
+            # Service name matches the ClusterIP service defined in
+            # services.yml (core-service:8080).
+            # Per AAP Section 0.7.1 — cross-service relation resolution.
+            # ---------------------------------------------------------------
+            - name: Services__Core__Url
+              value: "http://core-service:8080"
+
+            # ---------------------------------------------------------------
+            # Background Jobs Configuration
+            # ---------------------------------------------------------------
+            # Admin service runs the ClearJobAndErrorLogsJob background worker
+            # that periodically cleans up stale job execution records and
+            # error logs from the admin database. Migrated from the SDK
+            # plugin's ClearJobAndErrorLogsJob.cs.
+            # Per AAP Section 0.5.1 — service-scoped job system.
+            # ---------------------------------------------------------------
+            - name: Jobs__Enabled
+              value: "true"
+
+            # ---------------------------------------------------------------
+            # EQL (Entity Query Language) Configuration
+            # ---------------------------------------------------------------
+            # Query timeout preserved from monolith at 600 seconds (10 min).
+            # The Admin service uses the EQL engine from SharedKernel for
+            # entity data browsing, log queries, and admin reporting.
+            # Per AAP Section 0.8.3 — EQL query timeout preservation.
+            # ---------------------------------------------------------------
+            - name: Eql__QueryTimeoutSeconds
+              value: "600"
+
+            # ---------------------------------------------------------------
+            # Entity Metadata Cache Configuration
+            # ---------------------------------------------------------------
+            # TTL for entity metadata cache preserved from monolith at
+            # 60 minutes (1 hour). Admin entity definitions, field types,
+            # and relation metadata are cached locally and in Redis for
+            # the entity designer and code generation tools.
+            # Per AAP Section 0.8.3 — cache TTL preservation.
+            # ---------------------------------------------------------------
+            - name: Cache__EntityMetadataTtlMinutes
+              value: "60"
+
+          # -----------------------------------------------------------------
+          # Health Probes
+          # -----------------------------------------------------------------
+          # Admin service startup is straightforward compared to the Core
+          # service since it does not perform system entity initialization.
+          # However, it must wait for:
+          #   1. Database connectivity to erp_admin PostgreSQL
+          #   2. EF Core migration execution (admin schema)
+          #   3. RabbitMQ connection establishment for event bus
+          #   4. Redis cache connection for distributed metadata
+          #   5. Core service availability for gRPC entity operations
+          # -----------------------------------------------------------------
+
+          # Liveness probe — restart the container if it becomes unresponsive.
+          # Admin-specific health endpoint checks internal service health
+          # independent of downstream dependencies.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Readiness probe — stop routing traffic until the service is ready
+          # to accept requests (DB connected, cache warmed, migrations done,
+          # event bus connected, Core service reachable).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
