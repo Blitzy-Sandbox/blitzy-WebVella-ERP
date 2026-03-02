@@ -39,7 +39,7 @@ namespace WebVella.Erp.SharedKernel.Models
 		public RecordPermissions RecordPermissions { get; set; }
 
 		[JsonProperty(PropertyName = "record_screen_id_field")]
-		public Guid? RecordScreenIdField { get; set; }
+		public Guid? RecordScreenIdField { get; set; } //If null the ID field of the record is used as ScreenId
 	}
 
 	/// <summary>
@@ -97,7 +97,7 @@ namespace WebVella.Erp.SharedKernel.Models
 		/// If null, the record's Id field is used.
 		/// </summary>
 		[JsonProperty(PropertyName = "record_screen_id_field")]
-		public Guid? RecordScreenIdField { get; set; }
+		public Guid? RecordScreenIdField { get; set; } //If null the ID field of the record is used as ScreenId
 
 		/// <summary>
 		/// Hash of the entity's structure, used for change detection and
