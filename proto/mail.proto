@@ -1,7 +1,605 @@
-syntax = "proto3";
-option csharp_namespace = "WebVella.Erp.Service.Mail.Grpc";
-package mail;
+// =============================================================================
+// WebVella ERP - Mail/Notification Service gRPC Protocol Buffer Definition
+// =============================================================================
+// This proto defines the gRPC service interface for the Mail/Notification
+// microservice, which manages email entities, SMTP service configuration,
+// queue processing, and email sending.
+//
+// This replaces the monolith's WebVella.Erp.Plugins.Mail in-process method
+// calls. The Mail service is consumed by the Gateway and other services
+// needing email dispatch.
+//
+// Source files:
+//   - SmtpInternalService.cs  (validation, send, test, queue processing)
+//   - EmailServiceManager.cs  (SMTP service lookup with caching)
+//   - Email.cs                (email entity model)
+//   - EmailAddress.cs         (address DTO with Name + Address)
+//   - SmtpService.cs          (SMTP configuration entity model)
+//   - ProcessSmtpQueueJob.cs  (scheduled job triggering queue processing)
+//
+// Services defined:
+//   - MailService (Email CRUD, SMTP config management, queue processing)
+// =============================================================================
 
-// Minimal stub — full implementation by proto agent
+syntax = "proto3";
+
+package webvella.erp.mail;
+
+option csharp_namespace = "WebVella.Erp.Service.Mail.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// MailService provides email sending, queuing, SMTP configuration management,
+// and mail queue processing operations.
+// Source: SmtpInternalService, EmailServiceManager, SmtpService, Email
 service MailService {
+  // ---------------------------------------------------------------------------
+  // Email CRUD Operations
+  // ---------------------------------------------------------------------------
+
+  // Sends an email immediately via the specified SMTP service.
+  // Source: SmtpInternalService.EmailSendNowOnPost() — immediate email dispatch.
+  // Takes email content, recipients, and SMTP service config, then dispatches
+  // via MailKit SMTP client. The email record is persisted after sending.
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+
+  // Queues an email for background processing by the scheduled job.
+  // Source: SmtpInternalService.ProcessSmtpQueue() — queue-based processing.
+  // The email is saved with Pending status and a scheduled_on timestamp.
+  // The ProcessSmtpQueueJob picks it up on its 10-minute interval.
+  rpc QueueEmail(QueueEmailRequest) returns (QueueEmailResponse);
+
+  // Retrieves a single email record by its unique identifier.
+  // Source: SmtpInternalService.GetEmail(Guid id)
+  rpc GetEmail(GetEmailRequest) returns (GetEmailResponse);
+
+  // Lists and searches email records with pagination support.
+  // Supports filtering by status and SMTP service, plus text search.
+  rpc ListEmails(ListEmailsRequest) returns (ListEmailsResponse);
+
+  // ---------------------------------------------------------------------------
+  // SMTP Service Management
+  // ---------------------------------------------------------------------------
+
+  // Retrieves an SMTP service configuration by ID.
+  // Source: EmailServiceManager.GetSmtpService(Guid id) — cached lookup.
+  // Uses IMemoryCache with 1-hour TTL for service objects.
+  rpc GetSmtpService(GetSmtpServiceRequest) returns (GetSmtpServiceResponse);
+
+  // Creates a new SMTP service configuration with validation.
+  // Source: SmtpInternalService.ValidatePreCreateRecord() — validates name
+  // uniqueness, port range (1–65025), email format, retries (1–10),
+  // retry wait (1–1440 min), and connection security options.
+  rpc CreateSmtpService(CreateSmtpServiceRequest) returns (SmtpServiceResponse);
+
+  // Updates an existing SMTP service configuration with validation.
+  // Source: SmtpInternalService.ValidatePreUpdateRecord() — same validation
+  // as create, with additional name-uniqueness check excluding current record.
+  rpc UpdateSmtpService(UpdateSmtpServiceRequest) returns (SmtpServiceResponse);
+
+  // Sends a test email to verify SMTP service configuration.
+  // Source: SmtpInternalService.TestSmtpServiceOnPost() — resolves the SMTP
+  // service, validates inputs, then dispatches a test email via SendEmail.
+  rpc TestSmtpService(TestSmtpServiceRequest) returns (TestSmtpServiceResponse);
+
+  // Sets the specified SMTP service as the default, unsetting all others.
+  // Source: SmtpInternalService.HandleDefaultServiceSetup() — ensures exactly
+  // one default service exists; prevents unsetting the last default.
+  rpc SetDefaultSmtpService(SetDefaultSmtpServiceRequest) returns (SmtpServiceResponse);
+
+  // ---------------------------------------------------------------------------
+  // Queue Management
+  // ---------------------------------------------------------------------------
+
+  // Triggers processing of the email queue. Picks up pending emails with
+  // scheduled_on < now and attempts to send them, handling retries and
+  // abort logic based on max_retries_count.
+  // Source: SmtpInternalService.ProcessSmtpQueue()
+  // Called by ProcessSmtpQueueJob on 10-minute intervals.
+  rpc ProcessMailQueue(ProcessMailQueueRequest) returns (ProcessMailQueueResponse);
+}
+
+// =============================================================================
+// Email Request/Response Messages
+// =============================================================================
+
+// SendEmailRequest represents an immediate email dispatch request.
+// The email is sent synchronously and its status is returned.
+// Source: SmtpService.SendEmail() — validates recipients, builds MimeMessage,
+// sends via MailKit SmtpClient, then persists the Email record.
+message SendEmailRequest {
+  // SMTP service ID (Guid as string) to use for sending.
+  string service_id = 1;
+
+  // Sender email address. If not specified, the SMTP service's
+  // default_sender is used.
+  EmailAddressProto sender = 2;
+
+  // Primary recipients (To: header).
+  repeated EmailAddressProto recipients = 3;
+
+  // Email subject line. Required — validated by SmtpService.SendEmail().
+  string subject = 4;
+
+  // Plain text body content.
+  string content_text = 5;
+
+  // HTML body content. Inline images referencing /fs/* paths are
+  // automatically converted to CID-embedded MIME parts.
+  string content_html = 6;
+
+  // Email priority level.
+  EmailPriority priority = 7;
+
+  // File attachment paths (e.g., "/fs/path/to/file").
+  // Source: SmtpService processes these via DbFileRepository.Find().
+  repeated string attachments = 8;
+
+  // Reply-To addresses. Source monolith stores as semicolon-separated string
+  // in reply_to_email field; decomposed to structured addresses here.
+  repeated EmailAddressProto reply_to_addresses = 9;
+
+  // Carbon copy recipients (Cc: header).
+  // Source monolith encodes CC as "cc:" prefix in recipients list;
+  // decomposed to a dedicated field for clarity.
+  repeated EmailAddressProto cc_recipients = 10;
+
+  // Blind carbon copy recipients (Bcc: header).
+  // Source monolith encodes BCC as "bcc:" prefix in recipients list;
+  // decomposed to a dedicated field for clarity.
+  repeated EmailAddressProto bcc_recipients = 11;
+}
+
+// SendEmailResponse contains the result of an immediate email send.
+message SendEmailResponse {
+  // Whether the email was sent successfully.
+  bool success = 1;
+
+  // The created email record ID (Guid as string).
+  string email_id = 2;
+
+  // Human-readable result message.
+  string message = 3;
+
+  // Validation or server errors encountered during sending.
+  repeated ErrorModel errors = 4;
+}
+
+// QueueEmailRequest enqueues an email for deferred background processing.
+// The email is saved with Pending status; the ProcessSmtpQueueJob sends it
+// when scheduled_on is reached.
+message QueueEmailRequest {
+  // SMTP service ID (Guid as string) to use when the email is processed.
+  string service_id = 1;
+
+  // Sender email address.
+  EmailAddressProto sender = 2;
+
+  // Primary recipients.
+  repeated EmailAddressProto recipients = 3;
+
+  // Email subject line.
+  string subject = 4;
+
+  // Plain text body content.
+  string content_text = 5;
+
+  // HTML body content.
+  string content_html = 6;
+
+  // Email priority level.
+  EmailPriority priority = 7;
+
+  // File attachment paths.
+  repeated string attachments = 8;
+
+  // Scheduled delivery time. The ProcessSmtpQueueJob processes emails
+  // where scheduled_on < DateTime.UtcNow. If not set, the email is
+  // eligible for immediate pickup on the next queue run.
+  google.protobuf.Timestamp scheduled_on = 9;
+}
+
+// QueueEmailResponse contains the result of an email queue operation.
+message QueueEmailResponse {
+  // Whether the email was queued successfully.
+  bool success = 1;
+
+  // The created email record ID (Guid as string).
+  string email_id = 2;
+
+  // Human-readable result message.
+  string message = 3;
+
+  // Validation errors encountered during queuing.
+  repeated ErrorModel errors = 4;
+}
+
+// GetEmailRequest retrieves a single email record by its unique ID.
+message GetEmailRequest {
+  // Email record ID (Guid as string).
+  // Source: SmtpInternalService.GetEmail(Guid id) uses EQL:
+  // "SELECT * FROM email WHERE id = @id"
+  string id = 1;
+}
+
+// GetEmailResponse contains the requested email record.
+message GetEmailResponse {
+  // Whether the lookup was successful.
+  bool success = 1;
+
+  // The email record data, null if not found.
+  EmailProto email = 2;
+
+  // Errors encountered during lookup.
+  repeated ErrorModel errors = 3;
+}
+
+// ListEmailsRequest provides pagination and filtering for email queries.
+message ListEmailsRequest {
+  // Page number (1-based). Defaults to 1 if not specified.
+  int32 page = 1;
+
+  // Number of records per page. Defaults to 10 if not specified.
+  int32 page_size = 2;
+
+  // Optional filter by email status (e.g., "Pending", "Sent", "Aborted").
+  // Maps to EmailStatus enum values.
+  string status_filter = 3;
+
+  // Optional filter by SMTP service ID (Guid as string).
+  string service_id = 4;
+
+  // Optional full-text search query against the x_search field.
+  // The x_search field contains concatenated sender, recipients,
+  // subject, and body text for efficient searching.
+  string search_query = 5;
+}
+
+// ListEmailsResponse contains paginated email results.
+message ListEmailsResponse {
+  // Whether the query was successful.
+  bool success = 1;
+
+  // Email records matching the query criteria.
+  repeated EmailProto emails = 2;
+
+  // Total number of matching records (for pagination).
+  int32 total_count = 3;
+
+  // Errors encountered during query.
+  repeated ErrorModel errors = 4;
+}
+
+// =============================================================================
+// Email Data Message
+// =============================================================================
+
+// EmailProto represents a complete email record.
+// Source: WebVella.Erp.Plugins.Mail.Api.Email entity model.
+// Fields mirror the Email class properties with JSON property names.
+message EmailProto {
+  // Unique email record identifier (Guid as string).
+  string id = 1;
+
+  // Associated SMTP service identifier (Guid as string).
+  string service_id = 2;
+
+  // Sender email address (structured from JSON sender field).
+  // Source: Email.Sender — EmailAddress with Name + Address.
+  EmailAddressProto sender = 3;
+
+  // Primary recipient list (structured from JSON recipients field).
+  // Source: Email.Recipients — List<EmailAddress>.
+  repeated EmailAddressProto recipients = 4;
+
+  // Email subject line.
+  string subject = 5;
+
+  // Plain text body content.
+  string content_text = 6;
+
+  // HTML body content (may contain CID references for inline images).
+  string content_html = 7;
+
+  // Email priority level.
+  EmailPriority priority = 8;
+
+  // Current email delivery status.
+  EmailStatus status = 9;
+
+  // Timestamp when the email record was created.
+  google.protobuf.Timestamp created_on = 10;
+
+  // Timestamp when the email was successfully sent (null if not yet sent).
+  google.protobuf.Timestamp sent_on = 11;
+
+  // Server error message from the last send attempt.
+  // Populated on failure; null/empty on success.
+  string server_error = 12;
+
+  // Number of send retry attempts made.
+  // Source: Email.RetriesCount — incremented on each failed attempt.
+  // Email is aborted when retries_count >= SmtpService.MaxRetriesCount.
+  int32 retries_count = 13;
+
+  // Scheduled delivery time as string (ISO 8601).
+  // Set to future time for retry wait periods; null when sent or aborted.
+  string scheduled_on = 14;
+
+  // Reply-To addresses decomposed from the monolith's semicolon-separated
+  // reply_to_email field.
+  repeated EmailAddressProto reply_to_addresses = 15;
+
+  // Carbon copy recipients (decomposed from "cc:" prefix pattern).
+  repeated EmailAddressProto cc_recipients = 16;
+
+  // Blind carbon copy recipients (decomposed from "bcc:" prefix pattern).
+  repeated EmailAddressProto bcc_recipients = 17;
+
+  // File attachment references as JSON string.
+  // Source: Email.Attachments — List<string> of file paths serialized as JSON.
+  string attachments = 18;
+
+  // Full-text search index field.
+  // Source: SmtpInternalService.PrepareEmailXSearch() — concatenates
+  // sender name/address, recipient names/addresses, subject, and body text.
+  string x_search = 19;
+}
+
+// =============================================================================
+// SMTP Service Request/Response Messages
+// =============================================================================
+
+// GetSmtpServiceRequest retrieves an SMTP service configuration.
+message GetSmtpServiceRequest {
+  // SMTP service ID (Guid as string).
+  // Source: EmailServiceManager.GetSmtpService(Guid id) — cache-aware lookup.
+  string id = 1;
+}
+
+// GetSmtpServiceResponse contains the requested SMTP service configuration.
+message GetSmtpServiceResponse {
+  // Whether the lookup was successful.
+  bool success = 1;
+
+  // The SMTP service configuration data.
+  SmtpServiceProto smtp_service = 2;
+
+  // Errors encountered during lookup.
+  repeated ErrorModel errors = 3;
+}
+
+// CreateSmtpServiceRequest creates a new SMTP service configuration.
+// Source: SmtpInternalService.ValidatePreCreateRecord() performs validation:
+//   - name: must be unique across all smtp_service records
+//   - port: integer between 1 and 65025
+//   - default_from_email: must be valid email format
+//   - default_reply_to_email: must be valid email if provided
+//   - max_retries_count: integer between 1 and 10
+//   - retry_wait_minutes: integer between 1 and 1440
+//   - connection_security: must map to valid SecureSocketOptions value
+message CreateSmtpServiceRequest {
+  // The SMTP service configuration to create.
+  SmtpServiceProto smtp_service = 1;
+}
+
+// UpdateSmtpServiceRequest modifies an existing SMTP service configuration.
+// Source: SmtpInternalService.ValidatePreUpdateRecord() — same validation
+// as create, plus name-uniqueness check excludes the current record's ID.
+message UpdateSmtpServiceRequest {
+  // The updated SMTP service configuration.
+  SmtpServiceProto smtp_service = 1;
+}
+
+// SmtpServiceResponse is the common response for create, update, and
+// set-default SMTP service operations.
+message SmtpServiceResponse {
+  // Whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // Validation or server errors.
+  repeated ErrorModel errors = 3;
+}
+
+// SmtpServiceProto represents an SMTP service configuration record.
+// Source: WebVella.Erp.Plugins.Mail.Api.SmtpService entity model.
+// Properties mirror the SmtpService class with JSON property names.
+message SmtpServiceProto {
+  // Unique SMTP service identifier (Guid as string).
+  string id = 1;
+
+  // Human-readable service name. Must be unique.
+  string name = 2;
+
+  // SMTP server hostname or IP address.
+  string server = 3;
+
+  // SMTP server port (1–65025).
+  // Source: Validated in ValidatePreCreateRecord/ValidatePreUpdateRecord.
+  int32 port = 4;
+
+  // SMTP authentication username (empty for anonymous relay).
+  string username = 5;
+
+  // SMTP authentication password.
+  string password = 6;
+
+  // Whether this SMTP service is enabled for email dispatch.
+  // Source: SmtpInternalService.SendEmail() aborts if service is not enabled.
+  bool is_enabled = 7;
+
+  // Whether this is the default SMTP service.
+  // Source: SmtpInternalService.HandleDefaultServiceSetup() ensures
+  // exactly one default service exists at all times.
+  bool is_default = 8;
+
+  // Maximum number of retry attempts on send failure (1–10).
+  // Source: Email is aborted when RetriesCount >= MaxRetriesCount.
+  int32 max_retries_count = 9;
+
+  // Minutes to wait between retry attempts (1–1440).
+  // Source: On failure, ScheduledOn = UtcNow + RetryWaitMinutes.
+  int32 retry_wait_minutes = 10;
+
+  // Connection security mode.
+  // Maps to MailKit.Security.SecureSocketOptions enum values:
+  //   "0" = None, "1" = Auto, "2" = SslOnConnect, "3" = StartTls,
+  //   "4" = StartTlsWhenAvailable
+  // Source: Validated as integer in ValidatePreCreateRecord.
+  string connection_security = 11;
+
+  // Default sender address for this SMTP service.
+  // Source: Composed from SmtpService.DefaultSenderName + DefaultSenderEmail.
+  EmailAddressProto default_sender = 12;
+
+  // Default Reply-To addresses.
+  // Source: SmtpService.DefaultReplyToEmail — decomposed from single string.
+  repeated EmailAddressProto default_reply_to = 13;
+}
+
+// TestSmtpServiceRequest triggers a test email to validate SMTP configuration.
+// Source: SmtpInternalService.TestSmtpServiceOnPost() — resolves the SMTP
+// service by ID, validates the test email address, and dispatches a test
+// message using SmtpService.SendEmail().
+message TestSmtpServiceRequest {
+  // The SMTP service ID to test (Guid as string).
+  string service_id = 1;
+
+  // The recipient email address for the test message.
+  // Validated as a valid email format.
+  string test_email_address = 2;
+}
+
+// TestSmtpServiceResponse contains the result of the SMTP test.
+message TestSmtpServiceResponse {
+  // Whether the test email was sent successfully.
+  bool success = 1;
+
+  // Human-readable result message (e.g., "Email was successfully sent").
+  string message = 2;
+
+  // Errors encountered during testing.
+  repeated ErrorModel errors = 3;
+}
+
+// SetDefaultSmtpServiceRequest marks the specified SMTP service as default.
+// Source: SmtpInternalService.HandleDefaultServiceSetup() — first unsets
+// is_default on all other services, then sets it on the specified service.
+// Prevents unsetting the last default (returns error if attempted).
+message SetDefaultSmtpServiceRequest {
+  // The SMTP service ID to set as default (Guid as string).
+  string service_id = 1;
+}
+
+// =============================================================================
+// Queue Management Messages
+// =============================================================================
+
+// ProcessMailQueueRequest triggers processing of the email send queue.
+// This is an empty message — no parameters needed.
+// Source: SmtpInternalService.ProcessSmtpQueue() — uses a lock to prevent
+// concurrent queue processing. Queries pending emails with
+// "status = Pending AND scheduled_on <> NULL AND scheduled_on < UtcNow"
+// in batches of 10, ordered by priority DESC, scheduled_on ASC.
+message ProcessMailQueueRequest {
+}
+
+// ProcessMailQueueResponse contains the result of queue processing.
+message ProcessMailQueueResponse {
+  // Whether queue processing completed without critical errors.
+  bool success = 1;
+
+  // Number of emails processed in this queue run.
+  int32 processed_count = 2;
+
+  // Human-readable summary message.
+  string message = 3;
+
+  // Errors encountered during queue processing.
+  repeated ErrorModel errors = 4;
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// EmailAddressProto represents a structured email address with optional
+// display name.
+// Source: WebVella.Erp.Plugins.Mail.Api.EmailAddress
+//   - Address (string): The email address (e.g., "user@example.com")
+//   - Name (string): Optional display name (e.g., "John Doe")
+message EmailAddressProto {
+  // The email address string (e.g., "user@example.com").
+  string address = 1;
+
+  // Optional display name (e.g., "John Doe").
+  string name = 2;
+}
+
+// EmailPriority indicates the priority level of an email message.
+// Source: WebVella.Erp.Plugins.Mail.Api.EmailPriority enum
+// Note: Monolith values are Low=0, Normal=1, High=2.
+// Proto3 requires the zero value to be UNSPECIFIED, so values are shifted:
+//   UNSPECIFIED=0, LOW=1, NORMAL=2, HIGH=3
+enum EmailPriority {
+  // Default unspecified value (proto3 requirement).
+  EMAIL_PRIORITY_UNSPECIFIED = 0;
+
+  // Low priority — processed last in queue ordering.
+  EMAIL_PRIORITY_LOW = 1;
+
+  // Normal priority — standard email delivery.
+  EMAIL_PRIORITY_NORMAL = 2;
+
+  // High priority — processed first in queue ordering.
+  // Source: ProcessSmtpQueue orders by "priority DESC, scheduled_on ASC".
+  EMAIL_PRIORITY_HIGH = 3;
+}
+
+// EmailStatus indicates the current delivery status of an email.
+// Source: WebVella.Erp.Plugins.Mail.Api.EmailStatus enum
+// Note: Monolith values are Pending=0, Sent=1, Aborted=2.
+// Proto3 requires the zero value to be UNSPECIFIED, so values are shifted:
+//   UNSPECIFIED=0, PENDING=1, SENT=2, ABORTED=3, FAILED=4
+enum EmailStatus {
+  // Default unspecified value (proto3 requirement).
+  EMAIL_STATUS_UNSPECIFIED = 0;
+
+  // Email is pending delivery — waiting in the queue.
+  // Source: New emails are created with Pending status and a scheduled_on time.
+  EMAIL_STATUS_PENDING = 1;
+
+  // Email was sent successfully via SMTP.
+  // Source: SmtpInternalService.SendEmail() sets Status=Sent on success.
+  EMAIL_STATUS_SENT = 2;
+
+  // Email delivery was permanently aborted after exhausting retries.
+  // Source: Set when RetriesCount >= SmtpService.MaxRetriesCount,
+  // or when the SMTP service is not found or is disabled.
+  EMAIL_STATUS_ABORTED = 3;
+
+  // Email delivery failed on the current attempt but may be retried.
+  // Distinct from ABORTED — indicates a transient failure.
+  EMAIL_STATUS_FAILED = 4;
+}
+
+// ErrorModel represents a validation or server error.
+// Source: WebVella.Erp.Api.Models.ErrorModel — used across all services
+// in the BaseResponseModel.Errors collection.
+message ErrorModel {
+  // Error field/property key (e.g., "name", "port", "recipient_email").
+  string key = 1;
+
+  // The invalid value that triggered the error.
+  string value = 2;
+
+  // Human-readable error description.
+  string message = 3;
 }
