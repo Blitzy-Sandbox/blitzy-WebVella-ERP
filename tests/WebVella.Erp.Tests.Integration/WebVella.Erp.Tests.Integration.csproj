@@ -39,6 +39,17 @@
     <!-- EF Core PostgreSQL provider for PostgreSqlFixture migrations support.
          Npgsql (ADO.NET driver) comes transitively from this package. -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+
+    <!-- JWT token handling for TestDataSeeder authentication token generation.
+         Matches AuthService.cs BuildTokenAsync pattern (source lines 145-159). -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedKernel project reference for SystemIds, ErpUser, ErpRole models
+         used by TestDataSeeder and cross-service integration tests. -->
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
   </ItemGroup>
 
 </Project>
