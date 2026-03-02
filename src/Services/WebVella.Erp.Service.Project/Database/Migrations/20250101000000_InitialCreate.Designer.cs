@@ -455,6 +455,12 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("boolean")
                     .HasColumnName("is_enabled");
 
+                b.Property<bool>("IsSystem")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_system");
+
                 b.Property<string>("Label")
                     .IsRequired()
                     .HasColumnType("text")
@@ -479,6 +485,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IsClosed = false,
                         IsDefault = true,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Not Started",
                         LScope = "",
                         SortOrder = 1
@@ -489,6 +496,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IsClosed = false,
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "In Progress",
                         LScope = "",
                         SortOrder = 2
@@ -501,6 +509,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IsClosed = false,
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Blocked",
                         LScope = "",
                         SortOrder = 3
@@ -513,6 +522,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IsClosed = true,
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Completed",
                         LScope = "",
                         SortOrder = 4
@@ -525,6 +535,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IsClosed = true,
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Rejected",
                         LScope = "",
                         SortOrder = 5
@@ -560,6 +571,12 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("boolean")
                     .HasColumnName("is_enabled");
 
+                b.Property<bool>("IsSystem")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("is_system");
+
                 b.Property<string>("Label")
                     .IsRequired()
                     .HasColumnType("text")
@@ -583,6 +600,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         Id = new Guid("da9bf72d-3655-4c51-9f99-047ef9297bf2"),
                         IsDefault = true,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "General",
                         LScope = "",
                         SortOrder = 1
@@ -592,6 +610,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         Id = new Guid("7b191135-5fbb-4db9-bf24-1a5fc72d8cd5"),
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Call",
                         LScope = "",
                         SortOrder = 2
@@ -601,6 +620,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         Id = new Guid("489b16e1-91b1-4a05-b247-50ed74f7aaaf"),
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Email",
                         LScope = "",
                         SortOrder = 3
@@ -610,6 +630,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         Id = new Guid("894ba1ef-1b31-440c-9b33-f301d047d8fb"),
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Meeting",
                         LScope = "",
                         SortOrder = 4
@@ -619,6 +640,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         Id = new Guid("ddb9c170-706d-4b17-a8ee-78ed3a544fa3"),
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Send Quote",
                         LScope = "",
                         SortOrder = 5
@@ -630,6 +652,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IconClass = "far fa-fw fa-caret-square-up",
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Improvement",
                         LScope = "[\"projects\"]",
                         SortOrder = 2
@@ -641,6 +664,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IconClass = "fas fa-fw fa-plus-square",
                         IsDefault = true,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "New Feature",
                         LScope = "[\"projects\"]",
                         SortOrder = 1
@@ -652,6 +676,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         IconClass = "fas fa-fw fa-bug",
                         IsDefault = false,
                         IsEnabled = true,
+                        IsSystem = true,
                         Label = "Bug",
                         LScope = "[\"projects\"]",
                         SortOrder = 3

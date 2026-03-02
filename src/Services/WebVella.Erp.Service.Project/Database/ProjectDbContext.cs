@@ -422,6 +422,10 @@ namespace WebVella.Erp.Service.Project.Database
         /// <summary>Whether this task type is enabled and available for selection.</summary>
         [Column("is_enabled")]
         public bool IsEnabled { get; set; }
+
+        /// <summary>Whether this is a system-defined task type that cannot be deleted.</summary>
+        [Column("is_system")]
+        public bool IsSystem { get; set; }
     }
 
     /// <summary>
@@ -472,6 +476,10 @@ namespace WebVella.Erp.Service.Project.Database
         /// </summary>
         [Column("is_closed")]
         public bool IsClosed { get; set; }
+
+        /// <summary>Whether this is a system-defined task status that cannot be deleted.</summary>
+        [Column("is_system")]
+        public bool IsSystem { get; set; }
     }
 
     /// <summary>
@@ -1018,6 +1026,11 @@ namespace WebVella.Erp.Service.Project.Database
                     .HasColumnName("is_enabled")
                     .HasColumnType("boolean");
 
+                entity.Property(e => e.IsSystem)
+                    .HasColumnName("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
                 // Seed data from monolith NextPlugin.20190203.cs (exact GUIDs preserved)
                 entity.HasData(
                     new TaskTypeEntity
@@ -1028,6 +1041,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "",
                         SortOrder = 1,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = null,
                         Color = null
                     },
@@ -1039,6 +1053,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "",
                         SortOrder = 2,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = null,
                         Color = null
                     },
@@ -1050,6 +1065,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "",
                         SortOrder = 3,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = null,
                         Color = null
                     },
@@ -1061,6 +1077,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "",
                         SortOrder = 4,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = null,
                         Color = null
                     },
@@ -1072,6 +1089,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "",
                         SortOrder = 5,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = null,
                         Color = null
                     },
@@ -1083,6 +1101,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "[\"projects\"]",
                         SortOrder = 2,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = "far fa-fw fa-caret-square-up",
                         Color = "#9C27B0"
                     },
@@ -1094,6 +1113,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "[\"projects\"]",
                         SortOrder = 1,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = "fas fa-fw fa-plus-square",
                         Color = "#4CAF50"
                     },
@@ -1105,6 +1125,7 @@ namespace WebVella.Erp.Service.Project.Database
                         LScope = "[\"projects\"]",
                         SortOrder = 3,
                         IsEnabled = true,
+                        IsSystem = true,
                         IconClass = "fas fa-fw fa-bug",
                         Color = "#F44336"
                     }
@@ -1151,6 +1172,11 @@ namespace WebVella.Erp.Service.Project.Database
                     .HasColumnName("is_closed")
                     .HasColumnType("boolean");
 
+                entity.Property(e => e.IsSystem)
+                    .HasColumnName("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
                 // Seed data from monolith NextPlugin.20190203.cs (exact GUIDs preserved)
                 entity.HasData(
                     new TaskStatusEntity
@@ -1159,6 +1185,7 @@ namespace WebVella.Erp.Service.Project.Database
                         Label = "Not Started",
                         IsClosed = false,
                         IsDefault = true,
+                        IsSystem = true,
                         LScope = "",
                         SortOrder = 1,
                         IsEnabled = true,
@@ -1171,6 +1198,7 @@ namespace WebVella.Erp.Service.Project.Database
                         Label = "In Progress",
                         IsClosed = false,
                         IsDefault = false,
+                        IsSystem = true,
                         LScope = "",
                         SortOrder = 2,
                         IsEnabled = true,
@@ -1183,6 +1211,7 @@ namespace WebVella.Erp.Service.Project.Database
                         Label = "Completed",
                         IsClosed = true,
                         IsDefault = false,
+                        IsSystem = true,
                         LScope = "",
                         SortOrder = 4,
                         IsEnabled = true,
@@ -1195,6 +1224,7 @@ namespace WebVella.Erp.Service.Project.Database
                         Label = "Blocked",
                         IsClosed = false,
                         IsDefault = false,
+                        IsSystem = true,
                         LScope = "",
                         SortOrder = 3,
                         IsEnabled = true,
@@ -1207,6 +1237,7 @@ namespace WebVella.Erp.Service.Project.Database
                         Label = "Rejected",
                         IsClosed = true,
                         IsDefault = false,
+                        IsSystem = true,
                         LScope = "",
                         SortOrder = 5,
                         IsEnabled = true,
