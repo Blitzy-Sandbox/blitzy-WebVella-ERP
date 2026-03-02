@@ -1,0 +1,172 @@
+# =============================================================================
+# WebVella ERP Microservices — Kubernetes Namespace & Shared Secrets
+# =============================================================================
+# This file defines the foundational Kubernetes resources for the WebVella ERP
+# microservices deployment. It MUST be applied before any other manifest in this
+# folder, as all deployment and service resources reference the namespace and
+# secrets defined here.
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/namespace.yml
+#
+# After applying this file, apply the remaining manifests:
+#   kubectl apply -f infrastructure/kubernetes/
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Namespace: webvella-erp
+# -----------------------------------------------------------------------------
+# Provides logical isolation for all WebVella ERP microservices, infrastructure
+# components (PostgreSQL per-service databases, Redis, RabbitMQ), and supporting
+# resources (ConfigMaps, Secrets, ServiceAccounts).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webvella-erp
+  labels:
+    name: webvella-erp
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Namespace containing all WebVella ERP microservices (Core, CRM, Project,
+      Mail, Reporting, Admin), the API Gateway, and shared infrastructure
+      resources (PostgreSQL databases, Redis cache, RabbitMQ message broker).
+      This namespace provides logical isolation for the entire WebVella ERP
+      platform deployed as independently scalable, domain-aligned microservices.
+
+---
+
+# -----------------------------------------------------------------------------
+# Secret: webvella-erp-secrets
+# -----------------------------------------------------------------------------
+# Shared secrets referenced by all service deployments via envFrom or individual
+# env[].valueFrom.secretKeyRef entries. Contains database connection strings
+# (one per service following the database-per-service pattern), messaging
+# credentials, JWT signing configuration, and the application encryption key.
+#
+# WARNING: These are DEVELOPMENT DEFAULTS only. You MUST override these values
+# in production using one of the following approaches:
+#   - Sealed Secrets (Bitnami sealed-secrets controller)
+#   - External Secrets Operator (AWS Secrets Manager, HashiCorp Vault, etc.)
+#   - CI/CD pipeline secret injection (GitHub Actions secrets, ArgoCD, etc.)
+#   - Kubernetes secret patching via Kustomize overlays
+#
+# NEVER commit production credentials to version control.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webvella-erp-secrets
+  namespace: webvella-erp
+  labels:
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Shared secrets for all WebVella ERP microservices. Contains database
+      connection strings, messaging credentials, JWT configuration, and
+      encryption keys. Development defaults — override in production.
+type: Opaque
+stringData:
+  # ---------------------------------------------------------------------------
+  # Database Connection Strings (database-per-service model)
+  # ---------------------------------------------------------------------------
+  # Each microservice owns its own PostgreSQL database instance. Connection
+  # strings follow the Npgsql format with connection pooling configured per
+  # AAP Section 0.8.3: MinPoolSize=1, MaxPoolSize=100.
+  # Format derived from source WebVella.Erp.Site/Config.json.
+  # ---------------------------------------------------------------------------
+
+  # Core Platform Service database
+  core-db-connection-string: "Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # CRM Service database
+  crm-db-connection-string: "Server=postgres-crm;Port=5432;User Id=dev;Password=dev;Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # Project/Task Service database
+  project-db-connection-string: "Server=postgres-project;Port=5432;User Id=dev;Password=dev;Database=erp_project;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # Mail/Notification Service database
+  mail-db-connection-string: "Server=postgres-mail;Port=5432;User Id=dev;Password=dev;Database=erp_mail;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # Reporting Service database
+  reporting-db-connection-string: "Server=postgres-reporting;Port=5432;User Id=dev;Password=dev;Database=erp_reporting;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # Admin/SDK Service database
+  admin-db-connection-string: "Server=postgres-admin;Port=5432;User Id=dev;Password=dev;Database=erp_admin;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+
+  # ---------------------------------------------------------------------------
+  # Redis Distributed Cache
+  # ---------------------------------------------------------------------------
+  # Replaces the monolith's IMemoryCache for cross-service metadata caching
+  # and session state. Referenced by all services that require distributed
+  # caching (entity metadata, user sessions, etc.).
+  # ---------------------------------------------------------------------------
+  redis-connection-string: "redis-service:6379"
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ Message Broker
+  # ---------------------------------------------------------------------------
+  # Used for asynchronous inter-service communication via MassTransit.
+  # Replaces the monolith's PostgreSQL LISTEN/NOTIFY pub/sub mechanism.
+  # ---------------------------------------------------------------------------
+  rabbitmq-username: "guest"
+  rabbitmq-password: "guest"
+
+  # ---------------------------------------------------------------------------
+  # JWT Authentication Configuration
+  # ---------------------------------------------------------------------------
+  # Shared JWT signing key, issuer, and audience used by all services for
+  # token creation and validation. Enables cross-service identity propagation
+  # without callback to the Core authentication service.
+  # Values sourced from WebVella.Erp.Site/Config.json Settings:Jwt section.
+  # ---------------------------------------------------------------------------
+  jwt-key: "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey"
+  jwt-issuer: "webvella-erp"
+  jwt-audience: "webvella-erp"
+
+  # ---------------------------------------------------------------------------
+  # Application Encryption Key
+  # ---------------------------------------------------------------------------
+  # Symmetric encryption key used for sensitive data at rest. Shared across
+  # all services that need to encrypt/decrypt field values.
+  # Value sourced from WebVella.Erp.Site/Config.json Settings:EncryptionKey.
+  # ---------------------------------------------------------------------------
+  encryption-key: "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658"
+
+# =============================================================================
+# Optional: ResourceQuota for Production Use
+# =============================================================================
+# For production deployments, consider applying a ResourceQuota to the
+# webvella-erp namespace to prevent runaway resource consumption and ensure
+# fair scheduling across cluster tenants.
+#
+# Example ResourceQuota (uncomment and adjust for your cluster capacity):
+#
+# ---
+# apiVersion: v1
+# kind: ResourceQuota
+# metadata:
+#   name: webvella-erp-quota
+#   namespace: webvella-erp
+#   labels:
+#     app.kubernetes.io/part-of: webvella-erp
+#     app.kubernetes.io/managed-by: kubectl
+# spec:
+#   hard:
+#     requests.cpu: "16"
+#     requests.memory: "32Gi"
+#     limits.cpu: "32"
+#     limits.memory: "64Gi"
+#     pods: "50"
+#     services: "20"
+#     secrets: "30"
+#     configmaps: "30"
+#     persistentvolumeclaims: "20"
+#
+# Adjust values based on your cluster size, number of service replicas, and
+# resource requirements. Monitor actual usage with 'kubectl top' and Prometheus
+# metrics before enforcing hard limits.
+# =============================================================================
