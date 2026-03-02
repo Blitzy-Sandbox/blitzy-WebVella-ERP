@@ -1,13 +1,65 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Reporting</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Reporting</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Stub project: will be replaced by actual implementation -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <!-- Test Framework -->
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
+
+  <!-- Testing Utilities -->
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- Testcontainers for Database Integration Tests -->
+  <ItemGroup>
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <!-- Database and EF Core -->
+  <ItemGroup>
+    <!--
+      NOTE: Npgsql ADO.NET driver is NOT referenced directly to avoid NU1605
+      package downgrade conflict. Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
+      requires Npgsql >= 10.0.0, while root CPM pins Npgsql at 9.0.4. The
+      driver is available transitively through the Reporting service's
+      Npgsql.EntityFrameworkCore.PostgreSQL dependency.
+    -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+
+  <!-- Project References -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Reporting/WebVella.Erp.Service.Reporting.csproj" />
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- ASP.NET Core shared framework for WebApplicationFactory -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
 </Project>
