@@ -19,6 +19,11 @@
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 	</PropertyGroup>
 
+	<!-- Expose internal members to test assembly for unit testing internal utilities (e.g., PasswordUtil) -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="WebVella.Erp.Tests.SharedKernel" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<None Remove="Fts\BulStem\Rules\stem_rules_context_1_utf8.txt" />
 		<None Remove="Fts\BulStem\Rules\stem_rules_context_2_utf8.txt" />
