@@ -1,15 +1,50 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Project</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Project</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Stub project: will be replaced by actual implementation -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
   <ItemGroup>
+    <!-- Test framework -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+
+    <!-- Test utilities -->
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+
+    <!-- Testcontainers for isolated database testing -->
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+
+    <!-- EF Core — needed directly because Service.Project's Microsoft.EntityFrameworkCore.Design
+         uses PrivateAssets=all, so its transitive EF Core 10.0.1 doesn't flow to dependents.
+         InMemory 10.0.1 brings in the matching EF Core version to resolve assembly version conflict. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+
+    <!-- Authentication helpers -->
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+
+    <!-- JSON for test assertions -->
+    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Project service under test — provides transitive access to:
+         Npgsql, Npgsql.EntityFrameworkCore.PostgreSQL, Microsoft.EntityFrameworkCore,
+         and all service domain types -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Project/WebVella.Erp.Service.Project.csproj" />
+  </ItemGroup>
+
 </Project>
