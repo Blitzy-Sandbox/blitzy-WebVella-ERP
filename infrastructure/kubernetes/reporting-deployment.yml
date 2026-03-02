@@ -1,0 +1,280 @@
+# =============================================================================
+# WebVella ERP Microservices — Reporting Service Deployment
+# =============================================================================
+# Kubernetes Deployment manifest for the Reporting Service
+# (WebVella.Erp.Service.Reporting). This is an event-consuming aggregation
+# service that reads event-sourced projections for report generation,
+# implementing a lightweight CQRS read model within the WebVella ERP
+# microservices architecture.
+#
+# Responsibilities:
+#   - Event consumption from Core, CRM, Project, and Mail services
+#   - Report aggregation via denormalized event-sourced projections
+#   - ReportAggregationService — builds materialized views from domain events
+#   - REST API for report queries and aggregated result retrieval
+#   - Maintains its own read-optimized database (erp_reporting) with
+#     denormalized projections for efficient query performance
+#
+# Architecture Pattern:
+#   This service implements the CQRS (light) read side per AAP Section 0.4.3.
+#   It does NOT publish domain events — it acts exclusively as an event
+#   consumer/materializer. Domain events from other services (RecordCreated,
+#   RecordUpdated, AccountCreated, TaskCompleted, TimelogCreated, etc.) are
+#   consumed via RabbitMQ (MassTransit) and materialized into reporting
+#   projections in the erp_reporting PostgreSQL database.
+#
+# Cross-Service Dependencies:
+#   - RabbitMQ (rabbitmq-service): Subscribes to domain events from all
+#     services for building reporting projections. This is the primary
+#     data ingestion channel for the Reporting service.
+#   - Redis (redis-service): Distributed caching for report query results
+#     and entity metadata used in report generation.
+#   - Core service (via events): Consumes entity/record lifecycle events
+#   - CRM service (via events): Consumes account/contact/case events
+#   - Project service (via events): Consumes task/timelog/comment events
+#   - Mail service (via events): Consumes email delivery status events
+#
+# Database:
+#   - Owns its own PostgreSQL database (erp_reporting) per the
+#     database-per-service model (AAP Section 0.1.2). Contains denormalized
+#     reporting projections and materialized aggregation tables optimized
+#     for read-heavy query patterns.
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#   Apply services.yml to create ClusterIP service definitions:
+#     kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/reporting-deployment.yml
+#
+# Per AAP Section 0.4.1 — Target Design / Refactored Structure Planning.
+# Per AAP Section 0.4.3 — CQRS (light) design pattern application.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting-service
+  namespace: webvella-erp
+  labels:
+    app: reporting-service
+    app.kubernetes.io/name: reporting-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: reporting
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Reporting Service deployment — an event-consuming aggregation service
+      implementing the CQRS read side. Subscribes to domain events from Core,
+      CRM, Project, and Mail services to build denormalized reporting
+      projections. Provides REST API for report queries and aggregated results.
+spec:
+  # -------------------------------------------------------------------------
+  # Replica count: Default 1 for development. Scale horizontally in production
+  # based on event ingestion throughput and report query load. The Reporting
+  # service is stateless — all state resides in the erp_reporting PostgreSQL
+  # database and Redis distributed cache, enabling safe horizontal scaling.
+  # Note: When running multiple replicas, MassTransit consumer groups ensure
+  # each event is processed by exactly one replica (competing consumers).
+  # -------------------------------------------------------------------------
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: reporting-service
+
+  # -------------------------------------------------------------------------
+  # Rolling update strategy ensures zero-downtime deployments.
+  # maxSurge: 1 — allows one additional pod during rollout
+  # maxUnavailable: 0 — never takes down the existing pod before the new
+  #   one is ready (ensures continuous report API availability and
+  #   uninterrupted event consumption)
+  # -------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: reporting-service
+        app.kubernetes.io/name: reporting-service
+        app.kubernetes.io/part-of: webvella-erp
+        app.kubernetes.io/component: reporting
+    spec:
+      containers:
+        - name: reporting-service
+          image: webvella-erp/reporting-service:latest
+          imagePullPolicy: IfNotPresent
+
+          # -----------------------------------------------------------------
+          # Port definitions
+          # -----------------------------------------------------------------
+          ports:
+            # REST API endpoint — report queries and aggregated results
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # -----------------------------------------------------------------
+          # Resource allocation
+          # -----------------------------------------------------------------
+          # Reporting service receives standard resource allocations. While
+          # it processes potentially large aggregation queries, the event
+          # consumption workload is I/O-bound (database writes) rather than
+          # CPU-bound. Resource limits can be increased in production if
+          # report query complexity or event ingestion volume demands it.
+          # -----------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -----------------------------------------------------------------
+          # Environment Variables
+          # -----------------------------------------------------------------
+          env:
+            # ---------------------------------------------------------------
+            # Database Configuration (database-per-service model)
+            # ---------------------------------------------------------------
+            # Reporting service owns its own PostgreSQL database
+            # (erp_reporting) per AAP Section 0.1.2 and 0.7.4. Connection
+            # string follows Npgsql format with pooling configured per
+            # AAP 0.8.3: MinPoolSize=1, MaxPoolSize=100, CommandTimeout=120
+            # Database contains: denormalized reporting projections and
+            #   materialized aggregation tables for read-optimized queries.
+            # Pattern: Server=postgres-reporting;Port=5432;User Id=dev;
+            #   Password=dev;Database=erp_reporting;Pooling=true;
+            #   MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+            # ---------------------------------------------------------------
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: reporting-db-connection-string
+
+            # ---------------------------------------------------------------
+            # ASP.NET Core Runtime Configuration
+            # ---------------------------------------------------------------
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # ---------------------------------------------------------------
+            # Distributed Redis Cache
+            # ---------------------------------------------------------------
+            # Used for caching report query results and entity metadata
+            # required during report generation. Enables cache coherence
+            # across multiple Reporting service replicas.
+            # Per AAP Section 0.1.2 and 0.5.1 (Cache.cs transformation).
+            # ---------------------------------------------------------------
+            - name: Redis__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: redis-connection-string
+
+            # ---------------------------------------------------------------
+            # RabbitMQ Message Broker
+            # ---------------------------------------------------------------
+            # Primary data ingestion channel for the Reporting service.
+            # Used for asynchronous event consumption via MassTransit.
+            # The Reporting service subscribes to domain events from ALL
+            # other services to build denormalized reporting projections:
+            #
+            # Events consumed (examples):
+            #   From Core:    RecordCreated, RecordUpdated, RecordDeleted,
+            #                 EntityCreated, UserCreated, RoleUpdated
+            #   From CRM:     AccountCreated, AccountUpdated, ContactCreated,
+            #                 ContactUpdated, CaseCreated, CaseUpdated
+            #   From Project: TaskCreated, TaskCompleted, TimelogCreated,
+            #                 CommentCreated, FeedItemCreated
+            #   From Mail:    EmailSent, EmailDelivered, EmailFailed
+            #
+            # The Reporting service does NOT publish events — it acts
+            # exclusively as an event consumer/materializer (CQRS read side).
+            # ---------------------------------------------------------------
+            - name: RabbitMq__Host
+              value: "rabbitmq-service"
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-password
+
+            # ---------------------------------------------------------------
+            # JWT Authentication Configuration
+            # ---------------------------------------------------------------
+            # Reporting service validates JWT tokens issued by the Core
+            # service to authorize report API access. All services share
+            # the same signing key, issuer, and audience to enable
+            # cross-service identity propagation without callback to the
+            # Core authentication service.
+            # Values sourced from WebVella.Erp.Site/Config.json Settings:Jwt.
+            # Per AAP Section 0.8.3 — JWT propagation across services.
+            # ---------------------------------------------------------------
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-key
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-audience
+
+          # -----------------------------------------------------------------
+          # Health Probes
+          # -----------------------------------------------------------------
+          # Reporting service startup is relatively fast since it does not
+          # perform system entity initialization. However, it must wait for:
+          #   1. Database connectivity to erp_reporting PostgreSQL
+          #   2. EF Core migration execution (reporting schema)
+          #   3. RabbitMQ connection establishment for event bus
+          #      (critical — this is the primary data ingestion channel)
+          #   4. Redis cache connection for distributed metadata
+          # -----------------------------------------------------------------
+
+          # Liveness probe — restart the container if it becomes unresponsive.
+          # Checks internal service health independent of downstream
+          # dependencies (event bus connectivity checked separately by
+          # readiness probe).
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Readiness probe — stop routing traffic until the service is ready
+          # to accept report queries and process events (DB connected, cache
+          # warmed, migrations done, event bus connected).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
