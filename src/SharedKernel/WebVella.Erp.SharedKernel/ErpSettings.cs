@@ -69,46 +69,54 @@ namespace WebVella.Erp.SharedKernel
 		/// Must be called once during application startup.
 		/// </summary>
 		/// <param name="configuration">The application configuration root.</param>
+		/// <exception cref="ArgumentNullException">Thrown when <paramref name="configuration"/> is null.</exception>
 		public static void Initialize(IConfiguration configuration)
 		{
+			if (configuration == null)
+				throw new ArgumentNullException(nameof(configuration));
+
 			Configuration = configuration;
 
-			// EncryptionKey — with backward compatibility for misspelled key
-			var encryptionKey = configuration["Settings:EncryptionKey"];
-			if (string.IsNullOrWhiteSpace(encryptionKey))
-				encryptionKey = configuration["Settings:EncriptionKey"];
-			EncryptionKey = encryptionKey;
+			// EncryptionKey — with backward compatibility for misspelled "EncriptionKey" in legacy config files
+			// (see original monolith comment: "628426@gmail.com 27 Jul 2020 backwards compatibility")
+			EncryptionKey = configuration["Settings:EncryptionKey"];
+			if (string.IsNullOrWhiteSpace(EncryptionKey))
+			{
+				EncryptionKey = configuration["Settings:EncriptionKey"];
+			}
 
-			// Lang
-			var lang = configuration["Settings:Lang"];
-			Lang = string.IsNullOrWhiteSpace(lang) ? "en" : lang;
+			// Lang — default "en"
+			Lang = string.IsNullOrWhiteSpace(configuration["Settings:Lang"])
+				? "en"
+				: configuration["Settings:Lang"];
 
-			// Locale
-			var locale = configuration["Settings:Locale"];
-			Locale = string.IsNullOrWhiteSpace(locale) ? "en-US" : locale;
+			// Locale — default "en-US"
+			Locale = string.IsNullOrWhiteSpace(configuration["Settings:Locale"])
+				? "en-US"
+				: configuration["Settings:Locale"];
 
-			// TimeZoneName
-			var timeZoneName = configuration["Settings:TimeZoneName"];
-			TimeZoneName = string.IsNullOrWhiteSpace(timeZoneName) ? "FLE Standard Time" : timeZoneName;
+			// TimeZoneName — default "FLE Standard Time"
+			// (GMT+02:00) Helsinki, Kiev, Riga, Sofia, Tallinn, Vilnius
+			TimeZoneName = string.IsNullOrWhiteSpace(configuration["Settings:TimeZoneName"])
+				? "FLE Standard Time"
+				: configuration["Settings:TimeZoneName"];
 
-			// JsonDateTimeFormat
-			var jsonDateTimeFormat = configuration["Settings:JsonDateTimeFormat"];
-			JsonDateTimeFormat = string.IsNullOrWhiteSpace(jsonDateTimeFormat)
+			// JsonDateTimeFormat — default ISO 8601 with milliseconds
+			JsonDateTimeFormat = string.IsNullOrWhiteSpace(configuration["Settings:JsonDateTimeFormat"])
 				? "yyyy-MM-ddTHH:mm:ss.fff"
-				: jsonDateTimeFormat;
+				: configuration["Settings:JsonDateTimeFormat"];
 
-			// CacheKey
-			var cacheKey = configuration["Settings:CacheKey"];
-			CacheKey = string.IsNullOrWhiteSpace(cacheKey)
+			// CacheKey — default to current date for daily cache busting
+			CacheKey = string.IsNullOrWhiteSpace(configuration["Settings:CacheKey"])
 				? DateTime.Now.ToString("yyyyMMdd")
-				: cacheKey;
+				: configuration["Settings:CacheKey"];
 
-			// DevelopmentMode
-			var devMode = configuration["Settings:DevelopmentMode"];
-			DevelopmentMode = !string.IsNullOrWhiteSpace(devMode) &&
-				devMode.Equals("true", StringComparison.OrdinalIgnoreCase);
+			// DevelopmentMode — preserves bool.Parse behavior from monolith
+			DevelopmentMode = string.IsNullOrWhiteSpace(configuration["Settings:DevelopmentMode"])
+				? false
+				: bool.Parse(configuration["Settings:DevelopmentMode"]);
 
-			// AppName
+			// AppName — no default, may be null
 			AppName = configuration["Settings:AppName"];
 
 			IsInitialized = true;
