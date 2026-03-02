@@ -1,40 +1,47 @@
 #!/bin/bash
 # ==============================================================================
-# LocalStack Initialization Script — WebVella ERP Microservices
+# LocalStack AWS Resource Provisioning Script
+# WebVella ERP Microservices Architecture
 # ==============================================================================
 #
 # Purpose:
-#   Provisions all required AWS resources (SNS topics, SQS queues, S3 buckets,
-#   and SNS→SQS subscriptions) in LocalStack for the WebVella ERP microservices
-#   event-driven architecture.
+#   Provisions all AWS resources (SNS topics, SQS queues, SNS→SQS subscriptions,
+#   and S3 buckets) in LocalStack for the WebVella ERP microservices event-driven
+#   architecture. This script is the single source of truth for the messaging
+#   and storage infrastructure that replaces the monolith's in-process patterns.
 #
-# Context:
-#   This script replaces the monolith's in-process communication:
-#     - SNS topics replace the 12 synchronous hook interfaces
-#       (WebVella.Erp/Hooks/IErp*Hook.cs)
-#     - SQS queues provide per-service event consumption
-#     - S3 buckets replace the DbFileRepository cloud storage backend
-#       (WebVella.Erp/Database/DbFileRepository.cs via Storage.Net)
+# What this replaces:
+#   - PostgreSQL LISTEN/NOTIFY pub/sub on channel 'ERP_NOTIFICATIONS_CHANNNEL'
+#     (from WebVella.Erp/Notifications/NotificationContext.cs) → replaced by
+#     SNS topics + SQS queues for asynchronous inter-service messaging
+#   - 12 synchronous hook interfaces (WebVella.Erp/Hooks/IErp*Hook.cs):
+#       IErpPreCreateRecordHook, IErpPostCreateRecordHook,
+#       IErpPreUpdateRecordHook, IErpPostUpdateRecordHook,
+#       IErpPreDeleteRecordHook, IErpPostDeleteRecordHook,
+#       IErpPreSearchRecordHook, IErpPostSearchRecordHook,
+#       IErpPreCreateManyToManyRelationHook, IErpPostCreateManyToManyRelationHook,
+#       IErpPreDeleteManyToManyRelationHook, IErpPostDeleteManyToManyRelationHook
+#     → replaced by domain event SNS topics with fan-out to per-service SQS queues
+#   - DbFileRepository cloud storage backend (WebVella.Erp/Database/DbFileRepository.cs)
+#     which used Storage.Net with cloud blob stores → replaced by S3 bucket
 #
 # Execution:
-#   Automatically executed by LocalStack on container startup when mounted at:
+#   Automatically executed by LocalStack's init hook system when the container
+#   reaches ready state. Mounted at:
 #     /etc/localstack/init/ready.d/init-aws.sh
-#   (see docker-compose.localstack.yml volume mount)
-#
-#   Manual execution:
-#     chmod +x infrastructure/localstack/init-aws.sh
-#     ./infrastructure/localstack/init-aws.sh
+#   (see docker-compose.localstack.yml volume mount configuration)
 #
 # Idempotency:
-#   All create commands use 2>/dev/null || true to silently skip resources
-#   that already exist, making the script safe to re-run when persistence
-#   is enabled (PERSISTENCE=1 in localstack-config.yml).
+#   All SNS/SQS create commands are idempotent in LocalStack — re-running this
+#   script will not fail or create duplicate resources. S3 bucket creation uses
+#   error suppression for the same bucket-already-exists case.
 #
-# Region:
-#   All resources are provisioned in us-east-1, matching the DEFAULT_REGION
-#   setting in localstack-config.yml and each service's appsettings.json.
+# Configuration:
+#   AWS_ENDPOINT_URL  — LocalStack endpoint (default: http://localhost:4566)
+#   AWS_DEFAULT_REGION — AWS region for all resources (default: us-east-1)
+#   Both are injectable via environment variables per AAP Section 0.8.3.
 #
-# Per AAP Sections 0.4.1, 0.7.4, and 0.8.3.
+# Per AAP Sections 0.4.1, 0.5.1, 0.7.4, and 0.8.3.
 # ==============================================================================
 
 set -euo pipefail
@@ -42,294 +49,405 @@ set -euo pipefail
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
+# The LocalStack endpoint and AWS region are injectable via environment variables
+# to support switching between local development and production AWS endpoints
+# (AAP Section 0.8.3 requirement). Defaults match localstack-config.yml settings.
+LOCALSTACK_ENDPOINT="${AWS_ENDPOINT_URL:-http://localhost:4566}"
 AWS_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-ENDPOINT_URL="${AWS_ENDPOINT_URL:-http://localhost:4566}"
-
-# Use awslocal if available (LocalStack CLI), otherwise fall back to aws CLI
-# with explicit endpoint configuration.
-if command -v awslocal &> /dev/null; then
-    AWS_CMD="awslocal"
-else
-    AWS_CMD="aws --endpoint-url=${ENDPOINT_URL} --region ${AWS_REGION}"
-fi
-
-echo "============================================================"
-echo "WebVella ERP — LocalStack Resource Provisioning"
-echo "============================================================"
-echo "Region:   ${AWS_REGION}"
-echo "Endpoint: ${ENDPOINT_URL}"
-echo "CLI:      ${AWS_CMD}"
-echo "============================================================"
 
 # ------------------------------------------------------------------------------
-# SNS Topics — Domain Event Topics
+# Logging Helper
 # ------------------------------------------------------------------------------
-# These SNS topics replace the monolith's 12 synchronous hook interfaces
-# (IErpPre/PostCreateRecordHook, IErpPre/PostUpdateRecordHook, etc.)
-# with asynchronous publish/subscribe messaging.
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# ------------------------------------------------------------------------------
+# Startup Banner
+# ------------------------------------------------------------------------------
+log "============================================================"
+log "WebVella ERP — LocalStack Resource Provisioning"
+log "============================================================"
+log "Region:   ${AWS_REGION}"
+log "Endpoint: ${LOCALSTACK_ENDPOINT}"
+log "============================================================"
+
+# ==============================================================================
+# PHASE 1: Create SNS Topics (Domain Event Topics)
+# ==============================================================================
+# These 10 SNS topics replace the monolith's 12 synchronous hook interfaces
+# (WebVella.Erp/Hooks/IErp*Hook.cs) and the PostgreSQL LISTEN/NOTIFY channel
+# (ERP_NOTIFICATIONS_CHANNNEL) with asynchronous publish/subscribe messaging.
 #
-# Topic naming convention: erp-<lifecycle>-<operation>-<entity-type>
-# Maps to hook interfaces in WebVella.Erp/Hooks/:
-#   IErpPreCreateRecordHook  → erp-record-pre-create
-#   IErpPostCreateRecordHook → erp-record-post-create
-#   ... and so on for update, delete, and relation hooks.
-# ------------------------------------------------------------------------------
+# Topic naming convention: erp-{domain}-{entity}-{action} or erp-{lifecycle}
+# Each topic is published to by its owning service and consumed by subscriber
+# services via SNS→SQS subscriptions defined in Phase 3.
+# ==============================================================================
 
-echo ""
-echo "--- Creating SNS Topics (Domain Event Topics) ---"
+log ""
+log "--- Phase 1: Creating SNS Topics (10 domain event topics) ---"
 
-SNS_TOPICS=(
-    "erp-record-pre-create"
-    "erp-record-post-create"
-    "erp-record-pre-update"
-    "erp-record-post-update"
-    "erp-record-pre-delete"
-    "erp-record-post-delete"
-    "erp-relation-pre-create"
-    "erp-relation-post-create"
-    "erp-relation-pre-delete"
-    "erp-relation-post-delete"
-)
+# Core record lifecycle events — published by Core service on every record CRUD.
+# These replace the hook interfaces:
+#   IErpPostCreateRecordHook.OnPostCreateRecord(string entityName, EntityRecord record)
+#   IErpPostUpdateRecordHook.OnPostUpdateRecord(string entityName, EntityRecord record)
+#   IErpPostDeleteRecordHook.OnPostDeleteRecord(string entityName, EntityRecord record)
+RECORD_CREATED_ARN=$(awslocal sns create-topic \
+    --name erp-record-created \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-record-created (ARN: ${RECORD_CREATED_ARN})"
 
-for topic in "${SNS_TOPICS[@]}"; do
-    echo "  Creating SNS topic: ${topic}"
-    ${AWS_CMD} sns create-topic --name "${topic}" \
-        --region "${AWS_REGION}" 2>/dev/null || true
-done
+RECORD_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-record-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-record-updated (ARN: ${RECORD_UPDATED_ARN})"
 
-echo "  SNS topics created: ${#SNS_TOPICS[@]}"
+RECORD_DELETED_ARN=$(awslocal sns create-topic \
+    --name erp-record-deleted \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-record-deleted (ARN: ${RECORD_DELETED_ARN})"
 
-# ------------------------------------------------------------------------------
-# SQS Queues — Per-Service Event Queues
-# ------------------------------------------------------------------------------
+# Entity lifecycle events — published by Core service when entity schemas change.
+# These cover entity type provisioning and schema modifications managed by
+# EntityManager.cs and exposed via gRPC for inter-service coordination.
+ENTITY_CREATED_ARN=$(awslocal sns create-topic \
+    --name erp-entity-created \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-entity-created (ARN: ${ENTITY_CREATED_ARN})"
+
+ENTITY_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-entity-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-entity-updated (ARN: ${ENTITY_UPDATED_ARN})"
+
+# CRM-specific domain events — published by CRM service for cross-service
+# entity relationships (AAP Section 0.7.1 Entity-to-Service Ownership Matrix).
+# These replace the post-create/update hooks in WebVella.Erp.Plugins.Next/Hooks/Api/
+# that previously handled account, contact, and case lifecycle events in-process.
+CRM_ACCOUNT_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-crm-account-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-crm-account-updated (ARN: ${CRM_ACCOUNT_UPDATED_ARN})"
+
+CRM_CONTACT_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-crm-contact-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-crm-contact-updated (ARN: ${CRM_CONTACT_UPDATED_ARN})"
+
+CRM_CASE_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-crm-case-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-crm-case-updated (ARN: ${CRM_CASE_UPDATED_ARN})"
+
+# Project-specific domain event — published by Project service when tasks change.
+# Enables cross-service notification to CRM (Case→Task reverse link) and
+# Reporting (timelog/task aggregation) per AAP Section 0.7.1.
+PROJECT_TASK_UPDATED_ARN=$(awslocal sns create-topic \
+    --name erp-project-task-updated \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-project-task-updated (ARN: ${PROJECT_TASK_UPDATED_ARN})"
+
+# Mail queue event — published by Mail service when an email is enqueued for
+# sending. Replaces the MailPlugin's ProcessMailQueueJob self-triggering pattern
+# and enables reporting/tracking of mail throughput.
+MAIL_QUEUED_ARN=$(awslocal sns create-topic \
+    --name erp-mail-queued \
+    --region "${AWS_REGION}" \
+    --output text --query 'TopicArn')
+log "  Created SNS topic: erp-mail-queued (ARN: ${MAIL_QUEUED_ARN})"
+
+SNS_TOPIC_COUNT=10
+log "  Phase 1 complete: ${SNS_TOPIC_COUNT} SNS topics created"
+
+# ==============================================================================
+# PHASE 2: Create SQS Queues (Per-Service Event Queues)
+# ==============================================================================
 # Each microservice has a dedicated SQS queue for consuming domain events.
-# Services subscribe to relevant SNS topics via SNS→SQS subscriptions (below).
-#
-# Queue naming convention: erp-<service-name>-events
-# Maps to the 6 microservices defined in the architecture:
+# Queue naming convention: erp-{service}-events
+# Maps to the 6 microservices in the architecture (AAP Section 0.4.1):
 #   Core, CRM, Project, Mail, Reporting, Admin
-# ------------------------------------------------------------------------------
+# ==============================================================================
 
-echo ""
-echo "--- Creating SQS Queues (Per-Service Event Queues) ---"
+log ""
+log "--- Phase 2: Creating SQS Queues (6 per-service event queues) ---"
 
-SQS_QUEUES=(
-    "erp-core-service-events"
-    "erp-crm-service-events"
-    "erp-project-service-events"
-    "erp-mail-service-events"
-    "erp-reporting-service-events"
-    "erp-admin-service-events"
-)
+# Core service event queue — receives record lifecycle and entity lifecycle events
+# for internal processing (cache invalidation, cross-entity coordination).
+CORE_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-core-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+CORE_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${CORE_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-core-events (ARN: ${CORE_QUEUE_ARN})"
 
-for queue in "${SQS_QUEUES[@]}"; do
-    echo "  Creating SQS queue: ${queue}"
-    ${AWS_CMD} sqs create-queue --queue-name "${queue}" \
-        --region "${AWS_REGION}" \
-        --attributes '{
-            "VisibilityTimeout": "60",
-            "MessageRetentionPeriod": "1209600",
-            "ReceiveMessageWaitTimeSeconds": "20"
-        }' 2>/dev/null || true
-done
+# CRM service event queue — receives record events for CRM entity search index
+# updates (per NextPlugin SearchService x_search field regeneration) and
+# reverse notifications from Project service (Task→Case links).
+CRM_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-crm-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+CRM_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${CRM_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-crm-events (ARN: ${CRM_QUEUE_ARN})"
 
-echo "  SQS queues created: ${#SQS_QUEUES[@]}"
+# Project service event queue — receives record events for task management,
+# CRM cross-service events for Account→Project and Case→Task relations
+# (AAP Section 0.7.1 cross-service relation resolution).
+PROJECT_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-project-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+PROJECT_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${PROJECT_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-project-events (ARN: ${PROJECT_QUEUE_ARN})"
 
-# ------------------------------------------------------------------------------
-# S3 Buckets — File Storage
-# ------------------------------------------------------------------------------
-# S3 buckets replace the monolith's DbFileRepository cloud storage backend
-# (WebVella.Erp/Database/DbFileRepository.cs, which supported large objects,
-# filesystem, and cloud storage via Storage.Net).
+# Mail service event queue — receives CRM contact events for Contact→Email
+# cross-service relation and mail queue self-processing events.
+MAIL_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-mail-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+MAIL_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${MAIL_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-mail-events (ARN: ${MAIL_QUEUE_ARN})"
+
+# Reporting service event queue — receives all domain events for CQRS-light
+# read model projections and data aggregation (AAP Section 0.4.3 pattern).
+REPORTING_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-reporting-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+REPORTING_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${REPORTING_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-reporting-events (ARN: ${REPORTING_QUEUE_ARN})"
+
+# Admin service event queue — receives entity lifecycle events for the Admin/SDK
+# service to track entity schema changes, code generation triggers, and audit.
+ADMIN_QUEUE_URL=$(awslocal sqs create-queue \
+    --queue-name erp-admin-events \
+    --region "${AWS_REGION}" \
+    --output text --query 'QueueUrl')
+ADMIN_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+    --queue-url "${ADMIN_QUEUE_URL}" \
+    --attribute-names QueueArn \
+    --region "${AWS_REGION}" \
+    --output text --query 'Attributes.QueueArn')
+log "  Created SQS queue: erp-admin-events (ARN: ${ADMIN_QUEUE_ARN})"
+
+SQS_QUEUE_COUNT=6
+log "  Phase 2 complete: ${SQS_QUEUE_COUNT} SQS queues created"
+
+# ==============================================================================
+# PHASE 3: Create SNS → SQS Subscriptions
+# ==============================================================================
+# Wire SNS topics to SQS queues so each microservice receives the domain events
+# it needs. The subscription matrix is based on the cross-service entity
+# dependency analysis (AAP Section 0.7.1) and the hook-to-event mapping.
 #
-# Bucket naming convention: erp-<service>-files
-# Maps to the Storage.S3.BucketName configuration in each service's
-# appsettings.json (Core: erp-core-files, CRM: erp-crm-files, etc.)
-# Also includes erp-files as a shared/general-purpose bucket referenced
-# in docker-compose.localstack.yml.
-# ------------------------------------------------------------------------------
-
-echo ""
-echo "--- Creating S3 Buckets (File Storage) ---"
-
-S3_BUCKETS=(
-    "erp-files"
-    "erp-core-files"
-    "erp-crm-files"
-    "erp-mail-files"
-)
-
-for bucket in "${S3_BUCKETS[@]}"; do
-    echo "  Creating S3 bucket: ${bucket}"
-    ${AWS_CMD} s3 mb "s3://${bucket}" \
-        --region "${AWS_REGION}" 2>/dev/null || true
-done
-
-echo "  S3 buckets created: ${#S3_BUCKETS[@]}"
-
-# ------------------------------------------------------------------------------
-# SNS → SQS Subscriptions
-# ------------------------------------------------------------------------------
-# Wire SNS topics to SQS queues so each microservice receives the domain
-# events it needs. The subscription matrix is based on the cross-service
-# entity dependency analysis (AAP Section 0.7.1) and hook-to-event mapping.
+# Each subscription uses the 'sqs' protocol with the queue ARN as the
+# notification endpoint. Event consumers must be idempotent per AAP 0.8.2.
 #
-# Subscription routing logic:
-#   - Core service:      subscribes to ALL record & relation events (owns entities)
-#   - CRM service:       subscribes to record create/update/delete (CRM entities)
-#   - Project service:   subscribes to record create/update/delete (task entities)
-#                         + relation events (case→task, account→project links)
-#   - Mail service:      subscribes to record post-create (email triggers)
-#                         + record post-update (status changes)
-#   - Reporting service: subscribes to ALL post-* events (aggregation/projections)
-#   - Admin service:     subscribes to ALL events (audit, monitoring, logging)
-# ------------------------------------------------------------------------------
+# Total subscriptions: 26
+# ==============================================================================
 
-echo ""
-echo "--- Creating SNS → SQS Subscriptions ---"
+log ""
+log "--- Phase 3: Creating SNS → SQS Subscriptions (26 event routes) ---"
+SUBSCRIPTION_COUNT=0
 
-# Helper function to get the SQS queue ARN from queue name
-get_queue_arn() {
-    local queue_name="$1"
-    local queue_url
-    queue_url=$(${AWS_CMD} sqs get-queue-url --queue-name "${queue_name}" \
-        --region "${AWS_REGION}" --output text --query 'QueueUrl' 2>/dev/null) || return 1
-    local queue_arn
-    queue_arn=$(${AWS_CMD} sqs get-queue-attributes --queue-url "${queue_url}" \
-        --attribute-names QueueArn --region "${AWS_REGION}" \
-        --output text --query 'Attributes.QueueArn' 2>/dev/null) || return 1
-    echo "${queue_arn}"
-}
-
-# Helper function to get the SNS topic ARN from topic name
-get_topic_arn() {
-    local topic_name="$1"
-    echo "arn:aws:sns:${AWS_REGION}:000000000000:${topic_name}"
-}
-
-# Helper function to create an SNS → SQS subscription
-subscribe_queue_to_topic() {
-    local topic_name="$1"
-    local queue_name="$2"
-    local topic_arn
-    topic_arn=$(get_topic_arn "${topic_name}")
-    local queue_arn
-    queue_arn=$(get_queue_arn "${queue_name}") || {
-        echo "    WARNING: Could not resolve ARN for queue ${queue_name}, skipping subscription"
-        return 0
-    }
-
-    echo "  Subscribing ${queue_name} → ${topic_name}"
-    ${AWS_CMD} sns subscribe \
+# Helper function to create an SNS → SQS subscription with logging
+subscribe() {
+    local topic_arn="$1"
+    local queue_arn="$2"
+    local description="$3"
+    awslocal sns subscribe \
         --topic-arn "${topic_arn}" \
         --protocol sqs \
         --notification-endpoint "${queue_arn}" \
-        --region "${AWS_REGION}" 2>/dev/null || true
+        --region "${AWS_REGION}" \
+        --output text --query 'SubscriptionArn' > /dev/null
+    SUBSCRIPTION_COUNT=$((SUBSCRIPTION_COUNT + 1))
+    log "  [${SUBSCRIPTION_COUNT}] ${description}"
 }
 
-# --- Core Service Subscriptions ---
-# Core service subscribes to all record and relation events because it
-# owns entity metadata, manages cross-entity relations, and coordinates
-# the security context and file storage for all services.
-echo ""
-echo "  [Core Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-pre-create"    "erp-core-service-events"
-subscribe_queue_to_topic "erp-record-post-create"   "erp-core-service-events"
-subscribe_queue_to_topic "erp-record-pre-update"    "erp-core-service-events"
-subscribe_queue_to_topic "erp-record-post-update"   "erp-core-service-events"
-subscribe_queue_to_topic "erp-record-pre-delete"    "erp-core-service-events"
-subscribe_queue_to_topic "erp-record-post-delete"   "erp-core-service-events"
-subscribe_queue_to_topic "erp-relation-pre-create"  "erp-core-service-events"
-subscribe_queue_to_topic "erp-relation-post-create" "erp-core-service-events"
-subscribe_queue_to_topic "erp-relation-pre-delete"  "erp-core-service-events"
-subscribe_queue_to_topic "erp-relation-post-delete" "erp-core-service-events"
+# ---------------------------------------------------------------------------
+# Core record events → multiple consumers
+# ---------------------------------------------------------------------------
+# erp-record-created fans out to Core, CRM, Project, and Reporting services.
+# Core: internal cache invalidation and cross-entity coordination
+# CRM: search index update (x_search field regeneration per SearchService)
+# Project: task creation triggers from record events
+# Reporting: aggregation and read model projection updates
+log ""
+log "  [Record Created Subscriptions]"
+subscribe "${RECORD_CREATED_ARN}" "${CORE_QUEUE_ARN}" \
+    "erp-record-created → erp-core-events (Core self-processing)"
+subscribe "${RECORD_CREATED_ARN}" "${CRM_QUEUE_ARN}" \
+    "erp-record-created → erp-crm-events (CRM search index update)"
+subscribe "${RECORD_CREATED_ARN}" "${PROJECT_QUEUE_ARN}" \
+    "erp-record-created → erp-project-events (Project task triggers)"
+subscribe "${RECORD_CREATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-record-created → erp-reporting-events (Reporting aggregation)"
 
-# --- CRM Service Subscriptions ---
-# CRM service subscribes to record lifecycle events for CRM entities
-# (account, contact, case, address, salutation) and relation events
-# for cross-service links.
-echo ""
-echo "  [CRM Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-post-create"   "erp-crm-service-events"
-subscribe_queue_to_topic "erp-record-post-update"   "erp-crm-service-events"
-subscribe_queue_to_topic "erp-record-post-delete"   "erp-crm-service-events"
-subscribe_queue_to_topic "erp-relation-post-create" "erp-crm-service-events"
-subscribe_queue_to_topic "erp-relation-post-delete" "erp-crm-service-events"
+# erp-record-updated fans out to Core, CRM, Project, and Reporting services.
+log ""
+log "  [Record Updated Subscriptions]"
+subscribe "${RECORD_UPDATED_ARN}" "${CORE_QUEUE_ARN}" \
+    "erp-record-updated → erp-core-events (Core self-processing)"
+subscribe "${RECORD_UPDATED_ARN}" "${CRM_QUEUE_ARN}" \
+    "erp-record-updated → erp-crm-events (CRM search index update)"
+subscribe "${RECORD_UPDATED_ARN}" "${PROJECT_QUEUE_ARN}" \
+    "erp-record-updated → erp-project-events (Project task triggers)"
+subscribe "${RECORD_UPDATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-record-updated → erp-reporting-events (Reporting aggregation)"
 
-# --- Project Service Subscriptions ---
-# Project service subscribes to record events for task management and
-# relation events for case→task and account→project linkage (AAP 0.7.1).
-echo ""
-echo "  [Project Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-post-create"   "erp-project-service-events"
-subscribe_queue_to_topic "erp-record-post-update"   "erp-project-service-events"
-subscribe_queue_to_topic "erp-record-post-delete"   "erp-project-service-events"
-subscribe_queue_to_topic "erp-relation-post-create" "erp-project-service-events"
-subscribe_queue_to_topic "erp-relation-post-delete" "erp-project-service-events"
+# erp-record-deleted fans out to Core, CRM, Project, and Reporting services.
+log ""
+log "  [Record Deleted Subscriptions]"
+subscribe "${RECORD_DELETED_ARN}" "${CORE_QUEUE_ARN}" \
+    "erp-record-deleted → erp-core-events (Core self-processing)"
+subscribe "${RECORD_DELETED_ARN}" "${CRM_QUEUE_ARN}" \
+    "erp-record-deleted → erp-crm-events (CRM search index update)"
+subscribe "${RECORD_DELETED_ARN}" "${PROJECT_QUEUE_ARN}" \
+    "erp-record-deleted → erp-project-events (Project task triggers)"
+subscribe "${RECORD_DELETED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-record-deleted → erp-reporting-events (Reporting aggregation)"
 
-# --- Mail Service Subscriptions ---
-# Mail service subscribes to record create/update events to trigger
-# email notifications and process the mail queue.
-echo ""
-echo "  [Mail Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-post-create" "erp-mail-service-events"
-subscribe_queue_to_topic "erp-record-post-update" "erp-mail-service-events"
+# ---------------------------------------------------------------------------
+# Entity lifecycle events → Core and Admin consumers
+# ---------------------------------------------------------------------------
+# Entity creation and update events notify Core (metadata cache invalidation)
+# and Admin/SDK (entity designer, code generation triggers).
+log ""
+log "  [Entity Lifecycle Subscriptions]"
+subscribe "${ENTITY_CREATED_ARN}" "${CORE_QUEUE_ARN}" \
+    "erp-entity-created → erp-core-events (Core metadata cache)"
+subscribe "${ENTITY_CREATED_ARN}" "${ADMIN_QUEUE_ARN}" \
+    "erp-entity-created → erp-admin-events (Admin schema tracking)"
+subscribe "${ENTITY_UPDATED_ARN}" "${CORE_QUEUE_ARN}" \
+    "erp-entity-updated → erp-core-events (Core metadata cache)"
+subscribe "${ENTITY_UPDATED_ARN}" "${ADMIN_QUEUE_ARN}" \
+    "erp-entity-updated → erp-admin-events (Admin schema tracking)"
 
-# --- Reporting Service Subscriptions ---
-# Reporting service subscribes to all post-* events for CQRS-light
-# read model projections and data aggregation (AAP 0.4.3).
-echo ""
-echo "  [Reporting Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-post-create"   "erp-reporting-service-events"
-subscribe_queue_to_topic "erp-record-post-update"   "erp-reporting-service-events"
-subscribe_queue_to_topic "erp-record-post-delete"   "erp-reporting-service-events"
-subscribe_queue_to_topic "erp-relation-post-create" "erp-reporting-service-events"
-subscribe_queue_to_topic "erp-relation-post-delete" "erp-reporting-service-events"
+# ---------------------------------------------------------------------------
+# CRM-specific events → cross-service consumers
+# ---------------------------------------------------------------------------
+# Account updates notify Project (Account→Project relation, AAP 0.7.1) and
+# Reporting (aggregation). Contact updates notify Mail (Contact→Email relation)
+# and Reporting. Case updates notify Project (Case→Task relation) and Reporting.
+log ""
+log "  [CRM Domain Event Subscriptions]"
+subscribe "${CRM_ACCOUNT_UPDATED_ARN}" "${PROJECT_QUEUE_ARN}" \
+    "erp-crm-account-updated → erp-project-events (Account→Project relation)"
+subscribe "${CRM_ACCOUNT_UPDATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-crm-account-updated → erp-reporting-events (Reporting aggregation)"
+subscribe "${CRM_CONTACT_UPDATED_ARN}" "${MAIL_QUEUE_ARN}" \
+    "erp-crm-contact-updated → erp-mail-events (Contact→Email relation)"
+subscribe "${CRM_CONTACT_UPDATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-crm-contact-updated → erp-reporting-events (Reporting aggregation)"
+subscribe "${CRM_CASE_UPDATED_ARN}" "${PROJECT_QUEUE_ARN}" \
+    "erp-crm-case-updated → erp-project-events (Case→Task relation)"
+subscribe "${CRM_CASE_UPDATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-crm-case-updated → erp-reporting-events (Reporting aggregation)"
 
-# --- Admin Service Subscriptions ---
-# Admin service subscribes to all events for system monitoring,
-# audit logging, and administrative oversight.
-echo ""
-echo "  [Admin Service Subscriptions]"
-subscribe_queue_to_topic "erp-record-pre-create"    "erp-admin-service-events"
-subscribe_queue_to_topic "erp-record-post-create"   "erp-admin-service-events"
-subscribe_queue_to_topic "erp-record-post-update"   "erp-admin-service-events"
-subscribe_queue_to_topic "erp-record-post-delete"   "erp-admin-service-events"
-subscribe_queue_to_topic "erp-relation-post-create" "erp-admin-service-events"
-subscribe_queue_to_topic "erp-relation-post-delete" "erp-admin-service-events"
+# ---------------------------------------------------------------------------
+# Project-specific events → CRM and Reporting consumers
+# ---------------------------------------------------------------------------
+# Task updates notify CRM (Task→Case reverse notification) and Reporting
+# (task/timelog aggregation for dashboards and reports).
+log ""
+log "  [Project Domain Event Subscriptions]"
+subscribe "${PROJECT_TASK_UPDATED_ARN}" "${CRM_QUEUE_ARN}" \
+    "erp-project-task-updated → erp-crm-events (Task→Case reverse notification)"
+subscribe "${PROJECT_TASK_UPDATED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-project-task-updated → erp-reporting-events (Reporting aggregation)"
 
-SUBSCRIPTION_COUNT=28
-echo ""
-echo "  SNS→SQS subscriptions created: ${SUBSCRIPTION_COUNT}"
+# ---------------------------------------------------------------------------
+# Mail events → Mail and Reporting consumers
+# ---------------------------------------------------------------------------
+# Mail queue events notify Mail service (self-processing for queue dispatch)
+# and Reporting (mail throughput tracking).
+log ""
+log "  [Mail Domain Event Subscriptions]"
+subscribe "${MAIL_QUEUED_ARN}" "${MAIL_QUEUE_ARN}" \
+    "erp-mail-queued → erp-mail-events (Mail queue self-processing)"
+subscribe "${MAIL_QUEUED_ARN}" "${REPORTING_QUEUE_ARN}" \
+    "erp-mail-queued → erp-reporting-events (Reporting tracking)"
 
-# ------------------------------------------------------------------------------
-# Verification — List Provisioned Resources
-# ------------------------------------------------------------------------------
+log "  Phase 3 complete: ${SUBSCRIPTION_COUNT} SNS→SQS subscriptions created"
 
-echo ""
-echo "============================================================"
-echo "Provisioning Summary"
-echo "============================================================"
+# ==============================================================================
+# PHASE 4: Create S3 Buckets (File Storage)
+# ==============================================================================
+# S3 buckets replace the monolith's DbFileRepository cloud storage backend
+# (WebVella.Erp/Database/DbFileRepository.cs) which used Storage.Net with
+# cloud blob stores. The monolith organized files using '/' folder separators
+# (FOLDER_SEPARATOR = "/") and had a TMP_FOLDER_NAME = "tmp" for temporary files.
+#
+# A single 'erp-files' bucket serves as the shared file storage backend for
+# all services, matching the docker-compose.localstack.yml configuration.
+# ==============================================================================
 
-echo ""
-echo "--- SNS Topics ---"
-${AWS_CMD} sns list-topics --region "${AWS_REGION}" \
-    --output table --query 'Topics[*].TopicArn' 2>/dev/null || true
+log ""
+log "--- Phase 4: Creating S3 Buckets (1 file storage bucket) ---"
 
-echo ""
-echo "--- SQS Queues ---"
-${AWS_CMD} sqs list-queues --region "${AWS_REGION}" \
-    --output table --query 'QueueUrls' 2>/dev/null || true
+awslocal s3 mb "s3://erp-files" \
+    --region "${AWS_REGION}" 2>/dev/null || true
+log "  Created S3 bucket: erp-files"
 
-echo ""
-echo "--- S3 Buckets ---"
-${AWS_CMD} s3 ls --region "${AWS_REGION}" 2>/dev/null || true
+S3_BUCKET_COUNT=1
+log "  Phase 4 complete: ${S3_BUCKET_COUNT} S3 bucket created"
 
-echo ""
-echo "============================================================"
-echo "WebVella ERP — LocalStack provisioning complete!"
-echo "  SNS Topics:        ${#SNS_TOPICS[@]}"
-echo "  SQS Queues:        ${#SQS_QUEUES[@]}"
-echo "  S3 Buckets:        ${#S3_BUCKETS[@]}"
-echo "  SNS→SQS Subs:      ${SUBSCRIPTION_COUNT}"
-echo "============================================================"
+# ==============================================================================
+# PHASE 5: Completion Summary
+# ==============================================================================
+
+log ""
+log "============================================================"
+log "WebVella ERP — LocalStack Provisioning Summary"
+log "============================================================"
+log "  SNS Topics:          ${SNS_TOPIC_COUNT}"
+log "  SQS Queues:          ${SQS_QUEUE_COUNT}"
+log "  SNS→SQS Subs:        ${SUBSCRIPTION_COUNT}"
+log "  S3 Buckets:          ${S3_BUCKET_COUNT}"
+log "  Total Resources:     $((SNS_TOPIC_COUNT + SQS_QUEUE_COUNT + SUBSCRIPTION_COUNT + S3_BUCKET_COUNT))"
+log "============================================================"
+log ""
+log "Resource Details:"
+log "  SNS Topics: erp-record-created, erp-record-updated, erp-record-deleted,"
+log "              erp-entity-created, erp-entity-updated,"
+log "              erp-crm-account-updated, erp-crm-contact-updated, erp-crm-case-updated,"
+log "              erp-project-task-updated, erp-mail-queued"
+log "  SQS Queues: erp-core-events, erp-crm-events, erp-project-events,"
+log "              erp-mail-events, erp-reporting-events, erp-admin-events"
+log "  S3 Buckets: erp-files"
+log ""
+log "LocalStack initialization complete."
+log "============================================================"
+
+exit 0
