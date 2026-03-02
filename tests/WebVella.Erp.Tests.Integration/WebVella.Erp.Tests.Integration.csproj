@@ -33,6 +33,9 @@
     <PackageReference Include="AWSSDK.SimpleNotificationService" />
     <PackageReference Include="AWSSDK.S3" />
 
+    <!-- Redis client for distributed cache testing in RedisFixture -->
+    <PackageReference Include="StackExchange.Redis" />
+
     <!-- EF Core PostgreSQL provider for PostgreSqlFixture migrations support.
          Npgsql (ADO.NET driver) comes transitively from this package. -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
