@@ -12,6 +12,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <!-- VersionOverride needed because the Admin service transitively resolves
          Microsoft.EntityFrameworkCore.Relational 10.0.1 (via EF Core Design 10.0.1)
