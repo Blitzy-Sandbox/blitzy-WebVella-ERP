@@ -62,21 +62,32 @@ COPY src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.Mail.csproj \
 # -- Layer 3: NuGet package restore (cached until csproj/props change) --------
 RUN dotnet restore src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.Mail.csproj
 
-# -- Layer 4: Full source copy (changes frequently) --------------------------
-# Copy the entire repository source tree. This includes:
-# - SharedKernel source code (src/SharedKernel/)
-# - Mail service source code (src/Services/WebVella.Erp.Service.Mail/)
-# - Proto files (proto/) referenced by Grpc.Tools for code generation
-# A .dockerignore file at the repository root should exclude bin/, obj/,
-# node_modules/, .git/, and other non-essential directories.
-COPY . .
+# -- Layer 4: Proto files for gRPC code generation ----------------------------
+# Copy proto files required by Grpc.Tools during build. The Mail service
+# csproj references proto/mail.proto and proto/common.proto via <Protobuf>
+# MSBuild items for server-side gRPC stub generation (MailGrpcService).
+COPY proto/ proto/
 
-# -- Layer 5: Publish --------------------------------------------------------
-# Change to the Mail service project directory and publish a self-contained
-# Release build to /app/publish. The --no-restore flag skips restore since
-# it was already performed in Layer 3.
-WORKDIR /src/src/Services/WebVella.Erp.Service.Mail
-RUN dotnet publish -c ${BUILD_CONFIGURATION} -o /app/publish --no-restore
+# -- Layer 5: Full source copy (changes frequently) --------------------------
+# Copy only the SharedKernel and Mail service source code required for build.
+# Selective COPY avoids pulling in the entire repository, reducing build
+# context size and improving layer caching.
+COPY src/SharedKernel/WebVella.Erp.SharedKernel/ \
+     src/SharedKernel/WebVella.Erp.SharedKernel/
+
+COPY src/Services/WebVella.Erp.Service.Mail/ \
+     src/Services/WebVella.Erp.Service.Mail/
+
+# -- Layer 6: Publish --------------------------------------------------------
+# Publish a framework-dependent Release build to /app/publish.
+# --no-restore skips restore since it was already performed in Layer 3.
+# --no-self-contained produces a framework-dependent deployment (FDD) that
+# relies on the aspnet:10.0 runtime image's shared framework.
+RUN dotnet publish src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.Mail.csproj \
+    -c ${BUILD_CONFIGURATION} \
+    -o /app/publish \
+    --no-restore \
+    --no-self-contained
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime

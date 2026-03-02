@@ -61,20 +61,25 @@ COPY src/Services/WebVella.Erp.Service.Admin/WebVella.Erp.Service.Admin.csproj \
 RUN dotnet restore src/Services/WebVella.Erp.Service.Admin/WebVella.Erp.Service.Admin.csproj
 
 # -- Layer 4: Full source copy (changes frequently) --------------------------
-# Copy the entire repository source tree. This includes:
-# - SharedKernel source code (src/SharedKernel/)
-# - Admin service source code (src/Services/WebVella.Erp.Service.Admin/)
-# - Proto files (proto/) referenced by Grpc.Tools for code generation
-# A .dockerignore file at the repository root should exclude bin/, obj/,
-# node_modules/, .git/, and other non-essential directories.
-COPY . .
+# Copy only the SharedKernel and Admin service source code required for
+# build. Selective COPY avoids pulling in the entire repository, reducing
+# build context size and improving layer caching.
+COPY src/SharedKernel/WebVella.Erp.SharedKernel/ \
+     src/SharedKernel/WebVella.Erp.SharedKernel/
+
+COPY src/Services/WebVella.Erp.Service.Admin/ \
+     src/Services/WebVella.Erp.Service.Admin/
 
 # -- Layer 5: Publish --------------------------------------------------------
-# Change to the Admin service project directory and publish a self-contained
-# Release build to /app/publish. The --no-restore flag skips restore since
-# it was already performed in Layer 3.
-WORKDIR /src/src/Services/WebVella.Erp.Service.Admin
-RUN dotnet publish -c ${BUILD_CONFIGURATION} -o /app/publish --no-restore
+# Publish a framework-dependent Release build to /app/publish.
+# --no-restore skips restore since it was already performed in Layer 3.
+# --no-self-contained produces a framework-dependent deployment (FDD) that
+# relies on the aspnet:10.0 runtime image's shared framework.
+RUN dotnet publish src/Services/WebVella.Erp.Service.Admin/WebVella.Erp.Service.Admin.csproj \
+    -c ${BUILD_CONFIGURATION} \
+    -o /app/publish \
+    --no-restore \
+    --no-self-contained
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime
