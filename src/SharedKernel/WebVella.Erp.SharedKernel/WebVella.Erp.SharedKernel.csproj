@@ -20,8 +20,17 @@
 	</PropertyGroup>
 
 	<!-- Expose internal members to test assembly for unit testing internal utilities (e.g., PasswordUtil) -->
+	<!-- Expose internal members to service assemblies for IDbContext implementations
+	     that need to create DbConnection instances via internal constructors -->
 	<ItemGroup>
 		<InternalsVisibleTo Include="WebVella.Erp.Tests.SharedKernel" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Core" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Crm" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Project" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Mail" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Reporting" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Admin" />
+		<InternalsVisibleTo Include="WebVella.Erp.Gateway" />
 	</ItemGroup>
 
 	<ItemGroup>
