@@ -1,18 +1,123 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- =========================================================================
+       WebVella ERP - CRM Microservice Project File
+       ==========================================================================
+       SDK-style ASP.NET Core Web API project for the CRM microservice.
+       Manages accounts, contacts, cases, addresses, and salutations with
+       search indexing. Replaces the monolith's WebVella.Erp.Plugins.Crm +
+       CRM-related entities from WebVella.Erp.Plugins.Next as an independently
+       deployable service.
+
+       Source files:
+         - WebVella.Erp.Plugins.Crm/WebVella.Erp.Plugins.Crm.csproj (original plugin)
+         - WebVella.Erp.Site.Crm/WebVella.Erp.Site.Crm.csproj (original host)
+
+       All NuGet package versions are managed centrally via Directory.Packages.props
+       (Central Package Management). Only packages needing version overrides due to
+       transitive dependency conflicts use VersionOverride.
+       ========================================================================= -->
+
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>WebVella.Erp.Service.Crm</RootNamespace>
+    <!-- Service identity and metadata -->
     <AssemblyName>WebVella.Erp.Service.Crm</AssemblyName>
-    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RootNamespace>WebVella.Erp.Service.Crm</RootNamespace>
+    <!-- TargetFramework (net10.0), LangVersion (latest), Nullable (enable),
+         ImplicitUsings (enable), and SatelliteResourceLanguages (en) are
+         inherited from Directory.Build.props -->
   </PropertyGroup>
+
+  <!-- ==========================================================================
+       Project References
+       Only SharedKernel is allowed per AAP 0.8 rules — no references to
+       monolith projects (WebVella.Erp, WebVella.Erp.Web, WebVella.Erp.Plugins.*)
+       ========================================================================== -->
   <ItemGroup>
-    <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+    <!-- SharedKernel: cross-cutting contracts (DTOs, events, EQL, DB helpers,
+         security context with JWT propagation, utilities, exceptions, FTS)
+         shared by all services -->
+    <ProjectReference Include="../../SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
   </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — Preserved from Monolith
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
   <ItemGroup>
+    <!-- From WebVella.Erp.Site.Crm — Newtonsoft.Json integration for API contract
+         stability (AAP 0.8.2). Preserves [JsonProperty] annotations and
+         ErpDateTimeJsonConverter for backward-compatible REST API v3 responses -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <!-- Core JSON serialization library. Used for EntityRecord serialization,
+         [JsonProperty] annotations on all API contracts and DTOs -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- PostgreSQL ADO.NET driver for CRM database access. CPM pins 9.0.4,
+         but Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 requires Npgsql >= 10.0.0.
+         VersionOverride resolves the NU1605 transitive downgrade error. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — New for Microservice Architecture
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- gRPC — Inter-service communication (AAP 0.6.1)
+         CRM service exposes CrmGrpcService endpoints consumed by Project service
+         (account/case-task relations), Mail service (contact resolution), and
+         the API Gateway -->
+    <PackageReference Include="Grpc.AspNetCore" />
+    <!-- Google.Protobuf: CPM pins 3.29.3, but Grpc.AspNetCore 2.71.0 requires
+         Google.Protobuf >= 3.30.2. VersionOverride resolves the NU1605 downgrade. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <!-- Build-time protobuf/gRPC code generation tooling. Compiles proto/crm.proto
+         into C# gRPC service base classes and message types during MSBuild.
+         PrivateAssets=All prevents leaking to consumers. -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+
+    <!-- MassTransit — Event bus replacing monolith hook system (AAP 0.6.1)
+         Publishes CRM domain events (AccountCreated, ContactUpdated, CaseDeleted)
+         to other microservices. Replaces in-process IErpPost*RecordHook interfaces
+         and PostgreSQL LISTEN/NOTIFY pub/sub. -->
+    <PackageReference Include="MassTransit" />
+    <!-- RabbitMQ transport: default messaging for local/Docker deployments -->
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <!-- Amazon SQS/SNS transport: for LocalStack deployment validation where
+         event routing flows through SNS topics and SQS queues on port 4566 -->
+    <PackageReference Include="MassTransit.AmazonSQS" />
+
+    <!-- Redis — Distributed cache replacing monolith IMemoryCache (AAP 0.4.1)
+         Provides AddStackExchangeRedisCache() for service-scoped entity metadata
+         caching with event-driven invalidation across CRM service instances -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Low-level Redis client for health checks, advanced caching patterns,
+         and connection multiplexing -->
+    <PackageReference Include="StackExchange.Redis" />
+
+    <!-- EF Core — Database-per-service migration strategy (AAP 0.5.1, 0.7.5)
+         Replaces the monolith's custom date-based patch system (CrmPlugin._.cs)
+         with EF Core migrations for CrmDbContext schema management -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
+    <!-- EF Core design-time migration tooling for dotnet ef migrations commands.
+         PrivateAssets=All prevents leaking to consumers. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="All" />
+
+    <!-- JWT Bearer authentication replacing monolith cookie auth (AAP 0.8.3)
+         Validates JWT tokens issued by Core service for cross-service identity
+         propagation, enabling stateless authentication across service boundaries -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
   </ItemGroup>
+
+  <!-- ==========================================================================
+       gRPC Protobuf Definitions — Server-side code generation
+       Generates C# server stubs (CrmService.CrmServiceBase) and message types
+       (GetAccountRequest, GetContactResponse, CrmRecordResponse, etc.) in the
+       WebVella.Erp.Service.Crm.Grpc namespace from proto/crm.proto.
+       ProtoRoot ensures import "common.proto" resolves correctly.
+       ========================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="../../../proto/crm.proto" GrpcServices="Server" ProtoRoot="../../../proto" />
+    <Protobuf Include="../../../proto/common.proto" GrpcServices="None" ProtoRoot="../../../proto" />
+  </ItemGroup>
+
 </Project>
