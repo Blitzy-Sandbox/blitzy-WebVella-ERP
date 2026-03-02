@@ -1,13 +1,37 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Integration</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Integration</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <!-- Stub project: will be replaced by actual implementation -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
   </PropertyGroup>
+
   <ItemGroup>
+    <!-- Test Framework -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Testing Utilities -->
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+
+    <!-- Testcontainers -->
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.LocalStack" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+
+    <!-- AWS SDK for LocalStack Integration -->
+    <PackageReference Include="AWSSDK.SQS" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" />
+    <PackageReference Include="AWSSDK.S3" />
   </ItemGroup>
+
 </Project>
