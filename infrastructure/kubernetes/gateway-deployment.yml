@@ -1,0 +1,253 @@
+# =============================================================================
+# WebVella ERP Microservices — API Gateway / BFF Deployment
+# =============================================================================
+# Kubernetes Deployment manifest for the API Gateway / Backend-for-Frontend
+# (WebVella.Erp.Gateway). This is the ONLY externally-exposed deployment in
+# the cluster — all external traffic enters through this gateway and is routed
+# to the appropriate backend microservice.
+#
+# Responsibilities:
+#   - Preserves the existing /api/v3/{locale}/... REST API contract for
+#     backward compatibility (per AAP Section 0.8.1). Routing is handled at
+#     the application level within the Gateway, not at the Kubernetes level.
+#   - JWT + Cookie authentication (dual-scheme per source Startup.cs pattern)
+#   - Request routing to six backend microservices:
+#       * Core Platform Service  (entity, record, security, file, search)
+#       * CRM Service            (account, contact, case)
+#       * Project/Task Service   (task, timelog, comment, feed)
+#       * Mail/Notification Svc  (email, SMTP, queue)
+#       * Reporting Service      (aggregated report data)
+#       * Admin/SDK Service      (admin console, code gen, entity designer)
+#   - Serves preserved Razor Pages UI from the original WebVella.Erp.Web layer
+#   - Error handling and request transformation middleware
+#   - CORS policy enforcement for cross-origin API consumers
+#
+# Network topology:
+#   External traffic → LoadBalancer (port 80) → gateway-service (K8s Service)
+#     → Gateway pod (port 8080) → backend ClusterIP services (port 8080)
+#
+# External exposure is handled by the gateway-service Service definition in
+# services.yml (type: LoadBalancer, port 80 → targetPort 8080). This
+# deployment only defines the internal container port.
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#   Apply services.yml to create ClusterIP/LoadBalancer service definitions:
+#     kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/gateway-deployment.yml
+#
+# Per AAP Section 0.4.1 — Target Design / Refactored Structure Planning.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: webvella-erp
+  labels:
+    app: gateway
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      API Gateway / BFF deployment — the only externally-exposed service in the
+      WebVella ERP microservices cluster. Routes all incoming REST API requests
+      to backend microservices while preserving the /api/v3/{locale}/...
+      backward-compatible API contract. Handles JWT and cookie-based dual
+      authentication, request routing, CORS enforcement, and serves the
+      Razor Pages UI.
+spec:
+  # -------------------------------------------------------------------------
+  # Replica count: Default 1 for development. Scale horizontally in production
+  # for high availability — the Gateway is stateless and safe to replicate.
+  # All session/auth state is carried via JWT tokens or backend service calls.
+  # -------------------------------------------------------------------------
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: gateway
+
+  # -------------------------------------------------------------------------
+  # Rolling update strategy ensures zero-downtime deployments.
+  # maxSurge: 1 — allows one additional pod during rollout
+  # maxUnavailable: 0 — never takes down the existing pod before the new
+  #   one is ready (critical for the external entry point — ensures no
+  #   dropped external traffic during deployments)
+  # -------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: gateway
+        app.kubernetes.io/name: gateway
+        app.kubernetes.io/part-of: webvella-erp
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+        - name: gateway
+          # ---------------------------------------------------------------
+          # Container image — placeholder tag that CI/CD pipelines will
+          # override with the actual built image tag (e.g., via kustomize,
+          # Helm --set, or kubectl set image).
+          # ---------------------------------------------------------------
+          image: webvella-erp/gateway:latest
+          imagePullPolicy: IfNotPresent
+
+          # -----------------------------------------------------------------
+          # Port definitions
+          # -----------------------------------------------------------------
+          # The Gateway listens on port 8080 internally. External exposure
+          # (port 80) is handled by the gateway-service LoadBalancer in
+          # services.yml which maps port 80 → targetPort 8080.
+          # -----------------------------------------------------------------
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # -----------------------------------------------------------------
+          # Resource allocation
+          # -----------------------------------------------------------------
+          # Gateway resource allocation is moderate — it primarily proxies
+          # requests to backend services and serves static Razor Pages.
+          # The gateway does NOT run background jobs or heavy computations.
+          # For high-traffic production deployments, increase limits and
+          # scale replicas horizontally.
+          # -----------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -----------------------------------------------------------------
+          # Environment Variables
+          # -----------------------------------------------------------------
+          env:
+            # ---------------------------------------------------------------
+            # ASP.NET Core Runtime Configuration
+            # ---------------------------------------------------------------
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # ---------------------------------------------------------------
+            # Service Discovery — Backend Microservice URLs
+            # ---------------------------------------------------------------
+            # The Gateway routes incoming API requests to backend services
+            # using Kubernetes DNS-based service discovery. Service names
+            # match the ClusterIP Service definitions in services.yml.
+            #
+            # Within the webvella-erp namespace, short DNS names resolve:
+            #   http://core-service:8080
+            #     → core-service.webvella-erp.svc.cluster.local:8080
+            #
+            # These URLs are injected as configuration values that the
+            # Gateway's RequestRoutingMiddleware and HTTP client factories
+            # use to dispatch requests to the correct backend service.
+            # ---------------------------------------------------------------
+            - name: Services__Core__Url
+              value: "http://core-service:8080"
+            - name: Services__Crm__Url
+              value: "http://crm-service:8080"
+            - name: Services__Project__Url
+              value: "http://project-service:8080"
+            - name: Services__Mail__Url
+              value: "http://mail-service:8080"
+            - name: Services__Reporting__Url
+              value: "http://reporting-service:8080"
+            - name: Services__Admin__Url
+              value: "http://admin-service:8080"
+
+            # ---------------------------------------------------------------
+            # Distributed Redis Cache
+            # ---------------------------------------------------------------
+            # Gateway uses Redis for session caching and distributed
+            # response caching. Connection string stored in K8s secret.
+            # ---------------------------------------------------------------
+            - name: Redis__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: redis-connection-string
+
+            # ---------------------------------------------------------------
+            # JWT Authentication Configuration
+            # ---------------------------------------------------------------
+            # The Gateway validates JWT tokens on incoming requests using
+            # the same shared key, issuer, and audience as the Core service
+            # (which issues tokens). This enables the dual JWT+Cookie auth
+            # scheme from the original monolith Startup.cs (lines 88-125)
+            # to work across service boundaries without callbacks.
+            #
+            # Values sourced from WebVella.Erp.Site/Config.json:
+            #   Settings:Jwt:Key      → jwt-key secret
+            #   Settings:Jwt:Issuer   → jwt-issuer secret (default: webvella-erp)
+            #   Settings:Jwt:Audience → jwt-audience secret (default: webvella-erp)
+            #
+            # Per AAP Section 0.8.3 — JWT propagation across services.
+            # ---------------------------------------------------------------
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-key
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-audience
+
+          # -----------------------------------------------------------------
+          # Health Probes
+          # -----------------------------------------------------------------
+          # The Gateway has moderate startup requirements — it needs to
+          # initialize authentication middleware, HTTP client factories for
+          # backend service discovery, and the Razor Pages rendering engine.
+          # No database migrations or heavy bootstrap is required (unlike
+          # the Core service).
+          # -----------------------------------------------------------------
+
+          # Liveness probe — restart the container if it becomes unresponsive.
+          # If the Gateway fails 3 consecutive checks (60 seconds total),
+          # Kubernetes will restart the pod.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Readiness probe — stop routing traffic until the Gateway is
+          # fully initialized and can proxy requests to backend services.
+          # The LoadBalancer will not send traffic to this pod until it
+          # passes the readiness check.
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
