@@ -1,0 +1,1023 @@
+// =============================================================================
+// WebVella ERP - Core Platform Service gRPC Protocol Buffer Definition
+// =============================================================================
+// This proto defines the gRPC service interface for the Core Platform
+// microservice, which provides entity management, record CRUD,
+// security/identity, data sources, search, and file storage.
+//
+// This is the foundational proto — all other services depend on Core for user
+// resolution, entity metadata lookup, and shared identity. It replaces the
+// monolith's WebVella.Erp/Api/*Manager.cs in-process calls and the majority
+// of WebApiController.cs REST endpoints.
+//
+// Services defined:
+//   - EntityGrpcService  (Entity, Field, and Relation CRUD)
+//   - RecordGrpcService  (Dynamic record CRUD with EQL query support)
+//   - SecurityGrpcService (User/Role management and JWT validation)
+// =============================================================================
+
+syntax = "proto3";
+
+package webvella.erp.core;
+
+option csharp_namespace = "WebVella.Erp.Service.Core.Grpc";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// =============================================================================
+// Service Definitions
+// =============================================================================
+
+// EntityGrpcService provides entity, field, and relation management operations.
+// Source: EntityManager.cs + EntityRelationManager.cs
+// This service exposes entity metadata CRUD that other microservices consume
+// to understand schema definitions for their domain entities.
+service EntityGrpcService {
+  // -------------------------------------------------------------------------
+  // Entity CRUD
+  // -------------------------------------------------------------------------
+
+  // Creates a new entity with optional system ID dictionary and ID-only field mode.
+  // Source: EntityManager.CreateEntity(InputEntity, Dictionary<string,Guid>, bool)
+  rpc CreateEntity(CreateEntityRequest) returns (EntityResponse);
+
+  // Updates an existing entity's metadata (name, label, permissions, etc.).
+  // Source: EntityManager.UpdateEntity(InputEntity)
+  rpc UpdateEntity(UpdateEntityRequest) returns (EntityResponse);
+
+  // Deletes an entity by its unique identifier.
+  // Source: EntityManager.DeleteEntity(Guid id)
+  rpc DeleteEntity(DeleteEntityRequest) returns (EntityResponse);
+
+  // Reads a single entity by ID or name.
+  // Source: EntityManager.ReadEntity(Guid id) / EntityManager.ReadEntity(string name)
+  rpc ReadEntity(ReadEntityRequest) returns (EntityResponse);
+
+  // Reads all entities (cache-aware). Returns the full entity catalog.
+  // Source: EntityManager.ReadEntities()
+  rpc ReadEntities(ReadEntitiesRequest) returns (EntityListResponse);
+
+  // Clones an existing entity to create a new entity from a template.
+  // Source: EntityManager.CloneEntity(Guid entityToCloneId, InputEntity inputEntity)
+  rpc CloneEntity(CloneEntityRequest) returns (EntityResponse);
+
+  // -------------------------------------------------------------------------
+  // Field CRUD
+  // -------------------------------------------------------------------------
+
+  // Creates a new field on an entity with optional transactional mode.
+  // Source: EntityManager.CreateField(Guid entityId, InputField, bool transactional)
+  rpc CreateField(CreateFieldRequest) returns (FieldResponse);
+
+  // Updates an existing field on an entity.
+  // Source: EntityManager.UpdateField(Guid entityId, InputField)
+  rpc UpdateField(UpdateFieldRequest) returns (FieldResponse);
+
+  // Deletes a field from an entity with optional transactional mode.
+  // Source: EntityManager.DeleteField(Guid entityId, Guid id, bool transactional)
+  rpc DeleteField(DeleteFieldRequest) returns (FieldResponse);
+
+  // Reads fields for a specific entity or all fields across all entities.
+  // Source: EntityManager.ReadFields(Guid entityId) / EntityManager.ReadFields()
+  rpc ReadFields(ReadFieldsRequest) returns (FieldListResponse);
+
+  // Reads a single field by entity ID and field ID.
+  // Source: EntityManager.ReadField(Guid entityId, Guid id)
+  rpc ReadField(ReadFieldRequest) returns (FieldResponse);
+
+  // -------------------------------------------------------------------------
+  // Relation CRUD
+  // -------------------------------------------------------------------------
+
+  // Creates a new entity relation (OneToOne, OneToMany, ManyToMany).
+  // Source: EntityRelationManager.Create(EntityRelation)
+  rpc CreateRelation(CreateRelationRequest) returns (EntityRelationResponse);
+
+  // Updates an existing entity relation.
+  // Source: EntityRelationManager.Update(EntityRelation)
+  rpc UpdateRelation(UpdateRelationRequest) returns (EntityRelationResponse);
+
+  // Deletes an entity relation by ID.
+  // Source: EntityRelationManager.Delete(Guid id)
+  rpc DeleteRelation(DeleteRelationRequest) returns (EntityRelationResponse);
+
+  // Reads a single relation by ID or name.
+  // Source: EntityRelationManager.Read(Guid id) / EntityRelationManager.Read(string name)
+  rpc ReadRelation(ReadRelationRequest) returns (EntityRelationResponse);
+
+  // Reads all entity relations.
+  // Source: EntityRelationManager.Read()
+  rpc ReadRelations(ReadRelationsRequest) returns (EntityRelationListResponse);
+}
+
+// RecordGrpcService provides dynamic record CRUD operations with EQL query support.
+// Source: RecordManager.cs
+// Records are dynamic key-value structures (EntityRecord extends Expando),
+// represented as google.protobuf.Struct to preserve the dynamic nature.
+// All write operations publish domain events replacing the monolith hook system.
+service RecordGrpcService {
+  // Creates a new record in the specified entity table.
+  // Source: RecordManager.CreateRecord(string entityName, EntityRecord)
+  // Publishes domain events on create (replaces IErpPostCreateRecordHook).
+  rpc CreateRecord(CreateRecordRequest) returns (QueryResponse);
+
+  // Updates an existing record in the specified entity table.
+  // Source: RecordManager.UpdateRecord(string entityName, EntityRecord)
+  // Publishes domain events on update (replaces IErpPostUpdateRecordHook).
+  rpc UpdateRecord(UpdateRecordRequest) returns (QueryResponse);
+
+  // Deletes a record from the specified entity table by ID.
+  // Source: RecordManager.DeleteRecord(string entityName, Guid id)
+  // Publishes domain events on delete (replaces IErpPostDeleteRecordHook).
+  rpc DeleteRecord(DeleteRecordRequest) returns (QueryResponse);
+
+  // Finds records using an EQL (Entity Query Language) query string.
+  // Source: RecordManager.Find(EntityQuery)
+  // Supports parameterized queries, pagination via skip/limit.
+  rpc FindRecords(FindRecordsRequest) returns (QueryResponse);
+
+  // Counts records matching an EQL query without returning data.
+  // Source: RecordManager.Count(EntityQuery)
+  rpc CountRecords(CountRecordsRequest) returns (QueryCountResponse);
+
+  // Creates a many-to-many relation record between origin and target values.
+  // Source: RecordManager.CreateRelationManyToManyRecord(Guid, Guid, Guid)
+  rpc CreateManyToManyRelation(CreateManyToManyRelationRequest) returns (QueryResponse);
+
+  // Removes a many-to-many relation record. Either origin or target may be optional.
+  // Source: RecordManager.RemoveRelationManyToManyRecord(Guid, Guid?, Guid?)
+  rpc RemoveManyToManyRelation(RemoveManyToManyRelationRequest) returns (QueryResponse);
+}
+
+// SecurityGrpcService provides user and role management plus JWT token validation.
+// Source: SecurityManager.cs + SecurityContext.cs
+// This is the identity resolution service called by ALL other microservices
+// to resolve created_by/modified_by audit fields and validate authentication.
+service SecurityGrpcService {
+  // Retrieves a user by ID, email, or username. Only one lookup field should be set.
+  // Source: SecurityManager.GetUser(Guid), GetUser(string email), GetUserByUsername(string)
+  // CRITICAL: Called by ALL services to resolve user UUIDs in audit fields.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // Authenticates a user by email and password credentials.
+  // Source: SecurityManager.GetUser(string email, string password)
+  // Password is validated against MD5-hashed stored value.
+  rpc GetUserByCredentials(GetUserByCredentialsRequest) returns (GetUserResponse);
+
+  // Retrieves a list of users, optionally filtered by role IDs.
+  // Source: SecurityManager.GetUsers(params Guid[] roleIds)
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+
+  // Retrieves all roles defined in the system.
+  // Source: SecurityManager.GetAllRoles()
+  rpc GetAllRoles(GetAllRolesRequest) returns (GetAllRolesResponse);
+
+  // Creates or updates a user record with optional password.
+  // Source: SecurityManager.SaveUser(ErpUser)
+  // Validates username/email uniqueness and email format.
+  rpc SaveUser(SaveUserRequest) returns (SaveUserResponse);
+
+  // Creates or updates a role record.
+  // Source: SecurityManager.SaveRole(ErpRole)
+  // Validates role name uniqueness.
+  rpc SaveRole(SaveRoleRequest) returns (SaveRoleResponse);
+
+  // Updates the last login timestamp for a user.
+  // Source: SecurityManager.UpdateUserLastLoginTime(Guid userId)
+  rpc UpdateUserLastLogin(UpdateUserLastLoginRequest) returns (UpdateUserLastLoginResponse);
+
+  // Validates a JWT token and returns the decoded user identity and roles.
+  // NEW: Cross-service authentication validation (AAP Security/JwtTokenHandler.cs)
+  // Enables downstream services to authorize requests without callback to Core.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// ErrorModel mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.
+// All API responses use this envelope pattern for error reporting.
+message ErrorModel {
+  // Error classification key (e.g., field name or error category)
+  string key = 1;
+
+  // The value that caused the error (e.g., invalid field value)
+  string value = 2;
+
+  // Human-readable error description
+  string message = 3;
+}
+
+// RecordPermissionsProto mirrors WebVella.Erp.Api.Models.RecordPermissions.
+// Contains lists of role GUIDs (as strings) authorized for each operation.
+message RecordPermissionsProto {
+  // Role IDs authorized to read records of this entity
+  repeated string can_read = 1;
+
+  // Role IDs authorized to create records of this entity
+  repeated string can_create = 2;
+
+  // Role IDs authorized to update records of this entity
+  repeated string can_update = 3;
+
+  // Role IDs authorized to delete records of this entity
+  repeated string can_delete = 4;
+}
+
+// =============================================================================
+// Entity Messages
+// =============================================================================
+
+// InputEntityProto represents the input model for creating/updating entities.
+// Source: WebVella.Erp.Api.Models.InputEntity
+message InputEntityProto {
+  // Entity unique identifier (GUID as string). Auto-generated if empty on create.
+  string id = 1;
+
+  // Entity system name (lowercase, max 63 chars for PostgreSQL compatibility)
+  string name = 2;
+
+  // Human-readable singular label
+  string label = 3;
+
+  // Human-readable plural label
+  string label_plural = 4;
+
+  // Font Awesome icon class name (default: "fa fa-database")
+  string icon_name = 5;
+
+  // Display color for the entity in the UI
+  string color = 6;
+
+  // GUID of the field used as screen ID for record display. Empty uses the ID field.
+  string record_screen_id_field = 7;
+
+  // Role-based record permissions for CRUD operations
+  RecordPermissionsProto record_permissions = 8;
+}
+
+// EntityProto represents a fully-loaded entity with all metadata.
+// Source: WebVella.Erp.Api.Models.Entity
+message EntityProto {
+  // Entity unique identifier (GUID as string)
+  string id = 1;
+
+  // Entity system name
+  string name = 2;
+
+  // Human-readable singular label
+  string label = 3;
+
+  // Human-readable plural label
+  string label_plural = 4;
+
+  // Whether this is a system-managed entity (read-only for non-admin)
+  bool system = 5;
+
+  // Font Awesome icon class name
+  string icon_name = 6;
+
+  // Display color for the entity
+  string color = 7;
+
+  // GUID of the field used as screen ID
+  string record_screen_id_field = 8;
+
+  // Role-based record permissions
+  RecordPermissionsProto record_permissions = 9;
+
+  // Complete list of fields defined on this entity
+  repeated FieldProto fields = 10;
+
+  // Display weight/ordering for entity lists
+  int32 weight = 11;
+
+  // MD5 hash of entity metadata for cache invalidation
+  string hash = 12;
+}
+
+// CreateEntityRequest creates a new entity in the system.
+// Source: EntityManager.CreateEntity(InputEntity, Dictionary<string,Guid>, bool)
+message CreateEntityRequest {
+  // Entity definition to create
+  InputEntityProto entity = 1;
+
+  // Optional system ID dictionary mapping field names to pre-assigned GUIDs
+  map<string, string> sys_id_dictionary = 2;
+
+  // When true, only the ID field is created (used for bootstrapping)
+  bool create_only_id_field = 3;
+}
+
+// UpdateEntityRequest updates an existing entity's metadata.
+// Source: EntityManager.UpdateEntity(InputEntity)
+message UpdateEntityRequest {
+  // Updated entity definition. The ID field identifies which entity to update.
+  InputEntityProto entity = 1;
+}
+
+// DeleteEntityRequest deletes an entity by its ID.
+// Source: EntityManager.DeleteEntity(Guid id)
+message DeleteEntityRequest {
+  // GUID of the entity to delete (as string)
+  string id = 1;
+}
+
+// ReadEntityRequest reads a single entity by ID or name.
+// Source: EntityManager.ReadEntity(Guid id) / EntityManager.ReadEntity(string name)
+// At least one of id or name must be provided.
+message ReadEntityRequest {
+  // Entity GUID (as string). Takes precedence if both id and name are set.
+  string id = 1;
+
+  // Entity system name. Used if id is empty.
+  string name = 2;
+}
+
+// ReadEntitiesRequest reads all entities in the system. No parameters required.
+// Source: EntityManager.ReadEntities()
+message ReadEntitiesRequest {
+}
+
+// CloneEntityRequest creates a copy of an existing entity.
+// Source: EntityManager.CloneEntity(Guid entityToCloneId, InputEntity inputEntity)
+message CloneEntityRequest {
+  // GUID of the entity to clone (as string)
+  string source_entity_id = 1;
+
+  // New entity definition (name, label, etc.) for the cloned entity
+  InputEntityProto new_entity = 2;
+}
+
+// EntityResponse is the standard response envelope for single-entity operations.
+// Mirrors BaseResponseModel pattern: success, errors, timestamp, message, object.
+message EntityResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status or error message
+  string message = 3;
+
+  // The entity object (null/empty on error)
+  EntityProto entity = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+
+  // MD5 hash for cache validation
+  string hash = 6;
+}
+
+// EntityListResponse is the standard response envelope for multi-entity operations.
+message EntityListResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status message
+  string message = 3;
+
+  // List of entities returned
+  repeated EntityProto entities = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+
+  // MD5 hash for cache validation
+  string hash = 6;
+}
+
+// =============================================================================
+// Field Messages
+// =============================================================================
+
+// FieldProto represents an entity field with all metadata and type-specific options.
+// Source: WebVella.Erp.Api.Models.Field and its type-specific subclasses
+message FieldProto {
+  // Field unique identifier (GUID as string)
+  string id = 1;
+
+  // Field system name (lowercase)
+  string name = 2;
+
+  // Human-readable label
+  string label = 3;
+
+  // String representation of the FieldType enum
+  // (AutoNumberField, CheckboxField, CurrencyField, DateField, DateTimeField,
+  //  EmailField, FileField, HtmlField, ImageField, MultiLineTextField,
+  //  MultiSelectField, NumberField, PasswordField, PercentField, PhoneField,
+  //  GuidField, SelectField, TextField, UrlField, TreeSelectField,
+  //  GeographyField, FormulaField)
+  string field_type = 4;
+
+  // Whether a value is required for this field
+  bool required = 5;
+
+  // Whether values must be unique across all records
+  bool unique = 6;
+
+  // Whether this field is indexed for search operations
+  bool searchable = 7;
+
+  // Whether changes to this field are tracked in audit logs
+  bool auditable = 8;
+
+  // Whether this is a system-managed field (read-only for non-admin)
+  bool system = 9;
+
+  // Field-type-specific configuration as a dynamic Struct
+  // (e.g., min/max values, default value, currency type, options list)
+  google.protobuf.Struct options = 10;
+
+  // Optional description of the field's purpose
+  string description = 11;
+
+  // Optional help text displayed in the UI
+  string help_text = 12;
+
+  // Whether field-level security is enabled
+  bool enable_security = 13;
+
+  // Field-level permissions (only effective when enable_security is true)
+  RecordPermissionsProto permissions = 14;
+}
+
+// CreateFieldRequest creates a new field on an entity.
+// Source: EntityManager.CreateField(Guid entityId, InputField, bool transactional)
+message CreateFieldRequest {
+  // GUID of the entity to add the field to (as string)
+  string entity_id = 1;
+
+  // Field definition to create
+  FieldProto field = 2;
+
+  // Whether to wrap the operation in a database transaction
+  bool transactional = 3;
+}
+
+// UpdateFieldRequest updates an existing field on an entity.
+// Source: EntityManager.UpdateField(Guid entityId, InputField)
+message UpdateFieldRequest {
+  // GUID of the entity containing the field (as string)
+  string entity_id = 1;
+
+  // Updated field definition. The field ID identifies which field to update.
+  FieldProto field = 2;
+}
+
+// DeleteFieldRequest deletes a field from an entity.
+// Source: EntityManager.DeleteField(Guid entityId, Guid id, bool transactional)
+message DeleteFieldRequest {
+  // GUID of the entity containing the field (as string)
+  string entity_id = 1;
+
+  // GUID of the field to delete (as string)
+  string field_id = 2;
+
+  // Whether to wrap the operation in a database transaction
+  bool transactional = 3;
+}
+
+// ReadFieldsRequest reads fields for a specific entity or all entities.
+// Source: EntityManager.ReadFields(Guid entityId) / EntityManager.ReadFields()
+message ReadFieldsRequest {
+  // GUID of the entity to read fields for (as string).
+  // Leave empty to read all fields from all entities.
+  string entity_id = 1;
+}
+
+// ReadFieldRequest reads a single field by entity ID and field ID.
+// Source: EntityManager.ReadField(Guid entityId, Guid id)
+message ReadFieldRequest {
+  // GUID of the entity containing the field (as string)
+  string entity_id = 1;
+
+  // GUID of the field to read (as string)
+  string field_id = 2;
+}
+
+// FieldResponse is the standard response envelope for single-field operations.
+message FieldResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status or error message
+  string message = 3;
+
+  // The field object (null/empty on error)
+  FieldProto field = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// FieldListResponse is the standard response envelope for multi-field operations.
+message FieldListResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status message
+  string message = 3;
+
+  // List of fields returned
+  repeated FieldProto fields = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// =============================================================================
+// Relation Messages
+// =============================================================================
+
+// EntityRelationProto represents an entity relationship definition.
+// Source: WebVella.Erp.Api.Models.EntityRelation
+message EntityRelationProto {
+  // Relation unique identifier (GUID as string)
+  string id = 1;
+
+  // Relation system name
+  string name = 2;
+
+  // Human-readable label
+  string label = 3;
+
+  // Relation type: "OneToOne", "OneToMany", or "ManyToMany"
+  // Maps to EntityRelationType enum (1=OneToOne, 2=OneToMany, 3=ManyToMany)
+  string relation_type = 4;
+
+  // GUID of the origin (source) entity (as string)
+  string origin_entity_id = 5;
+
+  // GUID of the origin field (as string)
+  string origin_field_id = 6;
+
+  // GUID of the target entity (as string)
+  string target_entity_id = 7;
+
+  // GUID of the target field (as string)
+  string target_field_id = 8;
+
+  // Whether this is a system-managed relation
+  bool system = 9;
+
+  // Optional description of the relation's purpose
+  string description = 10;
+
+  // Resolved origin entity name (read-only, populated on read)
+  string origin_entity_name = 11;
+
+  // Resolved origin field name (read-only, populated on read)
+  string origin_field_name = 12;
+
+  // Resolved target entity name (read-only, populated on read)
+  string target_entity_name = 13;
+
+  // Resolved target field name (read-only, populated on read)
+  string target_field_name = 14;
+}
+
+// CreateRelationRequest creates a new entity relation.
+// Source: EntityRelationManager.Create(EntityRelation)
+message CreateRelationRequest {
+  // Relation definition to create
+  EntityRelationProto relation = 1;
+}
+
+// UpdateRelationRequest updates an existing entity relation.
+// Source: EntityRelationManager.Update(EntityRelation)
+message UpdateRelationRequest {
+  // Updated relation definition. The ID identifies which relation to update.
+  EntityRelationProto relation = 1;
+}
+
+// DeleteRelationRequest deletes an entity relation by ID.
+// Source: EntityRelationManager.Delete(Guid id)
+message DeleteRelationRequest {
+  // GUID of the relation to delete (as string)
+  string id = 1;
+}
+
+// ReadRelationRequest reads a single relation by ID or name.
+// Source: EntityRelationManager.Read(Guid id) / EntityRelationManager.Read(string name)
+// At least one of id or name must be provided.
+message ReadRelationRequest {
+  // Relation GUID (as string). Takes precedence if both id and name are set.
+  string id = 1;
+
+  // Relation system name. Used if id is empty.
+  string name = 2;
+}
+
+// ReadRelationsRequest reads all entity relations. No parameters required.
+// Source: EntityRelationManager.Read()
+message ReadRelationsRequest {
+}
+
+// EntityRelationResponse is the standard response envelope for single-relation operations.
+message EntityRelationResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status or error message
+  string message = 3;
+
+  // The relation object (null/empty on error)
+  EntityRelationProto relation = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// EntityRelationListResponse is the standard response envelope for multi-relation operations.
+message EntityRelationListResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status message
+  string message = 3;
+
+  // List of relations returned
+  repeated EntityRelationProto relations = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// =============================================================================
+// Record Messages
+// =============================================================================
+
+// EqlParameterProto represents a named parameter for EQL queries.
+// Source: WebVella.Erp.Eql.EqlParameter
+message EqlParameterProto {
+  // Parameter name (with or without @ prefix)
+  string name = 1;
+
+  // Parameter value serialized as string (type-aware deserialization on server)
+  string value = 2;
+}
+
+// CreateRecordRequest creates a new record in a dynamic entity table.
+// Source: RecordManager.CreateRecord(string entityName, EntityRecord)
+// The record_data uses google.protobuf.Struct to preserve the Expando-based
+// dynamic nature of EntityRecord where records have arbitrary key-value pairs.
+message CreateRecordRequest {
+  // Entity system name identifying the target rec_* table
+  string entity_name = 1;
+
+  // Dynamic record data as Struct (preserves Expando-based EntityRecord behavior)
+  // Keys are field names, values are field values. Supports $relation.field keys
+  // for relation-aware payload processing.
+  google.protobuf.Struct record_data = 2;
+}
+
+// UpdateRecordRequest updates an existing record in a dynamic entity table.
+// Source: RecordManager.UpdateRecord(string entityName, EntityRecord)
+// The record_data must include the "id" key to identify the record.
+message UpdateRecordRequest {
+  // Entity system name identifying the target rec_* table
+  string entity_name = 1;
+
+  // Dynamic record data as Struct. Must include "id" field.
+  // Only fields present in the Struct will be updated (partial update support).
+  google.protobuf.Struct record_data = 2;
+}
+
+// DeleteRecordRequest deletes a record from a dynamic entity table.
+// Source: RecordManager.DeleteRecord(string entityName, Guid id)
+message DeleteRecordRequest {
+  // Entity system name identifying the target rec_* table
+  string entity_name = 1;
+
+  // GUID of the record to delete (as string)
+  string id = 2;
+}
+
+// FindRecordsRequest queries records using EQL (Entity Query Language).
+// Source: RecordManager.Find(EntityQuery)
+// EQL supports field selection, filtering, sorting, relation traversal ($relation.field),
+// and produces PostgreSQL SQL with JSON-shaped results.
+message FindRecordsRequest {
+  // Entity system name to query against
+  string entity_name = 1;
+
+  // EQL query string (e.g., "SELECT *,  $user_role.* FROM user WHERE id = @id")
+  string eql = 2;
+
+  // Named parameters for the EQL query
+  repeated EqlParameterProto parameters = 3;
+
+  // Number of records to skip (pagination offset)
+  int32 skip = 4;
+
+  // Maximum number of records to return (pagination limit)
+  int32 limit = 5;
+}
+
+// CountRecordsRequest counts records matching an EQL query without returning data.
+// Source: RecordManager.Count(EntityQuery)
+message CountRecordsRequest {
+  // Entity system name to count against
+  string entity_name = 1;
+
+  // EQL query string for the count filter
+  string eql = 2;
+
+  // Named parameters for the EQL query
+  repeated EqlParameterProto parameters = 3;
+}
+
+// CreateManyToManyRelationRequest creates a junction record for N:N relations.
+// Source: RecordManager.CreateRelationManyToManyRecord(Guid, Guid, Guid)
+message CreateManyToManyRelationRequest {
+  // GUID of the relation definition (as string)
+  string relation_id = 1;
+
+  // GUID of the origin record value (as string)
+  string origin_value = 2;
+
+  // GUID of the target record value (as string)
+  string target_value = 3;
+}
+
+// RemoveManyToManyRelationRequest removes junction records for N:N relations.
+// Source: RecordManager.RemoveRelationManyToManyRecord(Guid, Guid?, Guid?)
+// Either origin_value or target_value may be empty to remove all matching records.
+message RemoveManyToManyRelationRequest {
+  // GUID of the relation definition (as string)
+  string relation_id = 1;
+
+  // GUID of the origin record value (as string). Empty removes all for target.
+  string origin_value = 2;
+
+  // GUID of the target record value (as string). Empty removes all for origin.
+  string target_value = 3;
+}
+
+// QueryResponse is the standard response envelope for record query operations.
+// Mirrors WebVella.Erp.Api.Models.QueryResponse using Struct for dynamic results.
+message QueryResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status or error message
+  string message = 3;
+
+  // Query result as dynamic Struct containing EntityRecordList data.
+  // Structure: { "data": [...records...], "total_count": N }
+  // Each record is a Struct with field name keys and field value values.
+  google.protobuf.Struct result = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// QueryCountResponse returns a count of matching records without data.
+message QueryCountResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // ISO 8601 timestamp of the response
+  string timestamp = 2;
+
+  // Human-readable status message
+  string message = 3;
+
+  // Number of records matching the query
+  int64 count = 4;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 5;
+}
+
+// =============================================================================
+// Security Messages
+// =============================================================================
+
+// ErpUserProto represents a user record in the system.
+// Source: WebVella.Erp.Api.Models.ErpUser
+message ErpUserProto {
+  // User unique identifier (GUID as string)
+  string id = 1;
+
+  // Unique username
+  string username = 2;
+
+  // Unique email address
+  string email = 3;
+
+  // User's first name
+  string first_name = 4;
+
+  // User's last name
+  string last_name = 5;
+
+  // Profile image URL or path
+  string image = 6;
+
+  // Whether the user account is enabled
+  bool enabled = 7;
+
+  // Whether the user's email is verified
+  bool verified = 8;
+
+  // Timestamp of the user's last login (nullable via wrapper)
+  google.protobuf.Timestamp last_logged_in = 9;
+
+  // Timestamp when the user account was created
+  google.protobuf.Timestamp created_on = 10;
+
+  // List of role GUIDs assigned to this user (as strings)
+  repeated string role_ids = 11;
+}
+
+// ErpRoleProto represents a role record in the system.
+// Source: WebVella.Erp.Api.Models.ErpRole
+message ErpRoleProto {
+  // Role unique identifier (GUID as string)
+  string id = 1;
+
+  // Role system name (unique)
+  string name = 2;
+
+  // Human-readable role description
+  string description = 3;
+}
+
+// GetUserRequest retrieves a user by one of: ID, email, or username.
+// Source: SecurityManager.GetUser(Guid), GetUser(string email), GetUserByUsername(string)
+// Only one lookup field should be populated. Priority: user_id > email > username.
+message GetUserRequest {
+  // User GUID to look up (as string). Highest priority.
+  string user_id = 1;
+
+  // Email address to look up. Used if user_id is empty.
+  string email = 2;
+
+  // Username to look up. Used if both user_id and email are empty.
+  string username = 3;
+}
+
+// GetUserByCredentialsRequest authenticates a user with email and password.
+// Source: SecurityManager.GetUser(string email, string password)
+// Password is validated against the MD5-hashed stored value.
+message GetUserByCredentialsRequest {
+  // User email address for authentication
+  string email = 1;
+
+  // Plain text password (will be MD5-hashed server-side for comparison)
+  string password = 2;
+}
+
+// GetUserResponse returns a single user or error information.
+message GetUserResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // The user record (absent if user not found or on error)
+  ErpUserProto user = 2;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 3;
+}
+
+// GetUsersRequest retrieves users, optionally filtered by role IDs.
+// Source: SecurityManager.GetUsers(params Guid[] roleIds)
+message GetUsersRequest {
+  // Optional list of role GUIDs to filter by (as strings).
+  // If empty, returns all users.
+  repeated string role_ids = 1;
+}
+
+// GetUsersResponse returns a list of users.
+message GetUsersResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // List of user records matching the filter
+  repeated ErpUserProto users = 2;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 3;
+}
+
+// GetAllRolesRequest retrieves all roles. No parameters required.
+// Source: SecurityManager.GetAllRoles()
+message GetAllRolesRequest {
+}
+
+// GetAllRolesResponse returns all roles in the system.
+message GetAllRolesResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // Complete list of roles
+  repeated ErpRoleProto roles = 2;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 3;
+}
+
+// SaveUserRequest creates or updates a user record.
+// Source: SecurityManager.SaveUser(ErpUser)
+// Validates username/email uniqueness and email format.
+message SaveUserRequest {
+  // User data to save. If user with this ID exists, it's updated; otherwise created.
+  ErpUserProto user = 1;
+
+  // Password for the user (plain text, will be MD5-hashed server-side).
+  // Required on create. On update, only set if changing the password.
+  string password = 2;
+}
+
+// SaveUserResponse returns the result of a user save operation.
+message SaveUserResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // Human-readable status or error message
+  string message = 2;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 3;
+}
+
+// SaveRoleRequest creates or updates a role record.
+// Source: SecurityManager.SaveRole(ErpRole)
+// Validates role name uniqueness.
+message SaveRoleRequest {
+  // Role data to save. If role with this ID exists, it's updated; otherwise created.
+  ErpRoleProto role = 1;
+}
+
+// SaveRoleResponse returns the result of a role save operation.
+message SaveRoleResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+
+  // Human-readable status or error message
+  string message = 2;
+
+  // List of validation or processing errors
+  repeated ErrorModel errors = 3;
+}
+
+// UpdateUserLastLoginRequest updates a user's last login timestamp to now.
+// Source: SecurityManager.UpdateUserLastLoginTime(Guid userId)
+message UpdateUserLastLoginRequest {
+  // GUID of the user whose last login time should be updated (as string)
+  string user_id = 1;
+}
+
+// UpdateUserLastLoginResponse confirms the last login update.
+message UpdateUserLastLoginResponse {
+  // Whether the operation completed successfully
+  bool success = 1;
+}
+
+// ValidateTokenRequest validates a JWT token for cross-service authentication.
+// NEW: Enables downstream services to verify identity without direct DB access.
+message ValidateTokenRequest {
+  // The JWT token string to validate
+  string jwt_token = 1;
+}
+
+// ValidateTokenResponse returns token validation results with decoded claims.
+// Contains the user identity and roles extracted from the token.
+message ValidateTokenResponse {
+  // Whether the token is valid and not expired
+  bool valid = 1;
+
+  // GUID of the authenticated user (as string). Empty if token is invalid.
+  string user_id = 2;
+
+  // List of role GUIDs from the token claims (as strings)
+  repeated string role_ids = 3;
+
+  // Validation message (e.g., "Token expired", "Invalid signature")
+  string message = 4;
+}
