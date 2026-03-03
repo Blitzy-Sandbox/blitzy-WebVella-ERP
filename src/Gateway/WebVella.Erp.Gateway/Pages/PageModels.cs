@@ -17,10 +17,7 @@ namespace WebVella.Erp.Gateway.Pages
 
     // SitePageModel: fully implemented in Site.cshtml.cs
 
-    public class ApplicationHomePageModel : BaseErpPageModel
-    {
-        public void OnGet() { }
-    }
+    // ApplicationHomePageModel: fully implemented in ApplicationHome.cshtml.cs
 
     public class ApplicationNodePageModel : BaseErpPageModel
     {
