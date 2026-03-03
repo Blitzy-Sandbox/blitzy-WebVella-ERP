@@ -42,10 +42,7 @@ namespace WebVella.Erp.Gateway.Pages
         public void OnGet() { }
     }
 
-    public class RecordRelatedRecordDetailsPageModel : BaseErpPageModel
-    {
-        public void OnGet() { }
-    }
+    // RecordRelatedRecordDetailsPageModel: fully implemented in RecordRelatedRecordDetails.cshtml.cs
 
     public class RecordRelatedRecordManagePageModel : BaseErpPageModel
     {
