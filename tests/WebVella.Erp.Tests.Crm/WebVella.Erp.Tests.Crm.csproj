@@ -128,6 +128,10 @@
        Versions managed centrally via Directory.Packages.props (CPM)
        ========================================================================== -->
   <ItemGroup>
+    <!-- EF Core direct reference to match CRM service's 10.0.1 version.
+         Without this, transitive resolution through Npgsql.EntityFrameworkCore.PostgreSQL
+         10.0.0 pulls in EF Core 10.0.0, causing CS1705 version mismatch. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <!-- PostgreSQL ADO.NET driver for direct database access in migration tests.
          VersionOverride required: CRM service transitively brings Npgsql 10.0.0
          via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0, which causes NU1605
