@@ -32,6 +32,13 @@
   </PropertyGroup>
 
   <!-- ==========================================================================
+       InternalsVisibleTo — Allow test project to access internal types (Cache, etc.)
+       ========================================================================== -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Core" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
        Project References
        ========================================================================== -->
   <ItemGroup>
