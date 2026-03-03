@@ -5,12 +5,7 @@ using WebVella.Erp.Gateway.Models;
 
 namespace WebVella.Erp.Gateway.Pages
 {
-    [AllowAnonymous]
-    public class LoginModel : BaseErpPageModel
-    {
-        public void OnGet() { }
-        public void OnPost() { }
-    }
+    // LoginModel: fully implemented in login.cshtml.cs
 
     // LogoutModel: fully implemented in logout.cshtml.cs
     // HomePageModel: fully implemented in Index.cshtml.cs
