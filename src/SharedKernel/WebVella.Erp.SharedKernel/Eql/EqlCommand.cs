@@ -10,51 +10,56 @@ using WebVella.Erp.SharedKernel.Database;
 namespace WebVella.Erp.SharedKernel.Eql
 {
 	/// <summary>
-	/// Wraps EQL query execution against PostgreSQL via NpgsqlCommand.
+	/// Execution facade that compiles EQL text via <see cref="EqlBuilder"/>, binds
+	/// parameters, executes the generated SQL via <see cref="NpgsqlCommand"/> with a
+	/// 600-second CommandTimeout (AAP 0.8.3 Performance Baseline), and materializes
+	/// results into an <see cref="EntityRecordList"/>.
 	/// <para>
-	/// Migrated from the monolith's <c>WebVella.Erp.Eql.EqlCommand</c> (321 lines) with namespace
-	/// updates for the SharedKernel. Preserves the 600-second CommandTimeout (AAP Performance
-	/// Baseline Rule 16), parameterized query execution, and JSON result set mapping.
+	/// Migrated from the monolith's <c>WebVella.Erp.Eql.EqlCommand</c> (321 lines).
+	/// Namespace changed from <c>WebVella.Erp.Eql</c> to <c>WebVella.Erp.SharedKernel.Eql</c>.
 	/// </para>
 	/// <para>
-	/// In the microservice architecture, service-specific dependencies are injected:
+	/// Service-specific dependencies that were concrete in the monolith are now injectable:
 	/// <list type="bullet">
-	///   <item><see cref="IEntityMetadataProvider"/> — entity/relation metadata for EQL building and result mapping</item>
-	///   <item><see cref="IRecordSearchHookExecutor"/> — optional hook execution (null disables hooks)</item>
-	///   <item><see cref="IFieldValueExtractor"/> — typed field value extraction from JSON results</item>
-	///   <item><see cref="ISecurityContextAccessor"/> — permission checking during result mapping</item>
+	///   <item><see cref="IEqlEntityProvider"/> — replaces <c>new EntityManager()</c></item>
+	///   <item><see cref="IEqlRelationProvider"/> — replaces <c>new EntityRelationManager()</c></item>
+	///   <item><see cref="IEqlSecurityProvider"/> — replaces <c>SecurityContext.HasEntityPermission()</c></item>
+	///   <item><see cref="IEqlHookProvider"/> — replaces <c>RecordHookManager.*</c></item>
+	///   <item><see cref="IEqlFieldValueExtractor"/> — replaces <c>DbRecordRepository.ExtractFieldValue()</c></item>
 	/// </list>
+	/// All providers are optional (nullable) for backward compatibility; null providers
+	/// result in no-op behavior via null-conditional operators.
 	/// </para>
 	/// </summary>
 	public class EqlCommand
 	{
 		/// <summary>
-		/// EQL text to be parsed, translated to SQL, and executed.
+		/// Eql text
 		/// </summary>
 		public string Text { get; set; }
 
 		/// <summary>
-		/// DbConnection object for execution within an existing connection context.
+		/// DbConnection object
 		/// </summary>
 		public DbConnection Connection { get; private set; }
 
 		/// <summary>
-		/// Raw NpgsqlConnection object for direct connection execution.
+		/// NpgsqlConnection object
 		/// </summary>
 		public NpgsqlConnection NpgConnection { get; private set; }
 
 		/// <summary>
-		/// NpgsqlTransaction for transactional execution when using NpgConnection.
+		/// NpgsqlConnection object
 		/// </summary>
 		public NpgsqlTransaction NpgTransaction { get; private set; }
 
 		/// <summary>
-		/// List of EqlParameters for parameterized query execution.
+		/// List of EqlParameters
 		/// </summary>
 		public List<EqlParameter> Parameters { get; private set; } = new List<EqlParameter>();
 
 		/// <summary>
-		/// EqlSettings controlling DISTINCT and total count inclusion.
+		/// EqlSettings object
 		/// </summary>
 		public EqlSettings Settings { get; private set; } = new EqlSettings();
 
@@ -63,6 +68,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <summary>
 		/// Gets or sets the database context used for connection creation.
 		/// Falls back to <see cref="DbContextAccessor.Current"/> when no context is explicitly supplied.
+		/// Preserves the monolith's ambient <c>DbContext.Current</c> pattern via <see cref="DbContextAccessor"/>.
 		/// </summary>
 		public IDbContext CurrentContext
 		{
@@ -80,44 +86,68 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Entity/relation metadata provider for EQL building and result mapping.
+		/// Provides entity metadata for EQL building and result materialization.
+		/// Replaces monolith's <c>new EntityManager()</c> in <c>ConvertJObjectToEntityRecord</c>.
 		/// </summary>
-		private readonly IEntityMetadataProvider _metadataProvider;
+		private readonly IEqlEntityProvider _entityProvider;
 
 		/// <summary>
-		/// Optional hook executor for pre/post-search hooks.
+		/// Provides entity relation metadata for EQL SQL generation.
+		/// Passed to <see cref="EqlBuilder"/> for relation traversal ($/$$) SQL generation.
 		/// </summary>
-		private readonly IRecordSearchHookExecutor _hookExecutor;
+		private readonly IEqlRelationProvider _relationProvider;
 
 		/// <summary>
-		/// Typed field value extractor for JSON result mapping.
+		/// Provides entity-level permission checking during result materialization.
+		/// Replaces monolith's <c>SecurityContext.HasEntityPermission()</c>.
 		/// </summary>
-		private readonly IFieldValueExtractor _fieldValueExtractor;
+		private readonly IEqlSecurityProvider _securityProvider;
 
 		/// <summary>
-		/// Optional security context accessor for entity permission checking during result mapping.
+		/// Provides pre/post-search hook execution for EQL queries.
+		/// Replaces monolith's <c>RecordHookManager</c> calls.
 		/// </summary>
-		private readonly ISecurityContextAccessor _securityAccessor;
+		private readonly IEqlHookProvider _hookProvider;
 
 		/// <summary>
-		/// Creates command with EQL text and variadic parameter array.
+		/// Extracts typed field values from raw JSON database results.
+		/// Replaces monolith's <c>DbRecordRepository.ExtractFieldValue()</c>.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null,
+		private readonly IEqlFieldValueExtractor _fieldValueExtractor;
+
+		/// <summary>
+		/// Creates command with EQL text and optional injectable providers.
+		/// Providers default to null for backward compatibility; null providers
+		/// result in no-op behavior via null-conditional operators in execution methods.
+		/// </summary>
+		/// <param name="text">The EQL query text.</param>
+		/// <param name="entityProvider">Optional entity metadata provider.</param>
+		/// <param name="securityProvider">Optional security permission provider.</param>
+		/// <param name="hookProvider">Optional search hook provider.</param>
+		/// <param name="fieldValueExtractor">Optional field value extractor.</param>
+		/// <param name="relationProvider">Optional relation metadata provider for EqlBuilder.</param>
+		/// <param name="parameters">Optional EQL parameters for parameterized queries.</param>
+		public EqlCommand(string text,
+			IEqlEntityProvider entityProvider = null,
+			IEqlSecurityProvider securityProvider = null,
+			IEqlHookProvider hookProvider = null,
+			IEqlFieldValueExtractor fieldValueExtractor = null,
+			IEqlRelationProvider relationProvider = null,
 			params EqlParameter[] parameters)
 		{
 			Text = text;
+
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
 
-			_metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
-			_fieldValueExtractor = fieldValueExtractor ?? throw new ArgumentNullException(nameof(fieldValueExtractor));
-			_hookExecutor = hookExecutor;
-			_securityAccessor = securityAccessor;
+			_entityProvider = entityProvider;
+			_relationProvider = relationProvider;
+			_securityProvider = securityProvider;
+			_hookProvider = hookProvider;
+			_fieldValueExtractor = fieldValueExtractor;
 
 			NpgConnection = null;
+
 			Connection = null;
 
 			if (parameters != null && parameters.Length > 0)
@@ -125,45 +155,48 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Creates command with EQL text, settings, and variadic parameter array.
+		/// Creates command with EQL text, settings, and optional injectable providers.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			EqlSettings settings,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null,
+		public EqlCommand(string text, EqlSettings settings,
+			IEqlEntityProvider entityProvider = null,
+			IEqlSecurityProvider securityProvider = null,
+			IEqlHookProvider hookProvider = null,
+			IEqlFieldValueExtractor fieldValueExtractor = null,
+			IEqlRelationProvider relationProvider = null,
 			params EqlParameter[] parameters)
-			: this(text, metadataProvider, fieldValueExtractor, hookExecutor, securityAccessor, parameters)
+			: this(text, entityProvider, securityProvider, hookProvider, fieldValueExtractor, relationProvider, parameters)
 		{
 			if (settings != null)
 				Settings = settings;
 		}
 
 		/// <summary>
-		/// Creates command with EQL text, explicit database context, and variadic parameter array.
+		/// Creates command with EQL text, explicit database context, and optional injectable providers.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			IDbContext currentContext,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null,
+		public EqlCommand(string text, IDbContext currentContext,
+			IEqlEntityProvider entityProvider = null,
+			IEqlSecurityProvider securityProvider = null,
+			IEqlHookProvider hookProvider = null,
+			IEqlFieldValueExtractor fieldValueExtractor = null,
+			IEqlRelationProvider relationProvider = null,
 			params EqlParameter[] parameters)
-			: this(text, metadataProvider, fieldValueExtractor, hookExecutor, securityAccessor, parameters)
+			: this(text, entityProvider, securityProvider, hookProvider, fieldValueExtractor, relationProvider, parameters)
 		{
 			if (currentContext != null)
 				suppliedContext = currentContext;
 		}
 
 		/// <summary>
-		/// Creates command with EQL text, explicit database context, settings, and variadic parameter array.
+		/// Creates command with EQL text, explicit database context, settings, and optional injectable providers.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			IDbContext currentContext, EqlSettings settings,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null,
+		public EqlCommand(string text, IDbContext currentContext, EqlSettings settings,
+			IEqlEntityProvider entityProvider = null,
+			IEqlSecurityProvider securityProvider = null,
+			IEqlHookProvider hookProvider = null,
+			IEqlFieldValueExtractor fieldValueExtractor = null,
+			IEqlRelationProvider relationProvider = null,
 			params EqlParameter[] parameters)
-			: this(text, metadataProvider, fieldValueExtractor, currentContext, hookExecutor, securityAccessor, parameters)
+			: this(text, currentContext, entityProvider, securityProvider, hookProvider, fieldValueExtractor, relationProvider, parameters)
 		{
 			if (settings != null)
 				Settings = settings;
@@ -171,13 +204,9 @@ namespace WebVella.Erp.SharedKernel.Eql
 
 		/// <summary>
 		/// Creates command with EQL text, optional parameter list, and optional database context.
+		/// Preserves monolith's <c>List&lt;EqlParameter&gt;</c> constructor overload.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			List<EqlParameter> parameters = null,
-			IDbContext currentContext = null,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null)
+		public EqlCommand(string text, List<EqlParameter> parameters = null, IDbContext currentContext = null)
 		{
 			if (currentContext != null)
 				suppliedContext = currentContext;
@@ -186,12 +215,8 @@ namespace WebVella.Erp.SharedKernel.Eql
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
 
-			_metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
-			_fieldValueExtractor = fieldValueExtractor ?? throw new ArgumentNullException(nameof(fieldValueExtractor));
-			_hookExecutor = hookExecutor;
-			_securityAccessor = securityAccessor;
-
 			NpgConnection = null;
+
 			Connection = null;
 
 			if (parameters != null)
@@ -201,14 +226,8 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <summary>
 		/// Creates command with EQL text, settings, optional parameter list, and optional database context.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			EqlSettings settings,
-			List<EqlParameter> parameters = null,
-			IDbContext currentContext = null,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null)
-			: this(text, metadataProvider, fieldValueExtractor, parameters, currentContext, hookExecutor, securityAccessor)
+		public EqlCommand(string text, EqlSettings settings, List<EqlParameter> parameters = null, IDbContext currentContext = null)
+		: this(text, parameters, currentContext)
 		{
 			if (settings != null)
 				Settings = settings;
@@ -217,13 +236,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <summary>
 		/// Creates command with EQL text, explicit DbConnection, and optional parameters.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			DbConnection connection,
-			List<EqlParameter> parameters = null,
-			IDbContext currentContext = null,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null)
+		/// <param name="text">The EQL query text.</param>
+		/// <param name="connection">The DbConnection to use for query execution.</param>
+		/// <param name="parameters">Optional list of EQL parameters.</param>
+		/// <param name="currentContext">Optional database context override.</param>
+		public EqlCommand(string text, DbConnection connection, List<EqlParameter> parameters = null, IDbContext currentContext = null)
 		{
 			if (currentContext != null)
 				suppliedContext = currentContext;
@@ -232,12 +249,8 @@ namespace WebVella.Erp.SharedKernel.Eql
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
 
-			_metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
-			_fieldValueExtractor = fieldValueExtractor ?? throw new ArgumentNullException(nameof(fieldValueExtractor));
-			_hookExecutor = hookExecutor;
-			_securityAccessor = securityAccessor;
-
 			NpgConnection = null;
+
 			Connection = connection;
 
 			if (connection == null)
@@ -248,16 +261,14 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Creates command with EQL text, raw NpgsqlConnection, and optional transaction/parameters.
+		/// Creates command with EQL text, raw NpgsqlConnection, optional transaction, and optional parameters.
 		/// </summary>
-		public EqlCommand(string text, IEntityMetadataProvider metadataProvider,
-			IFieldValueExtractor fieldValueExtractor,
-			NpgsqlConnection connection,
-			NpgsqlTransaction transaction = null,
-			List<EqlParameter> parameters = null,
-			IDbContext currentContext = null,
-			IRecordSearchHookExecutor hookExecutor = null,
-			ISecurityContextAccessor securityAccessor = null)
+		/// <param name="text">The EQL query text.</param>
+		/// <param name="connection">The NpgsqlConnection to use for query execution.</param>
+		/// <param name="transaction">Optional NpgsqlTransaction for transactional execution.</param>
+		/// <param name="parameters">Optional list of EQL parameters.</param>
+		/// <param name="currentContext">Optional database context override.</param>
+		public EqlCommand(string text, NpgsqlConnection connection, NpgsqlTransaction transaction = null, List<EqlParameter> parameters = null, IDbContext currentContext = null)
 		{
 			if (currentContext != null)
 				suppliedContext = currentContext;
@@ -267,12 +278,8 @@ namespace WebVella.Erp.SharedKernel.Eql
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
 
-			_metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
-			_fieldValueExtractor = fieldValueExtractor ?? throw new ArgumentNullException(nameof(fieldValueExtractor));
-			_hookExecutor = hookExecutor;
-			_securityAccessor = securityAccessor;
-
 			Connection = null;
+
 			NpgConnection = connection;
 			NpgTransaction = transaction;
 
@@ -284,13 +291,14 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Executes the EQL command against PostgreSQL and returns the result set.
-		/// Uses the AAP-mandated 600-second CommandTimeout (Performance Baseline Rule 16).
+		/// Executes the command to database.
+		/// Compiles EQL via <see cref="EqlBuilder"/>, executes the generated SQL with a
+		/// 600-second CommandTimeout (AAP 0.8.3), and materializes <see cref="EntityRecordList"/> results.
 		/// </summary>
-		/// <returns>An <see cref="EntityRecordList"/> with records and TotalCount from the query result.</returns>
+		/// <returns>An <see cref="EntityRecordList"/> containing the query results with TotalCount.</returns>
 		public EntityRecordList Execute()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _entityProvider, _relationProvider, _hookProvider);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
@@ -305,7 +313,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 			var npgsParameters = eqlBuildResult.Parameters.Select(x => x.ToNpgsqlParameter()).ToList();
 			NpgsqlCommand command = null;
 
-			bool hooksExists = _hookExecutor != null && _hookExecutor.ContainsAnyHooksForEntity(eqlBuildResult.FromEntity.Name);
+			bool hooksExists = _hookProvider?.ContainsAnyHooksForEntity(eqlBuildResult.FromEntity.Name) ?? false;
 
 			if (Connection != null)
 				command = Connection.CreateCommand(eqlBuildResult.Sql, parameters: npgsParameters);
@@ -325,7 +333,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 				using (var connection = CurrentContext.CreateConnection())
 				{
 					command = connection.CreateCommand(eqlBuildResult.Sql, parameters: npgsParameters);
-					command.CommandTimeout = 600; // AAP Performance Baseline Rule 16: 600-second EQL timeout
+					command.CommandTimeout = 600;
 					new NpgsqlDataAdapter(command).Fill(dt);
 
 					foreach (DataRow dr in dt.Rows)
@@ -338,14 +346,14 @@ namespace WebVella.Erp.SharedKernel.Eql
 
 					if (hooksExists)
 					{
-						_hookExecutor.ExecutePostSearchRecordHooks(eqlBuildResult.FromEntity.Name, result);
+						_hookProvider?.ExecutePostSearchRecordHooks(eqlBuildResult.FromEntity.Name, result);
 					}
 
 					return result;
 				}
 			}
 
-			command.CommandTimeout = 600; // AAP Performance Baseline Rule 16: 600-second EQL timeout
+			command.CommandTimeout = 600;
 			new NpgsqlDataAdapter(command).Fill(dt);
 			foreach (DataRow dr in dt.Rows)
 			{
@@ -359,12 +367,12 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Gets field metadata for the EQL query without executing it.
+		/// Gets field meta
 		/// </summary>
-		/// <returns>List of field metadata entries describing each field in the query result.</returns>
+		/// <returns>List of field metadata entries describing each field in the EQL query projection.</returns>
 		public List<EqlFieldMeta> GetMeta()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _entityProvider, _relationProvider, _hookProvider);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
@@ -374,13 +382,12 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Gets the generated SQL for the EQL query without executing it.
-		/// Useful for debugging and SQL analysis.
+		/// Gets sql
 		/// </summary>
-		/// <returns>The generated PostgreSQL SQL string.</returns>
+		/// <returns>The generated PostgreSQL SQL string for the EQL query.</returns>
 		public string GetSql()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _entityProvider, _relationProvider, _hookProvider);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
@@ -389,6 +396,14 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return eqlBuildResult.Sql;
 		}
 
+		/// <summary>
+		/// Converts a PostgreSQL JSON row (<see cref="JObject"/>) to an <see cref="EntityRecord"/>
+		/// using field metadata for column mapping and per-entity permission checks.
+		/// Preserves the monolith's recursive relation traversal pattern.
+		/// </summary>
+		/// <param name="jObj">The parsed JSON object from the PostgreSQL row_to_json result.</param>
+		/// <param name="fieldMeta">Field metadata list for column-to-property mapping.</param>
+		/// <returns>A populated <see cref="EntityRecord"/> instance.</returns>
 		private EntityRecord ConvertJObjectToEntityRecord(JObject jObj, List<EqlFieldMeta> fieldMeta)
 		{
 			EntityRecord record = new EntityRecord();
@@ -396,20 +411,15 @@ namespace WebVella.Erp.SharedKernel.Eql
 			{
 				if (meta.Field != null)
 				{
-					var entity = _metadataProvider.ReadEntity(meta.Field.EntityName);
-					if (entity == null)
+					var entity = _entityProvider?.ReadEntity(meta.Field.EntityName);
+					if(entity == null)
 						throw new Exception($"Entity '{meta.Field.Name}' not found");
 
-					// Permission check: in the monolith, SecurityContext.HasEntityPermission was used.
-					// In microservices, the ISecurityContextAccessor provides the same check.
-					if (_securityAccessor != null)
-					{
-						bool hasPermission = _securityAccessor.HasEntityPermission(EntityPermission.Read, entity);
-						if (!hasPermission)
-							throw new Exception($"No access to entity '{meta.Field.EntityName}'");
-					}
+					bool hasPermisstion = _securityProvider?.HasEntityPermission(EntityPermission.Read, entity) ?? true;
+					if (!hasPermisstion)
+						throw new Exception($"No access to entity '{meta.Field.EntityName}'");
 
-					record[meta.Field.Name] = _fieldValueExtractor.ExtractFieldValue(jObj[meta.Field.Name], meta.Field);
+					record[meta.Field.Name] = _fieldValueExtractor?.ExtractFieldValue(jObj[meta.Field.Name], meta.Field);
 				}
 				else if (meta.Relation != null)
 				{
@@ -422,6 +432,19 @@ namespace WebVella.Erp.SharedKernel.Eql
 				}
 			}
 			return record;
+		}
+
+		/// <summary>
+		/// No-op hook provider used as a reference implementation for when no hook provider is injected.
+		/// All methods return false/no-op, ensuring the EQL engine can operate without hook support.
+		/// In practice, null-conditional operators (<c>_hookProvider?.</c>) provide the same behavior
+		/// when <c>_hookProvider</c> is null; this class serves as documentation and potential fallback.
+		/// </summary>
+		private class NullEqlHookProvider : IEqlHookProvider
+		{
+			public bool ContainsAnyHooksForEntity(string entityName) => false;
+			public void ExecutePreSearchRecordHooks(string entityName, EqlSelectNode selectNode, List<EqlError> errors) { }
+			public void ExecutePostSearchRecordHooks(string entityName, EntityRecordList records) { }
 		}
 	}
 }
