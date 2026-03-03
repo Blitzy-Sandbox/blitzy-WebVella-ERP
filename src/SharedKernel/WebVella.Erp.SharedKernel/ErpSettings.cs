@@ -60,6 +60,44 @@ namespace WebVella.Erp.SharedKernel
 		public static IConfiguration Configuration { get; private set; }
 
 		/// <summary>
+		/// Database connection string for the service. Bound from Settings:ConnectionString.
+		/// Used by DbFile for direct NpgsqlConnection creation for Large Object access,
+		/// and by per-service DbContext initialization.
+		/// </summary>
+		public static string ConnectionString { get; set; }
+
+		/// <summary>
+		/// Whether file storage should use the local filesystem instead of PostgreSQL Large Objects.
+		/// Bound from Settings:EnableFileSystemStorage (default: false).
+		/// </summary>
+		public static bool EnableFileSystemStorage { get; set; }
+
+		/// <summary>
+		/// Root folder path for filesystem-based file storage.
+		/// Bound from Settings:FileSystemStorageFolder (default: "c:\erp-files").
+		/// </summary>
+		public static string FileSystemStorageFolder { get; set; }
+
+		/// <summary>
+		/// Whether file storage should use cloud blob storage (Storage.Net) instead of PostgreSQL Large Objects.
+		/// Bound from Settings:EnableCloudBlobStorage (default: false).
+		/// </summary>
+		public static bool EnableCloudBlobStorage { get; set; }
+
+		/// <summary>
+		/// Storage.Net connection string for cloud blob storage backend.
+		/// See https://github.com/aloneguid/storage/blob/develop/doc/blobs.md for details.
+		/// Bound from Settings:CloudBlobStorageConnectionString (default: "disk://path=c:\erp-files").
+		/// </summary>
+		public static string CloudBlobStorageConnectionString { get; set; }
+
+		/// <summary>
+		/// Whether background jobs are enabled for this service.
+		/// Bound from Settings:EnableBackgroungJobs (preserving monolith key spelling).
+		/// </summary>
+		public static bool EnableBackgroundJobs { get; set; }
+
+		/// <summary>
 		/// Guard flag indicating whether Initialize() has been called.
 		/// </summary>
 		public static bool IsInitialized { get; private set; }
@@ -118,6 +156,31 @@ namespace WebVella.Erp.SharedKernel
 
 			// AppName — no default, may be null
 			AppName = configuration["Settings:AppName"];
+
+			// ConnectionString — per-service database connection, used by DbFile for LO access
+			ConnectionString = configuration["Settings:ConnectionString"];
+
+			// File storage backend settings — preserved from monolith for DbFile/DbFileRepository
+			EnableFileSystemStorage = string.IsNullOrWhiteSpace(configuration["Settings:EnableFileSystemStorage"])
+				? false
+				: bool.Parse(configuration["Settings:EnableFileSystemStorage"]);
+
+			FileSystemStorageFolder = string.IsNullOrWhiteSpace(configuration["Settings:FileSystemStorageFolder"])
+				? @"c:\erp-files"
+				: configuration["Settings:FileSystemStorageFolder"];
+
+			EnableCloudBlobStorage = string.IsNullOrWhiteSpace(configuration["Settings:EnableCloudBlobStorage"])
+				? false
+				: bool.Parse(configuration["Settings:EnableCloudBlobStorage"]);
+
+			CloudBlobStorageConnectionString = string.IsNullOrWhiteSpace(configuration["Settings:CloudBlobStorageConnectionString"])
+				? @"disk://path=c:\erp-files"
+				: configuration["Settings:CloudBlobStorageConnectionString"];
+
+			// Background jobs — preserving monolith key spelling "EnableBackgroungJobs"
+			EnableBackgroundJobs = string.IsNullOrWhiteSpace(configuration["Settings:EnableBackgroungJobs"])
+				? false
+				: bool.Parse(configuration["Settings:EnableBackgroungJobs"]);
 
 			IsInitialized = true;
 		}
