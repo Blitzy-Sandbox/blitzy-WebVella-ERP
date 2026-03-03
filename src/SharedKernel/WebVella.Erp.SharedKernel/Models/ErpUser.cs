@@ -105,45 +105,4 @@ namespace WebVella.Erp.SharedKernel.Models
 		[JsonProperty(PropertyName = "preferences")]
 		public ErpUserPreferences Preferences { get; set; }
 	}
-
-	/// <summary>
-	/// User-specific preferences stored as a JSON document in the user record.
-	/// Tracks UI state (sidebar size), component usage frequency, and
-	/// per-component custom data.
-	///
-	/// Preserved from the monolith's <c>WebVella.Erp.Api.Models.ErpUserPreferences</c>.
-	/// </summary>
-	[Serializable]
-	public class ErpUserPreferences
-	{
-		[JsonProperty("sidebar_size")]
-		public string SidebarSize { get; set; } = "";
-
-		[JsonProperty("component_usage")]
-		public List<UserComponentUsage> ComponentUsage { get; set; } = new List<UserComponentUsage>();
-
-		[JsonProperty("component_data_dictionary")]
-		public EntityRecord ComponentDataDictionary { get; set; } = new EntityRecord();
-
-		/// <summary>
-		/// Compares two preference instances for equality using JSON serialization.
-		/// Used to detect whether user preferences have changed (dirty check).
-		/// </summary>
-		public bool Compare(ErpUserPreferences prefs)
-		{
-			if (prefs == null)
-				return false;
-
-			if (SidebarSize != prefs.SidebarSize)
-				return false;
-
-			if (JsonConvert.SerializeObject(ComponentUsage) != JsonConvert.SerializeObject(prefs.ComponentUsage))
-				return false;
-
-			if (JsonConvert.SerializeObject(ComponentDataDictionary) != JsonConvert.SerializeObject(prefs.ComponentDataDictionary))
-				return false;
-
-			return true;
-		}
-	}
 }
