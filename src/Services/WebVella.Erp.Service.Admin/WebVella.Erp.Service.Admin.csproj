@@ -21,6 +21,15 @@
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
+  <!-- ===================================================================== -->
+  <!-- InternalsVisibleTo — Expose internal types (JsonUtility, Extensions)  -->
+  <!-- to the Admin test project for comprehensive unit test coverage of     -->
+  <!-- private/internal utility classes per AAP 0.8.2 ≥80% coverage target. -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Admin" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- ================================================================= -->
     <!-- PRESERVED FROM MONOLITH — Packages with versions from source      -->
