@@ -20,16 +20,14 @@ namespace WebVella.Erp.SharedKernel.Eql
 	/// </para>
 	/// <para>
 	/// In the microservice architecture, entity and relation metadata is accessed via
-	/// <see cref="IEntityMetadataProvider"/> (stored in <c>entMan</c> and <c>relMan</c> fields)
+	/// <see cref="IEqlEntityProvider"/> and <see cref="IEqlRelationProvider"/> interfaces
+	/// (stored in <c>_entityProvider</c> and <c>_relationProvider</c> fields)
 	/// instead of the monolith's concrete <c>EntityManager</c> and <c>EntityRelationManager</c>.
 	/// This allows each service to provide its own metadata source while sharing the SQL generation engine.
 	/// </para>
 	/// </summary>
 	public partial class EqlBuilder
 	{
-		private IEntityMetadataProvider entMan;
-		private IEntityMetadataProvider relMan;
-
 		private Entity fromEntity = null;
 
 		#region <--- constants --->
@@ -82,7 +80,7 @@ LEFT OUTER JOIN  {0} {1} ON {2}.{3} = {4}.{5}";
 				errors = new List<EqlError>();
 
 			EqlSelectNode selectNode = ((EqlSelectNode)tree.RootNode);
-			var entities = entMan.ReadEntities();
+			var entities = _entityProvider.ReadEntities();
 			fromEntity = entities.SingleOrDefault(x => x.Name == selectNode.From.EntityName);
 			this.fromEntity = fromEntity;
 			if (fromEntity == null)
@@ -210,8 +208,8 @@ LEFT OUTER JOIN  {0} {1} ON {2}.{3} = {4}.{5}";
 
 		private void ProcessRelationField(SelectInfoWrapper parent, EqlRelationFieldNode relationFieldNode)
 		{
-			var relations = relMan.ReadRelations();
-			var entities = entMan.ReadEntities();
+			var relations = _relationProvider.Read();
+			var entities = _entityProvider.ReadEntities();
 			SelectInfoWrapper parentInfo = parent;
 
 			var relCount = relationFieldNode.Relations.Count;
@@ -571,7 +569,7 @@ LEFT OUTER JOIN  {0} {1} ON {2}.{3} = {4}.{5}";
 			{
 				case EqlNodeType.Field:
 					{
-						var entities = entMan.ReadEntities();
+						var entities = _entityProvider.ReadEntities();
 						var fieldName = ((EqlFieldNode)operandNode).FieldName;
 
 						Entity entity = entities.Single(x => x.Name == entityName);
@@ -615,8 +613,8 @@ LEFT OUTER JOIN  {0} {1} ON {2}.{3} = {4}.{5}";
 						if (!relationsUsedInWhere.Any(x => x.Relations[0].Name == relON.Relations[0].Name))
 							relationsUsedInWhere.Add(relON);
 
-						var entities = entMan.ReadEntities();
-						var relations = relMan.ReadRelations();
+						var entities = _entityProvider.ReadEntities();
+						var relations = _relationProvider.Read();
 
 						var relation = relations.SingleOrDefault(x => x.Name == relON.Relations[0].Name);
 						if (relation == null)
@@ -830,8 +828,8 @@ LEFT OUTER JOIN  {0} {1} ON {2}.{3} = {4}.{5}";
 		{
 			string relationJoinSql = string.Empty;
 			List<string> aliases = new List<string>();
-			var relations = relMan.ReadRelations();
-			var entities = entMan.ReadEntities();
+			var relations = _relationProvider.Read();
+			var entities = _entityProvider.ReadEntities();
 
 			foreach (var relNode in relationsUsedInWhere)
 			{

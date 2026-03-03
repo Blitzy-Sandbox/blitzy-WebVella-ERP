@@ -7,22 +7,165 @@ using WebVella.Erp.SharedKernel.Database;
 
 namespace WebVella.Erp.SharedKernel.Eql
 {
+	#region <--- Injectable Interfaces for EQL Engine Decoupling --->
+
+	/// <summary>
+	/// Abstracts entity metadata access for the EQL engine, replacing direct
+	/// <c>EntityManager</c> usage from the monolith. Each microservice provides
+	/// its own implementation scoped to its owned entities, ensuring the EQL engine
+	/// operates within service boundaries (AAP 0.7.3).
+	/// </summary>
+	public interface IEqlEntityProvider
+	{
+		/// <summary>
+		/// Reads entity metadata by name. Returns null if not found.
+		/// Corresponds to monolith's <c>EntityManager.ReadEntity(name).Object</c>.
+		/// </summary>
+		/// <param name="entityName">The name of the entity to read.</param>
+		/// <returns>The entity definition, or null if not found.</returns>
+		Entity ReadEntity(string entityName);
+
+		/// <summary>
+		/// Reads entity metadata by ID. Returns null if not found.
+		/// Corresponds to monolith's <c>EntityManager.ReadEntity(id).Object</c>.
+		/// </summary>
+		/// <param name="entityId">The unique identifier of the entity.</param>
+		/// <returns>The entity definition, or null if not found.</returns>
+		Entity ReadEntity(Guid entityId);
+
+		/// <summary>
+		/// Reads all entities visible to this service.
+		/// Corresponds to monolith's <c>EntityManager.ReadEntities().Object</c>.
+		/// Used by <c>EqlBuilder.Sql.BuildSql</c> for entity lookup by name and field resolution.
+		/// </summary>
+		/// <returns>List of all entities with their fields, or empty list if none exist.</returns>
+		List<Entity> ReadEntities();
+	}
+
+	/// <summary>
+	/// Abstracts entity relation metadata access for the EQL engine, replacing direct
+	/// <c>EntityRelationManager</c> usage from the monolith. Each microservice provides
+	/// its own implementation scoped to its owned relations.
+	/// </summary>
+	public interface IEqlRelationProvider
+	{
+		/// <summary>
+		/// Reads all entity relations visible to this service.
+		/// Corresponds to monolith's <c>EntityRelationManager.Read().Object</c>.
+		/// Used by <c>EqlBuilder.Sql.ProcessRelationField</c> and <c>ProcessWhereJoins</c>
+		/// for relation traversal SQL generation.
+		/// </summary>
+		/// <returns>List of all entity relations, or empty list if none exist.</returns>
+		List<EntityRelation> Read();
+
+		/// <summary>
+		/// Reads a single entity relation by name.
+		/// </summary>
+		/// <param name="name">The name of the relation to read.</param>
+		/// <returns>The entity relation, or null if not found.</returns>
+		EntityRelation Read(string name);
+
+		/// <summary>
+		/// Reads a single entity relation by ID.
+		/// </summary>
+		/// <param name="id">The unique identifier of the relation.</param>
+		/// <returns>The entity relation, or null if not found.</returns>
+		EntityRelation Read(Guid id);
+	}
+
+	/// <summary>
+	/// Abstracts record search hook execution for the EQL engine, replacing direct
+	/// <c>RecordHookManager</c> calls from the monolith. In the microservice architecture,
+	/// hooks are replaced by domain events published on the message bus; this interface
+	/// preserves backward compatibility for services that still use the hook pattern internally.
+	/// Services that do not use search hooks pass <c>null</c> for this dependency in the
+	/// <see cref="EqlBuilder"/> constructor, which disables hook execution entirely.
+	/// </summary>
+	public interface IEqlHookProvider
+	{
+		/// <summary>
+		/// Checks whether any search hooks are registered for the specified entity.
+		/// Corresponds to monolith's <c>RecordHookManager.ContainsAnyHooksForEntity(entityName)</c>.
+		/// </summary>
+		/// <param name="entityName">The entity name to check for registered hooks.</param>
+		/// <returns>True if any search hooks exist for the entity; false otherwise.</returns>
+		bool ContainsAnyHooksForEntity(string entityName);
+
+		/// <summary>
+		/// Executes pre-search record hooks for the specified entity.
+		/// Hooks may modify the select node or add errors to cancel the search.
+		/// Corresponds to monolith's <c>RecordHookManager.ExecutePreSearchRecordHooks</c>.
+		/// </summary>
+		/// <param name="entityName">The entity name to execute hooks for.</param>
+		/// <param name="selectNode">The EQL select node that hooks can inspect or modify.</param>
+		/// <param name="errors">Error list that hooks can append to for search cancellation.</param>
+		void ExecutePreSearchRecordHooks(string entityName, EqlSelectNode selectNode, List<EqlError> errors);
+
+		/// <summary>
+		/// Executes post-search record hooks for the specified entity.
+		/// Hooks may modify the result set after query execution.
+		/// Corresponds to monolith's <c>RecordHookManager.ExecutePostSearchRecordHooks</c>.
+		/// </summary>
+		/// <param name="entityName">The entity name to execute hooks for.</param>
+		/// <param name="records">The entity record list that hooks can inspect or modify.</param>
+		void ExecutePostSearchRecordHooks(string entityName, EntityRecordList records);
+	}
+
+	/// <summary>
+	/// Abstracts entity-level permission checking for the EQL engine, replacing direct
+	/// <c>SecurityContext</c> usage from the monolith. Each microservice provides its own
+	/// implementation that checks JWT claims against entity record permissions.
+	/// </summary>
+	public interface IEqlSecurityProvider
+	{
+		/// <summary>
+		/// Checks whether the current user has the specified permission for the given entity.
+		/// Corresponds to monolith's permission checks using <c>SecurityContext.CurrentUser</c>
+		/// against <c>Entity.RecordPermissions</c>.
+		/// </summary>
+		/// <param name="permission">The permission to check (Read, Create, Update, Delete).</param>
+		/// <param name="entity">The entity to check permissions against.</param>
+		/// <returns>True if the current user has the permission; false otherwise.</returns>
+		bool HasEntityPermission(EntityPermission permission, Entity entity);
+	}
+
+	/// <summary>
+	/// Abstracts field value extraction from raw database result objects for the EQL engine.
+	/// Each microservice provides its own implementation that handles the per-field-type
+	/// deserialization from Npgsql data reader results (JObject tokens) to typed .NET values.
+	/// Corresponds to monolith's <c>DbRecordRepository.ExtractFieldValue</c>.
+	/// </summary>
+	public interface IEqlFieldValueExtractor
+	{
+		/// <summary>
+		/// Extracts and converts a raw value (typically a JToken from row_to_json) to a
+		/// properly typed .NET value based on the field's type definition.
+		/// </summary>
+		/// <param name="jToken">The raw value from the database query result.</param>
+		/// <param name="field">The field metadata defining the expected type and conversion rules.</param>
+		/// <returns>The properly typed field value, or null for null database values.</returns>
+		object ExtractFieldValue(object jToken, Field field);
+	}
+
+	#endregion
+
 	/// <summary>
 	/// Orchestrates EQL (Entity Query Language) to PostgreSQL SQL translation.
 	/// <para>
-	/// Migrated from the monolith's <c>WebVella.Erp.Eql.EqlBuilder</c> (456 lines) with namespace
-	/// updates for the SharedKernel. The parsing, abstract tree building, field selection, WHERE clause
-	/// construction, ORDER BY, pagination, and relation traversal ($/$$) are preserved identically.
+	/// Migrated from the monolith's <c>WebVella.Erp.Eql.EqlBuilder</c> with namespace
+	/// updates for the SharedKernel. The parsing, abstract tree building, field selection,
+	/// WHERE clause construction, ORDER BY, pagination, and relation traversal ($/$$) are
+	/// preserved identically to produce functionally equivalent SQL output (AAP 0.8.3).
 	/// </para>
 	/// <para>
-	/// In the microservice architecture, service-specific dependencies (entity metadata, relation metadata,
-	/// and search hook execution) are injected via <see cref="IEntityMetadataProvider"/> and
-	/// <see cref="IRecordSearchHookExecutor"/> interfaces rather than referencing concrete managers.
+	/// In the microservice architecture, service-specific dependencies (entity metadata,
+	/// relation metadata, and search hook execution) are injected via
+	/// <see cref="IEqlEntityProvider"/>, <see cref="IEqlRelationProvider"/>, and
+	/// <see cref="IEqlHookProvider"/> interfaces rather than referencing concrete managers.
 	/// Each service provides its own implementations during EQL engine initialization.
 	/// </para>
 	/// <para>
-	/// The <see cref="CurrentContext"/> property uses the SharedKernel's <see cref="DbContextAccessor"/>
-	/// pattern for ambient database context access, matching the monolith's <c>DbContext.Current</c> behavior.
+	/// This is a partial class — the SQL generation logic resides in <c>EqlBuilder.Sql.cs</c>.
 	/// </para>
 	/// </summary>
 	public partial class EqlBuilder
@@ -70,45 +213,108 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
-		/// Provides entity and relation metadata for EQL SQL generation.
+		/// Provides entity metadata for EQL SQL generation.
 		/// Each microservice injects its own implementation that reads from its owned database.
+		/// Replaces monolith's direct <c>new EntityManager(CurrentContext)</c> instantiation.
 		/// </summary>
-		private readonly IEntityMetadataProvider _metadataProvider;
+		internal readonly IEqlEntityProvider _entityProvider;
 
 		/// <summary>
-		/// Optional hook executor for pre-search record hooks.
-		/// In the monolith, <c>RecordHookManager</c> executed pre-search hooks synchronously.
-		/// In microservices, this is replaced by event-driven patterns; the executor can be null
+		/// Provides entity relation metadata for EQL SQL generation.
+		/// Each microservice injects its own implementation that reads from its owned database.
+		/// Replaces monolith's direct <c>new EntityRelationManager(CurrentContext)</c> instantiation.
+		/// </summary>
+		internal readonly IEqlRelationProvider _relationProvider;
+
+		/// <summary>
+		/// Optional hook provider for pre/post-search record hooks.
+		/// In the monolith, <c>RecordHookManager</c> executed hooks synchronously.
+		/// In microservices, this is replaced by event-driven patterns; the provider can be null
 		/// if the service does not use search hooks.
 		/// </summary>
-		private readonly IRecordSearchHookExecutor _hookExecutor;
+		private readonly IEqlHookProvider _hookProvider;
 
 		/// <summary>
-		/// Creates an EqlBuilder instance with dependency injection for microservice compatibility.
+		/// Creates an EqlBuilder instance with minimal parameters.
+		/// Entity/relation/hook providers can be injected as optional parameters.
 		/// </summary>
 		/// <param name="text">The EQL query text to parse and translate.</param>
-		/// <param name="metadataProvider">Entity and relation metadata provider (required).</param>
-		/// <param name="hookExecutor">Optional search hook executor (null disables hook execution).</param>
-		/// <param name="currentContext">Optional database context; falls back to DbContextAccessor.Current.</param>
-		/// <param name="settings">Optional EQL settings (DISTINCT, IncludeTotal).</param>
-		public EqlBuilder(string text, IEntityMetadataProvider metadataProvider,
-			IRecordSearchHookExecutor hookExecutor = null,
-			IDbContext currentContext = null, EqlSettings settings = null)
+		/// <param name="entityProvider">Optional entity metadata provider; null disables entity resolution in build.</param>
+		/// <param name="relationProvider">Optional relation metadata provider; null disables relation resolution in build.</param>
+		/// <param name="hookProvider">Optional search hook provider; null disables hook execution.</param>
+		public EqlBuilder(string text,
+			IEqlEntityProvider entityProvider = null,
+			IEqlRelationProvider relationProvider = null,
+			IEqlHookProvider hookProvider = null)
+			: this(text, (IDbContext)null, (EqlSettings)null, entityProvider, relationProvider, hookProvider)
+		{
+		}
+
+		/// <summary>
+		/// Creates an EqlBuilder instance with an explicit database context.
+		/// </summary>
+		/// <param name="text">The EQL query text to parse and translate.</param>
+		/// <param name="currentContext">Database context for connection creation; null uses DbContextAccessor.Current.</param>
+		/// <param name="entityProvider">Optional entity metadata provider.</param>
+		/// <param name="relationProvider">Optional relation metadata provider.</param>
+		/// <param name="hookProvider">Optional search hook provider.</param>
+		public EqlBuilder(string text, IDbContext currentContext,
+			IEqlEntityProvider entityProvider = null,
+			IEqlRelationProvider relationProvider = null,
+			IEqlHookProvider hookProvider = null)
+			: this(text, currentContext, (EqlSettings)null, entityProvider, relationProvider, hookProvider)
+		{
+		}
+
+		/// <summary>
+		/// Creates an EqlBuilder instance with explicit database context and settings.
+		/// This is the primary constructor that performs all initialization.
+		/// </summary>
+		/// <param name="text">The EQL query text to parse and translate.</param>
+		/// <param name="currentContext">Database context for connection creation; null uses DbContextAccessor.Current.</param>
+		/// <param name="settings">EQL settings controlling DISTINCT and IncludeTotal behavior; null uses defaults.</param>
+		/// <param name="entityProvider">Optional entity metadata provider.</param>
+		/// <param name="relationProvider">Optional relation metadata provider.</param>
+		/// <param name="hookProvider">Optional search hook provider.</param>
+		public EqlBuilder(string text, IDbContext currentContext, EqlSettings settings,
+			IEqlEntityProvider entityProvider = null,
+			IEqlRelationProvider relationProvider = null,
+			IEqlHookProvider hookProvider = null)
 		{
 			if (currentContext != null)
 				suppliedContext = currentContext;
 			Text = text;
-			_metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
-			_hookExecutor = hookExecutor;
-			entMan = metadataProvider;
-			relMan = metadataProvider;
+			_entityProvider = entityProvider;
+			_relationProvider = relationProvider;
+			_hookProvider = hookProvider;
 			if (settings != null)
 				Settings = settings;
 		}
 
 		/// <summary>
+		/// Creates an EqlBuilder instance with explicit settings but no database context.
+		/// </summary>
+		/// <param name="text">The EQL query text to parse and translate.</param>
+		/// <param name="settings">EQL settings controlling DISTINCT and IncludeTotal behavior.</param>
+		/// <param name="entityProvider">Optional entity metadata provider.</param>
+		/// <param name="relationProvider">Optional relation metadata provider.</param>
+		/// <param name="hookProvider">Optional search hook provider.</param>
+		public EqlBuilder(string text, EqlSettings settings,
+			IEqlEntityProvider entityProvider = null,
+			IEqlRelationProvider relationProvider = null,
+			IEqlHookProvider hookProvider = null)
+			: this(text, (IDbContext)null, settings, entityProvider, relationProvider, hookProvider)
+		{
+		}
+
+		/// <summary>
 		/// Builds EQL to SQL translation with full field selection, WHERE, ORDER BY,
 		/// PAGE/PAGESIZE, and relation traversal.
+		/// <para>
+		/// Preserved from monolith's <c>EqlBuilder.Build()</c> (lines 63-114). The parsing,
+		/// AST construction, pre-search hook execution, SQL generation, error collection, and
+		/// parameter propagation are functionally identical.
+		/// </para>
 		/// </summary>
 		/// <param name="parameters">Optional EQL parameters for parameterized queries.</param>
 		/// <returns>
@@ -136,14 +342,15 @@ namespace WebVella.Erp.SharedKernel.Eql
 
 				var selectNode = (EqlSelectNode)result.Tree.RootNode;
 
-				// Hook execution: in monolith this was RecordHookManager.ContainsAnyHooksForEntity / ExecutePreSearchRecordHooks
-				// In microservices, hooks are replaced by events; the IRecordSearchHookExecutor
-				// provides backward compatibility for services that still use the hook pattern.
-				bool hooksExists = _hookExecutor != null && _hookExecutor.ContainsAnyHooksForEntity(selectNode.From.EntityName);
+				// Hook execution: in the monolith this was RecordHookManager.ContainsAnyHooksForEntity
+				// / ExecutePreSearchRecordHooks. In microservices, hooks are replaced by events;
+				// the IEqlHookProvider provides backward compatibility for services that still
+				// use the hook pattern. Null-safe: if no provider is set, hooks are skipped.
+				bool hooksExists = _hookProvider?.ContainsAnyHooksForEntity(selectNode.From.EntityName) ?? false;
 
 				if (hooksExists)
 				{
-					_hookExecutor.ExecutePreSearchRecordHooks(selectNode.From.EntityName, selectNode, errors);
+					_hookProvider.ExecutePreSearchRecordHooks(selectNode.From.EntityName, selectNode, errors);
 				}
 
 				if (errors.Count == 0)
@@ -169,6 +376,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return result;
 		}
 
+		/// <summary>
+		/// Parses EQL text into an Irony <see cref="ParseTree"/> using the <see cref="EqlGrammar"/>.
+		/// Collects any parse errors into the provided error list.
+		/// Preserved identically from monolith's <c>EqlBuilder.Parse()</c> (lines 116-141).
+		/// </summary>
 		private ParseTree Parse(string source, List<EqlError> errors)
 		{
 			if (string.IsNullOrWhiteSpace(source))
@@ -196,6 +408,12 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return tree;
 		}
 
+		/// <summary>
+		/// Converts an Irony ParseTree into an <see cref="EqlAbstractTree"/> with typed AST nodes.
+		/// Currently supports only SELECT statements. Throws <see cref="EqlException"/> for
+		/// unsupported statement types.
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildAbstractTree()</c> (lines 143-158).
+		/// </summary>
 		private EqlAbstractTree BuildAbstractTree(ParseTree parseTree)
 		{
 			EqlAbstractTree resultTree = new EqlAbstractTree();
@@ -213,6 +431,12 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return resultTree;
 		}
 
+		/// <summary>
+		/// Populates an <see cref="EqlSelectNode"/> from a parsed SELECT statement node.
+		/// Handles column list, FROM clause, WHERE clause, ORDER BY, PAGE, and PAGESIZE.
+		/// Parameter binding (@ prefixed) is resolved from the <see cref="Parameters"/> list.
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildSelectTree()</c> (lines 160-256).
+		/// </summary>
 		private void BuildSelectTree(EqlSelectNode selectNode, ParseTreeNode parseTreeNode)
 		{
 			foreach (var parseNode in parseTreeNode.ChildNodes)
@@ -311,6 +535,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 			}
 		}
 
+		/// <summary>
+		/// Builds the field selection list from the parsed column_item_list node.
+		/// Handles simple field references, wildcard (*), and relation field references ($ / $$).
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildSelectFieldList()</c> (lines 258-303).
+		/// </summary>
 		private void BuildSelectFieldList(List<EqlFieldNode> list, ParseTreeNode parseTreeNode)
 		{
 			foreach (var parseNode in parseTreeNode.ChildNodes)
@@ -358,6 +587,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 			}
 		}
 
+		/// <summary>
+		/// Builds the ORDER BY clause from the parsed order_clause_optional node.
+		/// Handles both literal field names and parameterized field names/directions.
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildOrderByNode()</c> (lines 305-358).
+		/// </summary>
 		private void BuildOrderByNode(EqlOrderByNode orderByNode, ParseTreeNode parseTreeNode)
 		{
 			//first 2 nodes are keywords ORDER BY
@@ -413,6 +647,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 			}
 		}
 
+		/// <summary>
+		/// Builds the WHERE clause from the parsed where_clause_optional node.
+		/// Delegates to <see cref="BuildBinaryExpressionNode"/> for expression tree construction.
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildWhereNode()</c> (lines 360-370).
+		/// </summary>
 		private void BuildWhereNode(EqlWhereNode whereNode, ParseTreeNode parseTreeNode)
 		{
 			//first child node is WHERE keyword
@@ -425,6 +664,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 				throw new EqlException("Unsupported node type during WHERE clause processing.");
 		}
 
+		/// <summary>
+		/// Builds a binary expression node (operator + two operands) from the parsed binary_expression node.
+		/// Recursively builds operand nodes for nested expressions.
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildBinaryExpressionNode()</c> (lines 372-386).
+		/// </summary>
 		private EqlBinaryExpressionNode BuildBinaryExpressionNode(ParseTreeNode parseTreeNode)
 		{
 			if (parseTreeNode.Term.Name != "binary_expression")
@@ -441,6 +685,15 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return resultNode;
 		}
 
+		/// <summary>
+		/// Builds an operand node from a parsed expression operand. Handles:
+		/// - Binary expressions (recursive)
+		/// - Field identifiers (simple and relation-prefixed)
+		/// - Arguments (@ parameters)
+		/// - Number/string/null/true/false literals
+		/// - Parenthesized expression lists
+		/// Preserved identically from monolith's <c>EqlBuilder.BuildOperandNode()</c> (lines 388-437).
+		/// </summary>
 		private EqlNode BuildOperandNode(ParseTreeNode parseTreeNode)
 		{
 			if (parseTreeNode.Term.Name == "binary_expression")
@@ -492,6 +745,12 @@ namespace WebVella.Erp.SharedKernel.Eql
 			return null;
 		}
 
+		/// <summary>
+		/// Extracts relation traversal information ($ for target-to-origin, $$ for origin-to-target)
+		/// from a parsed column_relation_list node. Returns a list of <see cref="EqlRelationInfo"/>
+		/// objects encoding each relation's name and direction.
+		/// Preserved identically from monolith's <c>EqlBuilder.GetRelationInfos()</c> (lines 439-453).
+		/// </summary>
 		private List<EqlRelationInfo> GetRelationInfos(ParseTreeNode parseTreeNode)
 		{
 			List<EqlRelationInfo> result = new List<EqlRelationInfo>();

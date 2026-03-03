@@ -1,9 +1,12 @@
 using System.Collections.Generic;
+using WebVella.Erp.SharedKernel.Models;
 
 namespace WebVella.Erp.SharedKernel.Eql
 {
 	/// <summary>
-	/// Abstraction for record search hook execution within the EQL engine.
+	/// Extended abstraction for record search hook execution within the EQL engine.
+	/// Extends <see cref="IEqlHookProvider"/> to provide backward compatibility with the
+	/// monolith's <c>RecordHookManager</c> pattern.
 	/// <para>
 	/// In the monolith, <c>RecordHookManager.ContainsAnyHooksForEntity</c> and
 	/// <c>RecordHookManager.ExecutePreSearchRecordHooks</c> were called directly during
@@ -16,33 +19,11 @@ namespace WebVella.Erp.SharedKernel.Eql
 	/// <see cref="EqlBuilder"/> constructor, which disables hook execution entirely.
 	/// </para>
 	/// </summary>
-	public interface IRecordSearchHookExecutor
+	public interface IRecordSearchHookExecutor : IEqlHookProvider
 	{
-		/// <summary>
-		/// Checks whether any search hooks are registered for the specified entity.
-		/// Corresponds to monolith's <c>RecordHookManager.ContainsAnyHooksForEntity(entityName)</c>.
-		/// </summary>
-		/// <param name="entityName">The entity name to check for registered hooks.</param>
-		/// <returns>True if any search hooks exist for the entity; false otherwise.</returns>
-		bool ContainsAnyHooksForEntity(string entityName);
-
-		/// <summary>
-		/// Executes pre-search record hooks for the specified entity.
-		/// Corresponds to monolith's <c>RecordHookManager.ExecutePreSearchRecordHooks(entityName, selectNode, errors)</c>.
-		/// Hooks may modify the select node or add errors to cancel the search.
-		/// </summary>
-		/// <param name="entityName">The entity name to execute hooks for.</param>
-		/// <param name="selectNode">The EQL select node that hooks can inspect or modify.</param>
-		/// <param name="errors">Error list that hooks can append to for search cancellation.</param>
-		void ExecutePreSearchRecordHooks(string entityName, EqlSelectNode selectNode, List<EqlError> errors);
-
-		/// <summary>
-		/// Executes post-search record hooks for the specified entity.
-		/// Corresponds to monolith's <c>RecordHookManager.ExecutePostSearchRecordHooks(entityName, result)</c>.
-		/// Hooks may modify the result set after query execution.
-		/// </summary>
-		/// <param name="entityName">The entity name to execute hooks for.</param>
-		/// <param name="result">The entity record list that hooks can inspect or modify.</param>
-		void ExecutePostSearchRecordHooks(string entityName, Models.EntityRecordList result);
+		// All methods are inherited from IEqlHookProvider:
+		// - bool ContainsAnyHooksForEntity(string entityName)
+		// - void ExecutePreSearchRecordHooks(string entityName, EqlSelectNode selectNode, List<EqlError> errors)
+		// - void ExecutePostSearchRecordHooks(string entityName, EntityRecordList records)
 	}
 }

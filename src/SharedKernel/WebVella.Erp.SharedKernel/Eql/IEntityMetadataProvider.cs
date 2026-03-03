@@ -1,10 +1,12 @@
+using System;
 using System.Collections.Generic;
 using WebVella.Erp.SharedKernel.Models;
 
 namespace WebVella.Erp.SharedKernel.Eql
 {
 	/// <summary>
-	/// Abstraction for entity and relation metadata access required by the EQL engine.
+	/// Composite abstraction for entity and relation metadata access required by the EQL engine.
+	/// Extends <see cref="IEqlEntityProvider"/> for entity operations.
 	/// <para>
 	/// In the monolith, <c>EqlBuilder</c> and <c>EqlBuilder.Sql</c> directly instantiated
 	/// <c>EntityManager</c> and <c>EntityRelationManager</c> to read entity definitions and
@@ -13,34 +15,13 @@ namespace WebVella.Erp.SharedKernel.Eql
 	/// operates within service boundaries.
 	/// </para>
 	/// <para>
-	/// The <see cref="ReadEntities"/> method corresponds to the monolith's
-	/// <c>EntityManager.ReadEntities().Object</c> call used extensively in
-	/// <c>EqlBuilder.Sql.cs</c> for entity resolution, field lookup, and relation traversal.
-	/// The <see cref="ReadEntity"/> method corresponds to <c>EntityManager.ReadEntity(name).Object</c>
-	/// used in <c>EqlCommand.cs</c> for permission checking during result mapping.
-	/// The <see cref="ReadRelations"/> method corresponds to <c>EntityRelationManager.Read().Object</c>
-	/// used for relation join generation and WHERE clause relation resolution.
+	/// This interface provides a convenience abstraction combining entity and relation access in one interface
+	/// for callers (like <see cref="EqlCommand"/>) that need both capabilities. The core EQL builder uses the
+	/// more granular <see cref="IEqlEntityProvider"/> and <see cref="IEqlRelationProvider"/> interfaces.
 	/// </para>
 	/// </summary>
-	public interface IEntityMetadataProvider
+	public interface IEntityMetadataProvider : IEqlEntityProvider
 	{
-		/// <summary>
-		/// Reads all entity definitions owned by this service.
-		/// Returns the same structure as monolith's <c>EntityManager.ReadEntities().Object</c>.
-		/// Used by <c>EqlBuilder.Sql.BuildSql</c> for entity lookup by name and field resolution.
-		/// </summary>
-		/// <returns>List of all entities with their fields, or empty list if none exist.</returns>
-		List<Entity> ReadEntities();
-
-		/// <summary>
-		/// Reads a single entity definition by name.
-		/// Returns the same structure as monolith's <c>EntityManager.ReadEntity(name).Object</c>.
-		/// Used by <c>EqlCommand.ConvertJObjectToEntityRecord</c> for permission checking.
-		/// </summary>
-		/// <param name="entityName">The name of the entity to read.</param>
-		/// <returns>The entity definition, or null if not found.</returns>
-		Entity ReadEntity(string entityName);
-
 		/// <summary>
 		/// Reads all entity relations owned by this service.
 		/// Returns the same structure as monolith's <c>EntityRelationManager.Read().Object</c>.
@@ -49,5 +30,35 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// </summary>
 		/// <returns>List of all entity relations, or empty list if none exist.</returns>
 		List<EntityRelation> ReadRelations();
+	}
+
+	/// <summary>
+	/// Internal adapter bridging <see cref="IEntityMetadataProvider.ReadRelations()"/> to the
+	/// <see cref="IEqlRelationProvider"/> interface expected by <see cref="EqlBuilder"/>.
+	/// Used by <see cref="EqlCommand"/> to pass relation metadata from an <see cref="IEntityMetadataProvider"/>
+	/// to the <see cref="EqlBuilder"/> constructor.
+	/// </summary>
+	internal class MetadataRelationProviderAdapter : IEqlRelationProvider
+	{
+		private readonly IEntityMetadataProvider _provider;
+
+		public MetadataRelationProviderAdapter(IEntityMetadataProvider provider)
+		{
+			_provider = provider ?? throw new ArgumentNullException(nameof(provider));
+		}
+
+		public List<EntityRelation> Read() => _provider.ReadRelations();
+
+		public EntityRelation Read(string name)
+		{
+			var relations = _provider.ReadRelations();
+			return relations?.Find(r => r.Name == name);
+		}
+
+		public EntityRelation Read(Guid id)
+		{
+			var relations = _provider.ReadRelations();
+			return relations?.Find(r => r.Id == id);
+		}
 	}
 }

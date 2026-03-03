@@ -290,7 +290,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <returns>An <see cref="EntityRecordList"/> with records and TotalCount from the query result.</returns>
 		public EntityRecordList Execute()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, _metadataProvider, _hookExecutor, CurrentContext, Settings);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
@@ -364,7 +364,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <returns>List of field metadata entries describing each field in the query result.</returns>
 		public List<EqlFieldMeta> GetMeta()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, _metadataProvider, _hookExecutor, CurrentContext, Settings);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
@@ -380,7 +380,7 @@ namespace WebVella.Erp.SharedKernel.Eql
 		/// <returns>The generated PostgreSQL SQL string.</returns>
 		public string GetSql()
 		{
-			EqlBuilder eqlBuilder = new EqlBuilder(Text, _metadataProvider, _hookExecutor, CurrentContext, Settings);
+			EqlBuilder eqlBuilder = new EqlBuilder(Text, CurrentContext, Settings, _metadataProvider, new MetadataRelationProviderAdapter(_metadataProvider), _hookExecutor);
 			var eqlBuildResult = eqlBuilder.Build(Parameters);
 
 			if (eqlBuildResult.Errors.Count > 0)
