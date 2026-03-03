@@ -12,11 +12,7 @@ namespace WebVella.Erp.Gateway.Pages
         public void OnPost() { }
     }
 
-    [AllowAnonymous]
-    public class LogoutModel : BaseErpPageModel
-    {
-        public void OnGet() { }
-    }
+    // LogoutModel: fully implemented in logout.cshtml.cs
 
     public class HomePageModel : BaseErpPageModel
     {
