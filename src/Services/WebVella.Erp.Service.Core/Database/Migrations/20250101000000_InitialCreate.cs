@@ -12,7 +12,6 @@ namespace WebVella.Erp.Service.Core.Database.Migrations
     /// __EFMigrationsHistory tracking.
     /// </summary>
     /// <inheritdoc />
-    [Migration("20250101000000_InitialCreate")]
     public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
