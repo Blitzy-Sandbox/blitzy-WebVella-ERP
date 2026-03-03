@@ -256,24 +256,5 @@ namespace WebVella.Erp.Service.Crm.GrpcImpl
     }
 }
 
-// ---------------------------------------------------------------------------
-// CRM DbContext for EF Core migration support and database connectivity.
-// ---------------------------------------------------------------------------
-namespace WebVella.Erp.Service.Crm.Database
-{
-    /// <summary>
-    /// EF Core DbContext for the CRM microservice database (erp_crm).
-    /// Manages schema migrations and provides database connectivity.
-    /// Entity mappings are configured via the InitialCrmSchema migration
-    /// (raw SQL migration preserving monolith rec_* table naming).
-    /// </summary>
-    public class CrmDbContext : DbContext
-    {
-        public CrmDbContext(DbContextOptions<CrmDbContext> options) : base(options) { }
-
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-        }
-    }
-}
+// CrmDbContext is defined in Database/CrmDbContext.cs with full EF Core
+// entity configuration, IDbContext implementation, and legacy compatibility.
