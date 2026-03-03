@@ -96,6 +96,32 @@ namespace WebVella.Erp.SharedKernel.Contracts.Commands
 		public EntityRecord Record { get; set; }
 
 		/// <summary>
+		/// The unique identifier of the user who initiated the create operation.
+		/// <para>
+		/// In the monolith, <c>RecordManager.CreateRecord</c> obtains the user identity from
+		/// <c>SecurityContext.CurrentUser</c> (an <c>AsyncLocal&lt;Stack&lt;ErpUser&gt;&gt;</c>).
+		/// In the microservice architecture, the user identity must be explicitly propagated
+		/// with each command since the consuming service cannot access the originating service's
+		/// security context. The API Gateway or originating service populates this from the
+		/// authenticated JWT claims before dispatching the command.
+		/// </para>
+		/// </summary>
+		[JsonProperty(PropertyName = "userId")]
+		public Guid? UserId { get; set; }
+
+		/// <summary>
+		/// The roles assigned to the user who initiated the create operation.
+		/// <para>
+		/// In the monolith, <c>SecurityContext.HasEntityPermission</c> checks the current user's
+		/// roles against entity-level <c>RecordPermissions</c>. In the microservice architecture,
+		/// roles are propagated from JWT claims so the consuming service can perform authorization
+		/// without callback to the Core identity service.
+		/// </para>
+		/// </summary>
+		[JsonProperty(PropertyName = "roles")]
+		public System.Collections.Generic.List<string> Roles { get; set; } = new System.Collections.Generic.List<string>();
+
+		/// <summary>
 		/// Initializes a new instance of the <see cref="CreateRecordCommand"/> class
 		/// with auto-generated <see cref="CorrelationId"/> and current UTC <see cref="Timestamp"/>.
 		/// </summary>

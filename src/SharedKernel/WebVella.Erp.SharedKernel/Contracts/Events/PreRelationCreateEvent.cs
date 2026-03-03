@@ -33,7 +33,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// across distributed service boundaries.
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for tracing this event and
@@ -98,7 +98,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// </summary>
         public PreRelationCreateEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
             ValidationErrors = new List<ErrorModel>();
         }

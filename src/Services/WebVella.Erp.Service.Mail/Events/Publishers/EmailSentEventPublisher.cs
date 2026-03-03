@@ -47,7 +47,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// </para>
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for tracing this event
@@ -156,7 +156,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// </summary>
         public EmailSentEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
             EntityName = "email";
             RecipientEmail = string.Empty;
@@ -301,7 +301,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
                 SentOn = sentOn,
                 ServiceId = serviceId,
                 CorrelationId = Guid.NewGuid(),
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTimeOffset.UtcNow
             };
 
             try

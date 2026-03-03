@@ -31,7 +31,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// Initialized to <see cref="DateTime.UtcNow"/> in the default constructor.
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for distributed tracing.
@@ -103,7 +103,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// </summary>
         public EmailQueuedEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
             EntityName = "email";
             RecipientEmail = string.Empty;
@@ -224,7 +224,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
                 ScheduledOn = scheduledOn,
                 ServiceId = serviceId,
                 CorrelationId = Guid.NewGuid(),
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTimeOffset.UtcNow
             };
 
             try

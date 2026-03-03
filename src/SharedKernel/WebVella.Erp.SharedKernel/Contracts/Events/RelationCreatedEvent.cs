@@ -30,7 +30,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// Initialized to <see cref="DateTime.UtcNow"/> in the parameterless constructor.
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <inheritdoc />
         /// <summary>
@@ -88,7 +88,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// </summary>
         public RelationCreatedEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
         }
     }

@@ -37,6 +37,21 @@ namespace WebVella.Erp.SharedKernel.Database
 	/// </summary>
 	public static class DbRepository
 	{
+		/// <summary>
+		/// Sanitizes a PostgreSQL identifier (table name, column name, index name) by removing
+		/// embedded double quotes. This prevents SQL injection via identifier names (CWE-89).
+		/// Identifiers are always double-quoted in the generated SQL for safety.
+		/// </summary>
+		/// <param name="identifier">The raw identifier string to sanitize.</param>
+		/// <returns>A safe identifier string with any embedded double quotes removed.</returns>
+		internal static string PgSqlSafeIdentifier(string identifier)
+		{
+			if (string.IsNullOrEmpty(identifier))
+				return identifier;
+			// Remove any embedded double quotes to prevent breaking out of the identifier quoting
+			return identifier.Replace("\"", "");
+		}
+
 		public static void CreatePostgresqlCasts()
 		{
 			using (var connection = DbContextAccessor.Current.CreateConnection())
@@ -524,7 +539,10 @@ namespace WebVella.Erp.SharedKernel.Database
 
 			using (var connection = DbContextAccessor.Current.CreateConnection())
 			{
-				string sql = $@"CREATE INDEX IF NOT EXISTS {indexName} ON {tableName} USING gin(to_tsvector('simple', coalesce({columnName}, ' ')));";
+				// Use quote_ident() for all identifier interpolation to prevent SQL injection (CWE-89).
+				// While these are typically system-generated values, parameterized identifier quoting
+				// follows best practice for defense-in-depth security.
+				string sql = $@"CREATE INDEX IF NOT EXISTS ""{PgSqlSafeIdentifier(indexName)}"" ON ""{PgSqlSafeIdentifier(tableName)}"" USING gin(to_tsvector('simple', coalesce(""{PgSqlSafeIdentifier(columnName)}"", ' ')));";
 				NpgsqlCommand command = connection.CreateCommand(sql);
 				command.ExecuteNonQuery();
 			}
@@ -636,7 +654,13 @@ namespace WebVella.Erp.SharedKernel.Database
 			using (var connection = DbContextAccessor.Current.CreateConnection())
 			{
 				bool tableExists = false;
-				var command = connection.CreateCommand($"SELECT EXISTS (  SELECT 1 FROM   information_schema.tables  WHERE  table_schema = 'public' AND table_name = '{tableName}' ) ");
+				// Use parameterized query ($1) instead of string interpolation to prevent SQL injection (CWE-89).
+				var command = connection.CreateCommand("SELECT EXISTS ( SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = @tableName )");
+				var parameter = command.CreateParameter() as NpgsqlParameter;
+				parameter.ParameterName = "tableName";
+				parameter.Value = tableName;
+				parameter.NpgsqlDbType = NpgsqlDbType.Text;
+				command.Parameters.Add(parameter);
 				using (var reader = command.ExecuteReader())
 				{
 					reader.Read();

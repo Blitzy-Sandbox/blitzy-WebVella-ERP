@@ -33,7 +33,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// idempotency checks, and audit trail reconstruction across distributed services.
         /// </para>
         /// </summary>
-        DateTime Timestamp { get; set; }
+        DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for tracing event chains across services.

@@ -78,6 +78,7 @@
     <!-- MassTransit — Message bus abstraction (RabbitMQ + Amazon SQS/SNS) -->
     <PackageVersion Include="MassTransit" Version="8.4.0" />
     <PackageVersion Include="MassTransit.AmazonSQS" Version="8.4.0" />
+    <PackageVersion Include="MassTransit.Newtonsoft" Version="8.4.0" />
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.4.0" />
 
     <!-- AWS SDK — LocalStack integration for cloud-native validation -->

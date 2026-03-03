@@ -34,7 +34,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// Initialized to <see cref="DateTime.UtcNow"/> by the parameterless constructor.
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for tracing the delete operation
@@ -86,7 +86,7 @@ namespace WebVella.Erp.SharedKernel.Contracts.Events
         /// </summary>
         public PreRecordDeleteEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
             ValidationErrors = new List<ErrorModel>();
         }

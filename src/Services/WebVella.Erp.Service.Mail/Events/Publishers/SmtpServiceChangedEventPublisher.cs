@@ -34,7 +34,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// Initialized to <see cref="DateTime.UtcNow"/> in the parameterless constructor.
         /// </summary>
         [JsonProperty(PropertyName = "timestamp")]
-        public DateTime Timestamp { get; set; }
+        public DateTimeOffset Timestamp { get; set; }
 
         /// <summary>
         /// Gets or sets the unique correlation identifier for tracing this event across services.
@@ -96,7 +96,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
         /// </summary>
         public SmtpServiceChangedEvent()
         {
-            Timestamp = DateTime.UtcNow;
+            Timestamp = DateTimeOffset.UtcNow;
             CorrelationId = Guid.NewGuid();
             EntityName = "smtp_service";
             ChangeType = string.Empty;
@@ -197,7 +197,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
                 IsDefault = isDefault,
                 ChangeType = "Created",
                 CorrelationId = Guid.NewGuid(),
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTimeOffset.UtcNow
             };
 
             await _publishEndpoint.Publish(smtpServiceChangedEvent, cancellationToken);
@@ -247,7 +247,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
                 IsDefault = isDefault,
                 ChangeType = "Updated",
                 CorrelationId = Guid.NewGuid(),
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTimeOffset.UtcNow
             };
 
             await _publishEndpoint.Publish(smtpServiceChangedEvent, cancellationToken);
@@ -297,7 +297,7 @@ namespace WebVella.Erp.Service.Mail.Events.Publishers
                 IsDefault = false,
                 ChangeType = "Deleted",
                 CorrelationId = Guid.NewGuid(),
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTimeOffset.UtcNow
             };
 
             await _publishEndpoint.Publish(smtpServiceChangedEvent, cancellationToken);
