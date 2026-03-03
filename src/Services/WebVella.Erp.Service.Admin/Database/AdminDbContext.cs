@@ -296,7 +296,9 @@ namespace WebVella.Erp.Service.Admin.Database
 			_transaction = null;
 			_disposed = false;
 			// ConnectionString is extracted from the EF Core options for IDbContext raw SQL support.
-			ConnectionString = Database.GetConnectionString();
+			// Database.IsRelational() returns false for non-relational providers (e.g., InMemory
+			// used in unit tests), which do not support GetConnectionString().
+			ConnectionString = Database.IsRelational() ? Database.GetConnectionString() : null;
 		}
 
 		#endregion
