@@ -21,7 +21,6 @@ namespace WebVella.Erp.Service.Admin.Database.Migrations
     /// Seeds the "Clear job and error logs" schedule plan and the SDK
     /// plugin data record with final version 20210429.
     /// </summary>
-    [Migration("20250101000000_InitialCreate")]
     public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
