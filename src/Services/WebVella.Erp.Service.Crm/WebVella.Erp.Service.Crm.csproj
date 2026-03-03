@@ -28,6 +28,17 @@
   </PropertyGroup>
 
   <!-- ==========================================================================
+       Exclude Patches/ folder to prevent duplicate EF Core migration discovery.
+       The canonical migrations live in Database/Migrations/ (raw SQL style).
+       Patches/ contains a structurally equivalent migration (20190101) that
+       inserts the same seed data with different IDs, causing unique constraint
+       violations when both migrations run in sequence.
+       ========================================================================== -->
+  <ItemGroup>
+    <Compile Remove="Patches/**" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
        Project References
        Only SharedKernel is allowed per AAP 0.8 rules — no references to
        monolith projects (WebVella.Erp, WebVella.Erp.Web, WebVella.Erp.Plugins.*)
