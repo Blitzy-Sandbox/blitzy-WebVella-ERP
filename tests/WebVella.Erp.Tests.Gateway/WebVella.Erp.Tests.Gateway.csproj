@@ -2,10 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
     <RootNamespace>WebVella.Erp.Tests.Gateway</RootNamespace>
     <AssemblyName>WebVella.Erp.Tests.Gateway</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
 
   <!-- ASP.NET Core shared framework — provides Configuration, Binder, HttpContext, etc. -->
