@@ -15,10 +15,7 @@ namespace WebVella.Erp.Gateway.Pages
     // LogoutModel: fully implemented in logout.cshtml.cs
     // HomePageModel: fully implemented in Index.cshtml.cs
 
-    public class SitePageModel : BaseErpPageModel
-    {
-        public void OnGet() { }
-    }
+    // SitePageModel: fully implemented in Site.cshtml.cs
 
     public class ApplicationHomePageModel : BaseErpPageModel
     {
