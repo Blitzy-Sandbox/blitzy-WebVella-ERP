@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using WebVella.Erp.Service.Project.Database;
+using TaskEntity = WebVella.Erp.Service.Project.Domain.Entities.TaskEntity;
 using Xunit;
 
 namespace WebVella.Erp.Tests.Project.Database
@@ -891,6 +892,15 @@ namespace WebVella.Erp.Tests.Project.Database
             var taskId = Guid.NewGuid();
             var createdOn = DateTime.UtcNow;
 
+            // Fetch seeded FK references
+            Guid statusId;
+            Guid typeId;
+            using (var seedCtx = CreateDbContext())
+            {
+                statusId = seedCtx.TaskStatuses.First().Id;
+                typeId = seedCtx.TaskTypes.First().Id;
+            }
+
             // Insert
             using (var context = CreateDbContext())
             {
@@ -904,8 +914,10 @@ namespace WebVella.Erp.Tests.Project.Database
                     CreatedBy = Guid.NewGuid(), // Cross-service user ref
                     Number = 1,
                     Priority = "2",
-                    XNonbillableHours = 0m,
-                    XBillableHours = 0m,
+                    StatusId = statusId,
+                    TypeId = typeId,
+                    XNonbillableMinutes = 0m,
+                    XBillableMinutes = 0m,
                     LScope = "[\"projects\"]",
                     LRelatedRecords = "[]",
                     XSearch = "test task",
@@ -1018,6 +1030,15 @@ namespace WebVella.Erp.Tests.Project.Database
             var projectId = Guid.NewGuid();
             var taskId = Guid.NewGuid();
 
+            // Fetch seeded FK references
+            Guid joinStatusId;
+            Guid joinTypeId;
+            using (var seedCtx = CreateDbContext())
+            {
+                joinStatusId = seedCtx.TaskStatuses.First().Id;
+                joinTypeId = seedCtx.TaskTypes.First().Id;
+            }
+
             // Insert project, task, and join record
             using (var context = CreateDbContext())
             {
@@ -1035,9 +1056,13 @@ namespace WebVella.Erp.Tests.Project.Database
                     Id = taskId,
                     Subject = "Task for project",
                     CreatedOn = DateTime.UtcNow,
+                    CreatedBy = Guid.NewGuid(),
                     Number = 1,
-                    XNonbillableHours = 0m,
-                    XBillableHours = 0m
+                    StatusId = joinStatusId,
+                    TypeId = joinTypeId,
+                    Key = "TST-1",
+                    XNonbillableMinutes = 0m,
+                    XBillableMinutes = 0m
                 };
                 context.Tasks.Add(task);
 

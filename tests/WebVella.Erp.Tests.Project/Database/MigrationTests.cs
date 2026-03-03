@@ -260,17 +260,17 @@ namespace WebVella.Erp.Tests.Project.Database
             var columns = await GetColumnsAsync(connStr, "rec_task");
             var columnNames = columns.Select(c => c.Name).ToList();
 
-            // Core columns from monolith entity definition
+            // Core columns from monolith entity definition (renamed per domain entity)
             var expectedColumns = new[]
             {
-                "id", "subject", "body", "owner_id", "start_date", "target_date",
+                "id", "subject", "body", "owner_id", "start_time", "end_time",
                 "created_on", "created_by", "completed_on", "number", "parent_id",
-                "status_id", "type_id", "priority", "x_nonbillable_hours",
-                "x_billable_hours", "l_scope", "l_related_records", "x_search",
+                "status_id", "type_id", "priority", "x_nonbillable_minutes",
+                "x_billable_minutes", "l_scope", "l_related_records", "x_search",
                 "recurrence_id", "key",
                 // Columns from patches 20190205 / 20190222 and later
-                "estimated_minutes", "x_billable_minutes", "x_nonbillable_minutes",
-                "timelog_started_on", "recurrence_template"
+                "estimated_minutes",
+                "timelog_started_on", "recurrence_template", "reserve_time"
             };
             foreach (var col in expectedColumns)
             {
@@ -281,12 +281,12 @@ namespace WebVella.Erp.Tests.Project.Database
             // Verify key column data types
             var typeMap = columns.ToDictionary(c => c.Name, c => c.DataType);
             typeMap["id"].Should().Be("uuid");
-            typeMap["number"].Should().Be("bigint");
+            typeMap["number"].Should().Be("numeric");
             typeMap["created_on"].Should().Be("timestamp with time zone");
             typeMap["owner_id"].Should().Be("uuid");
             typeMap["created_by"].Should().Be("uuid");
-            typeMap["start_date"].Should().Be("timestamp with time zone");
-            typeMap["x_nonbillable_hours"].Should().Be("numeric");
+            typeMap["start_time"].Should().Be("timestamp with time zone");
+            typeMap["x_nonbillable_minutes"].Should().Be("numeric");
             typeMap["estimated_minutes"].Should().Be("numeric");
         }
 
@@ -587,12 +587,16 @@ namespace WebVella.Erp.Tests.Project.Database
                     new NpgsqlParameter("@abbr", "TST"));
 
                 await ExecuteNonQueryAsync(conn,
-                    "INSERT INTO rec_task (id, subject, status_id, type_id) " +
-                    "VALUES (@id, @subject, @sid, @tid)",
+                    "INSERT INTO rec_task (id, subject, status_id, type_id, created_by, created_on, key, number) " +
+                    "VALUES (@id, @subject, @sid, @tid, @cb, @co, @key, @num)",
                     new NpgsqlParameter("@id", taskId),
                     new NpgsqlParameter("@subject", "Test Task"),
                     new NpgsqlParameter("@sid", statusId),
-                    new NpgsqlParameter("@tid", typeId));
+                    new NpgsqlParameter("@tid", typeId),
+                    new NpgsqlParameter("@cb", Guid.NewGuid()),
+                    new NpgsqlParameter("@co", DateTime.UtcNow),
+                    new NpgsqlParameter("@key", "TST-1"),
+                    new NpgsqlParameter("@num", 1m));
 
                 await ExecuteNonQueryAsync(conn,
                     "INSERT INTO rec_timelog (id) VALUES (@id)",
@@ -653,19 +657,19 @@ namespace WebVella.Erp.Tests.Project.Database
                 await conn.OpenAsync();
                 await ExecuteNonQueryAsync(conn,
                     @"INSERT INTO rec_task
-                      (id, subject, body, owner_id, start_date, target_date,
+                      (id, subject, body, owner_id, start_time, end_time,
                        created_on, created_by, completed_on, parent_id,
-                       status_id, type_id, priority, x_nonbillable_hours,
-                       x_billable_hours, l_scope, l_related_records, x_search,
+                       status_id, type_id, priority, x_nonbillable_minutes,
+                       x_billable_minutes, l_scope, l_related_records, x_search,
                        recurrence_id, key, estimated_minutes,
-                       x_billable_minutes, x_nonbillable_minutes)
+                       timelog_started_on, recurrence_template, reserve_time, number)
                       VALUES
                       (@id, @subject, @body, @owner, @start, @target,
                        @created_on, @created_by, @completed, NULL,
-                       @status, @type, @priority, @xnh,
-                       @xbh, @scope, @rel, @search,
+                       @status, @type, @priority, @xnm,
+                       @xbm, @scope, @rel, @search,
                        @recur, @key, @est,
-                       @xbm, @xnm)",
+                       @timelog, @rectempl, @reserve, @number)",
                     new NpgsqlParameter("@id", taskId),
                     new NpgsqlParameter("@subject", "Full field test"),
                     new NpgsqlParameter("@body", "<p>HTML body</p>"),
@@ -678,16 +682,18 @@ namespace WebVella.Erp.Tests.Project.Database
                     new NpgsqlParameter("@status", statusId),
                     new NpgsqlParameter("@type", typeId),
                     new NpgsqlParameter("@priority", "2"),
-                    new NpgsqlParameter("@xnh", 10.5m),
-                    new NpgsqlParameter("@xbh", 20.75m),
+                    new NpgsqlParameter("@xnm", 30.0m),
+                    new NpgsqlParameter("@xbm", 45.0m),
                     new NpgsqlParameter("@scope", "[\"projects\"]"),
                     new NpgsqlParameter("@rel", "[\"tasks\"]"),
                     new NpgsqlParameter("@search", "full field test search"),
                     new NpgsqlParameter("@recur", Guid.NewGuid()),
                     new NpgsqlParameter("@key", "TST-1"),
                     new NpgsqlParameter("@est", 120m),
-                    new NpgsqlParameter("@xbm", 45.5m),
-                    new NpgsqlParameter("@xnm", 30.25m));
+                    new NpgsqlParameter("@timelog", now),
+                    new NpgsqlParameter("@rectempl", "FREQ=DAILY"),
+                    new NpgsqlParameter("@reserve", false),
+                    new NpgsqlParameter("@number", 1m));
             }
 
             // Read back and verify every field matches
@@ -695,9 +701,8 @@ namespace WebVella.Erp.Tests.Project.Database
             {
                 await conn.OpenAsync();
                 await using var cmd = new NpgsqlCommand(
-                    "SELECT subject, body, owner_id, priority, x_nonbillable_hours, " +
-                    "x_billable_hours, l_scope, x_search, key, estimated_minutes, " +
-                    "x_billable_minutes, x_nonbillable_minutes " +
+                    "SELECT subject, body, owner_id, priority, x_nonbillable_minutes, " +
+                    "x_billable_minutes, l_scope, x_search, key, estimated_minutes " +
                     "FROM rec_task WHERE id = @id", conn);
                 cmd.Parameters.AddWithValue("@id", taskId);
                 await using var reader = await cmd.ExecuteReaderAsync();
@@ -707,14 +712,12 @@ namespace WebVella.Erp.Tests.Project.Database
                 reader.GetString(1).Should().Be("<p>HTML body</p>");
                 reader.GetGuid(2).Should().Be(ownerId);
                 reader.GetString(3).Should().Be("2");
-                reader.GetDecimal(4).Should().Be(10.5m);
-                reader.GetDecimal(5).Should().Be(20.75m);
+                reader.GetDecimal(4).Should().Be(30.0m);
+                reader.GetDecimal(5).Should().Be(45.0m);
                 reader.GetString(6).Should().Be("[\"projects\"]");
                 reader.GetString(7).Should().Be("full field test search");
                 reader.GetString(8).Should().Be("TST-1");
                 reader.GetDecimal(9).Should().Be(120m);
-                reader.GetDecimal(10).Should().Be(45.5m);
-                reader.GetDecimal(11).Should().Be(30.25m);
             }
         }
 
@@ -755,6 +758,8 @@ namespace WebVella.Erp.Tests.Project.Database
 
             var taskId = Guid.NewGuid();
             var createdBy = Guid.NewGuid();
+            var statusId = new Guid("f3fdd750-0c16-4215-93b3-5373bd528d1f");
+            var typeId = new Guid("da9bf72d-3655-4c51-9f99-047ef9297bf2");
             // Use a specific UTC timestamp to verify precision
             var createdOn = new DateTime(2025, 6, 15, 14, 30, 45, DateTimeKind.Utc);
 
@@ -762,12 +767,16 @@ namespace WebVella.Erp.Tests.Project.Database
             {
                 await conn.OpenAsync();
                 await ExecuteNonQueryAsync(conn,
-                    "INSERT INTO rec_task (id, subject, created_on, created_by) " +
-                    "VALUES (@id, @subject, @created_on, @created_by)",
+                    "INSERT INTO rec_task (id, subject, created_on, created_by, status_id, type_id, key, number) " +
+                    "VALUES (@id, @subject, @created_on, @created_by, @status, @type, @key, @number)",
                     new NpgsqlParameter("@id", taskId),
                     new NpgsqlParameter("@subject", "Audit test"),
                     new NpgsqlParameter("@created_on", createdOn),
-                    new NpgsqlParameter("@created_by", createdBy));
+                    new NpgsqlParameter("@created_by", createdBy),
+                    new NpgsqlParameter("@status", statusId),
+                    new NpgsqlParameter("@type", typeId),
+                    new NpgsqlParameter("@key", "AUD-1"),
+                    new NpgsqlParameter("@number", 1m));
             }
 
             // Read back and verify exact values

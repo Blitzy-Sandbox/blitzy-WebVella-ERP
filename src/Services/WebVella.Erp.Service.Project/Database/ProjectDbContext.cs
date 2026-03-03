@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
+using WebVella.Erp.Service.Project.Domain.Entities;
 
 namespace WebVella.Erp.Service.Project.Database
 {
@@ -580,12 +581,12 @@ namespace WebVella.Erp.Service.Project.Database
                     .HasColumnName("owner_id")
                     .HasColumnType("uuid");
 
-                entity.Property(e => e.StartDate)
-                    .HasColumnName("start_date")
+                entity.Property(e => e.StartTime)
+                    .HasColumnName("start_time")
                     .HasColumnType("timestamptz");
 
-                entity.Property(e => e.TargetDate)
-                    .HasColumnName("target_date")
+                entity.Property(e => e.EndTime)
+                    .HasColumnName("end_time")
                     .HasColumnType("timestamptz");
 
                 entity.Property(e => e.CreatedOn)
@@ -618,13 +619,13 @@ namespace WebVella.Erp.Service.Project.Database
                 entity.Property(e => e.Priority)
                     .HasColumnName("priority");
 
-                entity.Property(e => e.XNonbillableHours)
+                entity.Property(e => e.XNonbillableMinutes)
                     .HasColumnName("x_nonbillable_minutes")
-                    .HasPrecision(18, 3);
+                    .HasPrecision(18, 0);
 
-                entity.Property(e => e.XBillableHours)
+                entity.Property(e => e.XBillableMinutes)
                     .HasColumnName("x_billable_minutes")
-                    .HasPrecision(18, 3);
+                    .HasPrecision(18, 0);
 
                 entity.Property(e => e.LScope)
                     .HasColumnName("l_scope");
@@ -640,23 +641,46 @@ namespace WebVella.Erp.Service.Project.Database
                     .HasColumnType("uuid");
 
                 entity.Property(e => e.Key)
-                    .HasColumnName("key");
+                    .HasColumnName("key")
+                    .IsRequired();
+
+                entity.Property(e => e.EstimatedMinutes)
+                    .HasColumnName("estimated_minutes")
+                    .HasPrecision(18, 0);
+
+                entity.Property(e => e.TimelogStartedOn)
+                    .HasColumnName("timelog_started_on")
+                    .HasColumnType("timestamptz");
+
+                entity.Property(e => e.RecurrenceTemplate)
+                    .HasColumnName("recurrence_template");
+
+                entity.Property(e => e.ReserveTime)
+                    .HasColumnName("reserve_time")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                entity.Property(e => e.Number)
+                    .HasColumnName("number")
+                    .HasPrecision(18, 0);
 
                 // Intra-service FK: Task → TaskStatus (1:N)
-                entity.HasOne(t => t.Status)
+                // No navigation property on TaskEntity — FK-only relationship
+                entity.HasOne<TaskStatusEntity>()
                     .WithMany()
                     .HasForeignKey(t => t.StatusId)
-                    .OnDelete(DeleteBehavior.SetNull);
+                    .OnDelete(DeleteBehavior.Restrict);
 
                 // Intra-service FK: Task → TaskType (1:N)
-                entity.HasOne(t => t.Type)
+                // No navigation property on TaskEntity — FK-only relationship
+                entity.HasOne<TaskTypeEntity>()
                     .WithMany()
                     .HasForeignKey(t => t.TypeId)
-                    .OnDelete(DeleteBehavior.SetNull);
+                    .OnDelete(DeleteBehavior.Restrict);
 
-                // Self-referencing: Task → Parent Task
-                entity.HasOne(t => t.Parent)
-                    .WithMany(t => t.Children)
+                // Self-referencing: Task → Parent Task (nullable FK)
+                entity.HasOne<TaskEntity>()
+                    .WithMany()
                     .HasForeignKey(t => t.ParentId)
                     .OnDelete(DeleteBehavior.SetNull);
             });
@@ -1157,7 +1181,7 @@ namespace WebVella.Erp.Service.Project.Database
                     .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasOne(e => e.Task)
-                    .WithMany(t => t.ProjectTaskRelations)
+                    .WithMany()
                     .HasForeignKey(e => e.TargetId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
@@ -1182,7 +1206,7 @@ namespace WebVella.Erp.Service.Project.Database
                     .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasOne(e => e.Task)
-                    .WithMany(t => t.MilestoneTaskRelations)
+                    .WithMany()
                     .HasForeignKey(e => e.TargetId)
                     .OnDelete(DeleteBehavior.Cascade);
             });

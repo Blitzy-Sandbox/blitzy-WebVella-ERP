@@ -154,29 +154,27 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     subject = table.Column<string>(type: "text", nullable: false),
                     body = table.Column<string>(type: "text", nullable: true),
                     owner_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    start_date = table.Column<DateTime>(type: "timestamptz", nullable: true),
-                    target_date = table.Column<DateTime>(type: "timestamptz", nullable: true),
+                    start_time = table.Column<DateTime>(type: "timestamptz", nullable: true),
+                    end_time = table.Column<DateTime>(type: "timestamptz", nullable: true),
                     created_on = table.Column<DateTime>(type: "timestamptz", nullable: false, defaultValueSql: "now()"),
-                    created_by = table.Column<Guid>(type: "uuid", nullable: true),
+                    created_by = table.Column<Guid>(type: "uuid", nullable: false),
                     completed_on = table.Column<DateTime>(type: "timestamptz", nullable: true),
-                    number = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    number = table.Column<decimal>(type: "numeric(18,0)", precision: 18, scale: 0, nullable: false),
                     parent_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    status_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    type_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    status_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    type_id = table.Column<Guid>(type: "uuid", nullable: false),
                     priority = table.Column<string>(type: "text", nullable: true),
-                    x_nonbillable_hours = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false, defaultValue: 0m),
-                    x_billable_hours = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false, defaultValue: 0m),
                     l_scope = table.Column<string>(type: "text", nullable: true, defaultValue: ""),
                     l_related_records = table.Column<string>(type: "text", nullable: true, defaultValue: ""),
                     x_search = table.Column<string>(type: "text", nullable: true),
                     recurrence_id = table.Column<Guid>(type: "uuid", nullable: true),
                     recurrence_template = table.Column<string>(type: "text", nullable: true),
-                    key = table.Column<string>(type: "text", nullable: true),
-                    estimated_minutes = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false, defaultValue: 0m),
-                    x_billable_minutes = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false, defaultValue: 0m),
-                    x_nonbillable_minutes = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false, defaultValue: 0m),
-                    timelog_started_on = table.Column<DateTime>(type: "timestamptz", nullable: true)
+                    key = table.Column<string>(type: "text", nullable: false),
+                    estimated_minutes = table.Column<decimal>(type: "numeric(18,0)", precision: 18, scale: 0, nullable: true),
+                    x_billable_minutes = table.Column<decimal>(type: "numeric(18,0)", precision: 18, scale: 0, nullable: true),
+                    x_nonbillable_minutes = table.Column<decimal>(type: "numeric(18,0)", precision: 18, scale: 0, nullable: true),
+                    timelog_started_on = table.Column<DateTime>(type: "timestamptz", nullable: true),
+                    reserve_time = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false)
                 },
                 constraints: table =>
                 {
@@ -192,13 +190,13 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                         column: x => x.status_id,
                         principalTable: "rec_task_status",
                         principalColumn: "id",
-                        onDelete: ReferentialAction.SetNull);
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_rec_task_rec_task_type_type_id",
                         column: x => x.type_id,
                         principalTable: "rec_task_type",
                         principalColumn: "id",
-                        onDelete: ReferentialAction.SetNull);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             // ----- rec_timelog -----

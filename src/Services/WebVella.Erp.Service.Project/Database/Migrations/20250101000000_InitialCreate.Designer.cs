@@ -324,7 +324,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
             // Task records with self-referencing hierarchy, FK to status/type.
             // Cross-service references (OwnerId, CreatedBy) as plain UUID.
             // =================================================================
-            modelBuilder.Entity("WebVella.Erp.Service.Project.Database.TaskEntity", b =>
+            modelBuilder.Entity("WebVella.Erp.Service.Project.Domain.Entities.TaskEntity", b =>
             {
                 b.Property<Guid>("Id")
                     .ValueGeneratedNever()
@@ -339,7 +339,7 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("timestamptz")
                     .HasColumnName("completed_on");
 
-                b.Property<Guid?>("CreatedBy")
+                b.Property<Guid>("CreatedBy")
                     .HasColumnType("uuid")
                     .HasColumnName("created_by");
 
@@ -347,7 +347,16 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("timestamptz")
                     .HasColumnName("created_on");
 
+                b.Property<DateTime?>("EndTime")
+                    .HasColumnType("timestamptz")
+                    .HasColumnName("end_time");
+
+                b.Property<decimal?>("EstimatedMinutes")
+                    .HasPrecision(18, 0)
+                    .HasColumnName("estimated_minutes");
+
                 b.Property<string>("Key")
+                    .IsRequired()
                     .HasColumnType("text")
                     .HasColumnName("key");
 
@@ -359,8 +368,9 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("text")
                     .HasColumnName("l_scope");
 
-                b.Property<long>("Number")
-                    .HasColumnType("bigint")
+                b.Property<decimal>("Number")
+                    .HasColumnType("numeric(18,0)")
+                    .HasPrecision(18, 0)
                     .HasColumnName("number");
 
                 b.Property<Guid?>("OwnerId")
@@ -379,11 +389,21 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("uuid")
                     .HasColumnName("recurrence_id");
 
-                b.Property<DateTime?>("StartDate")
-                    .HasColumnType("timestamptz")
-                    .HasColumnName("start_date");
+                b.Property<string>("RecurrenceTemplate")
+                    .HasColumnType("text")
+                    .HasColumnName("recurrence_template");
 
-                b.Property<Guid?>("StatusId")
+                b.Property<bool>("ReserveTime")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false)
+                    .HasColumnName("reserve_time");
+
+                b.Property<DateTime?>("StartTime")
+                    .HasColumnType("timestamptz")
+                    .HasColumnName("start_time");
+
+                b.Property<Guid>("StatusId")
                     .HasColumnType("uuid")
                     .HasColumnName("status_id");
 
@@ -392,20 +412,20 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .HasColumnType("text")
                     .HasColumnName("subject");
 
-                b.Property<DateTime?>("TargetDate")
+                b.Property<DateTime?>("TimelogStartedOn")
                     .HasColumnType("timestamptz")
-                    .HasColumnName("target_date");
+                    .HasColumnName("timelog_started_on");
 
-                b.Property<Guid?>("TypeId")
+                b.Property<Guid>("TypeId")
                     .HasColumnType("uuid")
                     .HasColumnName("type_id");
 
-                b.Property<decimal>("XBillableHours")
-                    .HasPrecision(18, 3)
+                b.Property<decimal?>("XBillableMinutes")
+                    .HasPrecision(18, 0)
                     .HasColumnName("x_billable_minutes");
 
-                b.Property<decimal>("XNonbillableHours")
-                    .HasPrecision(18, 3)
+                b.Property<decimal?>("XNonbillableMinutes")
+                    .HasPrecision(18, 0)
                     .HasColumnName("x_nonbillable_minutes");
 
                 b.Property<string>("XSearch")
@@ -741,8 +761,8 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
 
-                b.HasOne("WebVella.Erp.Service.Project.Database.TaskEntity", "Task")
-                    .WithMany("MilestoneTaskRelations")
+                b.HasOne("WebVella.Erp.Service.Project.Domain.Entities.TaskEntity", "Task")
+                    .WithMany()
                     .HasForeignKey("TargetId")
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
@@ -781,8 +801,8 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
 
-                b.HasOne("WebVella.Erp.Service.Project.Database.TaskEntity", "Task")
-                    .WithMany("ProjectTaskRelations")
+                b.HasOne("WebVella.Erp.Service.Project.Domain.Entities.TaskEntity", "Task")
+                    .WithMany()
                     .HasForeignKey("TargetId")
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
@@ -793,28 +813,22 @@ namespace WebVella.Erp.Service.Project.Database.Migrations
             });
 
             // TaskEntity: Self-reference (Parent) + FK to TaskStatus + FK to TaskType
-            modelBuilder.Entity("WebVella.Erp.Service.Project.Database.TaskEntity", b =>
+            modelBuilder.Entity("WebVella.Erp.Service.Project.Domain.Entities.TaskEntity", b =>
             {
-                b.HasOne("WebVella.Erp.Service.Project.Database.TaskEntity", "Parent")
-                    .WithMany("Children")
+                b.HasOne("WebVella.Erp.Service.Project.Domain.Entities.TaskEntity", null)
+                    .WithMany()
                     .HasForeignKey("ParentId")
                     .OnDelete(DeleteBehavior.SetNull);
 
-                b.HasOne("WebVella.Erp.Service.Project.Database.TaskStatusEntity", "Status")
+                b.HasOne("WebVella.Erp.Service.Project.Database.TaskStatusEntity", null)
                     .WithMany()
                     .HasForeignKey("StatusId")
-                    .OnDelete(DeleteBehavior.SetNull);
+                    .OnDelete(DeleteBehavior.Restrict);
 
-                b.HasOne("WebVella.Erp.Service.Project.Database.TaskTypeEntity", "Type")
+                b.HasOne("WebVella.Erp.Service.Project.Database.TaskTypeEntity", null)
                     .WithMany()
                     .HasForeignKey("TypeId")
-                    .OnDelete(DeleteBehavior.SetNull);
-
-                b.Navigation("Parent");
-
-                b.Navigation("Status");
-
-                b.Navigation("Type");
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
 #pragma warning restore 612, 618

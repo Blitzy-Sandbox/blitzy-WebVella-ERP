@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using WebVella.Erp.Service.Project.Database;
+using TaskEntity = WebVella.Erp.Service.Project.Domain.Entities.TaskEntity;
 using Xunit;
 
 namespace WebVella.Erp.Tests.Project.Database
@@ -318,9 +319,9 @@ namespace WebVella.Erp.Tests.Project.Database
             columns.Should().ContainKey("created_by");
             columns["created_by"].Should().Be("uuid");
 
-            // Temporal fields
-            columns.Should().ContainKey("start_date");
-            columns.Should().ContainKey("target_date");
+            // Temporal fields (renamed from start_date/target_date per domain entity)
+            columns.Should().ContainKey("start_time");
+            columns.Should().ContainKey("end_time");
             columns.Should().ContainKey("created_on");
             columns.Should().ContainKey("completed_on");
 
@@ -563,6 +564,13 @@ namespace WebVella.Erp.Tests.Project.Database
             var feedItemId = Guid.NewGuid();
 
             // Seed required reference data (task_type and task_status already seeded by migrations)
+            Guid taskStatusId;
+            Guid taskTypeId;
+            using (var seedCtx = CreateDbContext())
+            {
+                taskStatusId = seedCtx.TaskStatuses.First().Id;
+                taskTypeId = seedCtx.TaskTypes.First().Id;
+            }
 
             using (var context = CreateDbContext())
             {
@@ -578,7 +586,11 @@ namespace WebVella.Erp.Tests.Project.Database
                 {
                     Id = taskId,
                     Subject = "GUID Test Task",
-                    CreatedOn = DateTime.UtcNow
+                    CreatedOn = DateTime.UtcNow,
+                    CreatedBy = Guid.NewGuid(),
+                    StatusId = taskStatusId,
+                    TypeId = taskTypeId,
+                    Key = "GTP-1"
                 });
 
                 context.Timelogs.Add(new TimelogEntity
@@ -649,6 +661,14 @@ namespace WebVella.Erp.Tests.Project.Database
             var commentId = Guid.NewGuid();
             var attachmentId = Guid.NewGuid(); // Cross-service file attachment UUID
 
+            Guid relStatusId;
+            Guid relTypeId;
+            using (var seedCtx = CreateDbContext())
+            {
+                relStatusId = seedCtx.TaskStatuses.First().Id;
+                relTypeId = seedCtx.TaskTypes.First().Id;
+            }
+
             using (var context = CreateDbContext())
             {
                 // Create prerequisite entities
@@ -662,7 +682,11 @@ namespace WebVella.Erp.Tests.Project.Database
                 {
                     Id = taskId,
                     Subject = "Relation GUID Task",
-                    CreatedOn = DateTime.UtcNow
+                    CreatedOn = DateTime.UtcNow,
+                    CreatedBy = Guid.NewGuid(),
+                    StatusId = relStatusId,
+                    TypeId = relTypeId,
+                    Key = "RGT-1"
                 });
                 context.Milestones.Add(new MilestoneEntity
                 {
@@ -1065,15 +1089,15 @@ namespace WebVella.Erp.Tests.Project.Database
                     Subject = "Round-Trip Task",
                     Body = "<p>Task body HTML</p>",
                     OwnerId = userId,
-                    StartDate = now,
-                    TargetDate = now.AddDays(14),
+                    StartTime = now,
+                    EndTime = now.AddDays(14),
                     CreatedOn = now,
                     CreatedBy = userId,
                     Priority = "2",
                     StatusId = taskStatusId,
                     TypeId = taskTypeId,
-                    XNonbillableHours = 30m,
-                    XBillableHours = 60m,
+                    XNonbillableMinutes = 30m,
+                    XBillableMinutes = 60m,
                     LScope = "[\"projects\"]",
                     LRelatedRecords = "[]",
                     XSearch = "round trip task test",
@@ -1160,8 +1184,8 @@ namespace WebVella.Erp.Tests.Project.Database
                 task.Priority.Should().Be("2");
                 task.StatusId.Should().Be(taskStatusId);
                 task.TypeId.Should().Be(taskTypeId);
-                task.XNonbillableHours.Should().Be(30m);
-                task.XBillableHours.Should().Be(60m);
+                task.XNonbillableMinutes.Should().Be(30m);
+                task.XBillableMinutes.Should().Be(60m);
                 task.LScope.Should().Be("[\"projects\"]");
                 task.LRelatedRecords.Should().Be("[]");
                 task.XSearch.Should().Be("round trip task test");
@@ -1215,6 +1239,14 @@ namespace WebVella.Erp.Tests.Project.Database
             var commentId = Guid.NewGuid();
             var attachmentId = Guid.NewGuid();
 
+            Guid m2mStatusId;
+            Guid m2mTypeId;
+            using (var seedCtx = CreateDbContext())
+            {
+                m2mStatusId = seedCtx.TaskStatuses.First().Id;
+                m2mTypeId = seedCtx.TaskTypes.First().Id;
+            }
+
             // Insert entities
             using (var context = CreateDbContext())
             {
@@ -1228,13 +1260,21 @@ namespace WebVella.Erp.Tests.Project.Database
                 {
                     Id = task1Id,
                     Subject = "M2M Task 1",
-                    CreatedOn = DateTime.UtcNow
+                    CreatedOn = DateTime.UtcNow,
+                    CreatedBy = Guid.NewGuid(),
+                    StatusId = m2mStatusId,
+                    TypeId = m2mTypeId,
+                    Key = "M2M-1"
                 });
                 context.Tasks.Add(new TaskEntity
                 {
                     Id = task2Id,
                     Subject = "M2M Task 2",
-                    CreatedOn = DateTime.UtcNow
+                    CreatedOn = DateTime.UtcNow,
+                    CreatedBy = Guid.NewGuid(),
+                    StatusId = m2mStatusId,
+                    TypeId = m2mTypeId,
+                    Key = "M2M-2"
                 });
                 context.Milestones.Add(new MilestoneEntity
                 {
