@@ -70,6 +70,11 @@
     <PackageReference Include="Moq" />
     <!-- WebApplicationFactory<T> for in-memory MailController REST testing -->
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <!-- Explicit EF Core reference to resolve CS1705 version conflict:
+         Mail service compiles against EF Core 10.0.1 (via Design package),
+         but Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 only brings EF Core 10.0.0
+         transitively. This explicit reference ensures version alignment. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
   </ItemGroup>
 
   <!-- =================================================================== -->
