@@ -194,4 +194,19 @@ namespace WebVella.Erp.SharedKernel.Models
 		[JsonProperty(PropertyName = "direction")]
 		public string Direction { get; set; }
 	}
+
+	/// <summary>
+	/// Represents a single row in a Many-to-Many (N:N) relation join table.
+	/// Used by the database layer and AutoMapper to materialize rows from
+	/// <c>rel_*</c> join tables into typed objects for relation record
+	/// management (attach/detach operations).
+	/// </summary>
+	public class DatabaseNNRelationRecord
+	{
+		[JsonProperty(PropertyName = "origin_id")]
+		public Guid OriginId { get; set; }
+
+		[JsonProperty(PropertyName = "target_id")]
+		public Guid TargetId { get; set; }
+	}
 }
