@@ -1,5 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Reporting Service Test Project
+    ==============================
+    xUnit test project for the Reporting microservice (WebVella.Erp.Service.Reporting).
+    Contains unit tests for ReportAggregationService business logic (timelog aggregation,
+    task/project projection), integration tests for ReportController REST endpoints,
+    event subscriber mock/integration tests (TimelogCreated/Deleted, TaskUpdated,
+    ProjectUpdated consumers with idempotency validation), and ReportingDbContext
+    migration validation tests.
+
+    Replaces any stub project with full test infrastructure including:
+      - xUnit 2.9.3 test framework with FluentAssertions and Moq
+      - WebApplicationFactory for ReportController REST integration testing
+      - Testcontainers for isolated PostgreSQL database migration tests
+      - EF Core InMemory provider for lightweight unit tests
+      - Newtonsoft.Json for API response shape assertions
+
+    Key Rules (AAP 0.8.2):
+      - Unit tests for all business logic classes must have >=80% code coverage
+      - Event subscriber tests must validate idempotent event consumption
+      - All Newtonsoft.Json [JsonProperty] annotations preserved on tested models
+      - ReportAggregationService derived from monolith ReportService.cs (137 lines)
+      - NO gRPC packages — Reporting service has no gRPC endpoints per AAP
+
+    Versions managed centrally via root Directory.Packages.props (CPM).
+  -->
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>WebVella.Erp.Tests.Reporting</AssemblyName>
@@ -8,58 +35,126 @@
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <!-- Remove the language litter of code analysis on publish
+         https://github.com/dotnet/roslyn/issues/39458 -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
-  <!-- Test Framework -->
+  <!-- =================================================================== -->
+  <!-- ASP.NET Core Shared Framework                                        -->
+  <!-- Required for WebApplicationFactory<T> in-memory test hosting,        -->
+  <!-- HttpClient test infrastructure, ReportController integration test    -->
+  <!-- hosting, middleware pipeline testing, and ASP.NET Core dependency     -->
+  <!-- injection in test fixtures.                                          -->
+  <!-- =================================================================== -->
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- TEST FRAMEWORK PACKAGES (AAP 0.6.1)                                  -->
+  <!-- Versions managed centrally via root Directory.Packages.props          -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Test platform SDK — required by dotnet test for host init and discovery -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- xUnit test framework — [Fact], [Theory], [InlineData] attributes for
+         ReportAggregationService unit tests, ReportController integration tests,
+         event subscriber tests, and ReportingDbContext migration tests -->
     <PackageReference Include="xunit" />
+    <!-- VS/CLI test runner adapter for xUnit — enables test discovery and
+         execution via dotnet test and VS Test Explorer -->
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- Code coverage collector for >=80% coverage reporting per AAP 0.8.2 -->
     <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
 
-  <!-- Testing Utilities -->
+  <!-- =================================================================== -->
+  <!-- TESTING UTILITY PACKAGES (AAP 0.6.1)                                 -->
+  <!-- =================================================================== -->
   <ItemGroup>
+    <!-- Fluent assertion library — .Should().Be(), .Should().BeEquivalentTo(),
+         .Should().Throw<T>() for expressive test validation of
+         ReportAggregationService timelog aggregation logic, ReportController
+         HTTP responses, and event subscriber idempotency -->
     <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library — Mock<T>, It.IsAny<T>, Times.Once() for creating
+         mock/stub implementations of ReportingDbContext, ReportAggregationService,
+         IDistributedCache, MassTransit consumers to isolate report aggregation
+         business logic and validate idempotent event consumption per AAP 0.8.2 -->
     <PackageReference Include="Moq" />
+    <!-- WebApplicationFactory<T> for in-memory ReportController REST endpoint
+         integration tests — enables HTTP client-based test execution for report
+         generation and aggregation endpoints without real network calls -->
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
-  <!-- Testcontainers for Database Integration Tests -->
+  <!-- =================================================================== -->
+  <!-- TESTCONTAINERS — Docker-based Integration Test Infrastructure        -->
+  <!-- =================================================================== -->
   <ItemGroup>
+    <!-- Base Testcontainers — container builder, wait strategies, networks
+         for isolated test environments used by Reporting service database
+         and event integration tests -->
     <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL Testcontainers — isolated PostgreSQL 16 instances for
+         ReportingDbContext migration validation tests and database
+         integration tests per AAP 0.8.2 testing requirements -->
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
 
-  <!-- Database and EF Core -->
+  <!-- =================================================================== -->
+  <!-- ADDITIONAL PACKAGES — Reporting Service Test Dependencies             -->
+  <!-- =================================================================== -->
   <ItemGroup>
     <!--
       NOTE: Npgsql ADO.NET driver is NOT referenced directly to avoid NU1605
       package downgrade conflict. Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
-      requires Npgsql >= 10.0.0, while root CPM pins Npgsql at 9.0.4. The
-      driver is available transitively through the Reporting service's
-      Npgsql.EntityFrameworkCore.PostgreSQL dependency.
+      (in the Reporting service) requires Npgsql >= 10.0.0, while root CPM
+      pins Npgsql at 9.0.4 for monolith compatibility. The driver is available
+      transitively via:
+        - Reporting service -> Npgsql.EntityFrameworkCore.PostgreSQL (provides Npgsql 10.0.x)
+        - SharedKernel ProjectReference (provides Npgsql for EQL/DB helpers)
     -->
+    <!-- JSON serialization matching monolith version — API response shape
+         assertions for BaseResponseModel envelope, report data serialization,
+         EntityRecord JSON representation, [JsonProperty] annotated contract
+         compatibility, and JsonConvert.DeserializeObject<List<Guid>>() pattern
+         from original ReportService.cs -->
     <PackageReference Include="Newtonsoft.Json" />
+    <!-- EF Core in-memory database provider for unit tests that need a
+         lightweight mock of ReportingDbContext without requiring a real
+         PostgreSQL instance — enables fast isolated unit testing of
+         ReportAggregationService with in-memory projections
+         (TimelogProjection, TaskProjection, ProjectProjection, ReportDefinition) -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
   </ItemGroup>
 
-  <!-- Project References -->
+  <!-- =================================================================== -->
+  <!-- PROJECT REFERENCES                                                   -->
+  <!-- =================================================================== -->
   <ItemGroup>
-    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Reporting/WebVella.Erp.Service.Reporting.csproj" />
-    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
-  </ItemGroup>
-
-  <!-- ASP.NET Core shared framework for WebApplicationFactory -->
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Reporting microservice under test — provides ReportAggregationService,
+         ReportController, ReportingDbContext, TimelogProjection, TaskProjection,
+         ProjectProjection, ReportDefinition, event consumers (TimelogCreated,
+         TimelogDeleted, TaskUpdated, ProjectUpdated) for unit tests, controller
+         integration tests, event subscriber mock tests, and database migration
+         validation tests -->
+    <ProjectReference Include="..\..\src\Services\WebVella.Erp.Service.Reporting\WebVella.Erp.Service.Reporting.csproj" />
+    <!-- SharedKernel contracts and utilities — DTOs (EntityRecord, EntityRecordList,
+         BaseResponseModel, ErpUser, ErpRole, SystemIds, ErrorModel), event types
+         (RecordCreatedEvent, RecordUpdatedEvent, RecordDeletedEvent), EQL engine
+         types (EqlCommand, EqlParameter), database helpers (DbRepository,
+         DbConnection), security context (SecurityContext, JwtTokenHandler),
+         utilities (Helpers), and exceptions (StorageException, ValidationException)
+         used in test assertions, mock setups, and test fixtures -->
+    <ProjectReference Include="..\..\src\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
   </ItemGroup>
 
 </Project>
