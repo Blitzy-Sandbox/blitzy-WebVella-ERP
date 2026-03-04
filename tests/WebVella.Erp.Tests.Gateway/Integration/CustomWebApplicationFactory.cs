@@ -209,6 +209,24 @@ namespace WebVella.Erp.Tests.Gateway.Integration
                     ["ServiceRoutes:MailServiceUrl"] = "http://localhost:9004",
                     ["ServiceRoutes:ReportingServiceUrl"] = "http://localhost:9005",
                     ["ServiceRoutes:AdminServiceUrl"] = "http://localhost:9006",
+
+                    // RouteMappings — URL prefix → service key mapping.
+                    // Program.cs binds RouteConfiguration from "ServiceRoutes" section,
+                    // so RouteMappings must be nested under ServiceRoutes for the
+                    // Dictionary<string,string> property to populate correctly.
+                    // These match the literal prefix routes from appsettings.json.
+                    ["ServiceRoutes:RouteMappings:/api/v3.0/p/sdk"] = "AdminServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3.0/p/project"] = "ProjectServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/entity"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/record"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/eql"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/user"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/search"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/file"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/datasource"] = "CoreServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/crm"] = "CrmServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/mail"] = "MailServiceUrl",
+                    ["ServiceRoutes:RouteMappings:/api/v3/{locale}/report"] = "ReportingServiceUrl",
                 });
             });
 
@@ -241,6 +259,13 @@ namespace WebVella.Erp.Tests.Gateway.Integration
 
                 // Admin/SDK service — code gen, logs, datasources, sitemap
                 services.AddHttpClient("AdminService")
+                    .ConfigurePrimaryHttpMessageHandler(() => _mockBackendHandler.Object);
+
+                // Default (unnamed) HttpClient used by RequestRoutingMiddleware
+                // (line 189: _httpClientFactory.CreateClient("default")) for forwarding
+                // requests to backend services. Without this registration, forwarded
+                // requests would attempt real HTTP calls to localhost test ports.
+                services.AddHttpClient("default")
                     .ConfigurePrimaryHttpMessageHandler(() => _mockBackendHandler.Object);
             });
         }
