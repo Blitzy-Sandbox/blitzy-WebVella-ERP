@@ -17,7 +17,8 @@ namespace WebVella.Erp.Service.Core.Api
 	/// <para><b>Key changes from monolith:</b></para>
 	/// <list type="bullet">
 	///   <item>IMemoryCache replaced with IDistributedCache (Redis-backed)</item>
-	///   <item>CLR object storage replaced with JSON serialization via Newtonsoft.Json</item>
+	///   <item>CLR object storage replaced with JSON serialization via Newtonsoft.Json
+	///         with TypeNameHandling.Auto for polymorphic Field/InputField support</item>
 	///   <item>Cache keys prefixed with "core:" for Redis namespace isolation across services</item>
 	///   <item>Static <see cref="Initialize"/> method for DI injection at startup</item>
 	/// </list>
@@ -81,6 +82,20 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Shared cache entry options preserving the monolith's 1-hour absolute expiration TTL.
 		/// Applied to all SetString calls to ensure entries expire after 1 hour regardless of access.
 		/// </summary>
+		/// <summary>
+		/// JSON serialization settings using TypeNameHandling.Auto for polymorphic
+		/// collections such as List&lt;Field&gt; (abstract) containing concrete field
+		/// subclasses (GuidField, TextField, etc.). Required because the Entity model
+		/// stores fields as <c>List&lt;Field&gt;</c> and the cache must round-trip
+		/// through JSON while preserving concrete type identity.
+		/// Mirrors DbEntityRepository's TypeNameHandling.Auto usage.
+		/// </summary>
+		private static readonly JsonSerializerSettings _jsonSettings = new JsonSerializerSettings
+		{
+			TypeNameHandling = TypeNameHandling.Auto,
+			NullValueHandling = NullValueHandling.Ignore
+		};
+
 		private static readonly DistributedCacheEntryOptions _cacheOptions = new DistributedCacheEntryOptions
 		{
 			AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1)
@@ -181,7 +196,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </param>
 		public static void AddEntities(List<Entity> entities)
 		{
-			var json = JsonConvert.SerializeObject(entities);
+			var json = JsonConvert.SerializeObject(entities, _jsonSettings);
 			_cache.SetString(KEY_ENTITIES, json, _cacheOptions);
 			if (entities != null)
 			{
@@ -209,7 +224,7 @@ namespace WebVella.Erp.Service.Core.Api
 			var json = _cache.GetString(KEY_ENTITIES);
 			if (string.IsNullOrEmpty(json))
 				return null;
-			return JsonConvert.DeserializeObject<List<Entity>>(json);
+			return JsonConvert.DeserializeObject<List<Entity>>(json, _jsonSettings);
 		}
 
 		/// <summary>

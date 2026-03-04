@@ -31,6 +31,7 @@ namespace WebVella.Erp.Tests.Core.Api
 	/// enabling full integration testing of serialize → store → retrieve → deserialize
 	/// pipelines without a real Redis instance.
 	/// </summary>
+	[Collection("Cache")]
 	public class CacheTests : IDisposable
 	{
 		#region <=== Fields and Setup ===>
@@ -96,9 +97,15 @@ namespace WebVella.Erp.Tests.Core.Api
 			_testEntities = CreateTestEntities();
 			_testRelations = CreateTestRelations();
 
-			// Pre-compute expected hash values
+			// Pre-compute expected hash values using the same settings as Cache
+			// (TypeNameHandling.Auto for polymorphic Field collections)
+			var entityJsonSettings = new JsonSerializerSettings
+			{
+				TypeNameHandling = TypeNameHandling.Auto,
+				NullValueHandling = NullValueHandling.Ignore
+			};
 			_expectedEntitiesHash = CryptoUtility.ComputeOddMD5Hash(
-				JsonConvert.SerializeObject(_testEntities));
+				JsonConvert.SerializeObject(_testEntities, entityJsonSettings));
 			_expectedRelationsHash = CryptoUtility.ComputeOddMD5Hash(
 				JsonConvert.SerializeObject(_testRelations));
 		}
@@ -478,8 +485,13 @@ namespace WebVella.Erp.Tests.Core.Api
 		[Fact]
 		public void Test_EntitiesHash_ComputedCorrectly()
 		{
-			// Arrange
-			var json = JsonConvert.SerializeObject(_testEntities);
+			// Arrange — use the same TypeNameHandling.Auto settings as Cache.AddEntities()
+			var entityJsonSettings = new JsonSerializerSettings
+			{
+				TypeNameHandling = TypeNameHandling.Auto,
+				NullValueHandling = NullValueHandling.Ignore
+			};
+			var json = JsonConvert.SerializeObject(_testEntities, entityJsonSettings);
 			var expectedHash = CryptoUtility.ComputeOddMD5Hash(json);
 
 			// Act
