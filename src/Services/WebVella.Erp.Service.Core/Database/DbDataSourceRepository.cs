@@ -21,7 +21,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// </summary>
 		/// <param name="id"></param>
 		/// <returns></returns>
-		public DataRow Get(Guid id)
+		public virtual DataRow Get(Guid id)
 		{
 			using (DbConnection con = CurrentContext.CreateConnection())
 			{
@@ -42,7 +42,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// </summary>
 		/// <param name="name"></param>
 		/// <returns></returns>
-		public DataRow Get(string name)
+		public virtual DataRow Get(string name)
 		{
 			using (DbConnection con = CurrentContext.CreateConnection())
 			{
@@ -62,7 +62,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// Gets all data source records
 		/// </summary>
 		/// <returns></returns>
-		public DataTable GetAll()
+		public virtual DataTable GetAll()
 		{
 			using (DbConnection con = CurrentContext.CreateConnection())
 			{
@@ -86,7 +86,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// <param name="fieldsJson"></param>
 		/// <param name="entityName"></param>
 		/// <returns></returns>
-		public bool Create(Guid id, string name, string description, int weight, string eqlTest,
+		public virtual bool Create(Guid id, string name, string description, int weight, string eqlTest,
 							string sqlText, string parametersJson, string fieldsJson,
 							string entityName, bool returnTotal = true)
 		{
@@ -123,7 +123,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// <param name="fieldsJson"></param>
 		/// <param name="entityName"></param>
 		/// <returns></returns>
-		public bool Update(Guid id, string name, string description, int weight, string eqlTest,
+		public virtual bool Update(Guid id, string name, string description, int weight, string eqlTest,
 							string sqlText, string parametersJson, string fieldsJson, 
 							string entityName, bool returnTotal = true )
 		{
@@ -154,7 +154,7 @@ namespace WebVella.Erp.Service.Core.Database
 		/// Deletes existing data source record
 		/// </summary>
 		/// <param name="id"></param>
-		public void Delete(Guid id)
+		public virtual void Delete(Guid id)
 		{
 			using (DbConnection con = CurrentContext.CreateConnection())
 			{
