@@ -20,6 +20,7 @@ using WebVella.Erp.Service.Admin.Services;
 using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
 using WebVella.Erp.SharedKernel.Models;
+using WebVella.Erp.SharedKernel.Security;
 
 namespace WebVella.Erp.Service.Admin
 {
@@ -151,7 +152,7 @@ namespace WebVella.Erp.Service.Admin
 			// AAP 0.8.3: JWT tokens issued by Core service must be accepted.
 			// ================================================================
 			var jwtKey = configuration["Jwt:Key"]
-				?? "default-dev-key-change-in-production-min-32-chars!!";
+				?? JwtTokenOptions.DefaultDevelopmentKey;
 			var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
 			var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
 

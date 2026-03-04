@@ -1396,6 +1396,9 @@ namespace WebVella.Erp.Service.Admin.Services
         {
             using (SharedKernel.Database.DbConnection con = _adminDbContext.CreateConnection())
             {
+                // Table name from relation.Name is safe: names are validated by EntityRelationManager
+                // via ValidationUtility.ValidateName() which enforces ^[a-z](?!.*__)[a-z0-9_]{0,62}$ regex.
+                // SQL parameterization is not possible for identifiers (table names).
                 var command = con.CreateCommand($"SELECT * FROM public.rel_{relation.Name}");
                 DataTable dt = new DataTable();
                 new NpgsqlDataAdapter(command).Fill(dt);
@@ -1418,7 +1421,11 @@ namespace WebVella.Erp.Service.Admin.Services
                     //As relation tables are created after the first relation creation, we need first to check
                     //if the table exists
 
-                    var teCommand = new NpgsqlCommand($"SELECT EXISTS(SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'rel_{relation.Name}');", con);
+                    // Table name check uses parameterized comparison for the tablename value.
+                    // relation.Name is validated by EntityRelationManager regex, but we parameterize
+                    // the comparison value for defense-in-depth since this IS a value (not an identifier).
+                    var teCommand = new NpgsqlCommand("SELECT EXISTS(SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = @tblName);", con);
+                    teCommand.Parameters.AddWithValue("@tblName", $"rel_{relation.Name}");
                     DataTable dt1 = new DataTable();
                     new NpgsqlDataAdapter(teCommand).Fill(dt1);
                     bool isTableExists = false;
@@ -1432,6 +1439,8 @@ namespace WebVella.Erp.Service.Admin.Services
 
                     teCommand.Cancel();
 
+                    // Table name from relation.Name is safe: validated by EntityRelationManager regex.
+                    // SQL parameterization is not possible for identifiers (table names).
                     var command = new NpgsqlCommand($"SELECT * FROM public.rel_{relation.Name}", con);
                     DataTable dt = new DataTable();
                     new NpgsqlDataAdapter(command).Fill(dt);

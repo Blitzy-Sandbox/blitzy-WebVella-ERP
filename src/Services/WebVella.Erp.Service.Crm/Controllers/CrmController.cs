@@ -125,6 +125,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		private readonly IPublishEndpoint _publishEndpoint;
 		private readonly ILogger<CrmController> _logger;
 		private readonly IConfiguration _configuration;
+		private readonly CrmDbContext _crmDbContext;
 
 		/// <summary>
 		/// Constructs the CRM controller with all required dependencies injected via DI.
@@ -137,7 +138,8 @@ namespace WebVella.Erp.Service.Crm.Controllers
 			SearchService searchService,
 			IPublishEndpoint publishEndpoint,
 			ILogger<CrmController> logger,
-			IConfiguration configuration)
+			IConfiguration configuration,
+			CrmDbContext crmDbContext)
 		{
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
 			_entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
@@ -146,6 +148,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 			_publishEndpoint = publishEndpoint ?? throw new ArgumentNullException(nameof(publishEndpoint));
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+			_crmDbContext = crmDbContext ?? throw new ArgumentNullException(nameof(crmDbContext));
 		}
 
 		#endregion
@@ -474,7 +477,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 
 			// Create transaction
 			var result = new QueryResponse();
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				try
 				{
@@ -622,7 +625,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 
 			// Create transaction
 			var result = new QueryResponse();
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				try
 				{
@@ -721,7 +724,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 
 			// Create transaction
 			var result = new QueryResponse();
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				try
 				{
@@ -776,7 +779,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 
 			// Create transaction
 			var result = new QueryResponse();
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				try
 				{
@@ -828,7 +831,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 
 			// Create transaction
 			var result = new QueryResponse();
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				try
 				{
@@ -1255,7 +1258,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 			}
 
 			// Execute within transaction
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				connection.BeginTransaction();
 				try
@@ -1466,7 +1469,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 			}
 
 			// Execute within transaction
-			using (var connection = CrmDbContext.Current.CreateConnection())
+			using (var connection = _crmDbContext.CreateConnection())
 			{
 				connection.BeginTransaction();
 				try

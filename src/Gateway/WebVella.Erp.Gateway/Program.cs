@@ -179,7 +179,7 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = builder.Configuration["Settings:Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(builder.Configuration["Settings:Jwt:Key"]
-                ?? "DEVELOPMENT_ONLY_KEY__OVERRIDE_VIA_Settings__Jwt__Key_ENV_VAR"))
+                ?? JwtTokenOptions.DefaultDevelopmentKey))
     };
 })
 .AddPolicyScheme("JWT_OR_COOKIE", "JWT_OR_COOKIE", options =>
@@ -206,7 +206,7 @@ builder.Services.AddAuthentication(options =>
 var jwtOptions = new JwtTokenOptions
 {
     Key = builder.Configuration["Settings:Jwt:Key"]
-        ?? "DEVELOPMENT_ONLY_KEY__OVERRIDE_VIA_Settings__Jwt__Key_ENV_VAR",
+        ?? JwtTokenOptions.DefaultDevelopmentKey,
     Issuer = builder.Configuration["Settings:Jwt:Issuer"] ?? "webvella-erp",
     Audience = builder.Configuration["Settings:Jwt:Audience"] ?? "webvella-erp",
     TokenExpiryMinutes = double.TryParse(

@@ -18,11 +18,28 @@ namespace WebVella.Erp.SharedKernel.Security
 	public class JwtTokenOptions
 	{
 		/// <summary>
+		/// Shared default development signing key used across ALL microservices as a
+		/// consistent fallback when no explicit JWT key is configured. This constant
+		/// ensures that in development environments without explicit config, all
+		/// services use the same signing key and can validate each other's tokens.
+		///
+		/// The key is 50 characters (400 bits) — well above the 256-bit HMAC-SHA256
+		/// minimum — so no padding is required by JwtTokenHandler.GetSigningKeyBytes().
+		///
+		/// Based on the monolith's Config.json key pattern (repeated base key).
+		/// MUST be overridden in production via configuration.
+		/// </summary>
+		public const string DefaultDevelopmentKey = "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKe";
+
+		/// <summary>
 		/// HMAC SHA-256 signing key for JWT tokens.
-		/// Default: "ThisIsMySecretKey" (from ErpSettings.cs Initialize method).
+		/// Default: <see cref="DefaultDevelopmentKey"/> — a 50-character development-only key.
+		/// The monolith's ErpSettings default was "ThisIsMySecretKey" (17 chars), but
+		/// production Config.json used a 50-character key. The longer default prevents
+		/// key padding discrepancies across services.
 		/// MUST be overridden in production environments.
 		/// </summary>
-		public string Key { get; set; } = "ThisIsMySecretKey";
+		public string Key { get; set; } = DefaultDevelopmentKey;
 
 		/// <summary>
 		/// JWT token issuer claim value.
@@ -63,7 +80,9 @@ namespace WebVella.Erp.SharedKernel.Security
 	/// - Added BuildTokenAsync(IEnumerable&lt;Claim&gt;) overload for raw claim-based token creation.
 	///
 	/// Signing: HMAC SHA-256 (SecurityAlgorithms.HmacSha256Signature).
-	/// Token format: JWT with NameIdentifier, Email, Role, and token_refresh_after claims.
+	/// Token format: JWT with NameIdentifier, Name, Email, GivenName, Surname, image, Role,
+	/// role_name, and token_refresh_after claims — matching ErpUser.ToClaims() for complete
+	/// cross-service identity propagation.
 	/// Refresh format: token_refresh_after uses DateTime.ToBinary().ToString() for backward compatibility.
 	/// </summary>
 	public class JwtTokenHandler
@@ -134,12 +153,19 @@ namespace WebVella.Erp.SharedKernel.Security
 		}
 
 		/// <summary>
-		/// Builds a JWT token for the given ErpUser. Creates claims for the user's identity
-		/// (NameIdentifier, Email), roles (ClaimTypes.Role), and a token_refresh_after timestamp.
+		/// Builds a JWT token for the given ErpUser. Delegates to <see cref="ErpUser.ToClaims()"/>
+		/// which produces the complete claim set required for cross-service identity propagation:
+		/// NameIdentifier (user.Id), Name (Username), Email, GivenName (FirstName),
+		/// Surname (LastName), image, Role (role.Id as Guid), and role_name (role.Name).
 		///
-		/// Extracted from AuthService.BuildTokenAsync(ErpUser) — source lines 145-160.
-		/// Claim creation logic is preserved exactly, including the use of ClaimTypes.Role.ToString()
-		/// for the role claim type (matching the original monolith pattern).
+		/// Using ErpUser.ToClaims() ensures round-trip fidelity with ErpUser.FromClaims():
+		/// - Role claims use role.Id (Guid) as the value, enabling SecurityContext.HasEntityPermission()
+		///   which looks up RecordPermissions by role Guid.
+		/// - role_name companion claims carry the human-readable name for ASP.NET [Authorize(Roles)] checks.
+		/// - All identity fields (Username, FirstName, LastName, Image) are included so downstream
+		///   services can reconstruct a complete ErpUser from JWT claims without callback to Core.
+		///
+		/// Adapted from AuthService.BuildTokenAsync(ErpUser) — source lines 145-160.
 		///
 		/// NOTE: Token expiration uses DateTime.Now (local time), NOT DateTime.UtcNow — this
 		/// matches the original monolith behavior and must be preserved for backward compatibility.
@@ -154,12 +180,10 @@ namespace WebVella.Erp.SharedKernel.Security
 			if (user == null)
 				throw new ArgumentNullException(nameof(user));
 
-			// Build claims list matching AuthService source (lines 147-153) exactly
-			var claims = new List<Claim>();
-			claims.Add(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()));
-			claims.Add(new Claim(ClaimTypes.Email, user.Email));
-			// CRITICAL: Source uses ClaimTypes.Role.ToString() — preserve this exact pattern
-			user.Roles.ForEach(role => claims.Add(new Claim(ClaimTypes.Role.ToString(), role.Name)));
+			// Delegate to ErpUser.ToClaims() for the complete, round-trip-safe claim set.
+			// ToClaims() produces: NameIdentifier(Id), Name(Username), Email, GivenName(FirstName),
+			// Surname(LastName), image, Role(role.Id), role_name(role.Name), plus custom Claims dict.
+			var claims = user.ToClaims();
 
 			// token_refresh_after claim: DateTime.UtcNow + configured refresh minutes, stored as binary
 			DateTime tokenRefreshAfterDateTime = DateTime.UtcNow.AddMinutes(_options.TokenRefreshMinutes);

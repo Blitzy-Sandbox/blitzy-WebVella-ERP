@@ -12,10 +12,15 @@
 //   - NextPlugin.Patch20190206 (salutation, field corrections, search indexing)
 //   - CrmPlugin._.cs (CRM patch framework)
 //
-// Tables modeled (8 entity + 3 join = 11 total):
-//   rec_case_status, rec_case_type, rec_industry, rec_salutation,
+// Tables modeled (7 entity + 3 join = 10 total):
+//   rec_case_status, rec_case_type, rec_salutation,
 //   rec_account, rec_contact, rec_case, rec_address,
 //   rel_account_nn_contact, rel_account_nn_case, rel_address_nn_account
+//
+// NOTE: rec_industry is referenced in the monolith NextPlugin.Patch20190203 but was
+// omitted from the CRM service migration because industry data is managed as seed
+// data within the Core Platform service (part of the shared reference data domain).
+// If CRM-specific industry records are needed in the future, add a dedicated migration.
 // =============================================================================
 
 using System;

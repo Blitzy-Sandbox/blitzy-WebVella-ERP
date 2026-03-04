@@ -194,25 +194,75 @@ namespace WebVella.Erp.Tests.SharedKernel.Security
         }
 
         /// <summary>
-        /// Verifies the token contains Role claims for each user role.
-        /// Source: AuthService.cs line 150 uses ClaimTypes.Role.ToString() as the claim type
-        /// which is the full URI "http://schemas.microsoft.com/ws/2008/06/identity/claims/role".
-        /// In JWT, this maps to the "role" claim.
+        /// Verifies the token contains Username (ClaimTypes.Name), FirstName (ClaimTypes.GivenName),
+        /// LastName (ClaimTypes.Surname), and Image ("image") claims for complete cross-service
+        /// identity propagation per AAP 0.8.3.
+        /// </summary>
+        [Fact]
+        public async Task BuildTokenAsync_TokenContainsAllIdentityClaims()
+        {
+            // Arrange
+            var user = CreateTestUser(username: "jwtuser", email: "jwt@test.com");
+            user.FirstName = "John";
+            user.LastName = "Doe";
+            user.Image = "/avatar/john.png";
+
+            // Act
+            var (_, token) = await _handler.BuildTokenAsync(user);
+
+            // Assert — Username claim
+            var nameClaim = FindClaim(token, ClaimTypes.Name, "unique_name");
+            nameClaim.Should().NotBeNull("Username claim (ClaimTypes.Name) is required");
+            nameClaim!.Value.Should().Be("jwtuser");
+
+            // Assert — FirstName claim
+            var givenNameClaim = FindClaim(token, ClaimTypes.GivenName, "given_name");
+            givenNameClaim.Should().NotBeNull("FirstName claim (ClaimTypes.GivenName) is required");
+            givenNameClaim!.Value.Should().Be("John");
+
+            // Assert — LastName claim
+            var surnameClaim = FindClaim(token, ClaimTypes.Surname, "family_name");
+            surnameClaim.Should().NotBeNull("LastName claim (ClaimTypes.Surname) is required");
+            surnameClaim!.Value.Should().Be("Doe");
+
+            // Assert — Image claim
+            var imageClaim = FindClaim(token, "image");
+            imageClaim.Should().NotBeNull("Image claim is required for complete identity propagation");
+            imageClaim!.Value.Should().Be("/avatar/john.png");
+        }
+
+        /// <summary>
+        /// Verifies the token contains Role claims for each user role using role.Id (Guid)
+        /// as the claim value — NOT role.Name (string). This is critical for
+        /// SecurityContext.HasEntityPermission() which looks up RecordPermissions by role Guid.
+        /// Companion "role_name" claims carry the human-readable name for [Authorize(Roles)] checks.
         /// </summary>
         [Fact]
         public async Task BuildTokenAsync_TokenContainsRoleClaims()
         {
             // Arrange
             var user = CreateTestUser(roleNames: new[] { "admin", "editor" });
+            var expectedRoleIds = user.Roles.Select(r => r.Id.ToString()).ToList();
 
             // Act
             var (_, token) = await _handler.BuildTokenAsync(user);
 
-            // Assert — Role claims may use "role" (JWT) or ClaimTypes.Role (CLR URI)
+            // Assert — Role claims should contain role.Id (Guid), not role.Name (string)
             var roleClaims = FindAllClaims(token, "role", ClaimTypes.Role);
             roleClaims.Should().HaveCount(2);
-            roleClaims.Select(c => c.Value).Should().Contain("admin");
-            roleClaims.Select(c => c.Value).Should().Contain("editor");
+            // Each role claim value must be a valid Guid (role.Id)
+            foreach (var claim in roleClaims)
+            {
+                Guid.TryParse(claim.Value, out _).Should().BeTrue(
+                    "Role claim values must be Guids (role.Id) for SecurityContext.HasEntityPermission()");
+            }
+            roleClaims.Select(c => c.Value).Should().BeEquivalentTo(expectedRoleIds);
+
+            // Verify companion role_name claims carry the human-readable names
+            var roleNameClaims = FindAllClaims(token, "role_name");
+            roleNameClaims.Should().HaveCount(2);
+            roleNameClaims.Select(c => c.Value).Should().Contain("admin");
+            roleNameClaims.Select(c => c.Value).Should().Contain("editor");
         }
 
         /// <summary>
@@ -516,11 +566,16 @@ namespace WebVella.Erp.Tests.SharedKernel.Security
             emailClaim.Should().NotBeNull();
             emailClaim!.Value.Should().Be("roundtrip@test.com");
 
-            // Role claims
+            // Role claims — values are role.Id (Guid), not role.Name (string)
             var roleClaims = FindAllClaims(validatedToken, "role", ClaimTypes.Role);
             roleClaims.Should().HaveCount(2);
-            roleClaims.Select(c => c.Value).Should().Contain("admin");
-            roleClaims.Select(c => c.Value).Should().Contain("user");
+            foreach (var claim in roleClaims)
+            {
+                Guid.TryParse(claim.Value, out _).Should().BeTrue(
+                    "Role claim values must be Guids (role.Id) for SecurityContext permission checks");
+            }
+            var expectedRoleIds = user.Roles.Select(r => r.Id.ToString()).ToList();
+            roleClaims.Select(c => c.Value).Should().BeEquivalentTo(expectedRoleIds);
 
             // token_refresh_after custom claim
             var refreshClaim = FindClaim(validatedToken, "token_refresh_after");
@@ -536,25 +591,31 @@ namespace WebVella.Erp.Tests.SharedKernel.Security
 
         /// <summary>
         /// Verifies that tokens with multiple roles (3) preserve all role claims
-        /// through the build → validate round-trip.
+        /// (as role.Id Guids) through the build → validate round-trip.
         /// </summary>
         [Fact]
         public async Task RoundTrip_MultipleRoles_AllPreserved()
         {
             // Arrange
             var user = CreateTestUser(roleNames: new[] { "admin", "editor", "viewer" });
+            var expectedRoleIds = user.Roles.Select(r => r.Id.ToString()).ToList();
 
             // Act
             var (tokenString, _) = await _handler.BuildTokenAsync(user);
             var validatedToken = await _handler.GetValidSecurityTokenAsync(tokenString);
 
-            // Assert
+            // Assert — Role claim values are role.Id (Guid), not role.Name (string)
             validatedToken.Should().NotBeNull();
             var roleClaims = FindAllClaims(validatedToken!, "role", ClaimTypes.Role);
             roleClaims.Should().HaveCount(3);
-            roleClaims.Select(c => c.Value).Should().Contain("admin");
-            roleClaims.Select(c => c.Value).Should().Contain("editor");
-            roleClaims.Select(c => c.Value).Should().Contain("viewer");
+            roleClaims.Select(c => c.Value).Should().BeEquivalentTo(expectedRoleIds);
+
+            // Companion role_name claims carry the human-readable role names
+            var roleNameClaims = FindAllClaims(validatedToken!, "role_name");
+            roleNameClaims.Should().HaveCount(3);
+            roleNameClaims.Select(c => c.Value).Should().Contain("admin");
+            roleNameClaims.Select(c => c.Value).Should().Contain("editor");
+            roleNameClaims.Select(c => c.Value).Should().Contain("viewer");
         }
 
         #endregion
@@ -652,9 +713,9 @@ namespace WebVella.Erp.Tests.SharedKernel.Security
         #region Phase 6: Configuration Tests (JwtTokenOptions)
 
         /// <summary>
-        /// Verifies that JwtTokenOptions default values match the monolith's ErpSettings
-        /// and AuthService constant values for backward compatibility.
-        /// ErpSettings.cs lines 118-120: Key="ThisIsMySecretKey", Issuer/Audience="webvella-erp"
+        /// Verifies that JwtTokenOptions default values use the standardized development
+        /// key constant and match the monolith's ErpSettings and AuthService constant
+        /// values for backward compatibility.
         /// AuthService.cs lines 19-20: Expiry=1440, Refresh=120
         /// </summary>
         [Fact]
@@ -663,8 +724,10 @@ namespace WebVella.Erp.Tests.SharedKernel.Security
             // Arrange & Act
             var options = new JwtTokenOptions();
 
-            // Assert — Verify all defaults match monolith values exactly
-            options.Key.Should().Be("ThisIsMySecretKey");
+            // Assert — Key defaults to the shared development constant (>= 32 chars)
+            options.Key.Should().Be(JwtTokenOptions.DefaultDevelopmentKey);
+            options.Key.Length.Should().BeGreaterOrEqualTo(32,
+                "Default key must be at least 32 chars for HMAC-SHA256 without padding");
             options.Issuer.Should().Be("webvella-erp");
             options.Audience.Should().Be("webvella-erp");
             options.TokenExpiryMinutes.Should().Be(1440);
