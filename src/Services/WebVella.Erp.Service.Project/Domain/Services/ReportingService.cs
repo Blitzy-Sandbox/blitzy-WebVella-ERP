@@ -83,6 +83,20 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		}
 
 		/// <summary>
+		/// Executes an EQL query and returns the result set. This method is the single
+		/// point of EQL execution within the service, enabling unit test subclasses to
+		/// override it with controlled test data without requiring database access.
+		/// Production code delegates to <see cref="EqlCommand.Execute()"/>.
+		/// </summary>
+		/// <param name="eql">The EQL query text.</param>
+		/// <param name="parameters">The EQL parameters for the query.</param>
+		/// <returns>An <see cref="EntityRecordList"/> containing the query results.</returns>
+		protected virtual EntityRecordList ExecuteEql(string eql, List<EqlParameter> parameters)
+		{
+			return new EqlCommand(eql, parameters).Execute();
+		}
+
+		/// <summary>
 		/// Retrieves aggregated timelog data for a specified month and year,
 		/// optionally filtered by CRM account ID.
 		///
@@ -174,7 +188,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 						   WHERE logged_on >= @from_date AND 
 							  logged_on <= @to_date AND
 							  l_scope CONTAINS @scope";
-			var timelogRecords = new EqlCommand(eql, eqlParams).Execute();
+			var timelogRecords = ExecuteEql(eql, eqlParams);
 
 			// --- Extract task IDs from timelog l_related_records JSON (source lines 48-56) ---
 			HashSet<Guid> setOfTasksWithTimelog = new HashSet<Guid>();
@@ -193,7 +207,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			// that is kept in sync via CRM domain events (AccountUpdated/AccountDeleted).
 			eqlParams = new List<EqlParameter>();
 			eql = @"SELECT id,subject, $project_nn_task.id, $project_nn_task.name,$project_nn_task.account_id, $task_type_1n_task.label FROM task";
-			var tasks = new EqlCommand(eql, eqlParams).Execute();
+			var tasks = ExecuteEql(eql, eqlParams);
 
 			// --- Process tasks: split for projects, filter by account, filter by timelog (source lines 63-98) ---
 			EntityRecordList processedTasks = new EntityRecordList();
