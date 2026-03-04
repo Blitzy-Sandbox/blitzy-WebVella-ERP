@@ -207,7 +207,7 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 
 			var eqlCommand = $"SELECT {String.Join(",", requestColumns)} FROM {entityName} WHERE id = @recordId PAGE 1 PAGESIZE 1";
 			var eqlParameters = new List<EqlParameter>() { new EqlParameter("recordId", (Guid)record["id"]) };
-			var eqlResult = new EqlCommand(eqlCommand, eqlParameters).Execute();
+			var eqlResult = ExecuteEqlQuery(eqlCommand, eqlParameters);
 
 			//After update creation or update, the record is existing
 			if (eqlResult.Count > 0)
@@ -297,6 +297,21 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 					Errors = updateRecordResult.Errors.MapTo<ValidationError>()
 				};
 			}
+		}
+
+		/// <summary>
+		/// Executes an EQL query and returns the result set. This method is extracted
+		/// as a protected virtual seam to enable unit testing of the search index
+		/// generation logic without requiring a live database connection.
+		/// In production, delegates to <see cref="EqlCommand.Execute()"/>.
+		/// Test subclasses can override to inject mock EQL results.
+		/// </summary>
+		/// <param name="eqlCommand">The EQL SELECT command string.</param>
+		/// <param name="eqlParameters">The EQL parameter list.</param>
+		/// <returns>An <see cref="EntityRecordList"/> containing the query results.</returns>
+		protected virtual EntityRecordList ExecuteEqlQuery(string eqlCommand, List<EqlParameter> eqlParameters)
+		{
+			return new EqlCommand(eqlCommand, eqlParameters).Execute();
 		}
 
 		/// <summary>
