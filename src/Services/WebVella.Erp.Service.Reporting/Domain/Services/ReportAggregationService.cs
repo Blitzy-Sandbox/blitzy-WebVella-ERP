@@ -101,7 +101,7 @@ namespace WebVella.Erp.Service.Reporting.Domain.Services
 		/// Thrown when a project has null <c>account_id</c> while filtering by account
 		/// (source line 82: "There is a project without an account").
 		/// </exception>
-		public List<EntityRecord> GetTimelogData(int year, int month, Guid? accountId)
+		public virtual List<EntityRecord> GetTimelogData(int year, int month, Guid? accountId)
 		{
 			_logger.LogInformation(
 				"GetTimelogData called: year={Year}, month={Month}, accountId={AccountId}",
