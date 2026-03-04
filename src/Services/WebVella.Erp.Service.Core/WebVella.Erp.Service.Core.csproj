@@ -54,6 +54,7 @@
   <ItemGroup>
     <!-- From WebVella.Erp/WebVella.Erp.csproj — Core engine packages -->
     <PackageReference Include="AutoMapper" />
+    <PackageReference Include="CS-Script" />
     <PackageReference Include="CsvHelper" />
     <PackageReference Include="MimeMapping" />
     <PackageReference Include="Newtonsoft.Json" />
