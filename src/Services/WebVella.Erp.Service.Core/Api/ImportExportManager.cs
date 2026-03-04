@@ -11,6 +11,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
@@ -36,7 +37,16 @@ namespace WebVella.Erp.Service.Core.Api
 	/// </summary>
 	public class ImportExportManager
 	{
+		/// <summary>
+		/// Separator character used between relation name and field name in CSV column headers.
+		/// Example: "$my_relation.field_name" uses '.' as the separator.
+		/// </summary>
 		private const char RELATION_SEPARATOR = '.';
+
+		/// <summary>
+		/// Prefix character used to identify relation references in CSV column headers.
+		/// Single '$' means origin-target direction, double '$$' means target-origin direction.
+		/// </summary>
 		private const char RELATION_NAME_RESULT_SEPARATOR = '$';
 
 		private readonly CoreDbContext _dbContext;
@@ -49,15 +59,25 @@ namespace WebVella.Erp.Service.Core.Api
 		private readonly ILogger<ImportExportManager> _logger;
 
 		/// <summary>
-		/// Helper property replacing static ErpSettings.DevelopmentMode.
+		/// Helper property replacing static ErpSettings.DevelopmentMode with injected configuration.
+		/// Controls error detail verbosity in catch blocks.
 		/// </summary>
 		private bool IsDevelopmentMode =>
 			string.Equals(_configuration["Settings:DevelopmentMode"], "true", StringComparison.OrdinalIgnoreCase);
 
 		/// <summary>
 		/// Constructs an ImportExportManager with all required service dependencies.
-		/// Replaces monolith pattern of <c>new ImportExportManager()</c>.
+		/// Replaces monolith pattern of <c>new ImportExportManager()</c> which created
+		/// RecordManager, SecurityManager, EntityManager, EntityRelationManager via <c>new</c>.
 		/// </summary>
+		/// <param name="dbContext">Per-service ambient database context replacing the monolith's static DbContext.Current singleton.</param>
+		/// <param name="recordManager">Core record CRUD manager for creating/updating records during CSV import.</param>
+		/// <param name="entityManager">Entity metadata manager for resolving entity schemas during CSV header parsing.</param>
+		/// <param name="entityRelationManager">Entity relation metadata manager for resolving $relation.field patterns.</param>
+		/// <param name="securityManager">Security manager for user/role resolution during import permission validation.</param>
+		/// <param name="fileRepository">File storage repository for reading CSV file content from the database.</param>
+		/// <param name="configuration">Application configuration for DevelopmentMode setting.</param>
+		/// <param name="logger">Logger instance for diagnostic output.</param>
 		public ImportExportManager(
 			CoreDbContext dbContext,
 			RecordManager recordManager,
@@ -88,8 +108,14 @@ namespace WebVella.Erp.Service.Core.Api
 		/// All operations run within a single database transaction.
 		/// Preserved exactly from monolith ImportExportManager.ImportEntityRecordsFromCsv().
 		/// </summary>
+		/// <param name="entityName">Name of the entity to import records into.</param>
+		/// <param name="fileTempPath">File path in the file repository pointing to the CSV file.</param>
+		/// <returns>ResponseModel with success/error status and import results.</returns>
 		public ResponseModel ImportEntityRecordsFromCsv(string entityName, string fileTempPath)
 		{
+			//The import CSV should have column names matching the names of the imported fields. The first column should be "id" matching the id of the record to be updated. 
+			//If the 'id' of a record equals 'null', a new record will be created with the provided columns and default values for the missing ones.
+
 			ResponseModel response = new ResponseModel();
 			response.Message = "Records successfully imported";
 			response.Timestamp = DateTime.UtcNow;
@@ -147,10 +173,13 @@ namespace WebVella.Erp.Service.Core.Api
 				{
 					Encoding = Encoding.UTF8,
 					HasHeaderRecord = true,
+					//IsHeaderCaseSensitive = false;
 				};
 
 				CsvReader csvReader = new CsvReader(reader, config);
+
 				csvReader.Read();
+
 				csvReader.ReadHeader();
 				var headerRecord = csvReader.GetRecord<dynamic>();
 				List<string> columns = new List<string>();
@@ -180,6 +209,7 @@ namespace WebVella.Erp.Service.Core.Api
 						else
 							relationName = relationName.Substring(1);
 
+						//check for target priority mark $$
 						if (relationName.StartsWith("$"))
 						{
 							relationName = relationName.Substring(1);
@@ -216,6 +246,7 @@ namespace WebVella.Erp.Service.Core.Api
 					dynamic fieldMeta = new ExpandoObject();
 					fieldMeta.ColumnName = column;
 					fieldMeta.FieldType = field.GetFieldType();
+
 					fieldMetaList.Add(fieldMeta);
 				}
 
@@ -306,7 +337,6 @@ namespace WebVella.Erp.Service.Core.Api
 						{
 							result = _recordManager.UpdateRecord(entityName, newRecord);
 						}
-
 						if (!result.Success)
 						{
 							string message = result.Message;
@@ -318,7 +348,6 @@ namespace WebVella.Erp.Service.Core.Api
 							throw new Exception(message);
 						}
 					} while (csvReader.Read());
-
 					connection.CommitTransaction();
 				}
 				catch (Exception e)
@@ -352,8 +381,15 @@ namespace WebVella.Erp.Service.Core.Api
 		///
 		/// Returns a detailed evaluation object with per-column errors, warnings,
 		/// record data, field commands (to_create/to_update/no_import), and statistics.
+		///
 		/// Preserved exactly from monolith ImportExportManager.EvaluateImportEntityRecordsFromCsv().
+		/// All relation validation, field type checking, permission verification, and import
+		/// execution logic is maintained byte-for-byte.
 		/// </summary>
+		/// <param name="entityName">Name of the entity to evaluate/import records for.</param>
+		/// <param name="postObject">JObject containing fileTempPath, clipboard, general_command, and commands properties.</param>
+		/// <param name="controller">Optional controller reference (preserved for backward compatibility).</param>
+		/// <returns>ResponseModel with evaluation results including errors, warnings, records, commands, and stats.</returns>
 		public ResponseModel EvaluateImportEntityRecordsFromCsv(string entityName, JObject postObject, object controller = null)
 		{
 			ResponseModel response = new ResponseModel();
@@ -378,19 +414,21 @@ namespace WebVella.Erp.Service.Core.Api
 			string clipboard = "";
 			string generalCommand = "evaluate";
 			EntityRecord commands = new EntityRecord();
-
 			if (!postObject.IsNullOrEmpty() && postObject.Properties().Any(p => p.Name == "fileTempPath"))
 			{
 				fileTempPath = postObject["fileTempPath"].ToString();
 			}
+
 			if (!postObject.IsNullOrEmpty() && postObject.Properties().Any(p => p.Name == "clipboard"))
 			{
 				clipboard = postObject["clipboard"].ToString();
 			}
+
 			if (!postObject.IsNullOrEmpty() && postObject.Properties().Any(p => p.Name == "general_command"))
 			{
-				generalCommand = postObject["general_command"].ToString();
+				generalCommand = postObject["general_command"].ToString(); //could be "evaluate" & "evaluate-import" the first will just evaluate, the second one will evaluate and import if all is fine
 			}
+
 			if (!postObject.IsNullOrEmpty() && generalCommand == "evaluate-import" &&
 				postObject.Properties().Any(p => p.Name == "commands") && !((JToken)postObject["commands"]).IsNullOrEmpty())
 			{
@@ -404,6 +442,7 @@ namespace WebVella.Erp.Service.Core.Api
 				}
 			}
 
+			//VALIDATE:
 			if (fileTempPath == "" && clipboard == "")
 			{
 				response.Success = false;
@@ -415,18 +454,23 @@ namespace WebVella.Erp.Service.Core.Api
 			{
 				Encoding = Encoding.UTF8,
 				HasHeaderRecord = true,
+				//IsHeaderCaseSensitive = false
 			};
 			CsvReader csvReader = null;
-
+			string csvContent = "";
+			//CASE: 1 If fileTempPath != "" -> get the csv from the file
 			if (fileTempPath != "")
 			{
 				if (fileTempPath.StartsWith("/fs"))
 					fileTempPath = fileTempPath.Remove(0, 3);
+
 				if (!fileTempPath.StartsWith("/"))
 					fileTempPath = "/" + fileTempPath;
+
 				fileTempPath = fileTempPath.ToLowerInvariant();
 
 				DbFile file = _fileRepository.Find(fileTempPath);
+
 				if (file == null)
 				{
 					response.Timestamp = DateTime.UtcNow;
@@ -441,17 +485,22 @@ namespace WebVella.Erp.Service.Core.Api
 				TextReader reader = new StreamReader(fileStream);
 				csvReader = new CsvReader(reader, config);
 			}
+			//CASE: 2 If fileTempPath == "" -> get the csv from the clipboard
 			else
 			{
+				csvContent = clipboard;
 				config.Delimiter = "\t";
-				csvReader = new CsvReader(new StringReader(clipboard), config);
+				csvReader = new CsvReader(new StringReader(csvContent), config);
 			}
 
+			//The evaluation object has two properties - errors and warnings. Both are objects
+			//The error validation object should return arrays by field name ex. {field_name:[null,null,"error message"]}
+			//The warning validation object should return arrays by field name ex. {field_name:[null,null,"warning message"]}
 			var evaluationObj = new EntityRecord();
 			evaluationObj["errors"] = new EntityRecord();
 			evaluationObj["warnings"] = new EntityRecord();
 			evaluationObj["records"] = new List<EntityRecord>();
-			evaluationObj["commands"] = new EntityRecord();
+			evaluationObj["commands"] = new EntityRecord(); // the commands is object with properties the fieldNames and the following object as value {command: "to_create" | "no_import" | "to_update", fieldType: 14, fieldName: "name", fieldLabel: "label"}
 			var statsObject = new EntityRecord();
 			statsObject["to_create"] = 0;
 			statsObject["no_import"] = 0;
@@ -462,6 +511,7 @@ namespace WebVella.Erp.Service.Core.Api
 			evaluationObj["general_command"] = generalCommand;
 
 			csvReader.Read();
+
 			csvReader.ReadHeader();
 			var headerRecord = csvReader.GetRecord<dynamic>();
 			List<string> columnNames = new List<string>();
@@ -470,19 +520,22 @@ namespace WebVella.Erp.Service.Core.Api
 				columnNames.Add(name.Key.ToString());
 			}
 
-			// Phase 1: Validate columns and build commands
 			foreach (var columnName in columnNames)
 			{
+				//Init the error list for this field
 				if (!((EntityRecord)evaluationObj["errors"]).GetProperties().Any(p => p.Key == columnName))
 				{
 					((EntityRecord)evaluationObj["errors"])[columnName] = new List<string>();
 				}
+				//Init the warning list for this field
+				var warningList = new List<string>();
 				if (!((EntityRecord)evaluationObj["warnings"]).GetProperties().Any(p => p.Key == columnName))
 				{
 					((EntityRecord)evaluationObj["warnings"])[columnName] = new List<string>();
 				}
 
 				bool existingField = false;
+
 				Field currentFieldMeta = null;
 				Field relationEntityFieldMeta = null;
 				Field relationFieldMeta = null;
@@ -530,6 +583,7 @@ namespace WebVella.Erp.Service.Core.Api
 					else
 						relationName = relationName.Substring(1);
 
+					//check for target priority mark $$
 					if (relationName.StartsWith("$"))
 					{
 						relationName = relationName.Substring(1);
@@ -577,6 +631,7 @@ namespace WebVella.Erp.Service.Core.Api
 					}
 					else if (relation.OriginEntityId == entity.Id)
 					{
+						//direction doesn't matter
 						relationEntity = entities.FirstOrDefault(e => e.Id == relation.TargetEntityId);
 						relationEntityFieldMeta = relationEntity.Fields.FirstOrDefault(f => f.Id == relation.TargetFieldId);
 						currentFieldMeta = relationEntity.Fields.FirstOrDefault(f => f.Name == relationFieldName);
@@ -584,6 +639,7 @@ namespace WebVella.Erp.Service.Core.Api
 					}
 					else
 					{
+						//direction doesn't matter
 						relationEntity = entities.FirstOrDefault(e => e.Id == relation.OriginEntityId);
 						relationEntityFieldMeta = relationEntity.Fields.FirstOrDefault(f => f.Id == relation.OriginFieldId);
 						currentFieldMeta = relationEntity.Fields.FirstOrDefault(f => f.Name == relationFieldName);
@@ -632,6 +688,8 @@ namespace WebVella.Erp.Service.Core.Api
 					((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 				}
 
+				#region << Commands >>
+				//we need to init the command for this column - if it is new field the default is do nothing, if it is existing the default is update
 				if (existingField)
 				{
 					if (generalCommand == "evaluate")
@@ -645,8 +703,8 @@ namespace WebVella.Erp.Service.Core.Api
 						((EntityRecord)commands[columnName])["fieldName"] = currentFieldMeta.Name;
 						((EntityRecord)commands[columnName])["fieldLabel"] = currentFieldMeta.Label;
 
-						bool hasPermission = SecurityContext.HasEntityPermission(EntityPermission.Update, entity);
-						if (!hasPermission)
+						bool hasPermisstion = SecurityContext.HasEntityPermission(EntityPermission.Update, entity);
+						if (!hasPermisstion)
 						{
 							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add($"Access denied. Trying to update record in entity '{entity.Name}' with no update access.");
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
@@ -661,25 +719,26 @@ namespace WebVella.Erp.Service.Core.Api
 				{
 					if (generalCommand == "evaluate")
 					{
+						//we need to check wheather the property of the command match the fieldName
 						((EntityRecord)commands[columnName])["command"] = "to_create";
 						((EntityRecord)commands[columnName])["entityName"] = fieldEnityName;
 						((EntityRecord)commands[columnName])["fieldType"] = FieldType.TextField;
 						((EntityRecord)commands[columnName])["fieldName"] = columnName;
 						((EntityRecord)commands[columnName])["fieldLabel"] = columnName;
 
-						bool hasPermission = SecurityContext.HasEntityPermission(EntityPermission.Create, entity);
-						if (!hasPermission)
+						bool hasPermisstion = SecurityContext.HasEntityPermission(EntityPermission.Create, entity);
+						if (!hasPermisstion)
 						{
 							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add($"Access denied. Trying to create record in entity '{entity.Name}' with no create access.");
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 						}
 					}
 				}
+				#endregion
 			}
 
 			evaluationObj["commands"] = commands;
 
-			// Phase 2: Validate row data
 			while (csvReader.Read())
 			{
 				Dictionary<string, EntityRecord> fieldsFromRelationList = new Dictionary<string, EntityRecord>();
@@ -716,16 +775,17 @@ namespace WebVella.Erp.Service.Core.Api
 							(relationType == EntityRelationType.OneToMany && relation.OriginEntityId != relation.TargetEntityId && relation.OriginEntityId == entity.Id) ||
 							relationType == EntityRelationType.ManyToMany)
 						{
+							//expect array of values
 							if (!columnNames.Any(c => c == relationFieldMeta.Name) || string.IsNullOrEmpty(relationFieldValue))
 							{
 								((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add(string.Format("Invalid relation '{0}'. Relation field does not exist into input record data or its value is null.", columnName));
 								((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 							}
 
-							List<string> values = new List<string> { fieldValue };
-							if (fieldValue.StartsWith("[") && fieldValue.EndsWith("]"))
+							List<string> values = new List<string>();
+							if (relationFieldValue.StartsWith("[") && relationFieldValue.EndsWith("]"))
 							{
-								values = JsonConvert.DeserializeObject<List<string>>(fieldValue);
+								values = JsonConvert.DeserializeObject<List<string>>(relationFieldValue);
 							}
 							if (values.Count < 1)
 								continue;
@@ -735,6 +795,7 @@ namespace WebVella.Erp.Service.Core.Api
 							{
 								queries.Add(EntityQuery.QueryEQ(currentFieldMeta.Name, val));
 							}
+
 							filter = EntityQuery.QueryOR(queries.ToArray());
 						}
 						else
@@ -743,6 +804,7 @@ namespace WebVella.Erp.Service.Core.Api
 						}
 
 						EntityRecord fieldsFromRelation = new EntityRecord();
+
 						if (fieldsFromRelationList.Any(r => r.Key == relation.Name))
 						{
 							fieldsFromRelation = fieldsFromRelationList[relationName];
@@ -761,7 +823,6 @@ namespace WebVella.Erp.Service.Core.Api
 					}
 				}
 
-				// Resolve relation records
 				foreach (var fieldsFromRelation in fieldsFromRelationList)
 				{
 					EntityRecord fieldsFromRelationValue = fieldsFromRelation.Value;
@@ -773,13 +834,14 @@ namespace WebVella.Erp.Service.Core.Api
 
 					var relation = relations.SingleOrDefault(r => r.Name == fieldsFromRelation.Key);
 
+					//get related records
 					QueryResponse relatedRecordResponse = _recordManager.Find(new EntityQuery(relationEntityName, "*", filter, null, null, null));
 
 					if (!relatedRecordResponse.Success || relatedRecordResponse.Object.Data.Count < 1)
 					{
-						foreach (var colName in columnList)
+						foreach (var columnName in columnList)
 						{
-							((List<string>)((EntityRecord)evaluationObj["errors"])[colName]).Add(string.Format("Invalid relation '{0}'. The relation record does not exist.", colName));
+							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add(string.Format("Invalid relation '{0}'. The relation record does not exist.", columnName));
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 						}
 					}
@@ -787,9 +849,10 @@ namespace WebVella.Erp.Service.Core.Api
 						(relation.RelationType == EntityRelationType.OneToMany && relation.OriginEntityId != relation.TargetEntityId && relation.TargetEntityId == entity.Id) ||
 						relation.RelationType == EntityRelationType.OneToOne))
 					{
-						foreach (var colName in columnList)
+						//there can be no more than 1 records
+						foreach (var columnName in columnList)
 						{
-							((List<string>)((EntityRecord)evaluationObj["errors"])[colName]).Add(string.Format("Invalid relation '{0}'. There are multiple relation records matching this value.", colName));
+							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add(string.Format("Invalid relation '{0}'. There are multiple relation records matching this value.", columnName));
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 						}
 					}
@@ -797,38 +860,98 @@ namespace WebVella.Erp.Service.Core.Api
 					fieldsFromRelationList[fieldsFromRelation.Key]["relatedRecordResponse"] = relatedRecordResponse;
 				}
 
-				// Build row record data
 				var rowRecord = new EntityRecord();
 				if ((int)statsObject["errors"] == 0)
 				{
-					foreach (var colName in columnNames)
+					foreach (var columnName in columnNames)
 					{
-						string fValue = rowRecordData[colName];
-						EntityRecord commandRecords2 = ((EntityRecord)commands[colName]);
-						Field cFieldMeta = new TextField();
-						if (commandRecords2.GetProperties().Any(p => p.Key == "currentFieldMeta"))
-							cFieldMeta = (Field)commandRecords2["currentFieldMeta"];
-						string command = (string)commandRecords2["command"];
+						string fieldValue = rowRecordData[columnName];
+						EntityRecord commandRecords = ((EntityRecord)commands[columnName]);
+						Field currentFieldMeta = new TextField();
+						if (commandRecords.GetProperties().Any(p => p.Key == "currentFieldMeta"))
+							currentFieldMeta = (Field)commandRecords["currentFieldMeta"];
+						string fieldEnityName = (string)commandRecords["entityName"];
+						string command = (string)commandRecords["command"];
 
-						bool existingField = command == "to_update";
+						bool existingField = false;
+						if (command == "to_update")
+							existingField = true;
 
 						if (existingField)
 						{
-							var errorsList = (List<string>)((EntityRecord)evaluationObj["errors"])[colName];
-							var warningList = (List<string>)((EntityRecord)evaluationObj["warnings"])[colName];
+							#region << Validation >>
 
-							// Field-level validation preserved from monolith
-							if (string.IsNullOrWhiteSpace(fValue))
+							var errorsList = (List<string>)((EntityRecord)evaluationObj["errors"])[columnName];
+							var warningList = (List<string>)((EntityRecord)evaluationObj["warnings"])[columnName];
+
+							if (columnName.Contains(RELATION_SEPARATOR))
 							{
-								if (cFieldMeta.Required && cFieldMeta.Name != "id")
+								string relationName = (string)((EntityRecord)commands[columnName])["relationName"];
+								string relationDirection = (string)((EntityRecord)commands[columnName])["relationDirection"];
+								string relationEntityName = (string)((EntityRecord)commands[columnName])["entityName"];
+
+								EntityRelationType relationType = (EntityRelationType)Enum.Parse(typeof(EntityRelationType), (((EntityRecord)commands[columnName])["relationType"]).ToString());
+								Field relationEntityFieldMeta = (Field)((EntityRecord)commands[columnName])["relationEntityFieldMeta"];
+								Field relationFieldMeta = (Field)((EntityRecord)commands[columnName])["relationFieldMeta"];
+
+								var relation = relations.SingleOrDefault(x => x.Name == relationName);
+
+								QueryResponse relatedRecordResponse = (QueryResponse)fieldsFromRelationList[relationName]["relatedRecordResponse"];
+
+								var relatedRecords = relatedRecordResponse.Object.Data;
+								List<Guid> relatedRecordValues = new List<Guid>();
+								foreach (var relatedRecord in relatedRecords)
+								{
+									relatedRecordValues.Add((Guid)relatedRecord[relationEntityFieldMeta.Name]);
+								}
+
+								string relationFieldValue = "";
+								if (columnNames.Any(c => c == relationFieldMeta.Name))
+									relationFieldValue = rowRecordData[relationFieldMeta.Name];
+
+								if (relation.RelationType == EntityRelationType.OneToOne &&
+									((relation.OriginEntityId == relation.TargetEntityId && relationDirection == "origin-target") || relation.OriginEntityId == entity.Id))
+								{
+									if (!columnNames.Any(c => c == relationFieldMeta.Name) || string.IsNullOrWhiteSpace(relationFieldValue))
+									{
+										errorsList.Add(string.Format("Invalid relation '{0}'. Relation field does not exist into input record data or its value is null.", columnName));
+										((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
+									}
+								}
+								else if (relation.RelationType == EntityRelationType.OneToMany &&
+									((relation.OriginEntityId == relation.TargetEntityId && relationDirection == "origin-target") || relation.OriginEntityId == entity.Id))
+								{
+									if (!columnNames.Any(c => c == relationFieldMeta.Name) || string.IsNullOrWhiteSpace(relationFieldValue))
+									{
+										errorsList.Add(string.Format("Invalid relation '{0}'. Relation field does not exist into input record data or its value is null.", columnName));
+										((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
+									}
+								}
+								else if (relation.RelationType == EntityRelationType.ManyToMany)
+								{
+									foreach (Guid relatedRecordIdValue in relatedRecordValues)
+									{
+										Guid relRecordId = Guid.Empty;
+										if (!Guid.TryParse(relationFieldValue, out relRecordId))
+										{
+											errorsList.Add("Invalid record value for field: '" + columnName + "'. Invalid value: '" + fieldValue + "'");
+											((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
+										}
+									}
+								}
+
+							}
+							if (string.IsNullOrWhiteSpace(fieldValue))
+							{
+								if (currentFieldMeta.Required && currentFieldMeta.Name != "id")
 								{
 									errorsList.Add("Field is required. Value can not be empty!");
 									((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 								}
 							}
-							else if (!(fValue.StartsWith("[") && fValue.EndsWith("]")))
+							else if (!(fieldValue.StartsWith("[") && fieldValue.EndsWith("]")))
 							{
-								FieldType fType = (FieldType)cFieldMeta.GetFieldType();
+								FieldType fType = (FieldType)currentFieldMeta.GetFieldType();
 								switch (fType)
 								{
 									case FieldType.AutoNumberField:
@@ -836,7 +959,8 @@ namespace WebVella.Erp.Service.Core.Api
 									case FieldType.NumberField:
 									case FieldType.PercentField:
 										{
-											if (!decimal.TryParse(fValue, out _))
+											decimal decValue;
+											if (!decimal.TryParse(fieldValue, out decValue))
 											{
 												errorsList.Add("Value have to be of decimal type!");
 												((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
@@ -845,7 +969,8 @@ namespace WebVella.Erp.Service.Core.Api
 										break;
 									case FieldType.CheckboxField:
 										{
-											if (!bool.TryParse(fValue, out _))
+											bool bValue;
+											if (!bool.TryParse(fieldValue, out bValue))
 											{
 												errorsList.Add("Value have to be of boolean type!");
 												((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
@@ -855,16 +980,22 @@ namespace WebVella.Erp.Service.Core.Api
 									case FieldType.DateField:
 									case FieldType.DateTimeField:
 										{
-											if (!DateTime.TryParse(fValue, out _))
+											DateTime dtValue;
+											if (!DateTime.TryParse(fieldValue, out dtValue))
 											{
 												errorsList.Add("Value have to be of datetime type!");
 												((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 											}
 										}
 										break;
+									case FieldType.MultiSelectField:
+										{
+
+										}
+										break;
 									case FieldType.SelectField:
 										{
-											if (cFieldMeta is SelectField sf && !sf.Options.Any(o => o.Value == fValue))
+											if (!((SelectField)currentFieldMeta).Options.Any(o => o.Value == fieldValue))
 											{
 												errorsList.Add("Value does not exist in select field options!");
 												((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
@@ -873,22 +1004,31 @@ namespace WebVella.Erp.Service.Core.Api
 										break;
 									case FieldType.GuidField:
 										{
-											if (!Guid.TryParse(fValue, out _))
+											Guid gValue;
+											if (!Guid.TryParse(fieldValue, out gValue))
 											{
 												errorsList.Add("Value have to be of guid type!");
 												((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
 											}
+
 										}
 										break;
 								}
 							}
 
-							((EntityRecord)evaluationObj["errors"])[colName] = errorsList;
-							((EntityRecord)evaluationObj["warnings"])[colName] = warningList;
+							((EntityRecord)evaluationObj["errors"])[columnName] = errorsList;
+
+							//validate the value for warnings
+							((EntityRecord)evaluationObj["warnings"])[columnName] = warningList;
+							#endregion
 						}
 
+						#region << Data >>
+						//Submit row data
+
 						if (!(command == "no_import" && generalCommand == "evaluate-import"))
-							rowRecord[colName] = fValue;
+							rowRecord[columnName] = fieldValue;
+						#endregion
 					}
 
 					if (generalCommand == "evaluate-import")
@@ -896,27 +1036,29 @@ namespace WebVella.Erp.Service.Core.Api
 						Guid? recordId = null;
 						if (rowRecord.GetProperties().Any(p => p.Key == "id") && !string.IsNullOrWhiteSpace((string)rowRecord["id"]))
 						{
-							if (Guid.TryParse((string)rowRecord["id"], out Guid id))
+							Guid id;
+							if (Guid.TryParse((string)rowRecord["id"], out id))
 								recordId = id;
 						}
 					}
 				}
 				else
 				{
-					foreach (var colName in columnNames)
+					foreach (var columnName in columnNames)
 					{
-						EntityRecord commandRecords3 = ((EntityRecord)commands[colName]);
-						string command = (string)commandRecords3["command"];
-						string fValue = csvReader.GetField<string>(colName);
+						EntityRecord commandRecords = ((EntityRecord)commands[columnName]);
+						string command = (string)commandRecords["command"];
+
+						string fieldValue = csvReader.GetField<string>(columnName);
 						if (!(command == "no_import" && generalCommand == "evaluate-import"))
-							rowRecord[colName] = fValue;
+							rowRecord[columnName] = fieldValue;
 					}
 				}
 
 				((List<EntityRecord>)evaluationObj["records"]).Add(rowRecord);
+
 			}
 
-			// Clean up internal metadata from commands before returning
 			foreach (var columnName in columnNames)
 			{
 				if (commands.GetProperties().Any(p => p.Key == columnName))
@@ -932,12 +1074,12 @@ namespace WebVella.Erp.Service.Core.Api
 				if (generalCommand == "evaluate-import")
 				{
 					response.Success = false;
+					//evaluationObj["general_command"] = "evaluate";
 				}
 				response.Object = evaluationObj;
 				return response;
 			}
 
-			// Phase 3: Execute import if in evaluate-import mode
 			if (generalCommand == "evaluate-import")
 			{
 				using (DbConnection connection = _dbContext.CreateConnection())
@@ -983,15 +1125,20 @@ namespace WebVella.Erp.Service.Core.Api
 							if (!newRecord.GetProperties().Any(x => x.Key == "id") || newRecord["id"] == null || string.IsNullOrEmpty(newRecord["id"].ToString()))
 							{
 								newRecord["id"] = Guid.NewGuid();
+
 								result = _recordManager.CreateRecord(entityName, newRecord);
+
 								if (result.Success)
 									successfullyCreatedRecordsCount++;
+
 							}
 							else
 							{
 								result = _recordManager.UpdateRecord(entityName, newRecord);
+
 								if (result.Success)
 									successfullyUpdatedRecordsCount++;
+
 							}
 
 							if (!result.Success)
@@ -1015,6 +1162,8 @@ namespace WebVella.Erp.Service.Core.Api
 					}
 					catch (Exception e)
 					{
+						//WebVella.Erp.Api.Cache.ClearEntities();
+
 						connection.RollbackTransaction();
 
 						((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
