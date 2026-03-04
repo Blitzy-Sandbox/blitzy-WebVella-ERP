@@ -36,20 +36,23 @@ namespace WebVella.Erp.Service.Core.Api
 	{
 		private readonly CoreDbContext _dbContext;
 		private readonly RecordManager _recordManager;
-		private readonly EntityRelationManager _entityRelationManager;
 
 		/// <summary>
 		/// Constructs a SecurityManager with all required service dependencies.
 		/// Replaces monolith pattern of <c>new SecurityManager(DbContext)</c>.
+		/// CoreDbContext provides per-service ambient database access for direct
+		/// repository operations (UpdateLastLoginAndModifiedDate).
+		/// RecordManager provides entity-level CRUD with event publishing
+		/// for SaveUser/SaveRole operations.
 		/// </summary>
+		/// <param name="dbContext">Per-service ambient database context replacing the monolith's static DbContext.Current singleton.</param>
+		/// <param name="recordManager">Core record CRUD manager for creating/updating user and role records.</param>
 		public SecurityManager(
 			CoreDbContext dbContext,
-			RecordManager recordManager,
-			EntityRelationManager entityRelationManager)
+			RecordManager recordManager)
 		{
 			_dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
-			_entityRelationManager = entityRelationManager ?? throw new ArgumentNullException(nameof(entityRelationManager));
 		}
 
 		#region << User Retrieval >>
@@ -146,10 +149,12 @@ namespace WebVella.Erp.Service.Core.Api
 		/// <summary>
 		/// Retrieves the system user record directly from the database via ADO.NET,
 		/// bypassing EQL and all security checks. Used during bootstrap when the EQL
-		/// engine may not yet be initialized.
+		/// engine may not yet be initialized (e.g., before entity metadata is loaded).
+		/// Uses ErpSettings.ConnectionString for a raw Npgsql connection, independent
+		/// of the CoreDbContext ambient context.
 		/// Preserved from monolith SecurityManager.GetSystemUserWithNoSecurityCheck().
 		/// </summary>
-		private ErpUser GetSystemUserWithNoSecurityCheck()
+		public ErpUser GetSystemUserWithNoSecurityCheck()
 		{
 			using (NpgsqlConnection connection = new NpgsqlConnection(ErpSettings.ConnectionString))
 			{
@@ -445,11 +450,13 @@ namespace WebVella.Erp.Service.Core.Api
 		#region << Utilities >>
 
 		/// <summary>
-		/// Updates the last login timestamp for the specified user.
-		/// Uses direct repository access for efficiency (bypasses full RecordManager pipeline).
-		/// Preserved from monolith SecurityManager.UpdateUserLastLoginTime(Guid).
+		/// Updates the last login timestamp and modified date for the specified user.
+		/// Uses direct repository access for efficiency (bypasses full RecordManager pipeline
+		/// and associated event publishing since this is a high-frequency operation).
+		/// Preserved from monolith SecurityManager.UpdateUserLastLoginTime(Guid),
+		/// renamed to UpdateLastLoginAndModifiedDate per microservice API schema.
 		/// </summary>
-		public void UpdateUserLastLoginTime(Guid userId)
+		public void UpdateLastLoginAndModifiedDate(Guid userId)
 		{
 			List<KeyValuePair<string, object>> storageRecordData = new List<KeyValuePair<string, object>>();
 			storageRecordData.Add(new KeyValuePair<string, object>("id", userId));
@@ -462,7 +469,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Returns true if the email is valid, false otherwise.
 		/// Preserved from monolith SecurityManager.IsValidEmail(string).
 		/// </summary>
-		public bool IsValidEmail(string email)
+		private bool IsValidEmail(string email)
 		{
 			try
 			{
