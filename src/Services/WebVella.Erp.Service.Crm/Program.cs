@@ -197,64 +197,9 @@ app.UseAuthorization();
 // Map endpoints
 app.MapControllers();
 app.MapHealthChecks("/health");
-app.MapGrpcService<WebVella.Erp.Service.Crm.GrpcImpl.CrmGrpcServiceImpl>();
+app.MapGrpcService<WebVella.Erp.Service.Crm.Grpc.CrmGrpcService>();
 
 app.Run();
-
-// ---------------------------------------------------------------------------
-// gRPC service implementation — CRM inter-service RPC endpoints
-// ---------------------------------------------------------------------------
-namespace WebVella.Erp.Service.Crm.GrpcImpl
-{
-    /// <summary>
-    /// gRPC service implementation for the CRM microservice, generated from
-    /// proto/crm.proto. Provides inter-service RPC endpoints for account,
-    /// contact, and case queries used by the Gateway, Project, and Mail services.
-    /// Full business logic will be wired when domain services are complete.
-    /// </summary>
-    public class CrmGrpcServiceImpl : WebVella.Erp.Service.Crm.Grpc.CrmService.CrmServiceBase
-    {
-        private readonly ILogger<CrmGrpcServiceImpl> _logger;
-
-        public CrmGrpcServiceImpl(ILogger<CrmGrpcServiceImpl> logger)
-        {
-            _logger = logger;
-        }
-
-        public override Task<WebVella.Erp.Service.Crm.Grpc.GetAccountResponse> GetAccount(
-            WebVella.Erp.Service.Crm.Grpc.GetAccountRequest request,
-            global::Grpc.Core.ServerCallContext context)
-        {
-            _logger.LogInformation("gRPC GetAccount called for ID: {AccountId}", request.Id);
-            return Task.FromResult(new WebVella.Erp.Service.Crm.Grpc.GetAccountResponse
-            {
-                Success = false
-            });
-        }
-
-        public override Task<WebVella.Erp.Service.Crm.Grpc.GetContactResponse> GetContact(
-            WebVella.Erp.Service.Crm.Grpc.GetContactRequest request,
-            global::Grpc.Core.ServerCallContext context)
-        {
-            _logger.LogInformation("gRPC GetContact called for ID: {ContactId}", request.Id);
-            return Task.FromResult(new WebVella.Erp.Service.Crm.Grpc.GetContactResponse
-            {
-                Success = false
-            });
-        }
-
-        public override Task<WebVella.Erp.Service.Crm.Grpc.GetCaseResponse> GetCase(
-            WebVella.Erp.Service.Crm.Grpc.GetCaseRequest request,
-            global::Grpc.Core.ServerCallContext context)
-        {
-            _logger.LogInformation("gRPC GetCase called for ID: {CaseId}", request.Id);
-            return Task.FromResult(new WebVella.Erp.Service.Crm.Grpc.GetCaseResponse
-            {
-                Success = false
-            });
-        }
-    }
-}
 
 // CrmDbContext is defined in Database/CrmDbContext.cs with full EF Core
 // entity configuration, IDbContext implementation, and legacy compatibility.

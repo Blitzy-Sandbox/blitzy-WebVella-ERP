@@ -48,6 +48,10 @@
          security context with JWT propagation, utilities, exceptions, FTS)
          shared by all services -->
     <ProjectReference Include="../../SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+    <!-- Core API: provides RecordManager, EntityManager, EntityRelationManager
+         shared implementations used by CRM gRPC service and controllers for
+         record CRUD operations scoped to the CRM database context -->
+    <ProjectReference Include="../WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj" />
   </ItemGroup>
 
   <!-- ==========================================================================
