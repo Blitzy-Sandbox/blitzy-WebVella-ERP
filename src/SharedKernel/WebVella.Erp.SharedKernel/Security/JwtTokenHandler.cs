@@ -236,7 +236,7 @@ namespace WebVella.Erp.SharedKernel.Security
 		/// <param name="token">The JWT token string to validate.</param>
 		/// <returns>The validated JwtSecurityToken, or null if validation fails.</returns>
 #pragma warning disable 1998
-		public async ValueTask<JwtSecurityToken> GetValidSecurityTokenAsync(string token)
+		public virtual async ValueTask<JwtSecurityToken> GetValidSecurityTokenAsync(string token)
 		{
 			if (string.IsNullOrWhiteSpace(token))
 				return null;
