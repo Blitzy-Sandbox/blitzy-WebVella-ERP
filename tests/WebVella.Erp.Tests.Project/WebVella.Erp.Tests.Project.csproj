@@ -31,6 +31,10 @@
          Also provides transitive access to Npgsql.EntityFrameworkCore.PostgreSQL, MassTransit,
          Grpc.AspNetCore, and other service-level dependencies. -->
     <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Project/WebVella.Erp.Service.Project.csproj" />
+    <!-- Core Platform Service — required because FeedService (and other Project services)
+         depend on RecordManager from Core. Without this explicit reference, CS0012 errors
+         occur when tests instantiate or assert on Project service types that reference Core types. -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj" />
     <!-- SharedKernel contracts and utilities — provides shared DTOs (EntityRecord, EntityRecordList,
          BaseResponseModel, ErpUser, ErpRole, SystemIds, ErrorModel), event types (RecordCreatedEvent,
          RecordUpdatedEvent, RecordDeletedEvent), EQL engine (EqlCommand, EqlBuilder), database helpers

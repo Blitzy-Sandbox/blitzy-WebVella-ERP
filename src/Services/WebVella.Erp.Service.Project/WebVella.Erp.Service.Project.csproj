@@ -34,6 +34,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+		<ProjectReference Include="..\WebVella.Erp.Service.Core\WebVella.Erp.Service.Core.csproj" />
 	</ItemGroup>
 
 </Project>
