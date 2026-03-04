@@ -24,7 +24,7 @@ namespace WebVella.Erp.Tests.Core.Api
 	/// hash computation, permission enforcement, and error handling.
 	/// Uses Moq for dependency isolation and FluentAssertions for readable assertions.
 	/// </summary>
-	[Collection("Cache")]
+	[Collection("Database")]
 	public class EntityManagerTests : IDisposable
 	{
 		#region <=== Test Fields and Fixtures ===>

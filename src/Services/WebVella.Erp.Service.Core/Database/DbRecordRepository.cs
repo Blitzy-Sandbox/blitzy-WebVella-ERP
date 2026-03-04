@@ -1045,7 +1045,7 @@ namespace WebVella.Erp.Service.Core.Database
                         }
                     }
                 }
-                sql.Remove(sql.Length - 3, 3); //remove newline and comma
+                sql.Remove(sql.Length - (1 + Environment.NewLine.Length), 1 + Environment.NewLine.Length); //remove trailing comma and newline (platform-aware)
                 sql.AppendLine(END_SELECT);
                 sql.AppendLine(string.Format(FROM, GetTableNameForEntity(entity)));
 
@@ -1230,7 +1230,10 @@ namespace WebVella.Erp.Service.Core.Database
                     relationFieldMeta.Name = "$" + relationName;
                     relationFieldMeta.Direction = direction;
 
-                    relationFieldMeta.Relation = relMan.Read().Object.SingleOrDefault(x => x.Name == relationName);
+                    var relationsForFilter = relMan.Read().Object;
+                    if (relationsForFilter == null)
+                        relationsForFilter = relMan.Read().Object ?? new List<EntityRelation>();
+                    relationFieldMeta.Relation = relationsForFilter.SingleOrDefault(x => x.Name == relationName);
                     if (relationFieldMeta.Relation == null)
                         throw new Exception(string.Format("Invalid relation '{0}'. The relation does not exist.", query.FieldName));
 
@@ -1592,6 +1595,9 @@ namespace WebVella.Erp.Service.Core.Database
         internal List<Field> ExtractQueryFieldsMeta(EntityQuery query)
         {
             List<EntityRelation> relations = relMan.Read().Object;
+            //Guard: if cache was invalidated between write and read-back, retry once
+            if (relations == null)
+                relations = relMan.Read().Object ?? new List<EntityRelation>();
             List<Field> result = new List<Field>();
 
             //split field string into tokens speparated by FIELDS_SEPARATOR

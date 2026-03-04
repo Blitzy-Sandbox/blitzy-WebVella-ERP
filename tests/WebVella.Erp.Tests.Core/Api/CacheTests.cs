@@ -31,7 +31,7 @@ namespace WebVella.Erp.Tests.Core.Api
 	/// enabling full integration testing of serialize → store → retrieve → deserialize
 	/// pipelines without a real Redis instance.
 	/// </summary>
-	[Collection("Cache")]
+	[Collection("Database")]
 	public class CacheTests : IDisposable
 	{
 		#region <=== Fields and Setup ===>

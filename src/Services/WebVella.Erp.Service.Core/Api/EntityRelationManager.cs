@@ -436,7 +436,8 @@ namespace WebVella.Erp.Service.Core.Api
 					Cache.AddRelations(relations);
 
 				//we use instance from cache as return value, because in cache we deepcopy collection
-				response.Object = Cache.GetRelations();
+				//Fall back to in-memory list if cache read-back fails (e.g. cache backend replaced/unavailable between write and read)
+				response.Object = Cache.GetRelations() ?? relations;
 				response.Hash = Cache.GetRelationsHash();
 				response.Success = true;
 				response.Message = null;
