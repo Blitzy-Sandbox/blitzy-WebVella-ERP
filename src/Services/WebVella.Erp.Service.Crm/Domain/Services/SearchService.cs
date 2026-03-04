@@ -147,7 +147,7 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 		/// </param>
 		/// <exception cref="Exception">Thrown if the entity is not found in metadata.</exception>
 		/// <exception cref="ValidationException">Thrown if the x_search update fails.</exception>
-		public void RegenSearchField(string entityName, EntityRecord record, List<string> indexedFields)
+		public virtual void RegenSearchField(string entityName, EntityRecord record, List<string> indexedFields)
 		{
 			var searchIndex = "";
 			var relations = _entityRelationManager.Read().Object;
