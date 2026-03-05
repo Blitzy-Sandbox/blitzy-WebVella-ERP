@@ -132,6 +132,7 @@
          Without this, transitive resolution through Npgsql.EntityFrameworkCore.PostgreSQL
          10.0.0 pulls in EF Core 10.0.0, causing CS1705 version mismatch. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <!-- EF Core Relational direct reference to match CRM service's 10.0.1 version.
          CRM service uses Microsoft.EntityFrameworkCore.Design (PrivateAssets=All) which
          brings in Relational 10.0.1 at compile time. Without this, the test project
