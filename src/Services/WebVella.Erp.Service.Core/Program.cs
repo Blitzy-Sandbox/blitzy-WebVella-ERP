@@ -75,6 +75,14 @@ namespace WebVella.Erp.Service.Core
             var builder = WebApplication.CreateBuilder(args);
 
             // =====================================================================
+            // ErpSettings initialization — bind from appsettings.json Settings section
+            // MUST be called before any code that uses ErpSettings (e.g.,
+            // ErpDateTimeJsonConverter uses ErpSettings.TimeZoneName).
+            // Matches the pattern used in CRM, Admin, Reporting, and Gateway.
+            // =====================================================================
+            ErpSettings.Initialize(builder.Configuration);
+
+            // =====================================================================
             // Configuration
             // appsettings.json + environment variables are loaded automatically
             // by WebApplication.CreateBuilder. Additional sources can be added here.

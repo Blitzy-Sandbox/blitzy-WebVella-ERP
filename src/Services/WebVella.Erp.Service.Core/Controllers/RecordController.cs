@@ -163,7 +163,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>ResponseModel with EntityRecordList results or error details.</returns>
 		[HttpPost("eql")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult EqlQueryAction(string locale, [FromBody] JObject submitObj)
+		public IActionResult EqlQueryAction([FromBody] JObject submitObj)
 		{
 			var response = new ResponseModel();
 			response.Success = true;
@@ -239,9 +239,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		///
 		/// Preserved from monolith WebApiController.cs lines 2102-2300 with full transactional semantics.
 		/// </summary>
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/relation")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/relation")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult UpdateEntityRelationRecord(string locale,
+		public IActionResult UpdateEntityRelationRecord(
 			[FromBody] InputEntityRelationRecordUpdateModel model)
 		{
 			BaseResponseModel response = new BaseResponseModel
@@ -465,9 +465,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		///
 		/// Preserved from monolith WebApiController.cs lines 2302-2499 with full transactional semantics.
 		/// </summary>
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/relation/reverse")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/relation/reverse")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult UpdateEntityRelationRecordReverse(string locale,
+		public IActionResult UpdateEntityRelationRecordReverse(
 			[FromBody] InputEntityRelationRecordReverseUpdateModel model)
 		{
 			BaseResponseModel response = new BaseResponseModel
@@ -693,9 +693,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Gets a single entity record by its ID with optional field selection.
 		/// Preserved from monolith WebApiController.cs lines 2504-2517.
 		/// </summary>
-		[AcceptVerbs(new[] { "GET" }, Route = "api/v3/{locale}/record/{entityName}/{recordId}")]
+		[AcceptVerbs(new[] { "GET" }, Route = "/api/v3/{locale}/record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecord(Guid recordId, string entityName, string locale, string fields = "*")
+		public IActionResult GetRecord(Guid recordId, string entityName, string fields = "*")
 		{
 			QueryObject filterObj = EntityQuery.QueryEQ("id", recordId);
 			EntityQuery query = new EntityQuery(entityName, fields, filterObj, null, null, null);
@@ -711,9 +711,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Publishes a RecordDeletedEvent after successful commit.
 		/// Preserved from monolith WebApiController.cs lines 2521-2551.
 		/// </summary>
-		[AcceptVerbs(new[] { "DELETE" }, Route = "api/v3/{locale}/record/{entityName}/{recordId}")]
+		[AcceptVerbs(new[] { "DELETE" }, Route = "/api/v3/{locale}/record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> DeleteRecord(Guid recordId, string entityName, string locale)
+		public async Task<IActionResult> DeleteRecord(Guid recordId, string entityName)
 		{
 			var result = new QueryResponse();
 			using (var connection = CoreDbContext.Current.CreateConnection())
@@ -755,9 +755,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Gets entity records matching a regex pattern on a specified field.
 		/// Preserved from monolith WebApiController.cs lines 2555-2568.
 		/// </summary>
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/{entityName}/regex/{fieldName}")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/{entityName}/regex/{fieldName}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecordsByFieldAndRegex(string fieldName, string entityName, string locale,
+		public IActionResult GetRecordsByFieldAndRegex(string fieldName, string entityName,
 			[FromBody] EntityRecord patternObj)
 		{
 			QueryObject filterObj = EntityQuery.QueryRegex(fieldName, patternObj["pattern"]);
@@ -775,9 +775,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Publishes a RecordCreatedEvent after successful commit.
 		/// Preserved from monolith WebApiController.cs lines 2573-2612.
 		/// </summary>
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/{entityName}")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/{entityName}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> CreateEntityRecord(string entityName, string locale,
+		public async Task<IActionResult> CreateEntityRecord(string entityName,
 			[FromBody] EntityRecord postObj)
 		{
 			// Fix double-dollar-sign problem (Angular does not post $$ property names)
@@ -831,10 +831,10 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Publishes a RecordCreatedEvent after successful commit.
 		/// Preserved from monolith WebApiController.cs lines 2614-2783.
 		/// </summary>
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/{entityName}/with-relation/{relationName}/{relatedRecordId}")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/{entityName}/with-relation/{relationName}/{relatedRecordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> CreateEntityRecordWithRelation(string entityName, string relationName,
-			Guid relatedRecordId, string locale, [FromBody] EntityRecord postObj)
+			Guid relatedRecordId, [FromBody] EntityRecord postObj)
 		{
 			var validationErrors = new List<ErrorModel>();
 
@@ -1016,10 +1016,10 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Publishes a RecordUpdatedEvent after successful commit.
 		/// Preserved from monolith WebApiController.cs lines 2788-2833.
 		/// </summary>
-		[AcceptVerbs(new[] { "PUT" }, Route = "api/v3/{locale}/record/{entityName}/{recordId}")]
+		[AcceptVerbs(new[] { "PUT" }, Route = "/api/v3/{locale}/record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> UpdateEntityRecord(string entityName, Guid recordId,
-			string locale, [FromBody] EntityRecord postObj)
+			[FromBody] EntityRecord postObj)
 		{
 			// Fix double-dollar-sign problem (Angular does not post $$ property names)
 			postObj = Helpers.FixDoubleDollarSignProblem(postObj);
@@ -1086,10 +1086,10 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Publishes a RecordUpdatedEvent after successful commit.
 		/// Preserved from monolith WebApiController.cs lines 2837-2875.
 		/// </summary>
-		[AcceptVerbs(new[] { "PATCH" }, Route = "api/v3/{locale}/record/{entityName}/{recordId}")]
+		[AcceptVerbs(new[] { "PATCH" }, Route = "/api/v3/{locale}/record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> PatchEntityRecord(string entityName, Guid recordId,
-			string locale, [FromBody] EntityRecord postObj)
+			[FromBody] EntityRecord postObj)
 		{
 			postObj["id"] = recordId;
 
@@ -1150,9 +1150,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// field selection, and result limit.
 		/// Preserved from monolith WebApiController.cs lines 2877-2973.
 		/// </summary>
-		[AcceptVerbs(new[] { "GET" }, Route = "api/v3/{locale}/record/{entityName}/list")]
+		[AcceptVerbs(new[] { "GET" }, Route = "/api/v3/{locale}/record/{entityName}/list")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecordsByEntityName(string entityName, string locale,
+		public IActionResult GetRecordsByEntityName(string entityName,
 			string ids = "", string fields = "", int? limit = null)
 		{
 			var response = new QueryResponse();
@@ -1251,9 +1251,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Preserved from monolith WebApiController.cs lines 2989-3005.
 		/// </summary>
 		[Authorize(Roles = "administrator")]
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/{entityName}/import")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/{entityName}/import")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult ImportEntityRecordsFromCsv(string entityName, string locale,
+		public IActionResult ImportEntityRecordsFromCsv(string entityName,
 			[FromBody] JObject postObject)
 		{
 			string fileTempPath = "";
@@ -1275,9 +1275,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Preserved from monolith WebApiController.cs lines 3010-3018.
 		/// </summary>
 		[Authorize(Roles = "administrator")]
-		[AcceptVerbs(new[] { "POST" }, Route = "api/v3/{locale}/record/{entityName}/import-evaluate")]
+		[AcceptVerbs(new[] { "POST" }, Route = "/api/v3/{locale}/record/{entityName}/import-evaluate")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult EvaluateImportEntityRecordsFromCsv(string entityName, string locale,
+		public IActionResult EvaluateImportEntityRecordsFromCsv(string entityName,
 			[FromBody] JObject postObject)
 		{
 			ResponseModel response = _importExportManager.EvaluateImportEntityRecordsFromCsv(entityName, postObject, controller: this);

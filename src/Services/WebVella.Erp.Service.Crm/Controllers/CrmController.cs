@@ -337,7 +337,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpGet("record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecord(string locale, string entityName, Guid recordId, string fields = "*")
+		public IActionResult GetRecord(string entityName, Guid recordId, string fields = "*")
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -358,7 +358,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpGet("record/{entityName}/list")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecordsByEntityName(string locale, string entityName, string ids = "", string fields = "", int? limit = null)
+		public IActionResult GetRecordsByEntityName(string entityName, string ids = "", string fields = "", int? limit = null)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -461,7 +461,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPost("record/{entityName}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> CreateEntityRecord(string locale, string entityName, [FromBody] EntityRecord postObj)
+		public async Task<IActionResult> CreateEntityRecord(string entityName, [FromBody] EntityRecord postObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -524,7 +524,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		[HttpPost("record/{entityName}/with-relation/{relationName}/{relatedRecordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> CreateEntityRecordWithRelation(
-			string locale, string entityName, string relationName, Guid relatedRecordId, [FromBody] EntityRecord postObj)
+			string entityName, string relationName, Guid relatedRecordId, [FromBody] EntityRecord postObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -709,7 +709,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPut("record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> UpdateEntityRecord(string locale, string entityName, Guid recordId, [FromBody] EntityRecord postObj)
+		public async Task<IActionResult> UpdateEntityRecord(string entityName, Guid recordId, [FromBody] EntityRecord postObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -770,7 +770,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPatch("record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> PatchEntityRecord(string locale, string entityName, Guid recordId, [FromBody] EntityRecord postObj)
+		public async Task<IActionResult> PatchEntityRecord(string entityName, Guid recordId, [FromBody] EntityRecord postObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -824,7 +824,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpDelete("record/{entityName}/{recordId}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public async Task<IActionResult> DeleteRecord(string locale, string entityName, Guid recordId)
+		public async Task<IActionResult> DeleteRecord(string entityName, Guid recordId)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -875,7 +875,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPost("record/{entityName}/regex/{fieldName}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetRecordsByFieldAndRegex(string locale, string entityName, string fieldName, [FromBody] EntityRecord patternObj)
+		public IActionResult GetRecordsByFieldAndRegex(string entityName, string fieldName, [FromBody] EntityRecord patternObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -903,7 +903,6 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		[HttpGet("search")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult CrmSearch(
-			string locale,
 			string query = "",
 			string entityName = "",
 			string lookupFieldsCsv = "",
@@ -1143,7 +1142,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPut("record/{entityName}/relation")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult UpdateEntityRelationRecord(string locale, string entityName, [FromBody] JObject submitObj)
+		public IActionResult UpdateEntityRelationRecord(string entityName, [FromBody] JObject submitObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -1354,7 +1353,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpPut("record/{entityName}/relation-reverse")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult UpdateEntityRelationRecordReverse(string locale, string entityName, [FromBody] JObject submitObj)
+		public IActionResult UpdateEntityRelationRecordReverse(string entityName, [FromBody] JObject submitObj)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;
@@ -1567,7 +1566,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpGet("lookup/salutation")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetSalutations(string locale)
+		public IActionResult GetSalutations()
 		{
 			var response = new ResponseModel();
 			try
@@ -1603,7 +1602,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		[HttpGet("record/{entityName}/{recordId}/addresses")]
 		[ResponseCache(NoStore = true, Duration = 0)]
-		public IActionResult GetAddresses(string locale, string entityName, Guid recordId)
+		public IActionResult GetAddresses(string entityName, Guid recordId)
 		{
 			var validation = ValidateCrmEntity(entityName);
 			if (validation != null) return validation;

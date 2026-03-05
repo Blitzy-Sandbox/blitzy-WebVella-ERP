@@ -231,7 +231,26 @@ builder.Services.AddSingleton(new JwtTokenHandler(jwtOptions));
 // Members accessed: CoreServiceUrl, CrmServiceUrl, ProjectServiceUrl,
 //                   MailServiceUrl, ReportingServiceUrl, AdminServiceUrl
 // -----------------------------------------------------------------------
-builder.Services.Configure<RouteConfiguration>(builder.Configuration.GetSection("ServiceRoutes"));
+var routeConfig = new RouteConfiguration();
+builder.Configuration.GetSection("ServiceRoutes").Bind(routeConfig);
+// RouteMappings is a separate top-level section in appsettings.json, not nested under ServiceRoutes.
+// Bind it separately to populate the URL-to-service mapping dictionary.
+builder.Configuration.GetSection("RouteMappings").Bind(routeConfig.RouteMappings);
+builder.Services.Configure<RouteConfiguration>(opts =>
+{
+    opts.CoreServiceUrl = routeConfig.CoreServiceUrl;
+    opts.CrmServiceUrl = routeConfig.CrmServiceUrl;
+    opts.ProjectServiceUrl = routeConfig.ProjectServiceUrl;
+    opts.MailServiceUrl = routeConfig.MailServiceUrl;
+    opts.ReportingServiceUrl = routeConfig.ReportingServiceUrl;
+    opts.AdminServiceUrl = routeConfig.AdminServiceUrl;
+    opts.CoreServiceGrpc = routeConfig.CoreServiceGrpc;
+    opts.CrmServiceGrpc = routeConfig.CrmServiceGrpc;
+    opts.ProjectServiceGrpc = routeConfig.ProjectServiceGrpc;
+    opts.MailServiceGrpc = routeConfig.MailServiceGrpc;
+    foreach (var kvp in routeConfig.RouteMappings)
+        opts.RouteMappings[kvp.Key] = kvp.Value;
+});
 
 // -----------------------------------------------------------------------
 // IHttpClientFactory — consumed by RequestRoutingMiddleware for proxying
@@ -243,7 +262,7 @@ builder.Services.Configure<RouteConfiguration>(builder.Configuration.GetSection(
 builder.Services.AddHttpClient("CoreService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:CoreServiceUrl"] ?? "http://core-service:8080");
+        builder.Configuration["ServiceRoutes:CoreServiceUrl"] ?? "http://localhost:8084");
     client.Timeout = TimeSpan.FromSeconds(600); // Matches EQL query timeout per AAP 0.8.3
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -251,7 +270,7 @@ builder.Services.AddHttpClient("CoreService", client =>
 builder.Services.AddHttpClient("CrmService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:CrmServiceUrl"] ?? "http://crm-service:8080");
+        builder.Configuration["ServiceRoutes:CrmServiceUrl"] ?? "http://localhost:8082");
     client.Timeout = TimeSpan.FromSeconds(600);
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -259,7 +278,7 @@ builder.Services.AddHttpClient("CrmService", client =>
 builder.Services.AddHttpClient("ProjectService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:ProjectServiceUrl"] ?? "http://project-service:8080");
+        builder.Configuration["ServiceRoutes:ProjectServiceUrl"] ?? "http://localhost:8092");
     client.Timeout = TimeSpan.FromSeconds(600);
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -267,7 +286,7 @@ builder.Services.AddHttpClient("ProjectService", client =>
 builder.Services.AddHttpClient("MailService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:MailServiceUrl"] ?? "http://mail-service:8080");
+        builder.Configuration["ServiceRoutes:MailServiceUrl"] ?? "http://localhost:8090");
     client.Timeout = TimeSpan.FromSeconds(600);
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -275,7 +294,7 @@ builder.Services.AddHttpClient("MailService", client =>
 builder.Services.AddHttpClient("ReportingService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:ReportingServiceUrl"] ?? "http://reporting-service:8080");
+        builder.Configuration["ServiceRoutes:ReportingServiceUrl"] ?? "http://localhost:8088");
     client.Timeout = TimeSpan.FromSeconds(600);
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -283,7 +302,7 @@ builder.Services.AddHttpClient("ReportingService", client =>
 builder.Services.AddHttpClient("AdminService", client =>
 {
     client.BaseAddress = new Uri(
-        builder.Configuration["ServiceRoutes:AdminServiceUrl"] ?? "http://admin-service:8080");
+        builder.Configuration["ServiceRoutes:AdminServiceUrl"] ?? "http://localhost:8086");
     client.Timeout = TimeSpan.FromSeconds(600);
     client.DefaultRequestHeaders.Accept.Add(
         new MediaTypeWithQualityHeaderValue("application/json"));
@@ -297,6 +316,11 @@ builder.Services.AddHttpClient();
 // Pages and controllers without hardcoding service URLs.
 // -----------------------------------------------------------------------
 builder.Services.AddSingleton<IServiceProxyRegistry, ServiceProxyRegistry>();
+
+// ErpRequestContext — scoped per-request context required by Razor Page models
+// (LoginModel, LogoutModel, BaseErpPageModel) for URL routing state resolution.
+// Replaces the monolith's scoped ErpRequestContext registration from AddErp().
+builder.Services.AddScoped<WebVella.Erp.Gateway.Models.ErpRequestContext>();
 
 // -----------------------------------------------------------------------
 // Health Checks — Gateway liveness and readiness

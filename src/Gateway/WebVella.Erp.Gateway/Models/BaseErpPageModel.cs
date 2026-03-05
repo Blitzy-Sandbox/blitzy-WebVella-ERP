@@ -385,33 +385,43 @@ namespace WebVella.Erp.Gateway.Models
 				ErpRequestContext = HttpContext.RequestServices.GetService<ErpRequestContext>();
 			}
 
-			// Phase 4: Set current app/area/node — Gateway version delegates to
-			// ErpRequestContext which uses HTTP calls or cached sitemap
-			if (ErpRequestContext != null)
-			{
-				ErpRequestContext.SetCurrentApp(appName, areaName, nodeName);
-				ErpRequestContext.SetCurrentPage(PageContext, pageName, appName, areaName,
-					nodeName, recordId, relationId, parentRecordId);
-			}
+			// Determine if this page model is decorated with [AllowAnonymous].
+			// Anonymous pages (login, error, logout) skip app resolution and access control
+			// because they must be accessible without authentication and without Core service calls.
+			bool isAllowAnonymous = GetType()
+				.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute), true)
+				.Length > 0;
 
-			// Phase 5: Role-based access control (preserved from monolith)
-			List<Guid> currentUserRoles = new List<Guid>();
-			if (CurrentUser != null)
-				currentUserRoles.AddRange(CurrentUser.Roles.Select(x => x.Id));
-
-			if (ErpRequestContext?.App != null)
+			if (!isAllowAnonymous)
 			{
-				if (ErpRequestContext.App.Access == null || ErpRequestContext.App.Access.Count == 0)
+				// Phase 4: Set current app/area/node — Gateway version delegates to
+				// ErpRequestContext which uses HTTP calls or cached sitemap
+				if (ErpRequestContext != null)
+				{
+					ErpRequestContext.SetCurrentApp(appName, areaName, nodeName);
+					ErpRequestContext.SetCurrentPage(PageContext, pageName, appName, areaName,
+						nodeName, recordId, relationId, parentRecordId);
+				}
+
+				// Phase 5: Role-based access control (preserved from monolith)
+				List<Guid> currentUserRoles = new List<Guid>();
+				if (CurrentUser != null)
+					currentUserRoles.AddRange(CurrentUser.Roles.Select(x => x.Id));
+
+				if (ErpRequestContext?.App != null)
+				{
+					if (ErpRequestContext.App.Access == null || ErpRequestContext.App.Access.Count == 0)
+						return new LocalRedirectResult("/error?401");
+
+					IEnumerable<Guid> rolesWithAccess = ErpRequestContext.App.Access.Intersect(currentUserRoles);
+					if (!rolesWithAccess.Any())
+						return new LocalRedirectResult("/error?401");
+				}
+				else if (!currentUserRoles.Contains(SystemIds.AdministratorRoleId)
+					&& urlInfo.PageType != PageType.Home && urlInfo.PageType != PageType.Site)
+				{
 					return new LocalRedirectResult("/error?401");
-
-				IEnumerable<Guid> rolesWithAccess = ErpRequestContext.App.Access.Intersect(currentUserRoles);
-				if (!rolesWithAccess.Any())
-					return new LocalRedirectResult("/error?401");
-			}
-			else if (!currentUserRoles.Contains(SystemIds.AdministratorRoleId)
-				&& urlInfo.PageType != PageType.Home && urlInfo.PageType != PageType.Site)
-			{
-				return new LocalRedirectResult("/error?401");
+				}
 			}
 
 			// Phase 6: Propagate IDs and page context

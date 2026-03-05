@@ -230,10 +230,9 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <param name="findType">Query mode: "records" (default), "count", "records-and-count", or "records&amp;count".</param>
 		/// <param name="forceFiltersCsv">Additional equality filters in format "fieldName:dataType:value,..." where dataType is guid|bool|datetime|int|string.</param>
 		/// <returns>ResponseModel containing search results and/or count.</returns>
-		[HttpGet("api/v3/{locale}/quick-search")]
+		[HttpGet("/api/v3/{locale}/quick-search")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult QuickSearch(
-			string locale,
 			[FromQuery] string query = "",
 			[FromQuery] string entityName = "",
 			[FromQuery] string lookupFieldsCsv = "",

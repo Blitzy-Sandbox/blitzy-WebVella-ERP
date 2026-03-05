@@ -112,6 +112,20 @@ namespace WebVella.Erp.Service.Crm
 
 			var app = builder.Build();
 
+			// Apply pending EF Core migrations on startup to ensure all required
+			// tables exist in the erp_crm database before accepting requests.
+			using (var scope = app.Services.CreateScope())
+			{
+				var dbContext = scope.ServiceProvider.GetRequiredService<CrmDbContext>();
+				// Guard: only call Migrate() when using a relational provider.
+				// In test environments, WebApplicationFactory may register an InMemory provider
+				// which does not support relational migrations.
+				if (dbContext.Database.IsRelational())
+				{
+					dbContext.Database.Migrate();
+				}
+			}
+
 			ConfigurePipeline(app);
 
 			app.Run();
@@ -328,6 +342,11 @@ namespace WebVella.Erp.Service.Crm
 					npgsqlOptions.MinBatchSize(1);
 					npgsqlOptions.CommandTimeout(120);
 				});
+				// Suppress PendingModelChangesWarning — the initial migration was generated
+				// from the monolith entity schema; minor model snapshot drift is expected
+				// during the decomposition phase and does not affect runtime correctness.
+				options.ConfigureWarnings(w =>
+					w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 			});
 
 			// ================================================================

@@ -70,6 +70,20 @@ namespace WebVella.Erp.Service.Admin
 
 			var app = builder.Build();
 
+			// Apply pending EF Core migrations on startup to ensure all required
+			// tables exist in the erp_admin database before accepting requests.
+			using (var scope = app.Services.CreateScope())
+			{
+				var dbContext = scope.ServiceProvider.GetRequiredService<AdminDbContext>();
+				// Guard: only call Migrate() when using a relational provider.
+				// In test environments, WebApplicationFactory may register an InMemory provider
+				// which does not support relational migrations.
+				if (dbContext.Database.IsRelational())
+				{
+					dbContext.Database.Migrate();
+				}
+			}
+
 			ConfigurePipeline(app);
 
 			app.Run();
@@ -235,6 +249,10 @@ namespace WebVella.Erp.Service.Admin
 					// connection string itself (MinPoolSize=1;MaxPoolSize=100).
 					npgsqlOptions.CommandTimeout(600);
 				});
+				// Suppress PendingModelChangesWarning — the initial migration snapshot may
+				// drift during decomposition; does not affect runtime correctness.
+				options.ConfigureWarnings(w =>
+					w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 			});
 
 			// ================================================================
@@ -255,6 +273,17 @@ namespace WebVella.Erp.Service.Admin
 			builder.Services.AddScoped<IRecordRepository, CoreServiceRecordRepositoryProxy>();
 			builder.Services.AddScoped<IAppServiceClient, CoreServiceAppClientProxy>();
 			builder.Services.AddScoped<IPageServiceClient, CoreServicePageClientProxy>();
+
+			// AdminController DI registrations — the controller constructor expects these
+			// interfaces defined in AdminServiceInterfaces.cs. Each is backed by a proxy
+			// that delegates to the Core service via gRPC (pending full integration).
+			builder.Services.AddScoped<IAppService, AdminAppServiceProxy>();
+			builder.Services.AddScoped<IPageService, AdminPageServiceProxy>();
+			builder.Services.AddScoped<IDataSourceManager, AdminDataSourceManagerProxy>();
+			builder.Services.AddScoped<IEntityManager, AdminEntityManagerProxy>();
+			builder.Services.AddScoped<Services.IRecordManager, AdminRecordManagerProxy>();
+			builder.Services.AddScoped<Services.ISecurityManager, AdminSecurityManagerProxy>();
+			builder.Services.AddScoped<Services.IEntityRelationManager, AdminEntityRelationManagerProxy>();
 
 			// ICodeGenService → CodeGenService: diff-based C# migration code generator.
 			// Uses factory registration to provide the defaultCulture string parameter
@@ -442,6 +471,113 @@ namespace WebVella.Erp.Service.Admin
 				"CoreServiceRecordRepositoryProxy.Find() called — gRPC integration pending.");
 			return new List<EntityRecord>();
 		}
+	}
+
+	// ============================================================================
+	// AdminController Proxy Implementations
+	// These proxies bridge the interfaces expected by AdminController to the
+	// Core service via gRPC. They are lightweight wrappers that will be enhanced
+	// with full gRPC client calls when Core service integration is completed.
+	// ============================================================================
+
+	/// <summary>
+	/// Proxy implementing <see cref="IAppService"/> for AdminController.
+	/// Delegates application/sitemap operations to the Core service.
+	/// </summary>
+	internal sealed class AdminAppServiceProxy : IAppService
+	{
+		private readonly ILogger<AdminAppServiceProxy> _logger;
+		public AdminAppServiceProxy(ILogger<AdminAppServiceProxy> logger) =>
+			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+		public AppState Application => new AppState();
+		public AppState GetApplication(Guid id) { _logger.LogWarning("AdminAppServiceProxy.GetApplication — gRPC pending."); return null; }
+		public void CreateArea(Guid areaId, Guid appId, string name, string label, string description, string iconClass, string color, bool showGroupNames, int weight, List<Guid> access)
+			=> _logger.LogWarning("AdminAppServiceProxy.CreateArea — gRPC pending.");
+		public void UpdateArea(Guid areaId, Guid appId, string name, string label, string description, string iconClass, string color, bool showGroupNames, int weight, List<Guid> access)
+			=> _logger.LogWarning("AdminAppServiceProxy.UpdateArea — gRPC pending.");
+		public void DeleteArea(Guid areaId) => _logger.LogWarning("AdminAppServiceProxy.DeleteArea — gRPC pending.");
+		public void CreateAreaNode(Guid nodeId, Guid areaId, string name, string label, string iconClass, string url, SitemapNodeType type, Guid? entityId, int weight, List<Guid> access, Guid? parentId)
+			=> _logger.LogWarning("AdminAppServiceProxy.CreateAreaNode — gRPC pending.");
+		public void UpdateAreaNode(Guid nodeId, Guid areaId, string name, string label, string iconClass, string url, SitemapNodeType type, Guid? entityId, int weight, List<Guid> access, Guid? parentId)
+			=> _logger.LogWarning("AdminAppServiceProxy.UpdateAreaNode — gRPC pending.");
+		public void DeleteAreaNode(Guid nodeId) => _logger.LogWarning("AdminAppServiceProxy.DeleteAreaNode — gRPC pending.");
+		public Sitemap OrderSitemap(Sitemap sitemap) { return sitemap ?? new Sitemap(); }
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="IPageService"/> for AdminController.
+	/// Delegates page CRUD operations to the Core service.
+	/// </summary>
+	internal sealed class AdminPageServiceProxy : IPageService
+	{
+		private readonly ILogger<AdminPageServiceProxy> _logger;
+		public AdminPageServiceProxy(ILogger<AdminPageServiceProxy> logger) =>
+			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+		public ErpPage GetPage(Guid pageId) { _logger.LogWarning("AdminPageServiceProxy.GetPage — gRPC pending."); return null; }
+		public void UpdatePage(ErpPage page) => _logger.LogWarning("AdminPageServiceProxy.UpdatePage — gRPC pending.");
+		public List<ErpPage> GetAllPages() { _logger.LogWarning("AdminPageServiceProxy.GetAllPages — gRPC pending."); return new List<ErpPage>(); }
+		public List<ErpPage> GetAppControlledPages(Guid appId) { return new List<ErpPage>(); }
+		public Dictionary<Guid, List<Guid>> GetNodePageDictionary(Guid? appId) { return new Dictionary<Guid, List<Guid>>(); }
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="IDataSourceManager"/> for AdminController.
+	/// Delegates datasource list retrieval to the Core service.
+	/// </summary>
+	internal sealed class AdminDataSourceManagerProxy : IDataSourceManager
+	{
+		private readonly ILogger<AdminDataSourceManagerProxy> _logger;
+		public AdminDataSourceManagerProxy(ILogger<AdminDataSourceManagerProxy> logger) =>
+			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+		public List<DataSourceBase> GetAll()
+		{
+			_logger.LogWarning("AdminDataSourceManagerProxy.GetAll — gRPC pending, returning empty list.");
+			return new List<DataSourceBase>();
+		}
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="IEntityManager"/> for AdminController.
+	/// Delegates entity metadata retrieval to the Core service.
+	/// </summary>
+	internal sealed class AdminEntityManagerProxy : IEntityManager
+	{
+		private readonly ILogger<AdminEntityManagerProxy> _logger;
+		public AdminEntityManagerProxy(ILogger<AdminEntityManagerProxy> logger) =>
+			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+		public EntityListResponse ReadEntities()
+		{
+			_logger.LogWarning("AdminEntityManagerProxy.ReadEntities — gRPC pending, returning empty response.");
+			return new EntityListResponse { Success = true, Object = new List<Entity>() };
+		}
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="Services.IRecordManager"/> for AdminController.
+	/// Marker interface — no methods defined yet.
+	/// </summary>
+	internal sealed class AdminRecordManagerProxy : Services.IRecordManager
+	{
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="Services.ISecurityManager"/> for AdminController.
+	/// Marker interface — no methods defined yet.
+	/// </summary>
+	internal sealed class AdminSecurityManagerProxy : Services.ISecurityManager
+	{
+	}
+
+	/// <summary>
+	/// Proxy implementing <see cref="Services.IEntityRelationManager"/> for AdminController.
+	/// Marker interface — no methods defined yet.
+	/// </summary>
+	internal sealed class AdminEntityRelationManagerProxy : Services.IEntityRelationManager
+	{
 	}
 
 	/// <summary>

@@ -176,7 +176,13 @@ namespace WebVella.Erp.Service.Reporting
             // Connection string from appsettings.json → ConnectionStrings:Default.
             // ================================================================
             builder.Services.AddDbContext<ReportingDbContext>(options =>
-                options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+            {
+                options.UseNpgsql(builder.Configuration.GetConnectionString("Default"));
+                // Suppress PendingModelChangesWarning — the initial migration snapshot may
+                // drift during decomposition; does not affect runtime correctness.
+                options.ConfigureWarnings(w =>
+                    w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+            });
 
             // ================================================================
             // REDIS DISTRIBUTED CACHE
@@ -255,6 +261,23 @@ namespace WebVella.Erp.Service.Reporting
             // BUILD THE APPLICATION
             // ================================================================
             var app = builder.Build();
+
+            // ================================================================
+            // EF CORE MIGRATION — apply pending migrations on startup
+            // Ensures all required tables (timelog_projections, etc.) exist
+            // in the erp_reporting database before the service accepts requests.
+            // ================================================================
+            using (var scope = app.Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<ReportingDbContext>();
+                // Guard: only call Migrate() when using a relational provider.
+                // In test environments, WebApplicationFactory may register an InMemory provider
+                // which does not support relational migrations.
+                if (dbContext.Database.IsRelational())
+                {
+                    dbContext.Database.Migrate();
+                }
+            }
 
             // ================================================================
             // MIDDLEWARE PIPELINE

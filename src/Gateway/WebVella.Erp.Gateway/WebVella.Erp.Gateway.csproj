@@ -32,10 +32,10 @@
 
     <!-- Razor/MVC support — needed for hosting Razor Pages from the monolith web layer -->
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
-    <!-- Disable Razor precompilation to allow runtime compilation of Razor Pages
-         (preserved from monolith WebVella.Erp.Site.csproj pattern) -->
-    <RazorCompileOnBuild>false</RazorCompileOnBuild>
-    <RazorCompileOnPublish>false</RazorCompileOnPublish>
+    <!-- Enable Razor build-time compilation so Razor Pages are compiled and available at runtime.
+         Without this, page routes return 404 because ASP.NET Core has no compiled page models. -->
+    <RazorCompileOnBuild>true</RazorCompileOnBuild>
+    <RazorCompileOnPublish>true</RazorCompileOnPublish>
 
     <!-- TypeScript build blocking — preserved from WebVella.Erp.Site.csproj -->
     <TypeScriptCompileBlocked>true</TypeScriptCompileBlocked>
@@ -134,6 +134,31 @@
     <!-- Shared common definitions (ErrorModel) — imported by all service protos.
          GrpcServices="None": generates only message types, no service stubs -->
     <Protobuf Include="../../../proto/common.proto" GrpcServices="None" ProtoRoot="../../../proto" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Razor Page Exclusions — Complex ERP Framework Pages
+       ==========================================================================
+       These pages reference the full ERP monolith web framework types
+       (ErpPage.Body, ErpPage.Layout, PageComponentContext, ComponentMode)
+       that are not available in the Gateway project. They are preserved as
+       source files for future integration when the Gateway BFF layer is
+       completed, but excluded from build-time Razor compilation.
+       Simple pages (login, logout, error, layouts) compile successfully.
+       ========================================================================== -->
+  <ItemGroup>
+    <Content Remove="Pages\ApplicationHome.cshtml" />
+    <Content Remove="Pages\ApplicationNode.cshtml" />
+    <Content Remove="Pages\Index.cshtml" />
+    <Content Remove="Pages\RecordCreate.cshtml" />
+    <Content Remove="Pages\RecordDetails.cshtml" />
+    <Content Remove="Pages\RecordList.cshtml" />
+    <Content Remove="Pages\RecordManage.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordCreate.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordDetails.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordManage.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordsList.cshtml" />
+    <Content Remove="Pages\Site.cshtml" />
   </ItemGroup>
 
   <!-- ==========================================================================

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace WebVella.Erp.Gateway.Configuration
 {
@@ -32,14 +33,14 @@ namespace WebVella.Erp.Gateway.Configuration
         ///         /api/v3/{locale}/auth/jwt/*, /api/v3.0/user/preferences/*, /fs/*, entity/record/relation CRUD
         /// Docker Compose service: core-service
         /// </summary>
-        public string CoreServiceUrl { get; set; } = "http://core-service:8080";
+        public string CoreServiceUrl { get; set; } = "http://localhost:8084";
 
         /// <summary>
         /// Base URL for the CRM service. Handles account, contact, case, address, and salutation entities.
         /// Routes: /api/v3/{locale}/crm/*
         /// Docker Compose service: crm-service
         /// </summary>
-        public string CrmServiceUrl { get; set; } = "http://crm-service:8080";
+        public string CrmServiceUrl { get; set; } = "http://localhost:8082";
 
         /// <summary>
         /// Base URL for the Project/Task service. Handles task CRUD, timelogs, comments, feeds,
@@ -47,7 +48,7 @@ namespace WebVella.Erp.Gateway.Configuration
         /// Routes: /api/v3.0/p/project/* (from ProjectController.cs)
         /// Docker Compose service: project-service
         /// </summary>
-        public string ProjectServiceUrl { get; set; } = "http://project-service:8080";
+        public string ProjectServiceUrl { get; set; } = "http://localhost:8092";
 
         /// <summary>
         /// Base URL for the Mail/Notification service. Handles email entities, SMTP services,
@@ -55,7 +56,7 @@ namespace WebVella.Erp.Gateway.Configuration
         /// Routes: /api/v3/{locale}/mail/*
         /// Docker Compose service: mail-service
         /// </summary>
-        public string MailServiceUrl { get; set; } = "http://mail-service:8080";
+        public string MailServiceUrl { get; set; } = "http://localhost:8090";
 
         /// <summary>
         /// Base URL for the Reporting service. Handles report aggregation endpoints
@@ -63,7 +64,7 @@ namespace WebVella.Erp.Gateway.Configuration
         /// Routes: /api/v3/{locale}/report/*
         /// Docker Compose service: reporting-service
         /// </summary>
-        public string ReportingServiceUrl { get; set; } = "http://reporting-service:8080";
+        public string ReportingServiceUrl { get; set; } = "http://localhost:8088";
 
         /// <summary>
         /// Base URL for the Admin/SDK service. Handles SDK admin console endpoints including
@@ -71,7 +72,7 @@ namespace WebVella.Erp.Gateway.Configuration
         /// Routes: /api/v3.0/p/sdk/* (from AdminController.cs)
         /// Docker Compose service: admin-service
         /// </summary>
-        public string AdminServiceUrl { get; set; } = "http://admin-service:8080";
+        public string AdminServiceUrl { get; set; } = "http://localhost:8086";
 
         #endregion
 
@@ -82,25 +83,25 @@ namespace WebVella.Erp.Gateway.Configuration
         /// communication when performing API composition (cross-service EQL queries, entity resolution).
         /// Port 5001 is the standard gRPC HTTP/2 port by convention.
         /// </summary>
-        public string CoreServiceGrpc { get; set; } = "http://core-service:5001";
+        public string CoreServiceGrpc { get; set; } = "http://localhost:8085";
 
         /// <summary>
         /// gRPC endpoint for the CRM service. Used for cross-service entity resolution
         /// (e.g., resolving account/contact references from Project or Mail services).
         /// </summary>
-        public string CrmServiceGrpc { get; set; } = "http://crm-service:5001";
+        public string CrmServiceGrpc { get; set; } = "http://localhost:8083";
 
         /// <summary>
         /// gRPC endpoint for the Project/Task service. Used for cross-service entity resolution
         /// (e.g., resolving task references from CRM case-task links).
         /// </summary>
-        public string ProjectServiceGrpc { get; set; } = "http://project-service:5001";
+        public string ProjectServiceGrpc { get; set; } = "http://localhost:8093";
 
         /// <summary>
         /// gRPC endpoint for the Mail/Notification service. Used for cross-service communication
         /// (e.g., triggering email notifications from other services via the Gateway).
         /// </summary>
-        public string MailServiceGrpc { get; set; } = "http://mail-service:5001";
+        public string MailServiceGrpc { get; set; } = "http://localhost:8091";
 
         #endregion
 
@@ -179,20 +180,61 @@ namespace WebVella.Erp.Gateway.Configuration
         /// A tuple containing the service key and resolved service URL if a matching route is found;
         /// null if no route mapping matches the request path.
         /// </returns>
+        /// <summary>
+        /// Cached compiled regex patterns for route mapping keys containing template parameters.
+        /// Lazily built on first call to FindMatchingRoute to avoid repeated regex compilation.
+        /// </summary>
+        private List<(Regex pattern, string serviceKey, int keyLength)> _compiledRoutes;
+
+        /// <summary>
+        /// Builds and caches compiled regex patterns from the RouteMappings dictionary.
+        /// Template parameters like <c>{locale}</c> are replaced with wildcard capture groups
+        /// (e.g., <c>[^/]+</c>) to match concrete path segments like <c>en_US</c>.
+        /// Static route keys (without template parameters) are matched as literal prefixes.
+        /// Results are sorted by key length descending for longest-prefix-first matching.
+        /// </summary>
+        private List<(Regex pattern, string serviceKey, int keyLength)> GetCompiledRoutes()
+        {
+            if (_compiledRoutes != null)
+                return _compiledRoutes;
+
+            var routes = new List<(Regex pattern, string serviceKey, int keyLength)>();
+            if (RouteMappings != null)
+            {
+                foreach (var kvp in RouteMappings)
+                {
+                    // Replace {parameterName} tokens with a wildcard pattern matching any
+                    // non-slash path segment (e.g., {locale} matches "en_US", "bg_BG", etc.)
+                    // Note: Regex.Escape escapes '{' to '\{' but leaves '}' unescaped,
+                    // so the replacement pattern matches '\{...}' (not '\{...\}').
+                    var regexPattern = "^" + Regex.Replace(
+                        Regex.Escape(kvp.Key),
+                        @"\\{[^}]+}",
+                        "[^/]+");
+                    routes.Add((
+                        new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled),
+                        kvp.Value,
+                        kvp.Key.Length));
+                }
+            }
+            // Sort by key length descending for longest-prefix-first matching
+            _compiledRoutes = routes.OrderByDescending(r => r.keyLength).ToList();
+            return _compiledRoutes;
+        }
+
         public (string serviceKey, string serviceUrl)? FindMatchingRoute(string requestPath)
         {
             if (string.IsNullOrEmpty(requestPath) || RouteMappings == null || RouteMappings.Count == 0)
                 return null;
 
-            // Sort by path length descending to match longest prefix first.
-            // This ensures more specific routes (e.g., "/api/v3.0/p/sdk/datasource")
-            // take priority over shorter prefixes (e.g., "/api/v3.0/p/sdk").
-            foreach (var mapping in RouteMappings.OrderByDescending(m => m.Key.Length))
+            // Use compiled regex patterns that handle {locale} and other template parameters.
+            // Sort by key length descending ensures more specific routes take priority.
+            foreach (var (pattern, serviceKey, _) in GetCompiledRoutes())
             {
-                if (requestPath.StartsWith(mapping.Key, StringComparison.OrdinalIgnoreCase))
+                if (pattern.IsMatch(requestPath))
                 {
-                    var serviceUrl = GetServiceUrl(mapping.Value);
-                    return (mapping.Value, serviceUrl);
+                    var serviceUrl = GetServiceUrl(serviceKey);
+                    return (serviceKey, serviceUrl);
                 }
             }
 
