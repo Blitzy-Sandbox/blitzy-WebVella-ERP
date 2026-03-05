@@ -133,7 +133,14 @@ namespace WebVella.Erp.Service.Core
                     ValidIssuer = jwtIssuer,
                     ValidAudience = jwtAudience,
                     IssuerSigningKey = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(jwtKey))
+                        Encoding.UTF8.GetBytes(jwtKey)),
+
+                    // ErpUser.ToClaims() emits role IDs as ClaimTypes.Role (Guid)
+                    // and human-readable role names as "role_name" companion claims.
+                    // ASP.NET Core's [Authorize(Roles = "administrator")] must match
+                    // the human-readable name, so we configure RoleClaimType to use
+                    // "role_name" instead of the default ClaimTypes.Role.
+                    RoleClaimType = "role_name"
                 };
             });
 
@@ -422,6 +429,38 @@ namespace WebVella.Erp.Service.Core
             // Authentication and Authorization
             app.UseAuthentication();
             app.UseAuthorization();
+
+            // SecurityContext bridge — opens a SecurityContext scope from the
+            // authenticated ClaimsPrincipal on each request so that downstream
+            // managers (EntityManager, RecordManager, etc.) can call
+            // SecurityContext.CurrentUser / HasMetaPermission() correctly.
+            // The gRPC services handle this explicitly per-call; REST controllers
+            // rely on this middleware to establish the scope automatically.
+            app.Use(async (context, next) =>
+            {
+                if (context.User?.Identity?.IsAuthenticated == true)
+                {
+                    try
+                    {
+                        using (SecurityContext.OpenScope(context.User))
+                        {
+                            await next();
+                        }
+                    }
+                    catch (ArgumentException)
+                    {
+                        // If claims cannot be mapped to an ErpUser (e.g. missing
+                        // NameIdentifier), proceed without a SecurityContext scope.
+                        // Permission checks will see CurrentUser == null and deny
+                        // access naturally.
+                        await next();
+                    }
+                }
+                else
+                {
+                    await next();
+                }
+            });
 
             // Health check endpoint — anonymous access for container probes
             app.MapHealthChecks("/health").AllowAnonymous();

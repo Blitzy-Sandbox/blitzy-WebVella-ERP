@@ -393,79 +393,8 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
 	#endregion
 
-	#region ===== DataSource Controller Tests =====
-
-	/// <summary>
-	/// Integration tests for DataSourceController REST endpoints.
-	/// </summary>
-	public class DataSourceControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
-	{
-		private readonly WebApplicationFactory<WebVella.Erp.Service.Core.Program> _factory;
-
-		public DataSourceControllerTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
-		{
-			_factory = factory.WithWebHostBuilder(builder =>
-			{
-				builder.UseEnvironment("Development");
-				builder.ConfigureTestServices(services =>
-				{
-					services.AddAuthentication(options =>
-						{
-							options.DefaultAuthenticateScheme = TestAuthHandler.TestScheme;
-							options.DefaultChallengeScheme = TestAuthHandler.TestScheme;
-						})
-						.AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-							TestAuthHandler.TestScheme, options => { });
-				});
-			});
-		}
-
-		/// <summary>
-		/// Happy path: GET datasource list returns response envelope.
-		/// </summary>
-		[Fact]
-		public async Task GetDataSources_ReturnsResponseEnvelope()
-		{
-			// Arrange
-			var client = _factory.CreateClient();
-			TestAuthHandler.IsAdmin = true;
-
-			// Act
-			var response = await client.GetAsync("/api/v3/en_US/meta/datasource/list");
-
-			// Assert
-			response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "route should exist");
-			response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized, "auth should succeed");
-		}
-
-		/// <summary>
-		/// Validates that the code-compile endpoint is reachable and restricted to admin role.
-		/// The [Authorize(Roles = "administrator")] attribute is verified by inspecting the
-		/// controller source. In a WebApplicationFactory with shared static TestAuthHandler,
-		/// parallel test execution can cause IsAdmin race conditions, so this test validates
-		/// the route exists and that an admin request reaches the endpoint (does not 404).
-		/// </summary>
-		[Fact]
-		public async Task DataSourceCodeCompile_AdminRoute_IsReachable()
-		{
-			// Arrange — use admin role to validate route reachability
-			TestAuthHandler.IsAdmin = true;
-			var client = _factory.CreateClient();
-			var body = new StringContent(
-				JsonConvert.SerializeObject(new { csCode = "return 1;" }),
-				Encoding.UTF8, "application/json");
-
-			// Act
-			var response = await client.PostAsync("/api/v3.0/datasource/code-compile", body);
-
-			// Assert — route exists and responds (may return 200/500 depending on DB availability)
-			response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "route should exist");
-			response.StatusCode.Should().NotBe(HttpStatusCode.MethodNotAllowed, "POST should be allowed");
-			response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized, "admin auth should succeed");
-		}
-	}
-
-	#endregion
+	// DataSourceControllerTests moved to dedicated file:
+	// tests/WebVella.Erp.Tests.Core/Controllers/DataSourceControllerTests.cs
 
 	// SearchControllerTests moved to dedicated file:
 	// tests/WebVella.Erp.Tests.Core/Controllers/SearchControllerTests.cs

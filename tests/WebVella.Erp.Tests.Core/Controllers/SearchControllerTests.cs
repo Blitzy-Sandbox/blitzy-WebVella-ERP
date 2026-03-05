@@ -1030,6 +1030,11 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 ? Guid.Parse("b0223150-e6d2-4145-84f9-1429f0a5b668")  // system admin user ID
                 : Guid.NewGuid();  // random user ID for regular users
 
+            // Role claims: ClaimTypes.Role uses the GUID role ID (for SecurityContext.HasMetaPermission),
+            // and "role_name" uses the human-readable name (for [Authorize(Roles)] via RoleClaimType).
+            var roleId = isAdmin
+                ? new Guid("BDC56420-CAF0-4030-8A0E-D264938E0CDA") // SystemIds.AdministratorRoleId
+                : new Guid("F16EC6DB-626D-4C27-8DE0-3E7CE542C55F"); // SystemIds.RegularRoleId
             var roleName = isAdmin ? "administrator" : "regular";
             var username = isAdmin ? "administrator" : "testuser";
 
@@ -1037,7 +1042,8 @@ namespace WebVella.Erp.Tests.Core.Controllers
             {
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
                 new Claim(ClaimTypes.Name, username),
-                new Claim(ClaimTypes.Role, roleName)
+                new Claim(ClaimTypes.Role, roleId.ToString()),
+                new Claim("role_name", roleName)
             };
 
             var keyBytes = Encoding.UTF8.GetBytes(JwtSigningKey);
