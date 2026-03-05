@@ -109,6 +109,13 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
+		/// <summary>
+		/// Protected parameterless constructor enabling Moq proxy creation for unit tests.
+		/// This constructor is NOT used in production — the DI container always resolves
+		/// through the parameterized constructor above.
+		/// </summary>
+		protected internal CommentService() { }
+
 		#region << Helper Methods >>
 
 		/// <summary>
@@ -317,7 +324,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// <param name="entityName">The entity name ("comment") triggering the hook.</param>
 		/// <param name="record">The comment EntityRecord being created.</param>
 		/// <param name="errors">Mutable list of ErrorModel for accumulating validation errors.</param>
-		public void PreCreateApiHookLogic(string entityName, EntityRecord record, List<ErrorModel> errors)
+		public virtual void PreCreateApiHookLogic(string entityName, EntityRecord record, List<ErrorModel> errors)
 		{
 			var isProjectComment = false;
 			var relatedTaskRecords = new EntityRecordList();
@@ -412,7 +419,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="entityName">The entity name ("comment") triggering the hook.</param>
 		/// <param name="record">The comment EntityRecord that was created.</param>
-		public void PostCreateApiHookLogic(string entityName, EntityRecord record)
+		public virtual void PostCreateApiHookLogic(string entityName, EntityRecord record)
 		{
 			Guid? commentCreator = null;
 			if (record.Properties.ContainsKey("created_by") && record["created_by"] != null && record["created_by"] is Guid)
