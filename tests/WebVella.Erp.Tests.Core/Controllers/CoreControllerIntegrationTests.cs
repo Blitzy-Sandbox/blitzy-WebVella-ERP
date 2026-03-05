@@ -155,16 +155,17 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
 	#endregion
 
-	#region ===== Record Controller Tests =====
+	#region ===== Record Controller Basic Tests =====
 
 	/// <summary>
-	/// Integration tests for RecordController REST endpoints.
+	/// Basic integration tests for RecordController REST endpoints.
+	/// Full tests are in RecordControllerTests.cs.
 	/// </summary>
-	public class RecordControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
+	public class RecordControllerBasicTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
 	{
 		private readonly WebApplicationFactory<WebVella.Erp.Service.Core.Program> _factory;
 
-		public RecordControllerTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
+		public RecordControllerBasicTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
 		{
 			_factory = factory.WithWebHostBuilder(builder =>
 			{
