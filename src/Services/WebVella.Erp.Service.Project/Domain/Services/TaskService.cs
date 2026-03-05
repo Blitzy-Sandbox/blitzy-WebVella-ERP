@@ -63,6 +63,16 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		private readonly ILogger<TaskService> _logger;
 
 		/// <summary>
+		/// Protected parameterless constructor for unit testing support.
+		/// Allows Moq and other proxy-based mocking frameworks to create
+		/// instances of <see cref="TaskService"/> without providing real dependencies.
+		/// All virtual hook methods can be intercepted by the mock proxy.
+		/// </summary>
+		protected TaskService()
+		{
+		}
+
+		/// <summary>
 		/// Initializes a new instance of the <see cref="TaskService"/> class with all
 		/// required dependencies injected via constructor DI.
 		/// Replaces the monolith's <c>BaseService</c> inheritance pattern.
@@ -535,7 +545,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="record">The task EntityRecord being created.</param>
 		/// <param name="errors">Mutable list of ErrorModel to accumulate validation errors.</param>
-		public void PreCreateRecordPageHookLogic(EntityRecord record, List<ErrorModel> errors)
+		public virtual void PreCreateRecordPageHookLogic(EntityRecord record, List<ErrorModel> errors)
 		{
 			if (!record.Properties.ContainsKey("$project_nn_task.id"))
 			{
@@ -583,7 +593,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// or <c>this.</c> calls.
 		/// </summary>
 		/// <param name="record">The task EntityRecord that was just created.</param>
-		public void PostCreateApiHookLogic(EntityRecord record)
+		public virtual void PostCreateApiHookLogic(EntityRecord record)
 		{
 			//Update key and search fields
 			Guid projectId = Guid.Empty;
@@ -666,7 +676,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// <param name="record">The task EntityRecord being updated (with new values).</param>
 		/// <param name="oldRecord">The original task EntityRecord (not directly passed — retrieved via EQL).</param>
 		/// <param name="errors">Mutable list of ErrorModel to accumulate validation errors.</param>
-		public void PostPreUpdateApiHookLogic(EntityRecord record, EntityRecord oldRecord, List<ErrorModel> errors)
+		public virtual void PostPreUpdateApiHookLogic(EntityRecord record, EntityRecord oldRecord, List<ErrorModel> errors)
 		{
 			var eqlResult = ExecuteEql("SELECT id,number, $project_nn_task.id, $project_nn_task.abbr, $user_nn_task_watchers.id FROM task WHERE id = @taskId", new List<EqlParameter>() { new EqlParameter("taskId", (Guid)record["id"]) });
 			if (eqlResult.Count > 0)
@@ -774,7 +784,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="record">The task EntityRecord that was just updated (with new values).</param>
 		/// <param name="oldRecord">The task EntityRecord with old values (for change detection).</param>
-		public void PostUpdateApiHookLogic(EntityRecord record, EntityRecord oldRecord)
+		public virtual void PostUpdateApiHookLogic(EntityRecord record, EntityRecord oldRecord)
 		{
 			//Update key and search fields
 			Guid projectId = Guid.Empty;
