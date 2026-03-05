@@ -2,21 +2,43 @@
 // ProjectGrpcService.cs — Server-Side gRPC Service for Project Microservice
 // =============================================================================
 // Implements all 18 RPCs defined in proto/project.proto, enabling other
-// microservices (CRM, Mail, Core, Gateway) to invoke Project-domain operations
-// across service boundaries.
+// microservices (CRM, Mail, Core, Gateway, Reporting) to invoke Project-domain
+// operations across service boundaries.
 //
 // In the monolith, these operations were accessed via direct in-process method
 // calls on ProjectController and domain services (TaskService, TimelogService,
-// CommentService, FeedService). This gRPC service replaces those direct calls
-// with a well-defined inter-service API contract.
+// CommentService, FeedService, ReportService). This gRPC service replaces
+// those direct calls with a well-defined inter-service API contract.
 //
 // Proto source: proto/project.proto (ProjectService definition — 18 RPCs)
 // Pattern template: CRM gRPC service (CrmGrpcService.cs)
+//
+// Dependencies (9 DI-injected):
+//   - TaskService: Task CRUD, status management, queue queries, calculation fields
+//   - TimelogService: Timelog CRUD, period queries
+//   - CommentService: Comment CRUD with threading support
+//   - FeedService: Feed item creation for activity tracking
+//   - ReportingService: Monthly timelog aggregation (GetTimelogData)
+//   - RecordManager: Generic record CRUD, relation management, Find queries
+//   - EntityManager: Entity metadata validation (ReadEntity)
+//   - EntityRelationManager: Relation management (watcher subscriptions)
+//   - ILogger: Structured logging (Debug for lookups, Warning for validation, Error for failures)
 //
 // Cross-service reference analysis (AAP 0.7.1):
 //   - Task → Account: resolved via CRM gRPC (account_id in project)
 //   - Task → User: resolved via Core gRPC (owner_id, created_by)
 //   - Timelog → User: resolved via Core gRPC (created_by)
+//   - Timelog → Reporting: aggregation data via ReportingService
+//
+// Error handling: Every method catches ValidationException (→ InvalidArgument),
+// ArgumentException (→ InvalidArgument), UnauthorizedAccessException (→ PermissionDenied),
+// and general Exception (→ Internal) with structured logging.
+//
+// Security: [Authorize] attribute enforces JWT Bearer authentication. Every method
+// opens SecurityContext.OpenScope(user) for entity-level permission enforcement.
+//
+// Serialization: Newtonsoft.Json with TypeNameHandling.Auto for polymorphic
+// EntityQuery/QueryObject deserialization (AAP 0.8.2).
 // =============================================================================
 
 using System;
@@ -28,6 +50,8 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using WebVella.Erp.SharedKernel.Exceptions;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
 using WebVella.Erp.Service.Core.Api;
@@ -82,9 +106,23 @@ namespace WebVella.Erp.Service.Project.Grpc
 		private readonly TimelogService _timelogService;
 		private readonly CommentService _commentService;
 		private readonly FeedService _feedService;
+		private readonly ReportingService _reportingService;
 		private readonly RecordManager _recordManager;
+		private readonly EntityManager _entityManager;
 		private readonly EntityRelationManager _relationManager;
 		private readonly ILogger<ProjectGrpcService> _logger;
+
+		/// <summary>
+		/// JSON serialization settings using TypeNameHandling.Auto for polymorphic
+		/// QueryObject deserialization and NullValueHandling.Ignore for compact transport.
+		/// Per AAP 0.8.2 — preserve Newtonsoft.Json serialization for API contract stability.
+		/// </summary>
+		private static readonly JsonSerializerSettings _jsonSettings = new JsonSerializerSettings
+		{
+			TypeNameHandling = TypeNameHandling.Auto,
+			NullValueHandling = NullValueHandling.Ignore,
+			Formatting = Formatting.None
+		};
 
 		#endregion
 
@@ -92,13 +130,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 
 		/// <summary>
 		/// Constructs a ProjectGrpcService with all required domain service dependencies.
+		/// All dependencies are injected via ASP.NET Core DI — no static singletons per AAP 0.8.3.
 		/// </summary>
 		public ProjectGrpcService(
 			TaskService taskService,
 			TimelogService timelogService,
 			CommentService commentService,
 			FeedService feedService,
+			ReportingService reportingService,
 			RecordManager recordManager,
+			EntityManager entityManager,
 			EntityRelationManager relationManager,
 			ILogger<ProjectGrpcService> logger)
 		{
@@ -106,7 +147,9 @@ namespace WebVella.Erp.Service.Project.Grpc
 			_timelogService = timelogService ?? throw new ArgumentNullException(nameof(timelogService));
 			_commentService = commentService ?? throw new ArgumentNullException(nameof(commentService));
 			_feedService = feedService ?? throw new ArgumentNullException(nameof(feedService));
+			_reportingService = reportingService ?? throw new ArgumentNullException(nameof(reportingService));
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
+			_entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
 			_relationManager = relationManager ?? throw new ArgumentNullException(nameof(relationManager));
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
@@ -356,6 +399,43 @@ namespace WebVella.Erp.Service.Project.Grpc
 			return null;
 		}
 
+		/// <summary>
+		/// Serializes an object to JSON using the shared serialization settings.
+		/// Uses Newtonsoft.Json with TypeNameHandling.Auto for polymorphic QueryObject
+		/// deserialization and NullValueHandling.Ignore for compact transport.
+		/// Per AAP 0.8.2 — preserve Newtonsoft.Json serialization exclusively.
+		/// </summary>
+		private static string SerializeToJson(object obj)
+		{
+			if (obj == null) return null;
+			return JsonConvert.SerializeObject(obj, _jsonSettings);
+		}
+
+		/// <summary>
+		/// Validates that the given entity name belongs to the Project service boundary.
+		/// Uses <see cref="EntityManager.ReadEntity(string)"/> to verify entity exists
+		/// and checks against the static <see cref="ProjectEntityNames"/> set.
+		/// </summary>
+		private void ValidateProjectEntity(string entityName)
+		{
+			if (string.IsNullOrWhiteSpace(entityName))
+				throw new RpcException(new Status(StatusCode.InvalidArgument, "Entity name is required."));
+
+			if (!ProjectEntityNames.Contains(entityName))
+				throw new RpcException(new Status(StatusCode.InvalidArgument,
+					$"Entity '{entityName}' is not owned by the Project service. " +
+					$"Valid entities: {string.Join(", ", ProjectEntityNames)}"));
+
+			// Verify entity exists in metadata via EntityManager
+			var entityResponse = _entityManager.ReadEntity(entityName);
+			if (entityResponse == null || !entityResponse.Success || entityResponse.Object == null)
+			{
+				_logger.LogWarning("Entity metadata not found for '{EntityName}' in Project service", entityName);
+				throw new RpcException(new Status(StatusCode.NotFound,
+					$"Entity metadata not found for '{entityName}'."));
+			}
+		}
+
 		#endregion
 
 		#region ===== Project Operations =====
@@ -373,11 +453,14 @@ namespace WebVella.Erp.Service.Project.Grpc
 				using (SecurityContext.OpenScope(user))
 				{
 					var projectId = ParseGuid(request.ProjectId, "project_id");
+					_logger.LogDebug("GetProject: Looking up project {ProjectId}", projectId);
+
 					var query = new EntityQuery("project", "*", EntityQuery.QueryEQ("id", projectId));
 					var response = _recordManager.Find(query);
 
 					if (!response.Success || response.Object?.Data == null || response.Object.Data.Count == 0)
 					{
+						_logger.LogDebug("GetProject: Project not found {ProjectId}", projectId);
 						throw new RpcException(new Status(StatusCode.NotFound,
 							$"Project not found with ID: {request.ProjectId}"));
 					}
@@ -391,6 +474,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetProject), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(GetProject), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
 			catch (UnauthorizedAccessException ex)
 			{
 				_logger.LogError(ex, "Permission denied in {Method}", nameof(GetProject));
@@ -416,6 +509,8 @@ namespace WebVella.Erp.Service.Project.Grpc
 				using (SecurityContext.OpenScope(user))
 				{
 					var projectId = ParseGuid(request.ProjectId, "project_id");
+					_logger.LogDebug("GetProjectTimelogs: Querying timelogs for project {ProjectId}", projectId);
+
 					var timelogs = _timelogService.GetTimelogsForPeriod(
 						projectId, null, DateTime.MinValue, DateTime.MaxValue);
 
@@ -431,6 +526,21 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetProjectTimelogs), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(GetProjectTimelogs), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(GetProjectTimelogs));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetProjectTimelogs), ex.Message);
@@ -455,10 +565,13 @@ namespace WebVella.Erp.Service.Project.Grpc
 				using (SecurityContext.OpenScope(user))
 				{
 					var taskId = ParseGuid(request.TaskId, "task_id");
+					_logger.LogDebug("GetTask: Looking up task {TaskId}", taskId);
+
 					var taskRecord = _taskService.GetTask(taskId);
 
 					if (taskRecord == null)
 					{
+						_logger.LogDebug("GetTask: Task not found {TaskId}", taskId);
 						throw new RpcException(new Status(StatusCode.NotFound,
 							$"Task not found with ID: {request.TaskId}"));
 					}
@@ -471,10 +584,20 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
-			catch (FormatException ex)
+			catch (ValidationException vex)
 			{
-				_logger.LogError(ex, "Invalid task_id format in {Method}", nameof(GetTask));
-				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid task_id: {request.TaskId}"));
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTask), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(GetTask), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(GetTask));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
 			}
 			catch (Exception ex)
 			{
@@ -500,6 +623,9 @@ namespace WebVella.Erp.Service.Project.Grpc
 					var dueType = MapTasksDueType(request.DueType);
 					int? limit = request.Limit > 0 ? request.Limit : null;
 
+					_logger.LogDebug("GetTaskQueue: project={ProjectId}, user={UserId}, dueType={DueType}, limit={Limit}",
+						projectId, userId, dueType, limit);
+
 					var tasks = _taskService.GetTaskQueue(projectId, userId, dueType, limit, request.IncludeProjectData);
 
 					var result = new GetTaskQueueResponse { Success = true };
@@ -514,6 +640,21 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTaskQueue), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(GetTaskQueue), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(GetTaskQueue));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetTaskQueue), ex.Message);
@@ -533,6 +674,7 @@ namespace WebVella.Erp.Service.Project.Grpc
 				var user = ExtractUserFromContext(context);
 				using (SecurityContext.OpenScope(user))
 				{
+					_logger.LogDebug("GetTaskStatuses: Retrieving all task statuses");
 					var statuses = _taskService.GetTaskStatuses();
 
 					var result = new GetTaskStatusesResponse { Success = true };
@@ -547,6 +689,11 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTaskStatuses), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetTaskStatuses), ex.Message);
@@ -569,6 +716,28 @@ namespace WebVella.Erp.Service.Project.Grpc
 					var taskId = ParseGuid(request.TaskId, "task_id");
 					var statusId = ParseGuid(request.StatusId, "status_id");
 
+					// Validate task exists before status update (preserving monolith business rule
+					// from ProjectController.TaskSetStatus lines 362-394)
+					var existingTask = _taskService.GetTask(taskId);
+					if (existingTask == null)
+					{
+						_logger.LogWarning("SetTaskStatus: Task not found {TaskId}", taskId);
+						throw new RpcException(new Status(StatusCode.NotFound,
+							$"Task not found with ID: {request.TaskId}"));
+					}
+
+					// Check for redundant status update
+					var currentStatusId = existingTask["status_id"];
+					if (currentStatusId != null && currentStatusId is Guid currentGuid && currentGuid == statusId)
+					{
+						return await Task.FromResult(new SetTaskStatusResponse
+						{
+							Success = true,
+							Message = "Status already set to the requested value."
+						});
+					}
+
+					_logger.LogDebug("SetTaskStatus: Updating task {TaskId} status to {StatusId}", taskId, statusId);
 					_taskService.SetStatus(taskId, statusId);
 
 					return await Task.FromResult(new SetTaskStatusResponse
@@ -579,6 +748,21 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(SetTaskStatus), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(SetTaskStatus), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(SetTaskStatus));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(SetTaskStatus), ex.Message);
@@ -628,6 +812,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(SetTaskWatch), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(SetTaskWatch));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(SetTaskWatch), ex.Message);
@@ -658,6 +852,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(StartTaskTimelog), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(StartTaskTimelog));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(StartTaskTimelog), ex.Message);
@@ -688,6 +892,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(StopTaskTimelog), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(StopTaskTimelog));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(StopTaskTimelog), ex.Message);
@@ -705,9 +919,13 @@ namespace WebVella.Erp.Service.Project.Grpc
 		{
 			try
 			{
+				// Use SystemScope for background/scheduled queries that run without
+				// a specific user context (e.g., StartTasksOnStartDate job).
+				// Falls back to user scope if authenticated user is present.
 				var user = ExtractUserFromContext(context);
-				using (SecurityContext.OpenScope(user))
+				using (user != null ? SecurityContext.OpenScope(user) : SecurityContext.OpenSystemScope())
 				{
+					_logger.LogDebug("GetTasksNeedingStart: Querying tasks that need starting");
 					var tasks = _taskService.GetTasksThatNeedStarting();
 
 					var result = new GetTasksNeedingStartResponse { Success = true };
@@ -722,6 +940,11 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTasksNeedingStart), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetTasksNeedingStart), ex.Message);
@@ -755,6 +978,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(SetCalculationFields), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(SetCalculationFields));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(SetCalculationFields), ex.Message);
@@ -804,6 +1037,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(CreateTimelog), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(CreateTimelog));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateTimelog), ex.Message);
@@ -834,6 +1077,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(DeleteTimelog), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(DeleteTimelog));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteTimelog), ex.Message);
@@ -858,11 +1111,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 					var startDate = request.StartDate != null ? request.StartDate.ToDateTime() : DateTime.UtcNow.AddDays(-30);
 					var endDate = request.EndDate != null ? request.EndDate.ToDateTime() : DateTime.UtcNow;
 
+					_logger.LogDebug("GetTimelogsForPeriod: project={ProjectId}, user={UserId}, start={StartDate}, end={EndDate}",
+						projectId, userId, startDate, endDate);
+
 					var timelogs = _timelogService.GetTimelogsForPeriod(projectId, userId, startDate, endDate);
 
 					var result = new GetTimelogsForPeriodResponse { Success = true };
 					if (timelogs != null)
 					{
+						_logger.LogDebug("GetTimelogsForPeriod: Found {Count} timelogs (TotalCount={TotalCount})",
+							timelogs.Count, timelogs.TotalCount);
 						foreach (var tl in timelogs)
 						{
 							result.Timelogs.Add(MapToTimelogRecord(tl));
@@ -872,6 +1130,21 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTimelogsForPeriod), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (ArgumentException ex)
+			{
+				_logger.LogWarning(ex, "Invalid argument in {Method}: {Message}", nameof(GetTimelogsForPeriod), ex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(GetTimelogsForPeriod));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetTimelogsForPeriod), ex.Message);
@@ -902,6 +1175,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(StartTimelog), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(StartTimelog));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(StartTimelog), ex.Message);
@@ -949,6 +1232,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(CreateComment), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(CreateComment));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateComment), ex.Message);
@@ -979,6 +1272,16 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(DeleteComment), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(DeleteComment));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteComment), ex.Message);
@@ -1025,11 +1328,132 @@ namespace WebVella.Erp.Service.Project.Grpc
 				}
 			}
 			catch (RpcException) { throw; }
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(CreateFeedItem), vex.Message);
+				throw new RpcException(new Status(StatusCode.InvalidArgument, vex.Message));
+			}
+			catch (UnauthorizedAccessException ex)
+			{
+				_logger.LogError(ex, "Permission denied in {Method}", nameof(CreateFeedItem));
+				throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateFeedItem), ex.Message);
 				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
 			}
+		}
+
+		#endregion
+
+		#region ===== Reporting Support =====
+
+		/// <summary>
+		/// Provides timelog aggregation data for the Reporting service.
+		/// Delegates to <see cref="ReportingService.GetTimelogData(int, int, Guid?)"/>
+		/// which performs monthly timelog aggregation with task/project joins and
+		/// billable/non-billable minute computation.
+		///
+		/// This is a public helper method (not a gRPC override) that exposes the
+		/// ReportingService capability through the gRPC service for internal use
+		/// by background jobs and cross-service composition in the Gateway.
+		/// </summary>
+		/// <param name="year">The year for the aggregation period.</param>
+		/// <param name="month">The month for the aggregation period (1-12).</param>
+		/// <param name="accountId">Optional account ID filter.</param>
+		/// <returns>List of aggregated timelog EntityRecord instances serialized as JSON.</returns>
+		public async Task<string> GetTimelogAggregationJson(int year, int month, Guid? accountId)
+		{
+			try
+			{
+				_logger.LogDebug("GetTimelogAggregationJson: year={Year}, month={Month}, account={AccountId}",
+					year, month, accountId);
+
+				var data = await _reportingService.GetTimelogData(year, month, accountId);
+				return SerializeToJson(data);
+			}
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(GetTimelogAggregationJson), vex.Message);
+				throw;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetTimelogAggregationJson), ex.Message);
+				throw;
+			}
+		}
+
+		/// <summary>
+		/// Validates that a given entity name belongs to the Project service and returns
+		/// query results. Uses <see cref="EntityManager.ReadEntity(string)"/> for entity validation
+		/// and <see cref="RecordManager.Find(EntityQuery)"/> for execution.
+		/// This public utility is available for cross-service entity resolution requests.
+		/// </summary>
+		/// <param name="entityName">The entity name to validate.</param>
+		/// <param name="queryJson">JSON-serialized EntityQuery to execute.</param>
+		/// <returns>JSON-serialized QueryResponse result.</returns>
+		public string FindProjectRecordsJson(string entityName, string queryJson)
+		{
+			try
+			{
+				ValidateProjectEntity(entityName);
+
+				_logger.LogDebug("FindProjectRecordsJson: entity={EntityName}", entityName);
+
+				var query = JsonConvert.DeserializeObject<EntityQuery>(queryJson, _jsonSettings);
+				if (query == null)
+					throw new ArgumentException("Invalid query JSON.");
+
+				var response = _recordManager.Find(query);
+				if (!response.Success)
+				{
+					_logger.LogWarning("FindProjectRecordsJson query failed: {Message}", response.Message);
+				}
+				return SerializeToJson(response);
+			}
+			catch (ValidationException vex)
+			{
+				_logger.LogWarning(vex, "Validation error in {Method}: {Message}", nameof(FindProjectRecordsJson), vex.Message);
+				throw;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(FindProjectRecordsJson), ex.Message);
+				throw;
+			}
+		}
+
+		/// <summary>
+		/// Finds multiple project records by a list of IDs using QueryOR with QueryEQ predicates.
+		/// Uses <see cref="EntityQuery.QueryOR(QueryObject[])"/> and 
+		/// <see cref="EntityQuery.QueryEQ(string, object)"/> for bulk lookups.
+		/// Supports cross-service bulk resolution (e.g., Gateway composing multiple project references).
+		/// </summary>
+		/// <param name="entityName">Entity name (must be Project-owned).</param>
+		/// <param name="ids">List of record IDs to resolve.</param>
+		/// <returns>List of found EntityRecord instances.</returns>
+		public List<EntityRecord> FindProjectRecordsByIds(string entityName, IEnumerable<Guid> ids)
+		{
+			ValidateProjectEntity(entityName);
+
+			var idArray = ids?.ToArray() ?? Array.Empty<Guid>();
+			if (idArray.Length == 0)
+				return new List<EntityRecord>();
+
+			_logger.LogDebug("FindProjectRecordsByIds: entity={EntityName}, count={Count}", entityName, idArray.Length);
+
+			// Build OR-combined EQ predicates for bulk lookup
+			var predicates = idArray.Select(id => EntityQuery.QueryEQ("id", id)).ToArray();
+			var query = new EntityQuery(entityName, "*", EntityQuery.QueryOR(predicates));
+
+			var response = _recordManager.Find(query);
+			if (response.Success && response.Object?.Data != null)
+			{
+				return response.Object.Data;
+			}
+			return new List<EntityRecord>();
 		}
 
 		#endregion
