@@ -34,6 +34,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using WebVella.Erp.Service.Core.Api;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
 
@@ -78,6 +79,7 @@ namespace WebVella.Erp.Service.Mail.Grpc
 		#region ===== Private Fields =====
 
 		private readonly DomainSmtpService _smtpService;
+		private readonly RecordManager _recordManager;
 		private readonly ILogger<MailGrpcService> _logger;
 
 		/// <summary>
@@ -102,9 +104,11 @@ namespace WebVella.Erp.Service.Mail.Grpc
 		/// <param name="logger">Structured logger for error reporting and diagnostics.</param>
 		public MailGrpcService(
 			DomainSmtpService smtpService,
+			RecordManager recordManager,
 			ILogger<MailGrpcService> logger)
 		{
 			_smtpService = smtpService ?? throw new ArgumentNullException(nameof(smtpService));
+			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
@@ -422,6 +426,27 @@ namespace WebVella.Erp.Service.Mail.Grpc
 				{
 					Key = error.PropertyName ?? string.Empty,
 					Value = string.Empty,
+					Message = error.Message ?? string.Empty
+				});
+			}
+		}
+
+		/// <summary>
+		/// Overload: Maps validation errors from a <see cref="List{ErrorModel}"/>
+		/// to proto <see cref="GrpcErrorModel"/> messages for the response error collection.
+		/// Used by CRUD methods that accumulate errors via SmtpService.Validate* methods.
+		/// </summary>
+		private static void MapValidationErrors(
+			List<ErrorModel> errorList,
+			Google.Protobuf.Collections.RepeatedField<GrpcErrorModel> errors)
+		{
+			if (errorList == null) return;
+			foreach (var error in errorList)
+			{
+				errors.Add(new GrpcErrorModel
+				{
+					Key = error.Key ?? string.Empty,
+					Value = error.Value ?? string.Empty,
 					Message = error.Message ?? string.Empty
 				});
 			}
@@ -837,6 +862,348 @@ namespace WebVella.Erp.Service.Mail.Grpc
 				throw new RpcException(new Status(StatusCode.Internal,
 					"Internal error retrieving SMTP service configuration"));
 			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: ListEmails =====
+
+		/// <summary>
+		/// Lists emails with pagination and optional filters.
+		/// Proto: rpc ListEmails(ListEmailsRequest) returns (ListEmailsResponse)
+		/// </summary>
+		public override async Task<ListEmailsResponse> ListEmails(ListEmailsRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var page = request.Page > 0 ? request.Page : 1;
+					var pageSize = request.PageSize > 0 ? request.PageSize : 10;
+
+					var filters = new List<QueryObject>();
+					if (!string.IsNullOrWhiteSpace(request.StatusFilter))
+						filters.Add(EntityQuery.QueryEQ("status", request.StatusFilter));
+					if (!string.IsNullOrWhiteSpace(request.ServiceId))
+						filters.Add(EntityQuery.QueryEQ("service_id", Guid.Parse(request.ServiceId)));
+					if (!string.IsNullOrWhiteSpace(request.SearchQuery))
+						filters.Add(EntityQuery.QueryContains("x_search", request.SearchQuery));
+
+					QueryObject filter = null;
+					if (filters.Count == 1) filter = filters[0];
+					else if (filters.Count > 1) filter = EntityQuery.QueryAND(filters.ToArray());
+
+					var sortObjects = new[] { new QuerySortObject("created_on", QuerySortType.Descending) };
+					var query = new EntityQuery("email", "id", filter, sortObjects, (page - 1) * pageSize, pageSize);
+					var recMan = _recordManager;
+					var response = recMan.Find(query);
+
+					var countQuery = new EntityQuery("email", "id", filter);
+					var countResponse = recMan.Count(countQuery);
+
+					var result = new ListEmailsResponse { Success = true };
+					result.TotalCount = (int)(countResponse?.Object ?? 0);
+
+					if (response.Success && response.Object?.Data != null)
+					{
+						foreach (var rec in response.Object.Data)
+						{
+							var emailId = (Guid)rec["id"];
+							var email = _smtpService.GetEmail(emailId);
+							if (email != null)
+								result.Emails.Add(MapEmailToProto(email));
+						}
+					}
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.ListEmails: {Message}", ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, "Internal error listing emails"));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: SMTP Service Management =====
+
+		/// <summary>
+		/// Creates a new SMTP service configuration.
+		/// Proto: rpc CreateSmtpService(CreateSmtpServiceRequest) returns (SmtpServiceResponse)
+		/// </summary>
+		public override async Task<SmtpServiceResponse> CreateSmtpService(CreateSmtpServiceRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = MapSmtpProtoToEntityRecord(request.SmtpService);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						record["id"] = Guid.NewGuid();
+
+					// Run domain validation
+					var errors = new List<ErrorModel>();
+					_smtpService.ValidatePreCreateRecord(record, errors);
+					if (errors.Count > 0)
+					{
+						var result = new SmtpServiceResponse { Success = false, Message = "Validation failed." };
+						MapValidationErrors(errors, result.Errors);
+						return await Task.FromResult(result);
+					}
+
+					var recMan = _recordManager;
+					var response = recMan.CreateRecord("smtp_service", record);
+
+					if (!response.Success)
+					{
+						var result = new SmtpServiceResponse { Success = false, Message = response.Message ?? "Failed to create SMTP service." };
+						if (response.Errors != null) MapValidationErrors(response.Errors, result.Errors);
+						return await Task.FromResult(result);
+					}
+
+					// Handle default service logic
+					_smtpService.HandleDefaultServiceSetup(record, errors);
+					_smtpService.ClearCache();
+
+					return await Task.FromResult(new SmtpServiceResponse
+					{
+						Success = true,
+						Message = "SMTP service created."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.CreateSmtpService: {Message}", ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, "Internal error creating SMTP service"));
+			}
+		}
+
+		/// <summary>
+		/// Updates an existing SMTP service configuration.
+		/// Proto: rpc UpdateSmtpService(UpdateSmtpServiceRequest) returns (SmtpServiceResponse)
+		/// </summary>
+		public override async Task<SmtpServiceResponse> UpdateSmtpService(UpdateSmtpServiceRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = MapSmtpProtoToEntityRecord(request.SmtpService);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "SMTP service id is required for update."));
+
+					// Run domain validation
+					var errors = new List<ErrorModel>();
+					_smtpService.ValidatePreUpdateRecord(record, errors);
+					if (errors.Count > 0)
+					{
+						var result = new SmtpServiceResponse { Success = false, Message = "Validation failed." };
+						MapValidationErrors(errors, result.Errors);
+						return await Task.FromResult(result);
+					}
+
+					var recMan = _recordManager;
+					var response = recMan.UpdateRecord("smtp_service", record);
+
+					if (!response.Success)
+					{
+						var result = new SmtpServiceResponse { Success = false, Message = response.Message ?? "Failed to update SMTP service." };
+						if (response.Errors != null) MapValidationErrors(response.Errors, result.Errors);
+						return await Task.FromResult(result);
+					}
+
+					// Handle default service logic and clear cache
+					_smtpService.HandleDefaultServiceSetup(record, errors);
+					_smtpService.ClearCache();
+
+					return await Task.FromResult(new SmtpServiceResponse
+					{
+						Success = true,
+						Message = "SMTP service updated."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.UpdateSmtpService: {Message}", ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, "Internal error updating SMTP service"));
+			}
+		}
+
+		/// <summary>
+		/// Tests an SMTP service by sending a test email.
+		/// Proto: rpc TestSmtpService(TestSmtpServiceRequest) returns (TestSmtpServiceResponse)
+		/// </summary>
+		public override async Task<TestSmtpServiceResponse> TestSmtpService(TestSmtpServiceRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var serviceId = Guid.Parse(request.ServiceId);
+					var testEmailAddress = request.TestEmailAddress;
+
+					if (string.IsNullOrWhiteSpace(testEmailAddress))
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "Test email address is required."));
+
+					var config = _smtpService.GetSmtpService(serviceId);
+					if (config == null)
+						throw new RpcException(new Status(StatusCode.NotFound, "SMTP service not found."));
+
+					var recipient = new DomainEmailAddress { Address = testEmailAddress, Name = testEmailAddress };
+					_smtpService.SendEmail(config, recipient, "Test Email from WebVella ERP",
+						"This is a test email to verify the SMTP service configuration.",
+						"<p>This is a test email to verify the SMTP service configuration.</p>",
+						null);
+
+					return await Task.FromResult(new TestSmtpServiceResponse
+					{
+						Success = true,
+						Message = "Test email was successfully sent."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid service_id format in TestSmtpService");
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid service ID: {request.ServiceId}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.TestSmtpService: {Message}", ex.Message);
+				return await Task.FromResult(new TestSmtpServiceResponse
+				{
+					Success = false,
+					Message = $"Failed to send test email: {ex.Message}"
+				});
+			}
+		}
+
+		/// <summary>
+		/// Sets the specified SMTP service as the default.
+		/// Proto: rpc SetDefaultSmtpService(SetDefaultSmtpServiceRequest) returns (SmtpServiceResponse)
+		/// </summary>
+		public override async Task<SmtpServiceResponse> SetDefaultSmtpService(SetDefaultSmtpServiceRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var serviceId = Guid.Parse(request.ServiceId);
+
+					// Set is_default = true on this record
+					var record = new EntityRecord();
+					record["id"] = serviceId;
+					record["is_default"] = true;
+
+					var errors = new List<ErrorModel>();
+					_smtpService.HandleDefaultServiceSetup(record, errors);
+					if (errors.Count > 0)
+					{
+						var result = new SmtpServiceResponse { Success = false, Message = "Failed to set default SMTP service." };
+						MapValidationErrors(errors, result.Errors);
+						return await Task.FromResult(result);
+					}
+
+					var recMan = _recordManager;
+					var response = recMan.UpdateRecord("smtp_service", record);
+
+					_smtpService.ClearCache();
+
+					return await Task.FromResult(new SmtpServiceResponse
+					{
+						Success = response.Success,
+						Message = response.Success ? "Default SMTP service updated." : response.Message ?? "Failed."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid service_id format in SetDefaultSmtpService");
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid service ID: {request.ServiceId}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.SetDefaultSmtpService: {Message}", ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, "Internal error setting default SMTP service"));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Queue Management =====
+
+		/// <summary>
+		/// Triggers processing of the email send queue.
+		/// Proto: rpc ProcessMailQueue(ProcessMailQueueRequest) returns (ProcessMailQueueResponse)
+		/// </summary>
+		public override async Task<ProcessMailQueueResponse> ProcessMailQueue(ProcessMailQueueRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					_smtpService.ProcessSmtpQueue();
+
+					return await Task.FromResult(new ProcessMailQueueResponse
+					{
+						Success = true,
+						Message = "Mail queue processed."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in MailGrpcService.ProcessMailQueue: {Message}", ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, "Internal error processing mail queue"));
+			}
+		}
+
+		#endregion
+
+		#region ===== Private Helpers: Proto-to-Domain Mapping =====
+
+		/// <summary>
+		/// Maps a proto SmtpServiceProto message to an EntityRecord for RecordManager CRUD.
+		/// </summary>
+		private static EntityRecord MapSmtpProtoToEntityRecord(SmtpServiceProto proto)
+		{
+			var record = new EntityRecord();
+			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
+			if (!string.IsNullOrEmpty(proto.Name)) record["name"] = proto.Name;
+			if (!string.IsNullOrEmpty(proto.Server)) record["server"] = proto.Server;
+			if (proto.Port > 0) record["port"] = proto.Port;
+			if (!string.IsNullOrEmpty(proto.Username)) record["username"] = proto.Username;
+			if (!string.IsNullOrEmpty(proto.Password)) record["password"] = proto.Password;
+			record["is_enabled"] = proto.IsEnabled;
+			record["is_default"] = proto.IsDefault;
+			if (proto.MaxRetriesCount > 0) record["max_retries_count"] = proto.MaxRetriesCount;
+			if (proto.RetryWaitMinutes > 0) record["retry_wait_minutes"] = proto.RetryWaitMinutes;
+			if (!string.IsNullOrEmpty(proto.ConnectionSecurity)) record["connection_security"] = proto.ConnectionSecurity;
+			if (proto.DefaultSender != null)
+			{
+				record["default_sender_email"] = proto.DefaultSender.Address;
+				record["default_sender_name"] = proto.DefaultSender.Name;
+			}
+			if (proto.DefaultReplyTo.Count > 0)
+			{
+				record["default_reply_to_email"] = proto.DefaultReplyTo[0].Address;
+			}
+			return record;
 		}
 
 		#endregion

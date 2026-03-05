@@ -96,25 +96,20 @@
     <!-- SMTP library — SecureSocketOptions, MimeMessage, MailboxAddress for
          SmtpService send/queue test helpers and email composition validation -->
     <PackageReference Include="MailKit" />
-    <!-- MassTransit test harness for in-memory event subscriber integration tests -->
-    <PackageReference Include="MassTransit.Testing" />
+    <!-- MassTransit — includes Testing harness (InMemoryTestHarness) since v8.x -->
+    <PackageReference Include="MassTransit" />
   </ItemGroup>
 
   <!-- =================================================================== -->
   <!-- gRPC CLIENT PACKAGES — Mail Service gRPC Integration Tests           -->
+  <!-- NOTE: Proto types (messages, enums) are provided transitively via    -->
+  <!-- the Mail service ProjectReference (which compiles mail.proto with    -->
+  <!-- GrpcServices="Server"). No proto compilation in this test project to -->
+  <!-- avoid CS0436 duplicate type warnings.                                -->
   <!-- =================================================================== -->
   <ItemGroup>
     <!-- gRPC client — GrpcChannel.ForAddress() for service connection -->
     <PackageReference Include="Grpc.Net.Client" />
-    <!--
-      NOTE: Google.Protobuf is NOT referenced directly to avoid NU1605 package
-      downgrade conflict. Grpc.AspNetCore 2.71.0 (via Mail service) requires
-      Google.Protobuf >= 3.30.2, while root CPM pins it at 3.29.3. Protobuf
-      runtime is available transitively via:
-        - WebVella.Erp.Service.Mail -> Grpc.AspNetCore (provides Google.Protobuf 3.30.2+)
-    -->
-    <!-- Build-time protobuf/gRPC code generation for client stubs -->
-    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
   </ItemGroup>
 
   <!-- =================================================================== -->
@@ -125,25 +120,19 @@
          MailController, MailGrpcService, ProcessMailQueueJob, MailDbContext,
          event publishers/subscribers for unit and integration testing -->
     <ProjectReference Include="..\..\src\Services\WebVella.Erp.Service.Mail\WebVella.Erp.Service.Mail.csproj" />
+    <!-- Core service — needed for RecordManager type resolution in SmtpService constructor tests -->
+    <ProjectReference Include="..\..\src\Services\WebVella.Erp.Service.Core\WebVella.Erp.Service.Core.csproj" />
     <!-- SharedKernel contracts and utilities — DTOs, event types, EQL engine,
          database helpers, security context, utilities, exceptions used in
          test assertions, mock setups, and test fixtures -->
     <ProjectReference Include="..\..\src\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
-    <!-- Monolith core library — needed for WebVella.Erp.Api.Models (EntityRecord) and
-         WebVella.Erp.Exceptions namespace resolution in SmtpServiceTests -->
-    <ProjectReference Include="..\..\WebVella.Erp\WebVella.Erp.csproj" />
   </ItemGroup>
 
   <!-- =================================================================== -->
   <!-- gRPC PROTOCOL BUFFER DEFINITIONS                                     -->
-  <!-- Proto files are centralized in the repository proto/ directory.      -->
-  <!-- Grpc.Tools generates CLIENT-side C# stubs at build time for          -->
-  <!-- MailService.MailServiceClient used in gRPC integration tests.        -->
-  <!-- NOTE: GrpcServices="Client" (NOT Server) — tests consume as clients  -->
+  <!-- Proto types (messages, enums, service base) are provided transitively -->
+  <!-- via WebVella.Erp.Service.Mail ProjectReference. No Protobuf items    -->
+  <!-- needed here — avoids CS0436 duplicate type warnings.                 -->
   <!-- =================================================================== -->
-  <ItemGroup>
-    <Protobuf Include="..\..\proto\common.proto" GrpcServices="None" ProtoRoot="..\..\proto" Link="Protos\common.proto" />
-    <Protobuf Include="..\..\proto\mail.proto" GrpcServices="Client" ProtoRoot="..\..\proto" Link="Protos\mail.proto" />
-  </ItemGroup>
 
 </Project>

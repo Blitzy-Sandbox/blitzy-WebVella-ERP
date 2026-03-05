@@ -3,6 +3,7 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using MimeKit;
 using MimeKit.Utils;
 using Newtonsoft.Json;
@@ -10,14 +11,16 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using WebVella.Erp.Api;
-using WebVella.Erp.Api.Models;
-using WebVella.Erp.Api.Models.AutoMapper;
-using WebVella.Erp.Database;
-using WebVella.Erp.Eql;
-using WebVella.Erp.Exceptions;
-using WebVella.Erp.Utilities;
+using WebVella.Erp.SharedKernel.Models;
+using WebVella.Erp.SharedKernel.Database;
+using WebVella.Erp.SharedKernel.Eql;
+using WebVella.Erp.SharedKernel.Exceptions;
+using WebVella.Erp.SharedKernel.Utilities;
+using WebVella.Erp.Service.Core.Api;
+using WebVella.Erp.Service.Core.Database;
 using WebVella.Erp.Service.Mail.Domain.Entities;
 
 namespace WebVella.Erp.Service.Mail.Domain.Services
@@ -40,6 +43,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 	public class SmtpService
 	{
 		private readonly IDistributedCache _cache;
+		private readonly RecordManager _recordManager;
+		private readonly bool _allowSelfSignedCertificates;
 
 		private static readonly object lockObject = new object();
 		private static bool queueProcessingInProgress = false;
@@ -54,12 +59,36 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		};
 
 		/// <summary>
-		/// Constructs a new SmtpService with distributed cache dependency.
+		/// Constructs a new SmtpService with distributed cache, record manager, and configuration dependencies.
 		/// </summary>
 		/// <param name="cache">IDistributedCache implementation (Redis) for SMTP config caching.</param>
-		public SmtpService(IDistributedCache cache)
+		/// <param name="recordManager">DI-injected RecordManager replacing monolith <c>new RecordManager()</c> calls.</param>
+		/// <param name="configuration">Application configuration for SSL certificate validation policy.</param>
+		public SmtpService(IDistributedCache cache, RecordManager recordManager = null, IConfiguration configuration = null)
 		{
 			_cache = cache ?? throw new ArgumentNullException(nameof(cache));
+			_recordManager = recordManager; // Nullable: unit tests for validation/sending logic inject null when RecordManager is not exercised
+			// Default to false (secure) — only allow self-signed when explicitly configured.
+			// Set Smtp:AllowSelfSignedCertificates=true ONLY in dev/test environments.
+			_allowSelfSignedCertificates = configuration?.GetValue<bool>("Smtp:AllowSelfSignedCertificates") ?? false;
+		}
+
+		/// <summary>
+		/// Configures the SMTP client SSL certificate validation callback.
+		/// When <see cref="_allowSelfSignedCertificates"/> is true (dev/test only),
+		/// all certificates are accepted. In production (default false), only valid
+		/// certificates from trusted CAs are accepted, preventing MITM attacks (CWE-295).
+		/// </summary>
+		/// <param name="client">The SMTP client to configure.</param>
+		private void ConfigureCertificateValidation(SmtpClient client)
+		{
+			if (_allowSelfSignedCertificates)
+			{
+				ConfigureCertificateValidation(client);
+			}
+			// When _allowSelfSignedCertificates is false (default), MailKit uses
+			// the system's default certificate validation which only trusts valid
+			// certificates from recognized CAs — no callback override needed.
 		}
 
 		#region <--- SMTP Service Caching (from EmailServiceManager.cs) --->
@@ -128,7 +157,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			EntityRecord smtpServiceRec = null;
 			if (name != null)
 			{
-				var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", new EqlParameter("name", name)).Execute();
+				var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", parameters: new EqlParameter[] { new EqlParameter("name", name) }).Execute();
 				if (result.Count == 0)
 					throw new Exception($"SmtpService with name '{name}' not found.");
 
@@ -136,7 +165,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			}
 			else
 			{
-				var result = new EqlCommand("SELECT * FROM smtp_service WHERE is_default = @is_default", new EqlParameter("is_default", true)).Execute();
+				var result = new EqlCommand("SELECT * FROM smtp_service WHERE is_default = @is_default", parameters: new EqlParameter[] { new EqlParameter("is_default", true) }).Execute();
 				if (result.Count == 0)
 					throw new Exception($"Default SmtpService not found.");
 				else if (result.Count > 1)
@@ -153,7 +182,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// </summary>
 		public SmtpServiceConfig GetSmtpServiceInternal(Guid id)
 		{
-			var result = new EqlCommand("SELECT * FROM smtp_service WHERE id = @id", new EqlParameter("id", id)).Execute();
+			var result = new EqlCommand("SELECT * FROM smtp_service WHERE id = @id", parameters: new EqlParameter[] { new EqlParameter("id", id) }).Execute();
 			if (result.Count == 0)
 				throw new Exception($"SmtpService with id = '{id}' not found.");
 
@@ -206,7 +235,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 				{
 					case "name":
 						{
-							var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", new EqlParameter("name", rec["name"])).Execute();
+							var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", parameters: new EqlParameter[] { new EqlParameter("name", rec["name"]) }).Execute();
 							if (result.Count > 0)
 							{
 								errors.Add(new ErrorModel
@@ -371,7 +400,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 				{
 					case "name":
 						{
-							var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", new EqlParameter("name", rec["name"])).Execute();
+							var result = new EqlCommand("SELECT * FROM smtp_service WHERE name = @name", parameters: new EqlParameter[] { new EqlParameter("name", rec["name"]) }).Execute();
 							if (result.Count > 1)
 							{
 								errors.Add(new ErrorModel
@@ -540,7 +569,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			if (rec.Properties.ContainsKey("is_default") && (bool)rec["is_default"])
 			{
 
-				var recMan = new RecordManager(executeHooks: false);
+				var recMan = _recordManager;
 				var records = new EqlCommand("SELECT id,is_default FROM smtp_service").Execute();
 				foreach (var record in records)
 				{
@@ -553,7 +582,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			}
 			else if (rec.Properties.ContainsKey("is_default") && (bool)rec["is_default"] == false)
 			{
-				var currentRecord = new EqlCommand("SELECT * FROM smtp_service WHERE id = @id", new EqlParameter("id", rec["id"])).Execute();
+				var currentRecord = new EqlCommand("SELECT * FROM smtp_service WHERE id = @id", parameters: new EqlParameter[] { new EqlParameter("id", rec["id"]) }).Execute();
 				if (currentRecord.Count > 0 && (bool)currentRecord[0]["is_default"])
 				{
 					errors.Add(new ErrorModel
@@ -578,7 +607,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		public void SaveEmail(Email email)
 		{
 			PrepareEmailXSearch(email);
-			RecordManager recMan = new RecordManager();
+			var recMan = _recordManager;
 			var response = recMan.Find(new EntityQuery("email", "*", EntityQuery.QueryEQ("id", email.Id)));
 			if (response.Object != null && response.Object.Data != null && response.Object.Data.Count != 0)
 				response = recMan.UpdateRecord("email", email.MapTo<EntityRecord>());
@@ -595,7 +624,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// </summary>
 		public virtual Email GetEmail(Guid id)
 		{
-			var result = new EqlCommand("SELECT * FROM email WHERE id = @id", new EqlParameter("id", id)).Execute();
+			var result = new EqlCommand("SELECT * FROM email WHERE id = @id", parameters: new EqlParameter[] { new EqlParameter("id", id) }).Execute();
 			if (result.Count == 1)
 				return result[0].MapTo<Email>();
 
@@ -641,8 +670,6 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 				foreach (HtmlNode node in htmlDoc.DocumentNode.SelectNodes("//img[@src]"))
 				{
 					var src = node.Attributes["src"].Value.Split('?', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-
-
 					if (!string.IsNullOrWhiteSpace(src) && src.StartsWith("/fs"))
 					{
 						try
@@ -873,8 +900,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			using (var client = new SmtpClient())
 			{
-				//accept all SSL certificates (in case the server supports STARTTLS)
-				client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+				// Configure SSL certificate validation per environment settings
+				ConfigureCertificateValidation(client);
 
 				client.Connect(config.Server, config.Port, config.ConnectionSecurity);
 
@@ -1020,8 +1047,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			using (var client = new SmtpClient())
 			{
-				//accept all SSL certificates (in case the server supports STARTTLS)
-				client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+				// Configure SSL certificate validation per environment settings
+				ConfigureCertificateValidation(client);
 
 				client.Connect(config.Server, config.Port, config.ConnectionSecurity);
 
@@ -1153,8 +1180,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			using (var client = new SmtpClient())
 			{
-				//accept all SSL certificates (in case the server supports STARTTLS)
-				client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+				// Configure SSL certificate validation per environment settings
+				ConfigureCertificateValidation(client);
 
 				client.Connect(config.Server, config.Port, config.ConnectionSecurity);
 
@@ -1299,8 +1326,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			using (var client = new SmtpClient())
 			{
-				//accept all SSL certificates (in case the server supports STARTTLS)
-				client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+				// Configure SSL certificate validation per environment settings
+				ConfigureCertificateValidation(client);
 
 				client.Connect(config.Server, config.Port, config.ConnectionSecurity);
 
@@ -1464,8 +1491,8 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 				using (var client = new SmtpClient())
 				{
-					//accept all SSL certificates (in case the server supports STARTTLS)
-					client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+					// Configure SSL certificate validation per environment settings
+					ConfigureCertificateValidation(client);
 
 					client.Connect(service.Server, service.Port, service.ConnectionSecurity);
 
@@ -1893,8 +1920,10 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 				{
 					pendingEmails = new EqlCommand("SELECT * FROM email WHERE status = @status AND scheduled_on <> NULL" +
 													" AND scheduled_on < @scheduled_on  ORDER BY priority DESC, scheduled_on ASC PAGE 1 PAGESIZE 10",
+							parameters: new EqlParameter[] {
 								new EqlParameter("status", ((int)EmailStatus.Pending).ToString()),
-								new EqlParameter("scheduled_on", DateTime.UtcNow)).Execute().MapTo<Email>();
+								new EqlParameter("scheduled_on", DateTime.UtcNow)
+							}).Execute().MapTo<Email>();
 
 					foreach (var email in pendingEmails)
 					{

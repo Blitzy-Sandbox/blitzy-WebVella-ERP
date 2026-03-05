@@ -17,6 +17,10 @@
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
 		<!-- gRPC server hosting for inter-service communication -->
 		<PackageReference Include="Grpc.AspNetCore" />
+		<!-- Google.Protobuf: CPM pins 3.29.3, but Grpc.AspNetCore 2.71.0 requires >= 3.30.2 -->
+		<PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+		<!-- Build-time protobuf/gRPC code generation tooling -->
+		<PackageReference Include="Grpc.Tools" PrivateAssets="All" />
 		<!-- Message bus abstraction for event-driven architecture replacing hook-based communication -->
 		<PackageReference Include="MassTransit" />
 		<!-- RabbitMQ transport for MassTransit message bus -->
@@ -35,6 +39,12 @@
 	<ItemGroup>
 		<ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
 		<ProjectReference Include="..\WebVella.Erp.Service.Core\WebVella.Erp.Service.Core.csproj" />
+	</ItemGroup>
+
+	<!-- gRPC Protobuf Definitions — Server-side code generation -->
+	<ItemGroup>
+		<Protobuf Include="../../../proto/project.proto" GrpcServices="Server" ProtoRoot="../../../proto" />
+		<Protobuf Include="../../../proto/common.proto" GrpcServices="None" ProtoRoot="../../../proto" />
 	</ItemGroup>
 
 </Project>

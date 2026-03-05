@@ -703,8 +703,8 @@ namespace WebVella.Erp.Service.Core.Api
 						((EntityRecord)commands[columnName])["fieldName"] = currentFieldMeta.Name;
 						((EntityRecord)commands[columnName])["fieldLabel"] = currentFieldMeta.Label;
 
-						bool hasPermisstion = SecurityContext.HasEntityPermission(EntityPermission.Update, entity);
-						if (!hasPermisstion)
+						bool hasPermission = SecurityContext.HasEntityPermission(EntityPermission.Update, entity);
+						if (!hasPermission)
 						{
 							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add($"Access denied. Trying to update record in entity '{entity.Name}' with no update access.");
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;
@@ -726,8 +726,8 @@ namespace WebVella.Erp.Service.Core.Api
 						((EntityRecord)commands[columnName])["fieldName"] = columnName;
 						((EntityRecord)commands[columnName])["fieldLabel"] = columnName;
 
-						bool hasPermisstion = SecurityContext.HasEntityPermission(EntityPermission.Create, entity);
-						if (!hasPermisstion)
+						bool hasPermission = SecurityContext.HasEntityPermission(EntityPermission.Create, entity);
+						if (!hasPermission)
 						{
 							((List<string>)((EntityRecord)evaluationObj["errors"])[columnName]).Add($"Access denied. Trying to create record in entity '{entity.Name}' with no create access.");
 							((EntityRecord)evaluationObj["stats"])["errors"] = (int)((EntityRecord)evaluationObj["stats"])["errors"] + 1;

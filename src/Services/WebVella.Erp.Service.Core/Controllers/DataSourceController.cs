@@ -442,6 +442,13 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// Route: POST ~/api/v3.0/datasource/code-compile
 		///
 		/// Admin-only endpoint restricted to users with "administrator" role.
+		///
+		/// SECURITY NOTE (CWE-94 — Accepted Risk): This endpoint compiles user-provided C# code
+		/// via CSScript.Evaluator.Check(). While this is a code injection surface, it is mitigated
+		/// by restricting access to the "administrator" role only via [Authorize(Roles = "administrator")].
+		/// This pattern is preserved from the original monolith where admin users could create
+		/// dynamic code-based datasources. Additional sandboxing (e.g., restricting System.IO,
+		/// System.Net, System.Diagnostics namespaces) should be considered for hardened deployments.
 		/// </summary>
 		/// <param name="submitObj">JSON body containing "csCode" (string) — the C# source code to compile.</param>
 		/// <returns>JSON object with success/message indicating compilation result.</returns>

@@ -91,11 +91,10 @@
     <!-- Shared Kernel: cross-cutting contracts, DTOs, events, EQL engine,
          database helpers, security context, utilities, and exceptions -->
     <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
-    <!-- Original monolith core library: provides RecordManager (parameterless constructor),
-         DbFileRepository, and legacy type compatibility during microservice transition.
-         Required by SmtpService.cs for record CRUD operations using the monolith's
-         RecordManager pattern (new RecordManager() / new RecordManager(executeHooks: false)). -->
-    <ProjectReference Include="..\..\..\WebVella.Erp\WebVella.Erp.csproj" />
+    <!-- Core Platform service: provides RecordManager, EntityManager, DbContext for
+         mail entity CRUD operations. Transitional direct reference — will be migrated
+         to gRPC client for full independent deployability per AAP roadmap. -->
+    <ProjectReference Include="..\WebVella.Erp.Service.Core\WebVella.Erp.Service.Core.csproj" />
   </ItemGroup>
 
   <!-- =================================================================== -->

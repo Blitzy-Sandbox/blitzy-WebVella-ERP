@@ -226,7 +226,8 @@ namespace WebVella.Erp.Service.Core.Controllers
 			catch (Exception e)
 			{
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				bool devMode = _configuration.GetValue<bool>("Settings:DevelopmentMode", false);
+				response.Message = devMode ? e.Message + e.StackTrace : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -330,7 +331,8 @@ namespace WebVella.Erp.Service.Core.Controllers
 			catch (Exception e)
 			{
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				bool devMode = _configuration.GetValue<bool>("Settings:DevelopmentMode", false);
+				response.Message = devMode ? e.Message + e.StackTrace : "An internal error occurred!";
 			}
 
 			return DoResponse(response);

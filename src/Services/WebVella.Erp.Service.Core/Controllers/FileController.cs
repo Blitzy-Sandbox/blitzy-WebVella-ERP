@@ -168,6 +168,15 @@ namespace WebVella.Erp.Service.Core.Controllers
 			if (string.IsNullOrWhiteSpace(fileName))
 				return DoPageNotFoundResponse();
 
+			// Path traversal protection (CWE-22): reject path segments containing
+			// directory traversal characters to prevent unauthorized file access.
+			var segments = new[] { root, root2, root3, root4, fileName };
+			foreach (var seg in segments)
+			{
+				if (seg != null && (seg.Contains("..") || seg.Contains("~") || seg.Contains('\0')))
+					return DoPageNotFoundResponse();
+			}
+
 			var filePathArray = new List<string>();
 			if (root != null) filePathArray.Add(root);
 			if (root2 != null) filePathArray.Add(root2);
@@ -219,6 +228,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>FSResponse with file URL and filename.</returns>
 		[HttpPost("/fs/upload/")]
 		[ResponseCache(NoStore = true, Duration = 0)]
+		[RequestSizeLimit(104_857_600)] // 100 MB upload limit to prevent DoS (CWE-400)
 		public IActionResult UploadFile([FromForm] IFormFile file)
 		{
 			var fileName = ContentDispositionHeaderValue.Parse(file.ContentDisposition).FileName.ToString().Trim().ToLowerInvariant();
@@ -512,6 +522,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>CKEditor-compatible JSON response.</returns>
 		[HttpPost("/ckeditor/drop-upload-url")]
 		[ResponseCache(NoStore = true, Duration = 0)]
+		[RequestSizeLimit(104_857_600)] // 100 MB upload limit to prevent DoS (CWE-400)
 		public IActionResult CKEditorDropUpload(IFormFile upload)
 		{
 			var response = new EntityRecord();
@@ -565,6 +576,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>HTML content with CKEditor callback script.</returns>
 		[HttpPost("/ckeditor/image-upload-url")]
 		[ResponseCache(NoStore = true, Duration = 0)]
+		[RequestSizeLimit(104_857_600)] // 100 MB upload limit to prevent DoS (CWE-400)
 		public IActionResult CKEditorUploadImage(IFormFile upload)
 		{
 			byte[] fileBytes = null;
@@ -610,6 +622,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>ResponseModel containing list of created user_file records.</returns>
 		[HttpPost("/fs/upload-user-file-multiple/")]
 		[ResponseCache(NoStore = true, Duration = 0)]
+		[RequestSizeLimit(104_857_600)] // 100 MB upload limit to prevent DoS (CWE-400)
 		public IActionResult UploadUserFileMultiple([FromForm] List<IFormFile> files)
 		{
 			var resultRecords = new List<EntityRecord>();
@@ -710,6 +723,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <returns>ResponseModel containing list of file metadata records.</returns>
 		[HttpPost("/fs/upload-file-multiple/")]
 		[ResponseCache(NoStore = true, Duration = 0)]
+		[RequestSizeLimit(104_857_600)] // 100 MB upload limit to prevent DoS (CWE-400)
 		public IActionResult UploadFileMultiple([FromForm] List<IFormFile> files)
 		{
 			var resultRecords = new List<EntityRecord>();

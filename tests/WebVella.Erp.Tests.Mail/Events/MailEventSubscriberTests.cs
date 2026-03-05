@@ -58,7 +58,7 @@ namespace WebVella.Erp.Tests.Mail.Events
         public MailEventSubscriberTests()
         {
             _mockCache = new Mock<IDistributedCache>();
-            _mockSmtpService = new Mock<SmtpService>(_mockCache.Object) { CallBase = false };
+            _mockSmtpService = new Mock<SmtpService>(_mockCache.Object, null, null) { CallBase = false };
             _mockLogger = new Mock<ILogger<SendNotificationSubscriber>>();
         }
 
@@ -764,7 +764,7 @@ namespace WebVella.Erp.Tests.Mail.Events
             var smtpConfig = CreateSmtpConfig(serviceId);
 
             var mockCache = new Mock<IDistributedCache>();
-            var mockSmtpSvc = new Mock<SmtpService>(mockCache.Object) { CallBase = false };
+            var mockSmtpSvc = new Mock<SmtpService>(mockCache.Object, null, null) { CallBase = false };
             mockSmtpSvc.Setup(s => s.GetEmail(emailId)).Returns(email);
             mockSmtpSvc.Setup(s => s.GetSmtpService(serviceId)).Returns(smtpConfig);
 

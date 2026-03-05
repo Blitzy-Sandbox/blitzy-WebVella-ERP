@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -8,11 +9,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
-using WebVella.Erp.Api;
-using WebVella.Erp.Api.Models;
-using WebVella.Erp.Eql;
-using WebVella.Erp.Exceptions;
-using WebVella.Erp.Utilities;
+using WebVella.Erp.SharedKernel.Models;
+using WebVella.Erp.SharedKernel.Eql;
+using WebVella.Erp.SharedKernel.Exceptions;
+using WebVella.Erp.SharedKernel.Utilities;
+using WebVella.Erp.Service.Core.Api;
 using WebVella.Erp.Service.Mail.Domain.Services;
 using WebVella.Erp.Service.Mail.Domain.Entities;
 
@@ -50,15 +51,21 @@ namespace WebVella.Erp.Service.Mail.Controllers
 	public class MailController : ControllerBase
 	{
 		private readonly SmtpService _smtpService;
+		private readonly RecordManager _recordManager;
+		private readonly IConfiguration _configuration;
 
 		/// <summary>
-		/// Constructs a MailController with the required domain service dependency.
-		/// Replaces monolith pattern of <c>new SmtpInternalService()</c> and <c>new EmailServiceManager()</c>.
+		/// Constructs a MailController with the required domain service dependencies.
+		/// Replaces monolith pattern of <c>new SmtpInternalService()</c> and <c>new RecordManager()</c>.
 		/// </summary>
 		/// <param name="smtpService">Mail domain service providing all SMTP business logic.</param>
-		public MailController(SmtpService smtpService)
+		/// <param name="recordManager">DI-injected RecordManager replacing monolith <c>new RecordManager()</c> calls.</param>
+		/// <param name="configuration">Application configuration for development mode checks.</param>
+		public MailController(SmtpService smtpService, RecordManager recordManager, IConfiguration configuration)
 		{
 			_smtpService = smtpService ?? throw new ArgumentNullException(nameof(smtpService));
+			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
+			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
 		}
 
 		#region <--- Helper Methods (from ApiControllerBase.cs) --->
@@ -101,8 +108,8 @@ namespace WebVella.Erp.Service.Mail.Controllers
 			if (ex != null)
 			{
 				// In development mode, include exception details for debugging.
-				// ErpSettings.DevelopmentMode check preserved from monolith ApiControllerBase.
-				if (ErpSettings.DevelopmentMode)
+				// Replaces monolith ErpSettings.DevelopmentMode with IConfiguration.
+				if (_configuration.GetValue<bool>("Settings:DevelopmentMode", false))
 					response.Message = ex.Message + ex.StackTrace;
 				else
 				{
@@ -532,7 +539,7 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				parameters.Add(new EqlParameter("page", page));
 				parameters.Add(new EqlParameter("pageSize", pageSize));
 
-				var result = new EqlCommand(eql, parameters.ToArray()).Execute();
+				var result = new EqlCommand(eql, parameters: parameters.ToArray()).Execute();
 
 				response.Success = true;
 				response.Object = new { list = result, total_count = result.TotalCount };
@@ -561,8 +568,8 @@ namespace WebVella.Erp.Service.Mail.Controllers
 			{
 				var result = new EqlCommand(
 					"SELECT * FROM email WHERE id = @id",
-					new EqlParameter("id", id)
-				).Execute();
+					parameters: new EqlParameter[] { new EqlParameter("id", id)
+				 }).Execute();
 
 				if (result.Count == 0)
 				{
@@ -716,7 +723,7 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				}
 
 				// Create record via RecordManager — mirrors monolith CRUD pattern
-				var recMan = new RecordManager();
+				var recMan = _recordManager;
 				var createResponse = recMan.CreateRecord("smtp_service", record);
 				if (!createResponse.Success)
 				{
@@ -845,7 +852,7 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				}
 
 				// Update record via RecordManager — mirrors monolith CRUD pattern
-				var recMan = new RecordManager();
+				var recMan = _recordManager;
 				var updateResponse = recMan.UpdateRecord("smtp_service", record);
 				if (!updateResponse.Success)
 				{
@@ -915,7 +922,7 @@ namespace WebVella.Erp.Service.Mail.Controllers
 
 				// Delete record via RecordManager — mirrors monolith CRUD pattern
 				// DeleteRecord(string entityName, Guid id) — direct Guid overload
-				var recMan = new RecordManager();
+				var recMan = _recordManager;
 				var deleteResponse = recMan.DeleteRecord("smtp_service", id);
 				if (!deleteResponse.Success)
 				{
@@ -1039,9 +1046,9 @@ namespace WebVella.Erp.Service.Mail.Controllers
 							try
 							{
 								var fileRecord = new EqlCommand(
-									"SELECT name,path FROM user_file WHERE id = @id",
-									new EqlParameter("id", fileId)
-								).Execute().FirstOrDefault();
+					"SELECT name,path FROM user_file WHERE id = @id",
+					parameters: new EqlParameter[] { new EqlParameter("id", fileId)
+				 }).Execute().FirstOrDefault();
 								if (fileRecord != null)
 								{
 									attachments.Add((string)fileRecord["path"]);

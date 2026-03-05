@@ -30,6 +30,7 @@ using Newtonsoft.Json;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
 using WebVella.Erp.Service.Crm.Controllers;
+using WebVella.Erp.Service.Crm.Domain.Services;
 
 // Alias to disambiguate proto-generated ErrorModel from SharedKernel ErrorModel
 using GrpcErrorModel = WebVella.Erp.SharedKernel.Grpc.ErrorModel;
@@ -107,6 +108,7 @@ namespace WebVella.Erp.Service.Crm.Grpc
 		private readonly ICrmRecordOperations _recordManager;
 		private readonly ICrmEntityOperations _entityManager;
 		private readonly ICrmRelationOperations _entityRelationManager;
+		private readonly SearchService _searchService;
 		private readonly ILogger<CrmGrpcService> _logger;
 
 		#endregion
@@ -128,11 +130,13 @@ namespace WebVella.Erp.Service.Crm.Grpc
 			ICrmRecordOperations recordManager,
 			ICrmEntityOperations entityManager,
 			ICrmRelationOperations entityRelationManager,
+			SearchService searchService,
 			ILogger<CrmGrpcService> logger)
 		{
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
 			_entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
 			_entityRelationManager = entityRelationManager ?? throw new ArgumentNullException(nameof(entityRelationManager));
+			_searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
@@ -388,6 +392,100 @@ namespace WebVella.Erp.Service.Crm.Grpc
 			}).ToList();
 		}
 
+		/// <summary>
+		/// Maps an EntityRecord to the proto-generated AddressRecord message.
+		/// </summary>
+		private static AddressRecord MapToAddressRecord(EntityRecord record)
+		{
+			var address = new AddressRecord
+			{
+				Id = SafeString(record, "id"),
+				Street = SafeString(record, "street"),
+				City = SafeString(record, "city"),
+				State = SafeString(record, "state"),
+				PostalCode = SafeString(record, "postal_code"),
+				CountryId = SafeString(record, "country_id"),
+				AccountId = SafeString(record, "account_id"),
+				CreatedBy = SafeString(record, "created_by"),
+				LastModifiedBy = SafeString(record, "last_modified_by"),
+				Street2 = SafeString(record, "street_2")
+			};
+
+			var createdOn = SafeTimestamp(record, "created_on");
+			if (createdOn != null) address.CreatedOn = createdOn;
+
+			var lastModifiedOn = SafeTimestamp(record, "last_modified_on");
+			if (lastModifiedOn != null) address.LastModifiedOn = lastModifiedOn;
+
+			return address;
+		}
+
+		/// <summary>
+		/// Converts a proto AccountRecord to an EntityRecord for use with RecordManager.
+		/// </summary>
+		private static EntityRecord AccountRecordToEntityRecord(AccountRecord proto)
+		{
+			var record = new EntityRecord();
+			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
+			if (!string.IsNullOrEmpty(proto.Name)) record["name"] = proto.Name;
+			if (!string.IsNullOrEmpty(proto.Industry)) record["industry"] = proto.Industry;
+			if (!string.IsNullOrEmpty(proto.Email)) record["email"] = proto.Email;
+			if (!string.IsNullOrEmpty(proto.Phone)) record["phone"] = proto.Phone;
+			if (!string.IsNullOrEmpty(proto.Website)) record["website"] = proto.Website;
+			if (!string.IsNullOrEmpty(proto.CurrencyId)) record["currency_id"] = Guid.Parse(proto.CurrencyId);
+			return record;
+		}
+
+		/// <summary>
+		/// Converts a proto ContactRecord to an EntityRecord for use with RecordManager.
+		/// </summary>
+		private static EntityRecord ContactRecordToEntityRecord(ContactRecord proto)
+		{
+			var record = new EntityRecord();
+			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
+			if (!string.IsNullOrEmpty(proto.FirstName)) record["first_name"] = proto.FirstName;
+			if (!string.IsNullOrEmpty(proto.LastName)) record["last_name"] = proto.LastName;
+			if (!string.IsNullOrEmpty(proto.Email)) record["email"] = proto.Email;
+			if (!string.IsNullOrEmpty(proto.Phone)) record["phone"] = proto.Phone;
+			if (!string.IsNullOrEmpty(proto.SalutationId)) record["salutation_id"] = Guid.Parse(proto.SalutationId);
+			if (!string.IsNullOrEmpty(proto.AccountId)) record["account_id"] = Guid.Parse(proto.AccountId);
+			if (!string.IsNullOrEmpty(proto.JobTitle)) record["job_title"] = proto.JobTitle;
+			return record;
+		}
+
+		/// <summary>
+		/// Converts a proto CaseRecord to an EntityRecord for use with RecordManager.
+		/// </summary>
+		private static EntityRecord CaseRecordToEntityRecord(CaseRecord proto)
+		{
+			var record = new EntityRecord();
+			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
+			if (!string.IsNullOrEmpty(proto.Subject)) record["subject"] = proto.Subject;
+			if (!string.IsNullOrEmpty(proto.Description)) record["description"] = proto.Description;
+			if (!string.IsNullOrEmpty(proto.Status)) record["status"] = proto.Status;
+			if (!string.IsNullOrEmpty(proto.Priority)) record["priority"] = proto.Priority;
+			if (!string.IsNullOrEmpty(proto.AccountId)) record["account_id"] = Guid.Parse(proto.AccountId);
+			if (!string.IsNullOrEmpty(proto.ContactId)) record["contact_id"] = Guid.Parse(proto.ContactId);
+			return record;
+		}
+
+		/// <summary>
+		/// Converts a proto AddressRecord to an EntityRecord for use with RecordManager.
+		/// </summary>
+		private static EntityRecord AddressRecordToEntityRecord(AddressRecord proto)
+		{
+			var record = new EntityRecord();
+			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
+			if (!string.IsNullOrEmpty(proto.Street)) record["street"] = proto.Street;
+			if (!string.IsNullOrEmpty(proto.Street2)) record["street_2"] = proto.Street2;
+			if (!string.IsNullOrEmpty(proto.City)) record["city"] = proto.City;
+			if (!string.IsNullOrEmpty(proto.State)) record["state"] = proto.State;
+			if (!string.IsNullOrEmpty(proto.PostalCode)) record["postal_code"] = proto.PostalCode;
+			if (!string.IsNullOrEmpty(proto.CountryId)) record["country_id"] = Guid.Parse(proto.CountryId);
+			if (!string.IsNullOrEmpty(proto.AccountId)) record["account_id"] = Guid.Parse(proto.AccountId);
+			return record;
+		}
+
 		#endregion
 
 		#region ===== gRPC Override: Account Operations =====
@@ -558,6 +656,804 @@ namespace WebVella.Erp.Service.Crm.Grpc
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "Error in {MethodName}: {Message}", nameof(GetCase), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Account CRUD Operations =====
+
+		/// <summary>
+		/// Lists accounts with pagination and optional search.
+		/// Proto: rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse)
+		/// </summary>
+		public override async Task<ListAccountsResponse> ListAccounts(
+			ListAccountsRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var page = request.Page > 0 ? request.Page : 1;
+					var pageSize = request.PageSize > 0 ? request.PageSize : 10;
+
+					QueryObject filter = null;
+					if (!string.IsNullOrWhiteSpace(request.SearchQuery))
+					{
+						filter = EntityQuery.QueryContains("x_search", request.SearchQuery);
+					}
+
+					var sortBy = !string.IsNullOrWhiteSpace(request.SortBy) ? request.SortBy : "name";
+					var sortOrder = string.Equals(request.SortOrder, "desc", StringComparison.OrdinalIgnoreCase)
+						? QuerySortType.Descending : QuerySortType.Ascending;
+
+					var query = new EntityQuery("account", "*", filter,
+						new[] { new QuerySortObject(sortBy, sortOrder) },
+						(page - 1) * pageSize, pageSize);
+					var response = _recordManager.Find(query);
+
+					var countQuery = new EntityQuery("account", "id", filter);
+					var countResponse = _recordManager.Count(countQuery);
+
+					var result = new ListAccountsResponse { Success = true };
+					result.TotalCount = (int)(countResponse?.Object ?? 0);
+
+					if (response.Success && response.Object?.Data != null)
+					{
+						foreach (var rec in response.Object.Data)
+							result.Accounts.Add(MapToAccountRecord(rec));
+					}
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(ListAccounts), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Creates a new account record.
+		/// Proto: rpc CreateAccount(CreateAccountRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> CreateAccount(
+			CreateAccountRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = AccountRecordToEntityRecord(request.Account);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						record["id"] = Guid.NewGuid();
+
+					var response = _recordManager.CreateRecord("account", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Account created." : response.Message ?? "Failed to create account.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateAccount), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Updates an existing account record.
+		/// Proto: rpc UpdateAccount(UpdateAccountRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> UpdateAccount(
+			UpdateAccountRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = AccountRecordToEntityRecord(request.Account);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "Account id is required for update."));
+
+					var response = _recordManager.UpdateRecord("account", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Account updated." : response.Message ?? "Failed to update account.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(UpdateAccount), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Deletes an account record by its unique identifier.
+		/// Proto: rpc DeleteAccount(DeleteAccountRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> DeleteAccount(
+			DeleteAccountRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var accountId = Guid.Parse(request.Id);
+					var response = _recordManager.DeleteRecord("account", accountId);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = request.Id,
+						Message = response.Success ? "Account deleted." : response.Message ?? "Failed to delete account.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(DeleteAccount));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid account ID: {request.Id}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteAccount), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Contact CRUD Operations =====
+
+		/// <summary>
+		/// Lists contacts with pagination and optional search.
+		/// Proto: rpc ListContacts(ListContactsRequest) returns (ListContactsResponse)
+		/// </summary>
+		public override async Task<ListContactsResponse> ListContacts(
+			ListContactsRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var page = request.Page > 0 ? request.Page : 1;
+					var pageSize = request.PageSize > 0 ? request.PageSize : 10;
+
+					var filters = new List<QueryObject>();
+					if (!string.IsNullOrWhiteSpace(request.SearchQuery))
+						filters.Add(EntityQuery.QueryContains("x_search", request.SearchQuery));
+					if (!string.IsNullOrWhiteSpace(request.AccountId))
+						filters.Add(EntityQuery.QueryEQ("account_id", Guid.Parse(request.AccountId)));
+
+					QueryObject filter = null;
+					if (filters.Count == 1) filter = filters[0];
+					else if (filters.Count > 1) filter = EntityQuery.QueryAND(filters.ToArray());
+
+					var sortBy = !string.IsNullOrWhiteSpace(request.SortBy) ? request.SortBy : "last_name";
+					var sortOrder = string.Equals(request.SortOrder, "desc", StringComparison.OrdinalIgnoreCase)
+						? QuerySortType.Descending : QuerySortType.Ascending;
+
+					var query = new EntityQuery("contact", "*", filter,
+						new[] { new QuerySortObject(sortBy, sortOrder) },
+						(page - 1) * pageSize, pageSize);
+					var response = _recordManager.Find(query);
+
+					var countQuery = new EntityQuery("contact", "id", filter);
+					var countResponse = _recordManager.Count(countQuery);
+
+					var result = new ListContactsResponse { Success = true };
+					result.TotalCount = (int)(countResponse?.Object ?? 0);
+
+					if (response.Success && response.Object?.Data != null)
+					{
+						foreach (var rec in response.Object.Data)
+							result.Contacts.Add(MapToContactRecord(rec));
+					}
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(ListContacts), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Creates a new contact record.
+		/// Proto: rpc CreateContact(CreateContactRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> CreateContact(
+			CreateContactRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = ContactRecordToEntityRecord(request.Contact);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						record["id"] = Guid.NewGuid();
+
+					var response = _recordManager.CreateRecord("contact", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Contact created." : response.Message ?? "Failed to create contact.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateContact), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Updates an existing contact record.
+		/// Proto: rpc UpdateContact(UpdateContactRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> UpdateContact(
+			UpdateContactRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = ContactRecordToEntityRecord(request.Contact);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "Contact id is required for update."));
+
+					var response = _recordManager.UpdateRecord("contact", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Contact updated." : response.Message ?? "Failed to update contact.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(UpdateContact), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Deletes a contact record by its unique identifier.
+		/// Proto: rpc DeleteContact(DeleteContactRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> DeleteContact(
+			DeleteContactRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var contactId = Guid.Parse(request.Id);
+					var response = _recordManager.DeleteRecord("contact", contactId);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = request.Id,
+						Message = response.Success ? "Contact deleted." : response.Message ?? "Failed to delete contact.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(DeleteContact));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid contact ID: {request.Id}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteContact), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Case CRUD Operations =====
+
+		/// <summary>
+		/// Lists cases with pagination and optional filters.
+		/// Proto: rpc ListCases(ListCasesRequest) returns (ListCasesResponse)
+		/// </summary>
+		public override async Task<ListCasesResponse> ListCases(
+			ListCasesRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var page = request.Page > 0 ? request.Page : 1;
+					var pageSize = request.PageSize > 0 ? request.PageSize : 10;
+
+					var filters = new List<QueryObject>();
+					if (!string.IsNullOrWhiteSpace(request.SearchQuery))
+						filters.Add(EntityQuery.QueryContains("x_search", request.SearchQuery));
+					if (!string.IsNullOrWhiteSpace(request.AccountId))
+						filters.Add(EntityQuery.QueryEQ("account_id", Guid.Parse(request.AccountId)));
+					if (!string.IsNullOrWhiteSpace(request.StatusFilter))
+						filters.Add(EntityQuery.QueryEQ("status", request.StatusFilter));
+
+					QueryObject filter = null;
+					if (filters.Count == 1) filter = filters[0];
+					else if (filters.Count > 1) filter = EntityQuery.QueryAND(filters.ToArray());
+
+					var sortBy = !string.IsNullOrWhiteSpace(request.SortBy) ? request.SortBy : "created_on";
+					var sortOrder = string.Equals(request.SortOrder, "desc", StringComparison.OrdinalIgnoreCase)
+						? QuerySortType.Descending : QuerySortType.Ascending;
+
+					var query = new EntityQuery("case", "*", filter,
+						new[] { new QuerySortObject(sortBy, sortOrder) },
+						(page - 1) * pageSize, pageSize);
+					var response = _recordManager.Find(query);
+
+					var countQuery = new EntityQuery("case", "id", filter);
+					var countResponse = _recordManager.Count(countQuery);
+
+					var result = new ListCasesResponse { Success = true };
+					result.TotalCount = (int)(countResponse?.Object ?? 0);
+
+					if (response.Success && response.Object?.Data != null)
+					{
+						foreach (var rec in response.Object.Data)
+							result.Cases.Add(MapToCaseRecord(rec));
+					}
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(ListCases), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Creates a new case record.
+		/// Proto: rpc CreateCase(CreateCaseRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> CreateCase(
+			CreateCaseRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = CaseRecordToEntityRecord(request.CaseRecord);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						record["id"] = Guid.NewGuid();
+
+					var response = _recordManager.CreateRecord("case", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Case created." : response.Message ?? "Failed to create case.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateCase), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Updates an existing case record.
+		/// Proto: rpc UpdateCase(UpdateCaseRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> UpdateCase(
+			UpdateCaseRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = CaseRecordToEntityRecord(request.CaseRecord);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "Case id is required for update."));
+
+					var response = _recordManager.UpdateRecord("case", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Case updated." : response.Message ?? "Failed to update case.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(UpdateCase), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Deletes a case record by its unique identifier.
+		/// Proto: rpc DeleteCase(DeleteCaseRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> DeleteCase(
+			DeleteCaseRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var caseId = Guid.Parse(request.Id);
+					var response = _recordManager.DeleteRecord("case", caseId);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = request.Id,
+						Message = response.Success ? "Case deleted." : response.Message ?? "Failed to delete case.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(DeleteCase));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid case ID: {request.Id}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteCase), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Address Operations =====
+
+		/// <summary>
+		/// Retrieves a single address by ID.
+		/// Proto: rpc GetAddress(GetAddressRequest) returns (GetAddressResponse)
+		/// </summary>
+		public override async Task<GetAddressResponse> GetAddress(
+			GetAddressRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var addressId = Guid.Parse(request.Id);
+					var query = new EntityQuery("address", "*", EntityQuery.QueryEQ("id", addressId));
+					var response = _recordManager.Find(query);
+
+					if (!response.Success || response.Object?.Data == null || response.Object.Data.Count == 0)
+					{
+						throw new RpcException(new Status(StatusCode.NotFound,
+							$"Address not found with ID: {request.Id}"));
+					}
+
+					return await Task.FromResult(new GetAddressResponse
+					{
+						Success = true,
+						Address = MapToAddressRecord(response.Object.Data[0])
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(GetAddress));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid address ID: {request.Id}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(GetAddress), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Lists addresses with pagination, optionally filtered by account.
+		/// Proto: rpc ListAddresses(ListAddressesRequest) returns (ListAddressesResponse)
+		/// </summary>
+		public override async Task<ListAddressesResponse> ListAddresses(
+			ListAddressesRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var page = request.Page > 0 ? request.Page : 1;
+					var pageSize = request.PageSize > 0 ? request.PageSize : 10;
+
+					QueryObject filter = null;
+					if (!string.IsNullOrWhiteSpace(request.AccountId))
+						filter = EntityQuery.QueryEQ("account_id", Guid.Parse(request.AccountId));
+
+					var query = new EntityQuery("address", "*", filter, null,
+						(page - 1) * pageSize, pageSize);
+					var response = _recordManager.Find(query);
+
+					var countQuery = new EntityQuery("address", "id", filter);
+					var countResponse = _recordManager.Count(countQuery);
+
+					var result = new ListAddressesResponse { Success = true };
+					result.TotalCount = (int)(countResponse?.Object ?? 0);
+
+					if (response.Success && response.Object?.Data != null)
+					{
+						foreach (var rec in response.Object.Data)
+							result.Addresses.Add(MapToAddressRecord(rec));
+					}
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(ListAddresses), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Creates a new address record.
+		/// Proto: rpc CreateAddress(CreateAddressRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> CreateAddress(
+			CreateAddressRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = AddressRecordToEntityRecord(request.Address);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						record["id"] = Guid.NewGuid();
+
+					var response = _recordManager.CreateRecord("address", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Address created." : response.Message ?? "Failed to create address.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(CreateAddress), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Updates an existing address record.
+		/// Proto: rpc UpdateAddress(UpdateAddressRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> UpdateAddress(
+			UpdateAddressRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var record = AddressRecordToEntityRecord(request.Address);
+					if (!record.Properties.ContainsKey("id") || record["id"] == null)
+						throw new RpcException(new Status(StatusCode.InvalidArgument, "Address id is required for update."));
+
+					var response = _recordManager.UpdateRecord("address", record);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = record["id"]?.ToString() ?? string.Empty,
+						Message = response.Success ? "Address updated." : response.Message ?? "Failed to update address.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(UpdateAddress), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		/// <summary>
+		/// Deletes an address record by its unique identifier.
+		/// Proto: rpc DeleteAddress(DeleteAddressRequest) returns (CrmRecordResponse)
+		/// </summary>
+		public override async Task<CrmRecordResponse> DeleteAddress(
+			DeleteAddressRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var addressId = Guid.Parse(request.Id);
+					var response = _recordManager.DeleteRecord("address", addressId);
+
+					var result = new CrmRecordResponse
+					{
+						Success = response.Success,
+						RecordId = request.Id,
+						Message = response.Success ? "Address deleted." : response.Message ?? "Failed to delete address.",
+						Timestamp = DateTime.UtcNow.ToString("o")
+					};
+					if (!response.Success && response.Errors != null)
+						result.Errors.AddRange(MapErrors(response.Errors));
+
+					return await Task.FromResult(result);
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(DeleteAddress));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid address ID: {request.Id}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(DeleteAddress), ex.Message);
+				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+			}
+		}
+
+		#endregion
+
+		#region ===== gRPC Override: Search Index =====
+
+		/// <summary>
+		/// Regenerates the x_search concatenated text field for a CRM entity record.
+		/// Proto: rpc RegenerateSearchIndex(RegenerateSearchIndexRequest) returns (RegenerateSearchIndexResponse)
+		/// </summary>
+		public override async Task<RegenerateSearchIndexResponse> RegenerateSearchIndex(
+			RegenerateSearchIndexRequest request, ServerCallContext context)
+		{
+			try
+			{
+				var user = ExtractUserFromContext(context);
+				using (SecurityContext.OpenScope(user))
+				{
+					var entityName = request.EntityName;
+					ValidateCrmEntity(entityName);
+
+					var recordId = Guid.Parse(request.RecordId);
+					var query = new EntityQuery(entityName, "*", EntityQuery.QueryEQ("id", recordId));
+					var response = _recordManager.Find(query);
+
+					if (!response.Success || response.Object?.Data == null || response.Object.Data.Count == 0)
+					{
+						throw new RpcException(new Status(StatusCode.NotFound,
+							$"Record not found: {entityName}/{request.RecordId}"));
+					}
+
+					var record = response.Object.Data[0];
+					var indexedFields = request.IndexedFields.ToList();
+					_searchService.RegenSearchField(entityName, record, indexedFields);
+
+					return await Task.FromResult(new RegenerateSearchIndexResponse
+					{
+						Success = true,
+						Message = $"Search index regenerated for {entityName}/{request.RecordId}."
+					});
+				}
+			}
+			catch (RpcException) { throw; }
+			catch (FormatException ex)
+			{
+				_logger.LogError(ex, "Invalid ID format in {Method}", nameof(RegenerateSearchIndex));
+				throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid record ID: {request.RecordId}"));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Error in {Method}: {Message}", nameof(RegenerateSearchIndex), ex.Message);
 				throw new RpcException(new Status(StatusCode.Internal, ex.Message));
 			}
 		}

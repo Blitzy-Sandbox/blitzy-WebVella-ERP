@@ -9,8 +9,8 @@ using MimeKit;
 using Microsoft.Extensions.Caching.Distributed;
 using WebVella.Erp.Service.Mail.Domain.Services;
 using WebVella.Erp.Service.Mail.Domain.Entities;
-using WebVella.Erp.Api.Models;
-using WebVella.Erp.Exceptions;
+using WebVella.Erp.SharedKernel.Models;
+using WebVella.Erp.SharedKernel.Exceptions;
 
 namespace WebVella.Erp.Tests.Mail.Domain
 {
@@ -1687,7 +1687,7 @@ namespace WebVella.Erp.Tests.Mail.Domain
         public void SmtpService_Constructor_WithNullCache_ThrowsArgumentNullException()
         {
             // Arrange & Act
-            Action act = () => new SmtpService(null);
+            Action act = () => new SmtpService(null!, null!, null!);
 
             // Assert
             act.Should().Throw<ArgumentNullException>()
