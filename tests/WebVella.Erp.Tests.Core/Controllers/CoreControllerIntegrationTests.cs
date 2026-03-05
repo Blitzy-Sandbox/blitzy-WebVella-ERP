@@ -85,18 +85,18 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
 	#endregion
 
-	#region ===== Entity Controller Tests =====
+	#region ===== Entity Controller Basic Tests =====
 
 	/// <summary>
-	/// Integration tests for EntityController REST endpoints.
-	/// Validates HTTP routing, authorization, response envelope shape (BaseResponseModel),
-	/// and proper delegation to EntityManager.
+	/// Basic integration tests for EntityController REST endpoints.
+	/// Full comprehensive tests (33 test methods) are in EntityControllerTests.cs.
+	/// These basic tests validate HTTP routing and auth with mock services.
 	/// </summary>
-	public class EntityControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
+	public class EntityControllerBasicRouteTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
 	{
 		private readonly WebApplicationFactory<WebVella.Erp.Service.Core.Program> _factory;
 
-		public EntityControllerTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
+		public EntityControllerBasicRouteTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
 		{
 			_factory = factory.WithWebHostBuilder(builder =>
 			{
