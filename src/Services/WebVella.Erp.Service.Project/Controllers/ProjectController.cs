@@ -1,741 +1,719 @@
-// =============================================================================
-// ProjectController.cs — Project/Task Service REST API Controller
-// =============================================================================
-// Exposes REST endpoints for task, timelog, comment, feed, and project CRUD
-// operations. Extracted from the monolith's WebApiController.cs and
-// ProjectController.cs REST endpoints.
-//
-// Route pattern: /api/v3/{locale}/project/...
-// All endpoints use BaseResponseModel/ResponseModel response envelopes.
-// All mutation endpoints publish domain events via MassTransit.
-// =============================================================================
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Threading.Tasks;
-using MassTransit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using WebVella.Erp.SharedKernel.Contracts.Events;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Reflection;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using MassTransit;
+using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Database;
 using WebVella.Erp.SharedKernel.Eql;
-using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
+using WebVella.Erp.SharedKernel.Contracts.Events;
 using WebVella.Erp.Service.Core.Api;
-using WebVella.Erp.Service.Project.Domain.Models;
 using WebVella.Erp.Service.Project.Domain.Services;
 
 namespace WebVella.Erp.Service.Project.Controllers
 {
 	/// <summary>
-	/// Project Microservice REST API controller exposing task, timelog, comment, feed,
-	/// and project domain operations. Extracted from the monolith's ProjectController.cs
-	/// and relevant WebApiController.cs endpoints scoped to Project-owned entities.
+	/// REST API controller for the Project/Task microservice.
 	///
-	/// All endpoints are protected by [Authorize] (JWT Bearer). Mutations publish
-	/// domain events via MassTransit for inter-service communication.
+	/// Extracted from the monolith's <c>WebVella.Erp.Plugins.Project.Controllers.ProjectController</c>
+	/// (499 lines) with the following microservice-specific adaptations:
+	///
+	/// <list type="number">
+	///   <item>Namespace changed from <c>WebVella.Erp.Plugins.Project.Controllers</c> to
+	///         <c>WebVella.Erp.Service.Project.Controllers</c></item>
+	///   <item>All <c>new XxxManager()</c> and <c>new XxxService()</c> manual instantiations
+	///         replaced with constructor dependency injection</item>
+	///   <item><c>IErpService</c> constructor parameter removed (not needed in microservice)</item>
+	///   <item><c>new UserService().Get()</c> cross-service call replaced with
+	///         <c>IHttpClientFactory</c>-based Core service HTTP call</item>
+	///   <item><c>FileService.GetEmbeddedTextResource()</c> replaced with direct
+	///         <c>Assembly.GetManifestResourceStream()</c> for embedded JS resources</item>
+	///   <item><c>new Log().Create(LogType.Error, ...)</c> replaced with
+	///         <c>ILogger&lt;ProjectController&gt;</c> structured logging</item>
+	///   <item>Domain event publishing via MassTransit <c>IPublishEndpoint</c>
+	///         added after successful CRUD operations</item>
+	///   <item>Import statements updated to reference SharedKernel namespaces</item>
+	///   <item><c>[ApiController]</c> attribute added for automatic model validation</item>
+	/// </list>
+	///
+	/// All business logic, validation rules, error messages (including intentional typos),
+	/// and response shapes are preserved EXACTLY from the monolith source for backward
+	/// compatibility per AAP Section 0.8.1.
 	/// </summary>
 	[Authorize]
 	[ApiController]
-	[Route("api/v3/{locale}/project")]
 	public class ProjectController : Controller
 	{
-		#region Dependencies
+		private const char RELATION_SEPARATOR = '.';
+		private const char RELATION_NAME_RESULT_SEPARATOR = '$';
 
 		private readonly RecordManager _recordManager;
 		private readonly EntityManager _entityManager;
 		private readonly EntityRelationManager _relationManager;
-		private readonly TaskService _taskService;
-		private readonly TimelogService _timelogService;
+		private readonly SecurityManager _securityManager;
 		private readonly CommentService _commentService;
-		private readonly FeedService _feedService;
-		private readonly ReportingService _reportingService;
+		private readonly TimelogService _timelogService;
+		private readonly TaskService _taskService;
 		private readonly IPublishEndpoint _publishEndpoint;
+		private readonly IHttpClientFactory _httpClientFactory;
 		private readonly ILogger<ProjectController> _logger;
-		private readonly IConfiguration _configuration;
 
 		/// <summary>
 		/// Constructs the ProjectController with all required dependencies injected via DI.
+		/// Replaces the monolith's manual <c>new RecordManager()</c>, <c>new TaskService()</c>,
+		/// etc. instantiation pattern with proper constructor dependency injection.
 		/// </summary>
+		/// <param name="recordManager">Core service record CRUD manager replacing <c>new RecordManager()</c>.</param>
+		/// <param name="entityManager">Core service entity metadata manager replacing <c>new EntityManager()</c>.</param>
+		/// <param name="relationManager">Core service entity relation manager replacing <c>new EntityRelationManager()</c>.</param>
+		/// <param name="securityManager">Core service security manager replacing <c>new SecurityManager()</c>.</param>
+		/// <param name="commentService">Comment domain service replacing <c>new CommentService()</c>.</param>
+		/// <param name="timelogService">Timelog domain service replacing <c>new TimeLogService()</c>.</param>
+		/// <param name="taskService">Task domain service replacing <c>new TaskService()</c>.</param>
+		/// <param name="publishEndpoint">MassTransit publish endpoint for domain event publishing.</param>
+		/// <param name="httpClientFactory">HTTP client factory for cross-service Core calls.</param>
+		/// <param name="logger">Structured logger replacing <c>new Log().Create()</c>.</param>
 		public ProjectController(
 			RecordManager recordManager,
 			EntityManager entityManager,
 			EntityRelationManager relationManager,
-			TaskService taskService,
-			TimelogService timelogService,
+			SecurityManager securityManager,
 			CommentService commentService,
-			FeedService feedService,
-			ReportingService reportingService,
+			TimelogService timelogService,
+			TaskService taskService,
 			IPublishEndpoint publishEndpoint,
-			ILogger<ProjectController> logger,
-			IConfiguration configuration)
+			IHttpClientFactory httpClientFactory,
+			ILogger<ProjectController> logger)
 		{
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
 			_entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
 			_relationManager = relationManager ?? throw new ArgumentNullException(nameof(relationManager));
-			_taskService = taskService ?? throw new ArgumentNullException(nameof(taskService));
-			_timelogService = timelogService ?? throw new ArgumentNullException(nameof(timelogService));
+			_securityManager = securityManager ?? throw new ArgumentNullException(nameof(securityManager));
 			_commentService = commentService ?? throw new ArgumentNullException(nameof(commentService));
-			_feedService = feedService ?? throw new ArgumentNullException(nameof(feedService));
-			_reportingService = reportingService ?? throw new ArgumentNullException(nameof(reportingService));
+			_timelogService = timelogService ?? throw new ArgumentNullException(nameof(timelogService));
+			_taskService = taskService ?? throw new ArgumentNullException(nameof(taskService));
 			_publishEndpoint = publishEndpoint ?? throw new ArgumentNullException(nameof(publishEndpoint));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
-			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
 		}
 
-		#endregion
-
-		#region Response Helpers (from ApiControllerBase.cs)
-
 		/// <summary>
-		/// Standard response handler preserving monolith ApiControllerBase pattern.
+		/// Extracts the current user's unique identifier from the JWT Bearer token claims.
+		/// Reads <see cref="ClaimTypes.NameIdentifier"/> from <see cref="HttpContext.User.Claims"/>.
+		/// Preserved verbatim from monolith source lines 39-53.
 		/// </summary>
-		protected IActionResult DoResponse(BaseResponseModel response)
+		public Guid? CurrentUserId
 		{
-			if (response.Errors.Count > 0 || !response.Success)
+			get
 			{
-				if (response.StatusCode == HttpStatusCode.OK)
-					HttpContext.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-				else
-					HttpContext.Response.StatusCode = (int)response.StatusCode;
+				if (HttpContext != null && HttpContext.User != null && HttpContext.User.Claims != null)
+				{
+					var nameIdentifier = HttpContext.User.Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier);
+					if (nameIdentifier is null)
+						return null;
+
+					return new Guid(nameIdentifier.Value);
+				}
+				return null;
 			}
-			return Json(response);
 		}
 
+		#region << Components >>
+
 		/// <summary>
-		/// Returns a 400 Bad Request response with environment-aware error detail.
-		/// Only includes stack traces in Development mode.
+		/// Creates a new comment (post list item) for a project task.
+		/// Preserved from monolith source lines 56-140 with DI replacement.
 		/// </summary>
-		protected IActionResult DoBadRequestResponse(BaseResponseModel response, string message = null, Exception ex = null)
+		[Route("api/v3.0/p/project/pc-post-list/create")]
+		[HttpPost]
+		public ActionResult CreateNewPcPostListItem([FromBody]EntityRecord record)
 		{
-			response.Timestamp = DateTime.UtcNow;
-			response.Success = false;
+			var response = new ResponseModel();
+			#region << Init >>
+			var recordId = Guid.NewGuid();
 
-			var isDevelopment = string.Equals(
-				_configuration["ASPNETCORE_ENVIRONMENT"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
-				"Development", StringComparison.OrdinalIgnoreCase);
-
-			if (isDevelopment)
+			Guid relatedRecordId = Guid.Empty;
+			if (!record.Properties.ContainsKey("relatedRecordId") || record["relatedRecordId"] == null)
 			{
-				if (ex != null)
-					response.Message = ex.Message + ex.StackTrace;
+				throw new Exception("relatedRecordId is required");
+			}
+			if (Guid.TryParse((string)record["relatedRecordId"], out Guid outGuid))
+			{
+				relatedRecordId = outGuid;
 			}
 			else
 			{
-				if (string.IsNullOrEmpty(message))
-					response.Message = "An internal error occurred!";
-				else
-					response.Message = message;
+				throw new Exception("relatedRecordId is invalid Guid");
 			}
 
-			HttpContext.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+			Guid? parentId = null;
+			if (record.Properties.ContainsKey("parentId") && record["parentId"] != null)
+			{
+				if (Guid.TryParse((string)record["parentId"], out Guid outGuid2))
+				{
+					parentId = outGuid2;
+				}
+			}
+
+			var scope = new List<string>() { "projects" };
+
+			var relatedRecords = new List<Guid>();
+			if (record.Properties.ContainsKey("relatedRecords") && record["relatedRecords"] != null)
+			{
+				relatedRecords = JsonConvert.DeserializeObject<List<Guid>>((string)record["relatedRecords"]);
+			}
+
+			var subject = "";
+			if (record.Properties.ContainsKey("subject") && record["subject"] != null)
+			{
+				subject = (string)record["subject"];
+			}
+
+			var body = "";
+			if (record.Properties.ContainsKey("body") && record["body"] != null)
+			{
+				body = (string)record["body"];
+			}
+
+			Guid currentUserId = SystemIds.FirstUserId; //This is for web component development to allow guest submission
+			if (SecurityContext.CurrentUser != null)
+				currentUserId = SecurityContext.CurrentUser.Id;
+
+			#endregion
+
+			try
+			{
+				_commentService.Create(recordId, currentUserId, DateTime.Now, body, parentId, scope, relatedRecords);
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+
+			response.Success = true;
+			response.Message = "Comment successfully created";
+
+			var eqlCommand = @"SELECT *,$user_1n_comment.image,$user_1n_comment.username
+					FROM comment
+					WHERE id = @recordId";
+			var eqlParams = new List<EqlParameter>() {
+						new EqlParameter("recordId",recordId)
+					};
+			var cmd = new EqlCommand(eqlCommand);
+			cmd.Parameters.AddRange(eqlParams);
+			var eqlResult = cmd.Execute();
+
+			if (eqlResult.Any())
+			{
+				response.Object = eqlResult.First();
+			}
+
+			// Publish domain event for comment creation (event publishing failure
+			// does not break the response per AAP Section 0.8.1)
+			try
+			{
+				_publishEndpoint.Publish(new RecordCreatedEvent
+				{
+					EntityName = "comment",
+					Record = eqlResult.Any() ? eqlResult.First() : null
+				}).GetAwaiter().GetResult();
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Failed to publish CommentCreatedEvent for record {RecordId}", recordId);
+			}
+
 			return Json(response);
 		}
 
-		#endregion
-
-		#region Task Endpoints
-
 		/// <summary>
-		/// Retrieves a task by its unique identifier.
-		/// GET /api/v3/{locale}/project/task/{taskId}
+		/// Deletes a comment (post list item) by ID.
+		/// Preserved from monolith source lines 142-175 with DI replacement.
 		/// </summary>
-		[HttpGet("task/{taskId}")]
-		public IActionResult GetTask(string locale, Guid taskId)
+		[Route("api/v3.0/p/project/pc-post-list/delete")]
+		[HttpPost]
+		public ActionResult DeletePcPostListItem([FromBody]EntityRecord record)
 		{
 			var response = new ResponseModel();
+			#region << Init >>
+			Guid recordId = Guid.Empty;
+			if (!record.Properties.ContainsKey("id") || record["id"] == null)
+			{
+				throw new Exception("id is required");
+			}
+			if (Guid.TryParse((string)record["id"], out Guid outGuid))
+			{
+				recordId = outGuid;
+			}
+			else
+			{
+				throw new Exception("id is invalid Guid");
+			}
+
+			#endregion
 			try
 			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var task = _taskService.GetTask(taskId);
-					response.Object = task;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
+				_commentService.Delete(recordId);
 			}
-			catch (Exception ex)
+			catch (Exception)
 			{
-				_logger.LogError(ex, "Error retrieving task {TaskId}", taskId);
-				return DoBadRequestResponse(response, ex: ex);
+				throw;
 			}
-			return DoResponse(response);
+			response.Success = true;
+			response.Message = "Comment successfully deleted";
+
+			return Json(response);
 		}
 
 		/// <summary>
-		/// Retrieves the task queue with filtering and pagination.
-		/// GET /api/v3/{locale}/project/tasks/queue
+		/// Creates a new timelog entry for a project task.
+		/// Preserved from monolith source lines 177-255 with DI replacement.
 		/// </summary>
-		[HttpGet("tasks/queue")]
-		public IActionResult GetTaskQueue(string locale, Guid? projectId = null, Guid? userId = null,
-			int dueType = 0, int? limit = null, bool includeProjectData = false)
+		[Route("api/v3.0/p/project/pc-timelog-list/create")]
+		[HttpPost]
+		public ActionResult CreateTimelog([FromBody]EntityRecord record)
 		{
 			var response = new ResponseModel();
+			#region << Init >>
+			var recordId = Guid.NewGuid();
+
+
+			var scope = new List<string>() { "projects" };
+
+			var relatedRecords = new List<Guid>();
+			if (record.Properties.ContainsKey("relatedRecords") && record["relatedRecords"] != null)
+			{
+				relatedRecords = JsonConvert.DeserializeObject<List<Guid>>((string)record["relatedRecords"]);
+			}
+
+			var body = "";
+			if (record.Properties.ContainsKey("body") && record["body"] != null)
+			{
+				body = (string)record["body"];
+			}
+
+			Guid currentUserId = SystemIds.FirstUserId; //This is for web component development to allow guest submission
+			if (SecurityContext.CurrentUser != null)
+				currentUserId = SecurityContext.CurrentUser.Id;
+
+
+			var minutes = 0;
+			if (record.Properties.ContainsKey("minutes") && record["minutes"] != null)
+			{
+				if (Int32.TryParse(record["minutes"].ToString(), out Int32 outInt32))
+				{
+					minutes = outInt32;
+				}
+			}
+
+			var isBillable = false;
+			if (record.Properties.ContainsKey("isBillable") && record["isBillable"] != null)
+			{
+				if (Boolean.TryParse(record["isBillable"].ToString(), out bool outBool))
+				{
+					isBillable = outBool;
+				}
+			}
+
+			var loggedOn = new DateTime();
+			if (record.Properties.ContainsKey("loggedOn") && record["loggedOn"] != null)
+			{
+				loggedOn = (DateTime)record["loggedOn"];
+			}
+
+			#endregion
+
 			try
 			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
+				_timelogService.Create(recordId, currentUserId, DateTime.Now, loggedOn, minutes, isBillable, body, scope, relatedRecords);
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+
+			response.Success = true;
+			response.Message = "Timelog successfully created";
+
+			var eqlCommand = @"SELECT *,$user_1n_timelog.image,$user_1n_timelog.username
+								FROM timelog
+								WHERE id = @recordId";
+			var eqlParams = new List<EqlParameter>() { new EqlParameter("recordId", recordId) };
+			var cmd = new EqlCommand(eqlCommand);
+			cmd.Parameters.AddRange(eqlParams);
+			var eqlResult = cmd.Execute();
+
+			if (eqlResult.Any())
+			{
+				response.Object = eqlResult.First();
+			}
+
+			// Publish domain event for timelog creation (event publishing failure
+			// does not break the response per AAP Section 0.8.1)
+			try
+			{
+				_publishEndpoint.Publish(new RecordCreatedEvent
 				{
-					var tasksDueType = (TasksDueType)dueType;
-					var tasks = _taskService.GetTaskQueue(projectId, userId, tasksDueType, limit, includeProjectData);
-					response.Object = tasks;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
+					EntityName = "timelog",
+					Record = eqlResult.Any() ? eqlResult.First() : null
+				}).GetAwaiter().GetResult();
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Error retrieving task queue");
-				return DoBadRequestResponse(response, ex: ex);
+				_logger.LogError(ex, "Failed to publish TimelogCreatedEvent for record {RecordId}", recordId);
 			}
-			return DoResponse(response);
+
+			return Json(response);
 		}
 
 		/// <summary>
-		/// Retrieves all available task statuses.
-		/// GET /api/v3/{locale}/project/task-statuses
+		/// Deletes a timelog entry by ID.
+		/// Preserved from monolith source lines 257-293 with DI replacement.
+		/// NOTE: The response message "Comment successfully deleted" is an intentional
+		/// preservation of the original source typo for backward compatibility.
 		/// </summary>
-		[HttpGet("task-statuses")]
-		public IActionResult GetTaskStatuses(string locale)
+		[Route("api/v3.0/p/project/pc-timelog-list/delete")]
+		[HttpPost]
+		public ActionResult DeleteTimelog([FromBody]EntityRecord record)
 		{
 			var response = new ResponseModel();
+			#region << Init >>
+
+			Guid recordId = Guid.Empty;
+			if (!record.Properties.ContainsKey("id") || record["id"] == null)
+			{
+				throw new Exception("id is required");
+			}
+			if (Guid.TryParse((string)record["id"], out Guid outGuid))
+			{
+				recordId = outGuid;
+			}
+			else
+			{
+				throw new Exception("id is invalid Guid");
+			}
+
+			#endregion
+
 			try
 			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var statuses = _taskService.GetTaskStatuses();
-					response.Object = statuses;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
+				_timelogService.Delete(recordId);
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+			response.Success = true;
+			response.Message = "Comment successfully deleted";
+
+
+			return Json(response);
+		}
+
+		/// <summary>
+		/// Starts time tracking for a task.
+		/// Preserved from monolith source lines 295-326 with DI replacement.
+		/// </summary>
+		[Route("api/v3.0/p/project/timelog/start")]
+		[HttpPost]
+		public ActionResult StartTimeLog([FromQuery]Guid taskId)
+		{
+			var response = new ResponseModel();
+			//Validate
+			var task = _taskService.GetTask(taskId);
+			if (task == null)
+			{
+				response.Success = false;
+				response.Message = "task not found";
+				return Json(response);
+			}
+			if (task["timelog_started_on"] != null) {
+				response.Success = false;
+				response.Message = "timelog for the task already started";
+				return Json(response);
+			}
+			try
+			{
+				_taskService.StartTaskTimelog(taskId);
+				response.Success = true;
+				response.Message = "Log Started";
+				return Json(response);
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Error retrieving task statuses");
-				return DoBadRequestResponse(response, ex: ex);
+				response.Success = false;
+				response.Message = ex.Message;
+				return Json(response);
 			}
-			return DoResponse(response);
 		}
+
+		//[Route("api/v3.0/p/project/timelog/stop")]
+		//[HttpPost]
+		//public ActionResult StopTimeLog([FromQuery]Guid taskId)
+		//{
+		//	var response = new ResponseModel();
+		//	//Validate
+
+		//	using (var connection = DbContext.Current.CreateConnection())
+		//	{
+		//		try
+		//		{
+		//			connection.BeginTransaction();
+
+		//			new TaskService().StopTaskTimelog(taskId);
+
+		//			//Create Time log
+
+		//			connection.CommitTransaction();
+
+		//			response.Success = true;
+		//			response.Message = "Log Stopped";
+		//			return Json(response);
+		//		}
+		//		catch (Exception ex)
+		//		{
+		//			connection.RollbackTransaction();
+
+		//			response.Success = false;
+		//			response.Message = ex.Message;
+		//			return Json(response);
+		//		}
+		//	}
+		//}
 
 		/// <summary>
 		/// Sets the status of a task.
-		/// POST /api/v3/{locale}/project/task/{taskId}/status
-		/// Source: ProjectController.TaskSetStatus()
+		/// Preserved from monolith source lines 362-394 with DI replacement.
+		/// NOTE: The success message "Log Started" is an intentional preservation
+		/// of the original source text for backward compatibility.
 		/// </summary>
-		[HttpPost("task/{taskId}/status")]
-		public IActionResult SetTaskStatus(string locale, Guid taskId, [FromBody] JObject body)
+		[Route("api/v3.0/p/project/task/status")]
+		[HttpPost]
+		public ActionResult TaskSetStatus([FromQuery]Guid taskId, [FromQuery]Guid statusId)
 		{
 			var response = new ResponseModel();
+			//Validate
+			var task = _taskService.GetTask(taskId);
+			if (task == null)
+			{
+				response.Success = false;
+				response.Message = "task not found";
+				return Json(response);
+			}
+			if (task["status_id"] != null && (Guid)task["status_id"] == statusId)
+			{
+				response.Success = false;
+				response.Message = "status already set";
+				return Json(response);
+			}
 			try
 			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
+				_taskService.SetStatus(taskId, statusId);
+				response.Success = true;
+				response.Message = "Log Started";
+
+				// Publish domain event for task status change (event publishing failure
+				// does not break the response per AAP Section 0.8.1)
+				try
 				{
-					var statusId = body.Value<Guid?>("statusId") ?? Guid.Empty;
-					if (statusId == Guid.Empty)
+					_publishEndpoint.Publish(new RecordUpdatedEvent
 					{
-						response.Success = false;
-						response.Message = "statusId is required.";
-						return DoBadRequestResponse(response, "statusId is required.");
-					}
-					_taskService.SetStatus(taskId, statusId);
-					response.Success = true;
-					response.Message = "Task status updated.";
-					response.Timestamp = DateTime.UtcNow;
+						EntityName = "task"
+					}).GetAwaiter().GetResult();
 				}
+				catch (Exception evtEx)
+				{
+					_logger.LogError(evtEx, "Failed to publish TaskStatusChangedEvent for task {TaskId}", taskId);
+				}
+
+				return Json(response);
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Error setting task status for {TaskId}", taskId);
-				return DoBadRequestResponse(response, ex: ex);
+				response.Success = false;
+				response.Message = ex.Message;
+				return Json(response);
 			}
-			return DoResponse(response);
 		}
 
 		/// <summary>
-		/// Starts or stops watching a task for a user.
-		/// POST /api/v3/{locale}/project/task/watch
-		/// Source: ProjectController.TaskSetWatch()
+		/// Toggles task watch (add/remove watcher) for a user on a task.
+		/// Preserved from monolith source lines 396-459 with DI replacement.
+		///
+		/// Cross-service note: The user entity is owned by the Core Platform service.
+		/// In the database-per-service model, user validation requires a cross-service
+		/// HTTP/gRPC call to the Core service via IHttpClientFactory.
 		/// </summary>
-		[HttpPost("task/watch")]
-		public IActionResult SetTaskWatch(string locale, [FromBody] JObject body)
+		[Route("api/v3.0/p/project/task/watch")]
+		[HttpPost]
+		public async Task<ActionResult> TaskSetWatch([FromQuery]Guid? taskId = null, [FromQuery]Guid? userId = null, [FromQuery]bool startWatch = true)
 		{
 			var response = new ResponseModel();
+			if (taskId == null) {
+				response.Success = false;
+				response.Message = "Missing taskId query parameter";
+				return Json(response);
+			}
+			//Validate
+			var task = _taskService.GetTask(taskId.Value);
+			if (task == null)
+			{
+				response.Success = false;
+				response.Message = "task not found";
+				return Json(response);
+			}
+			if (userId != null)
+			{
+				// Cross-service call: user entity is owned by Core Platform service (AAP Section 0.7.1).
+				// Validates user existence via Core service HTTP call, replacing monolith's
+				// in-process new UserService().Get(userId.Value) call.
+				try
+				{
+					var client = _httpClientFactory.CreateClient("CoreService");
+					var userResponse = await client.GetAsync($"api/v3.0/user/{userId.Value}");
+					if (!userResponse.IsSuccessStatusCode)
+					{
+						response.Success = false;
+						response.Message = "user not found";
+						return Json(response);
+					}
+				}
+				catch (Exception)
+				{
+					// If Core service is unavailable, fall back to allowing the operation
+					// to proceed (eventual consistency model). Log the failure.
+					_logger.LogWarning("Core service unavailable for user validation of {UserId}; proceeding with operation", userId.Value);
+				}
+			}
+			else {
+				userId = SecurityContext.CurrentUser.Id;
+			}
+
 			try
 			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
+				var watchRelation = _relationManager.Read("user_nn_task_watchers").Object;
+				if (watchRelation == null)
+					throw new Exception("Watch relation not found");
+
+				if (startWatch)
 				{
-					var taskId = body.Value<Guid?>("taskId");
-					var userId = body.Value<Guid?>("userId") ?? user?.Id ?? Guid.Empty;
-					var startWatch = body.Value<bool?>("startWatch") ?? true;
+					var createRelResponse = _recordManager.CreateRelationManyToManyRecord(watchRelation.Id, userId.Value, taskId.Value);
+					if (!createRelResponse.Success)
+						throw new Exception(createRelResponse.Message);
 
-					if (taskId == null || taskId == Guid.Empty)
-					{
-						response.Success = false;
-						response.Message = "taskId is required.";
-						return DoBadRequestResponse(response, "taskId is required.");
-					}
+					response.Message = "Task watch started";
+				}
+				else {
+					var removeRelResponse = _recordManager.RemoveRelationManyToManyRecord(watchRelation.Id, userId.Value, taskId.Value);
+					if (!removeRelResponse.Success)
+						throw new Exception(removeRelResponse.Message);
 
-					// Manage the watcher relation
-					var relationName = "$user_nn_task_watchers";
-					var relationResponse = _relationManager.Read(relationName);
-					if (!relationResponse.Success || relationResponse.Object == null)
-					{
-						response.Success = false;
-						response.Message = "Watcher relation not found.";
-						return DoBadRequestResponse(response, "Watcher relation not found.");
-					}
+					response.Message = "Task watch stopped";
+				}
 
-					var relation = relationResponse.Object;
+				response.Success = true;
+
+				// Publish domain event for task watch change (event publishing failure
+				// does not break the response per AAP Section 0.8.1)
+				try
+				{
 					if (startWatch)
 					{
-						_recordManager.CreateRelationManyToManyRecord(relation.Id, userId, taskId.Value);
+						await _publishEndpoint.Publish(new RelationCreatedEvent
+						{
+							RelationName = "user_nn_task_watchers",
+							OriginId = userId.Value,
+							TargetId = taskId.Value
+						});
 					}
 					else
 					{
-						_recordManager.RemoveRelationManyToManyRecord(relation.Id, userId, taskId.Value);
-					}
-
-					response.Success = true;
-					response.Message = startWatch ? "Task watch started." : "Task watch stopped.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error managing task watch");
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Starts the timelog timer for a task.
-		/// POST /api/v3/{locale}/project/task/{taskId}/timelog/start
-		/// Source: ProjectController.StartTimeLog()
-		/// </summary>
-		[HttpPost("task/{taskId}/timelog/start")]
-		public IActionResult StartTaskTimelog(string locale, Guid taskId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					_taskService.StartTaskTimelog(taskId);
-					response.Success = true;
-					response.Message = "Task timelog started.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error starting task timelog for {TaskId}", taskId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Stops the timelog timer for a task.
-		/// POST /api/v3/{locale}/project/task/{taskId}/timelog/stop
-		/// Source: ProjectController.StopTimeLog()
-		/// </summary>
-		[HttpPost("task/{taskId}/timelog/stop")]
-		public IActionResult StopTaskTimelog(string locale, Guid taskId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					_taskService.StopTaskTimelog(taskId);
-					response.Success = true;
-					response.Message = "Task timelog stopped.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error stopping task timelog for {TaskId}", taskId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		#endregion
-
-		#region Timelog Endpoints
-
-		/// <summary>
-		/// Creates a new timelog entry.
-		/// POST /api/v3/{locale}/project/timelog
-		/// Source: ProjectController.CreateTimelog()
-		/// </summary>
-		[HttpPost("timelog")]
-		public IActionResult CreateTimelog(string locale, [FromBody] JObject body)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var taskId = body.Value<Guid?>("taskId") ?? Guid.Empty;
-					var minutes = body.Value<int?>("minutes") ?? 0;
-					var isBillable = body.Value<bool?>("isBillable") ?? true;
-					var logBody = body.Value<string>("body") ?? string.Empty;
-					var loggedOn = body.Value<DateTime?>("loggedOn") ?? DateTime.UtcNow;
-
-					if (taskId == Guid.Empty)
-					{
-						response.Success = false;
-						response.Message = "taskId is required.";
-						return DoBadRequestResponse(response, "taskId is required.");
-					}
-
-					// The monolith stores taskId via the relatedRecords list
-					var relatedRecords = new List<Guid> { taskId };
-
-					_timelogService.Create(
-						createdBy: user?.Id,
-						loggedOn: loggedOn,
-						minutes: minutes,
-						isBillable: isBillable,
-						body: logBody,
-						relatedRecords: relatedRecords);
-
-					response.Success = true;
-					response.Message = "Timelog created.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error creating timelog");
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Deletes a timelog entry.
-		/// DELETE /api/v3/{locale}/project/timelog/{timelogId}
-		/// Source: ProjectController.DeleteTimelog()
-		/// </summary>
-		[HttpDelete("timelog/{timelogId}")]
-		public IActionResult DeleteTimelog(string locale, Guid timelogId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					_timelogService.Delete(timelogId);
-					response.Success = true;
-					response.Message = "Timelog deleted.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error deleting timelog {TimelogId}", timelogId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Retrieves timelogs for a date range, optionally filtered by project and user.
-		/// GET /api/v3/{locale}/project/timelogs
-		/// Source: ProjectController.GetTimelogsForPeriod()
-		/// </summary>
-		[HttpGet("timelogs")]
-		public IActionResult GetTimelogsForPeriod(string locale, Guid? projectId = null, Guid? userId = null,
-			DateTime? startDate = null, DateTime? endDate = null)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var start = startDate ?? DateTime.UtcNow.AddDays(-30);
-					var end = endDate ?? DateTime.UtcNow;
-					var timelogs = _timelogService.GetTimelogsForPeriod(projectId, userId, start, end);
-					response.Object = timelogs;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error retrieving timelogs for period");
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		#endregion
-
-		#region Comment Endpoints
-
-		/// <summary>
-		/// Creates a new comment on a task.
-		/// POST /api/v3/{locale}/project/comment
-		/// Source: ProjectController.CreateNewPcPostListItem()
-		/// </summary>
-		[HttpPost("comment")]
-		public IActionResult CreateComment(string locale, [FromBody] JObject body)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var commentBody = body.Value<string>("body") ?? string.Empty;
-					var parentId = body.Value<Guid?>("parentId");
-					var taskId = body.Value<Guid?>("taskId") ?? Guid.Empty;
-
-					if (taskId == Guid.Empty)
-					{
-						response.Success = false;
-						response.Message = "taskId is required.";
-						return DoBadRequestResponse(response, "taskId is required.");
-					}
-
-					// The monolith stores taskId via the relatedRecords list
-					var relatedRecords = new List<Guid> { taskId };
-
-					_commentService.Create(
-						createdBy: user?.Id,
-						body: commentBody,
-						parentId: parentId,
-						relatedRecords: relatedRecords);
-
-					response.Success = true;
-					response.Message = "Comment created.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error creating comment");
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Deletes a comment and all its child comments.
-		/// DELETE /api/v3/{locale}/project/comment/{commentId}
-		/// Source: ProjectController.DeletePcPostListItem()
-		/// </summary>
-		[HttpDelete("comment/{commentId}")]
-		public IActionResult DeleteComment(string locale, Guid commentId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					_commentService.Delete(commentId);
-					response.Success = true;
-					response.Message = "Comment deleted.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error deleting comment {CommentId}", commentId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		#endregion
-
-		#region Project Endpoints
-
-		/// <summary>
-		/// Retrieves a project by its unique identifier.
-		/// GET /api/v3/{locale}/project/{projectId}
-		/// </summary>
-		[HttpGet("{projectId:guid}")]
-		public IActionResult GetProject(string locale, Guid projectId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var records = new EqlCommand("SELECT * FROM project WHERE id = @projectId",
-						parameters: new EqlParameter[] { new EqlParameter("projectId", projectId) }).Execute();
-					if (records == null || records.Count == 0)
-					{
-						response.Success = false;
-						response.Message = $"Project not found with ID: {projectId}";
-						HttpContext.Response.StatusCode = (int)HttpStatusCode.NotFound;
-						return Json(response);
-					}
-					response.Object = records[0];
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error retrieving project {ProjectId}", projectId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		/// <summary>
-		/// Retrieves all timelogs associated with a project.
-		/// GET /api/v3/{locale}/project/{projectId}/timelogs
-		/// </summary>
-		[HttpGet("{projectId:guid}/timelogs")]
-		public IActionResult GetProjectTimelogs(string locale, Guid projectId)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var records = new EqlCommand(
-						"SELECT * FROM timelog WHERE $task_nn_timelog.project_id = @projectId ORDER BY logged_on DESC",
-						parameters: new EqlParameter[] { new EqlParameter("projectId", projectId) }).Execute();
-					response.Object = records;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error retrieving project timelogs for {ProjectId}", projectId);
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		#endregion
-
-		#region Feed Endpoints
-
-		/// <summary>
-		/// Creates a feed item recording task activity.
-		/// POST /api/v3/{locale}/project/feed
-		/// </summary>
-		[HttpPost("feed")]
-		public IActionResult CreateFeedItem(string locale, [FromBody] JObject body)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var feedBody = body.Value<string>("body") ?? string.Empty;
-					var feedSubject = body.Value<string>("subject") ?? string.Empty;
-					var feedType = body.Value<string>("type") ?? "system";
-					var taskId = body.Value<string>("taskId") ?? string.Empty;
-
-					// relatedRecords stores IDs of entities this feed item is about
-					var relatedRecords = new List<string>();
-					if (!string.IsNullOrWhiteSpace(taskId))
-						relatedRecords.Add(taskId);
-
-					_feedService.Create(
-						createdBy: user?.Id ?? Guid.Empty,
-						subject: feedSubject,
-						body: feedBody,
-						relatedRecords: relatedRecords,
-						type: feedType);
-
-					response.Success = true;
-					response.Message = "Feed item created.";
-					response.Timestamp = DateTime.UtcNow;
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "Error creating feed item");
-				return DoBadRequestResponse(response, ex: ex);
-			}
-			return DoResponse(response);
-		}
-
-		#endregion
-
-		#region Record CRUD Endpoints (EQL-based)
-
-		/// <summary>
-		/// Executes an EQL query against project-owned entities.
-		/// POST /api/v3/{locale}/project/record/query
-		/// </summary>
-		[HttpPost("record/query")]
-		public IActionResult QueryRecords(string locale, [FromBody] JObject body)
-		{
-			var response = new ResponseModel();
-			try
-			{
-				var user = SecurityContext.CurrentUser;
-				using (SecurityContext.OpenScope(user))
-				{
-					var eql = body.Value<string>("eql");
-					if (string.IsNullOrWhiteSpace(eql))
-					{
-						response.Success = false;
-						response.Message = "EQL query string is required.";
-						return DoBadRequestResponse(response, "EQL query string is required.");
-					}
-
-					var parameters = new List<EqlParameter>();
-					var paramsArray = body.Value<JArray>("parameters");
-					if (paramsArray != null)
-					{
-						foreach (var param in paramsArray)
+						await _publishEndpoint.Publish(new RelationDeletedEvent
 						{
-							var paramName = param.Value<string>("name");
-							var paramValue = param.Value<string>("value");
-							if (!string.IsNullOrEmpty(paramName))
-							{
-								parameters.Add(new EqlParameter(paramName, paramValue));
-							}
-						}
+							RelationName = "user_nn_task_watchers",
+							OriginId = userId.Value,
+							TargetId = taskId.Value
+						});
 					}
-
-					var records = new EqlCommand(eql, parameters: parameters.ToArray()).Execute();
-					response.Object = records;
-					response.Success = true;
-					response.Timestamp = DateTime.UtcNow;
 				}
+				catch (Exception evtEx)
+				{
+					_logger.LogError(evtEx, "Failed to publish TaskWatchChangedEvent for task {TaskId}", taskId);
+				}
+
+				return Json(response);
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Error executing EQL query");
-				return DoBadRequestResponse(response, ex: ex);
+				response.Success = false;
+				response.Message = ex.Message;
+				return Json(response);
 			}
-			return DoResponse(response);
+		}
+
+
+		/// <summary>
+		/// Serves embedded JavaScript files for time tracking.
+		/// Adapted from monolith source lines 462-481 for microservice.
+		/// FileService.GetEmbeddedTextResource() replaced with direct Assembly.GetManifestResourceStream().
+		/// </summary>
+		[AllowAnonymous]
+		[Route("api/v3.0/p/project/files/javascript")]
+		[ResponseCache(NoStore = false, Duration = 30 * 24 * 3600)]
+		[HttpGet]
+		public ContentResult TimeTrackJs([FromQuery]string file = "")
+		{
+			if(String.IsNullOrWhiteSpace(file))
+				return Content("", "text/javascript");
+			try
+			{
+				var assembly = typeof(ProjectController).Assembly;
+				var resourceName = $"WebVella.Erp.Service.Project.Files.{file}";
+				using var stream = assembly.GetManifestResourceStream(resourceName);
+				if (stream == null)
+					return Content("", "text/javascript");
+				using var reader = new StreamReader(stream);
+				var jsContent = reader.ReadToEnd();
+
+				return Content(jsContent, "text/javascript");
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "{File} API File get Method Error", file);
+				throw;
+			}
+		}
+		#endregion
+
+		#region << WebAssembly>>
+
+		/// <summary>
+		/// Retrieves the current authenticated user's record.
+		/// Preserved from monolith source lines 486-492 with DI replacement.
+		///
+		/// Cross-service note: In the database-per-service model, the 'user' entity
+		/// is owned by the Core Platform service. This endpoint should be replaced with
+		/// a gRPC/HTTP call to Core service for user lookup, or maintain a local projection.
+		/// Currently preserved for backward compatibility.
+		/// </summary>
+		[Route("api/v3.0/p/project/user/get-current")]
+		[HttpGet]
+		public ActionResult GetCurrentUser()
+		{
+			var request = _recordManager.Find(new EntityQuery("user","*", EntityQuery.QueryEQ("id", CurrentUserId.Value))).Object.Data;
+			return Json(request[0]);
 		}
 
 		#endregion
+
 	}
 }
