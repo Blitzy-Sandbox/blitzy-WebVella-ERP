@@ -102,7 +102,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// Thrown when <see cref="RecordManager.CreateRecord(string, EntityRecord)"/> returns
 		/// a non-success response. The exception message contains the response's error message.
 		/// </exception>
-		public void Create(Guid? id = null, Guid? createdBy = null, DateTime? createdOn = null,
+		public virtual void Create(Guid? id = null, Guid? createdBy = null, DateTime? createdOn = null,
 			string subject = "", string body = "", List<string> relatedRecords = null,
 			List<string> scope = null, string type = "")
 		{

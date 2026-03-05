@@ -86,6 +86,24 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
+		#region << EQL Execution >>
+
+		/// <summary>
+		/// Executes an EQL query and returns the result list.
+		/// This method is virtual to allow test subclasses (TestableTaskService) to override
+		/// the EQL execution path with controlled test behavior, removing the need for a
+		/// live database connection during unit testing.
+		/// </summary>
+		/// <param name="text">The EQL query text.</param>
+		/// <param name="parameters">The EQL parameters for the query.</param>
+		/// <returns>The EntityRecordList result from executing the EQL command.</returns>
+		protected virtual EntityRecordList ExecuteEql(string text, List<EqlParameter> parameters)
+		{
+			return new EqlCommand(text, parameters).Execute();
+		}
+
+		#endregion
+
 		#region << Helper Methods >>
 
 		/// <summary>
@@ -217,7 +235,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			var projectRecord = new EntityRecord();
 			var eqlCommand = "SELECT * from task_status";
 			var eqlParams = new List<EqlParameter>();
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 			if (!eqlResult.Any())
 				throw new Exception("Error: No task statuses found");
 
@@ -236,7 +254,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			var eqlCommand = " SELECT * from task WHERE id = @taskId";
 			var eqlParams = new List<EqlParameter>() { new EqlParameter("taskId", taskId) };
 
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 			if (!eqlResult.Any())
 				return null;
 			else
@@ -368,7 +386,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 				eqlCommand += $" PAGE 1 PAGESIZE {limit} ";
 
 
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 
 			return eqlResult;
 		}
@@ -487,7 +505,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			{
 				var eqlCommand = "SELECT created_on,type_id,$project_nn_task.id FROM task WHERE created_by = @currentUserId ORDER BY created_on DESC PAGE 1 PAGESIZE 1";
 				var eqlParams = new List<EqlParameter>() { new EqlParameter("currentUserId", userId.Value) };
-				var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+				var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 				if (eqlResult != null && eqlResult is EntityRecordList && eqlResult.Count > 0)
 				{
 					var relatedProjects = (List<EntityRecord>)eqlResult[0]["$project_nn_task"];
@@ -650,7 +668,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// <param name="errors">Mutable list of ErrorModel to accumulate validation errors.</param>
 		public void PostPreUpdateApiHookLogic(EntityRecord record, EntityRecord oldRecord, List<ErrorModel> errors)
 		{
-			var eqlResult = new EqlCommand("SELECT id,number, $project_nn_task.id, $project_nn_task.abbr, $user_nn_task_watchers.id FROM task WHERE id = @taskId", new List<EqlParameter>() { new EqlParameter("taskId", (Guid)record["id"]) }).Execute();
+			var eqlResult = ExecuteEql("SELECT id,number, $project_nn_task.id, $project_nn_task.abbr, $user_nn_task_watchers.id FROM task WHERE id = @taskId", new List<EqlParameter>() { new EqlParameter("taskId", (Guid)record["id"]) });
 			if (eqlResult.Count > 0)
 			{
 				var currentOldRecord = eqlResult[0];
@@ -712,7 +730,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 					//change key
 					record["key"] = projectAbbr + "-" + ((decimal)currentOldRecord["number"]).ToString("N0");
 
-					var projectEqlResult = new EqlCommand("SELECT id,owner_id FROM project WHERE id = @projectId", new List<EqlParameter>() { new EqlParameter("projectId", newProjectId) }).Execute();
+					var projectEqlResult = ExecuteEql("SELECT id,owner_id FROM project WHERE id = @projectId", new List<EqlParameter>() { new EqlParameter("projectId", newProjectId) });
 					Guid? projectOwnerId = null;
 					if (projectEqlResult != null && ((List<EntityRecord>)projectEqlResult).Any())
 					{
@@ -775,7 +793,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 				var watchers = new List<Guid>();
 				var eqlCommand = "SELECT id, $user_nn_task_watchers.id FROM task WHERE id = @taskId";
 				var eqlParams = new List<EqlParameter>() { new EqlParameter("taskId", (Guid)record["id"]) };
-				var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+				var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 				foreach (var relRecord in eqlResult)
 				{
 					if (relRecord.Properties.ContainsKey("$user_nn_task_watchers") && relRecord["$user_nn_task_watchers"] is List<EntityRecord>)
@@ -836,7 +854,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 				new EqlParameter("currentDate", DateTime.Now.Date),
 			};
 
-			return new EqlCommand(eqlCommand, eqlParams).Execute();
+			return ExecuteEql(eqlCommand, eqlParams);
 		}
 
 		/// <summary>

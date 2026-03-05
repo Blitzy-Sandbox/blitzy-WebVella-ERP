@@ -646,7 +646,7 @@ namespace WebVella.Erp.Service.Core.Api
 			return response;
 		}
 
-		public EntityResponse ReadEntity(Guid id)
+		public virtual EntityResponse ReadEntity(Guid id)
 		{
 			EntityResponse response = new EntityResponse
 			{
@@ -686,7 +686,7 @@ namespace WebVella.Erp.Service.Core.Api
 			return response;
 		}
 
-		public EntityResponse ReadEntity(string name)
+		public virtual EntityResponse ReadEntity(string name)
 		{
 			EntityResponse response = new EntityResponse
 			{

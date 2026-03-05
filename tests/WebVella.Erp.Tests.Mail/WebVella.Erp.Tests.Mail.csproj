@@ -127,6 +127,9 @@
          database helpers, security context, utilities, exceptions used in
          test assertions, mock setups, and test fixtures -->
     <ProjectReference Include="..\..\src\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+    <!-- Monolith core library — needed for WebVella.Erp.Api.Models (EntityRecord) and
+         WebVella.Erp.Exceptions namespace resolution in SmtpServiceTests -->
+    <ProjectReference Include="..\..\WebVella.Erp\WebVella.Erp.csproj" />
   </ItemGroup>
 
   <!-- =================================================================== -->

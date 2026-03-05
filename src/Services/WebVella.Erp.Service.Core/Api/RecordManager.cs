@@ -359,7 +359,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Synchronous wrapper for <see cref="CreateRelationManyToManyRecordAsync"/>.
 		/// Provided for backward compatibility with existing callers.
 		/// </summary>
-		public QueryResponse CreateRelationManyToManyRecord(Guid relationId, Guid originValue, Guid targetValue)
+		public virtual QueryResponse CreateRelationManyToManyRecord(Guid relationId, Guid originValue, Guid targetValue)
 			=> CreateRelationManyToManyRecordAsync(relationId, originValue, targetValue).GetAwaiter().GetResult();
 
 		/// <summary>
@@ -455,7 +455,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Synchronous wrapper for <see cref="RemoveRelationManyToManyRecordAsync"/>.
 		/// Provided for backward compatibility with existing callers.
 		/// </summary>
-		public QueryResponse RemoveRelationManyToManyRecord(Guid relationId, Guid? originValue, Guid? targetValue)
+		public virtual QueryResponse RemoveRelationManyToManyRecord(Guid relationId, Guid? originValue, Guid? targetValue)
 			=> RemoveRelationManyToManyRecordAsync(relationId, originValue, targetValue).GetAwaiter().GetResult();
 
 		/// <summary>
@@ -2095,7 +2095,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Includes entity existence check and read permission check.
 		/// Preserved from monolith RecordManager.Find(EntityQuery) (lines 1736-1802).
 		/// </summary>
-		public QueryResponse Find(EntityQuery query)
+		public virtual QueryResponse Find(EntityQuery query)
 		{
 			QueryResponse response = new QueryResponse
 			{

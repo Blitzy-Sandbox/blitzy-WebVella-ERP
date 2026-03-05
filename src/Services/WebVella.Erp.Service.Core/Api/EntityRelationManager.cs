@@ -278,7 +278,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </summary>
 		/// <param name="name">The relation name to search for.</param>
 		/// <returns>An EntityRelationResponse containing the relation or null if not found.</returns>
-		public EntityRelationResponse Read(string name)
+		public virtual EntityRelationResponse Read(string name)
 		{
 			EntityRelationResponse response = new EntityRelationResponse();
 			response.Timestamp = DateTime.UtcNow;
@@ -340,7 +340,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </summary>
 		/// <param name="relationId">The GUID of the relation to look up.</param>
 		/// <returns>An EntityRelationResponse containing the relation or null if not found.</returns>
-		public EntityRelationResponse Read(Guid relationId)
+		public virtual EntityRelationResponse Read(Guid relationId)
 		{
 			EntityRelationResponse response = new EntityRelationResponse();
 			response.Timestamp = DateTime.UtcNow;
@@ -397,7 +397,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </summary>
 		/// <param name="storageEntityList">Optional pre-loaded entity list; if null, reads from EntityRepository.</param>
 		/// <returns>An EntityRelationListResponse with all relations and the cache hash fingerprint.</returns>
-		public EntityRelationListResponse Read(List<DbEntity> storageEntityList = null)
+		public virtual EntityRelationListResponse Read(List<DbEntity> storageEntityList = null)
 		{
 			EntityRelationListResponse response = new EntityRelationListResponse();
 			response.Timestamp = DateTime.UtcNow;
