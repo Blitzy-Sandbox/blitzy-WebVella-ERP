@@ -80,6 +80,7 @@
     <PackageVersion Include="MassTransit.AmazonSQS" Version="8.4.0" />
     <PackageVersion Include="MassTransit.Newtonsoft" Version="8.4.0" />
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.4.0" />
+    <PackageVersion Include="MassTransit.Testing" Version="8.4.0" />
 
     <!-- AWS SDK — LocalStack integration for cloud-native validation -->
     <PackageVersion Include="AWSSDK.S3" Version="3.7.400" />

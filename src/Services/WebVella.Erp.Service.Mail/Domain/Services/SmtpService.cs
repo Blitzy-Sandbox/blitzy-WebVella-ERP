@@ -69,7 +69,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// Uses distributed Redis cache with 1-hour TTL.
 		/// Source: EmailServiceManager.cs lines 53-64
 		/// </summary>
-		public SmtpServiceConfig GetSmtpService(Guid id)
+		public virtual SmtpServiceConfig GetSmtpService(Guid id)
 		{
 			string cacheKey = $"SMTP-{id}";
 			SmtpServiceConfig service = null;
@@ -165,7 +165,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// Since IDistributedCache cannot enumerate keys, this removes commonly-known cache entries.
 		/// New entries will be re-cached on next access with 1-hour TTL.
 		/// </summary>
-		public void ClearCache()
+		public virtual void ClearCache()
 		{
 			try
 			{
@@ -593,7 +593,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// Retrieves an email by its unique identifier.
 		/// Source: SmtpInternalService.cs lines 674-681
 		/// </summary>
-		public Email GetEmail(Guid id)
+		public virtual Email GetEmail(Guid id)
 		{
 			var result = new EqlCommand("SELECT * FROM email WHERE id = @id", new EqlParameter("id", id)).Execute();
 			if (result.Count == 1)
@@ -1363,7 +1363,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		/// Handles cc:/bcc: prefixes, semicolon-delimited ReplyTo, retry scheduling.
 		/// Source: SmtpInternalService.cs lines 689-827
 		/// </summary>
-		public void SendEmail(Email email, SmtpServiceConfig service)
+		public virtual void SendEmail(Email email, SmtpServiceConfig service)
 		{
 			try
 			{

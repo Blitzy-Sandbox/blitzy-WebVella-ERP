@@ -96,6 +96,8 @@
     <!-- SMTP library — SecureSocketOptions, MimeMessage, MailboxAddress for
          SmtpService send/queue test helpers and email composition validation -->
     <PackageReference Include="MailKit" />
+    <!-- MassTransit test harness for in-memory event subscriber integration tests -->
+    <PackageReference Include="MassTransit.Testing" />
   </ItemGroup>
 
   <!-- =================================================================== -->
