@@ -226,11 +226,11 @@ namespace WebVella.Erp.Tests.Core.Controllers
 	/// <summary>
 	/// Integration tests for SecurityController REST endpoints.
 	/// </summary>
-	public class SecurityControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
+	public class SecurityControllerBasicTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
 	{
 		private readonly WebApplicationFactory<WebVella.Erp.Service.Core.Program> _factory;
 
-		public SecurityControllerTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
+		public SecurityControllerBasicTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
 		{
 			_factory = factory.WithWebHostBuilder(builder =>
 			{
