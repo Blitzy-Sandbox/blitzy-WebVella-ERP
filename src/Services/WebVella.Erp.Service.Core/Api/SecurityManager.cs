@@ -62,7 +62,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Executes under OpenSystemScope to bypass permission checks.
 		/// Preserved from monolith SecurityManager.GetUser(Guid).
 		/// </summary>
-		public ErpUser GetUser(Guid userId)
+		public virtual ErpUser GetUser(Guid userId)
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
@@ -81,7 +81,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Retrieves a user by their email address, including all assigned roles.
 		/// Preserved from monolith SecurityManager.GetUser(string email).
 		/// </summary>
-		public ErpUser GetUser(string email)
+		public virtual ErpUser GetUser(string email)
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
@@ -100,7 +100,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Retrieves a user by username, including all assigned roles.
 		/// Preserved from monolith SecurityManager.GetUserByUsername(string).
 		/// </summary>
-		public ErpUser GetUserByUsername(string username)
+		public virtual ErpUser GetUserByUsername(string username)
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
@@ -120,7 +120,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Uses case-insensitive email matching via PostgreSQL regex (~*).
 		/// Preserved from monolith SecurityManager.GetUser(string, string).
 		/// </summary>
-		public ErpUser GetUser(string email, string password)
+		public virtual ErpUser GetUser(string email, string password)
 		{
 			if (string.IsNullOrWhiteSpace(email))
 				return null;
@@ -154,7 +154,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// of the CoreDbContext ambient context.
 		/// Preserved from monolith SecurityManager.GetSystemUserWithNoSecurityCheck().
 		/// </summary>
-		public ErpUser GetSystemUserWithNoSecurityCheck()
+		public virtual ErpUser GetSystemUserWithNoSecurityCheck()
 		{
 			using (NpgsqlConnection connection = new NpgsqlConnection(ErpSettings.ConnectionString))
 			{
@@ -230,7 +230,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Uses parameterized EQL with OR conditions for each role ID.
 		/// Preserved from monolith SecurityManager.GetUsers(params Guid[]).
 		/// </summary>
-		public List<ErpUser> GetUsers(params Guid[] roleIds)
+		public virtual List<ErpUser> GetUsers(params Guid[] roleIds)
 		{
 			List<EqlParameter> parameters = new List<EqlParameter>();
 			StringBuilder sbRoles = new StringBuilder();
@@ -258,7 +258,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Retrieves all roles in the system.
 		/// Preserved from monolith SecurityManager.GetAllRoles().
 		/// </summary>
-		public List<ErpRole> GetAllRoles()
+		public virtual List<ErpRole> GetAllRoles()
 		{
 			return new EqlCommand("SELECT * FROM role",
 				currentContext: _dbContext).Execute().MapTo<ErpRole>();
@@ -278,7 +278,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// - Differential update (only changed fields are written)
 		/// Preserved exactly from monolith SecurityManager.SaveUser(ErpUser).
 		/// </summary>
-		public void SaveUser(ErpUser user)
+		public virtual void SaveUser(ErpUser user)
 		{
 			if (user == null)
 				throw new ArgumentNullException(nameof(user));
@@ -392,7 +392,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// - Differential update (only changed fields on update)
 		/// Preserved exactly from monolith SecurityManager.SaveRole(ErpRole).
 		/// </summary>
-		public void SaveRole(ErpRole role)
+		public virtual void SaveRole(ErpRole role)
 		{
 			if (role == null)
 				throw new ArgumentNullException(nameof(role));
@@ -456,7 +456,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// Preserved from monolith SecurityManager.UpdateUserLastLoginTime(Guid),
 		/// renamed to UpdateLastLoginAndModifiedDate per microservice API schema.
 		/// </summary>
-		public void UpdateLastLoginAndModifiedDate(Guid userId)
+		public virtual void UpdateLastLoginAndModifiedDate(Guid userId)
 		{
 			List<KeyValuePair<string, object>> storageRecordData = new List<KeyValuePair<string, object>>();
 			storageRecordData.Add(new KeyValuePair<string, object>("id", userId));

@@ -554,7 +554,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// <summary>
 		/// Synchronous wrapper for <see cref="CreateRecordAsync(string, EntityRecord)"/>.
 		/// </summary>
-		public QueryResponse CreateRecord(string entityName, EntityRecord record)
+		public virtual QueryResponse CreateRecord(string entityName, EntityRecord record)
 			=> CreateRecordAsync(entityName, record).GetAwaiter().GetResult();
 
 		/// <summary>
@@ -1257,7 +1257,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// <summary>
 		/// Synchronous wrapper for <see cref="UpdateRecordAsync(string, EntityRecord)"/>.
 		/// </summary>
-		public QueryResponse UpdateRecord(string entityName, EntityRecord record)
+		public virtual QueryResponse UpdateRecord(string entityName, EntityRecord record)
 			=> UpdateRecordAsync(entityName, record).GetAwaiter().GetResult();
 
 		/// <summary>
