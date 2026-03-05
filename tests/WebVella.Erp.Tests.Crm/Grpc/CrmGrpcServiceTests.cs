@@ -35,7 +35,10 @@ using FluentAssertions;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
@@ -143,7 +146,34 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 		/// <param name="factory">WebApplicationFactory for the CRM service.</param>
 		public CrmGrpcServiceTests(WebApplicationFactory<CrmProgram> factory)
 		{
-			_factory = factory;
+			// Override the CRM service's JWT Bearer authentication configuration.
+			// The CRM appsettings.json contains a placeholder Jwt:Key value
+			// ("DEVELOPMENT_ONLY_KEY__OVERRIDE_VIA_Settings__Jwt__Key_ENV_VAR") which
+			// is read during service registration in Program.cs line 212. Since
+			// JwtTokenHandler generates test tokens with DefaultDevelopmentKey, we must
+			// use PostConfigure<JwtBearerOptions> to override the TokenValidationParameters
+			// AFTER the original registration, ensuring the signing keys match.
+			_factory = factory.WithWebHostBuilder(builder =>
+			{
+				builder.ConfigureTestServices(services =>
+				{
+					services.PostConfigure<JwtBearerOptions>(
+						JwtBearerDefaults.AuthenticationScheme, options =>
+					{
+						options.TokenValidationParameters = new TokenValidationParameters
+						{
+							ValidateIssuer = true,
+							ValidateAudience = true,
+							ValidateLifetime = true,
+							ValidateIssuerSigningKey = true,
+							ValidIssuer = "webvella-erp",
+							ValidAudience = "webvella-erp",
+							IssuerSigningKey = new SymmetricSecurityKey(
+								Encoding.UTF8.GetBytes(JwtTokenOptions.DefaultDevelopmentKey))
+						};
+					});
+				});
+			});
 
 			// Create an HttpMessageHandler from the test server for in-process gRPC
 			var handler = _factory.Server.CreateHandler();
