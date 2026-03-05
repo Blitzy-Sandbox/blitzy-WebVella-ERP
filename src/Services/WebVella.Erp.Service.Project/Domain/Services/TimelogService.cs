@@ -88,6 +88,37 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
+		#region << EQL Execution >>
+
+		/// <summary>
+		/// Executes an EQL query and returns the result list.
+		/// This method is virtual to allow test subclasses (TestableTimelogService) to override
+		/// the EQL execution path with controlled test behavior, removing the need for a
+		/// live database connection during unit testing.
+		/// </summary>
+		/// <param name="text">The EQL query text.</param>
+		/// <param name="parameters">The EQL parameters for the query.</param>
+		/// <returns>The EntityRecordList result from executing the EQL command.</returns>
+		protected virtual EntityRecordList ExecuteEql(string text, List<EqlParameter> parameters)
+		{
+			return new EqlCommand(text, parameters).Execute();
+		}
+
+		/// <summary>
+		/// Deletes a record by entity name and ID via the RecordManager.
+		/// This method is virtual to allow test subclasses (TestableTimelogService) to override
+		/// the delete execution path since RecordManager.DeleteRecord is not virtual.
+		/// </summary>
+		/// <param name="entityName">The entity name of the record to delete.</param>
+		/// <param name="id">The GUID of the record to delete.</param>
+		/// <returns>A QueryResponse indicating success or failure.</returns>
+		protected virtual QueryResponse ExecuteDeleteRecord(string entityName, Guid id)
+		{
+			return _recordManager.DeleteRecord(entityName, id);
+		}
+
+		#endregion
+
 		#region << Private Helpers >>
 
 		/// <summary>
@@ -245,14 +276,14 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			{
 				var eqlCommand = "SELECT id,created_by FROM timelog WHERE id = @recordId";
 				var eqlParams = new List<EqlParameter>() { new EqlParameter("recordId", recordId) };
-				var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+				var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 				if (!eqlResult.Any())
 					throw new Exception("RecordId not found");
 				if ((Guid)eqlResult[0]["created_by"] != SecurityContext.CurrentUser.Id)
 					throw new Exception("Only the author can delete its comment");
 			}
 
-			var deleteResponse = _recordManager.DeleteRecord("timelog", recordId);
+			var deleteResponse = ExecuteDeleteRecord("timelog", recordId);
 			if (!deleteResponse.Success)
 			{
 				throw new Exception(deleteResponse.Message);
@@ -299,7 +330,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			}
 			if (userId != null) { }
 
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 
 			return eqlResult;
 		}
@@ -345,7 +376,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 
 			var eqlCommand = " SELECT *,$project_nn_task.id from task WHERE id = @taskId";
 			var eqlParams = new List<EqlParameter>() { new EqlParameter("taskId", taskId) };
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 			if (!eqlResult.Any())
 				throw new Exception("Task with taskId not found");
 
@@ -440,7 +471,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 							index++;
 						}
 						taskEqlCommand += String.Join(" OR ", filterStringList);
-						relatedTaskRecords = new EqlCommand(taskEqlCommand, taskEqlParams).Execute();
+						relatedTaskRecords = ExecuteEql(taskEqlCommand, taskEqlParams);
 					}
 					catch (Exception)
 					{
@@ -548,7 +579,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 
 			var eqlCommand = "SELECT * from timelog WHERE id = @recordId";
 			var eqlParams = new List<EqlParameter>() { new EqlParameter("recordId", recordId) };
-			var eqlResult = new EqlCommand(eqlCommand, eqlParams).Execute();
+			var eqlResult = ExecuteEql(eqlCommand, eqlParams);
 			if (!eqlResult.Any())
 				throw new Exception("Hook exception: timelog with this id was not found");
 
@@ -578,7 +609,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 							index++;
 						}
 						taskEqlCommand += String.Join(" OR ", filterStringList);
-						relatedTaskRecords = new EqlCommand(taskEqlCommand, taskEqlParams).Execute();
+						relatedTaskRecords = ExecuteEql(taskEqlCommand, taskEqlParams);
 					}
 					catch
 					{
@@ -615,11 +646,11 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 				//Delete feeds that related to this timelog
 				var feedEqlCommand = "SELECT id FROM feed_item WHERE l_related_records CONTAINS @recordId";
 				var feedEqlParams = new List<EqlParameter>() { new EqlParameter("recordId", recordId) };
-				var feedEqlResult = new EqlCommand(feedEqlCommand, feedEqlParams).Execute();
+				var feedEqlResult = ExecuteEql(feedEqlCommand, feedEqlParams);
 				foreach (var feedId in feedEqlResult)
 				{
 					// In the monolith this used new RecordManager(executeHooks: false).DeleteRecord().
-					var deleteResponse = _recordManager.DeleteRecord("feed_item", (Guid)feedId["id"]);
+					var deleteResponse = ExecuteDeleteRecord("feed_item", (Guid)feedId["id"]);
 					if (!deleteResponse.Success)
 						throw new Exception(deleteResponse.Message);
 				}

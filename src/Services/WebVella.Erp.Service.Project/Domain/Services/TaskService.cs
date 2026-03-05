@@ -450,7 +450,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="taskId">The GUID of the task to stop timelog for.</param>
 		/// <exception cref="Exception">Thrown when the update operation fails.</exception>
-		public void StopTaskTimelog(Guid taskId)
+		public virtual void StopTaskTimelog(Guid taskId)
 		{
 			//Create transaction
 			var patchRecord = new EntityRecord();
