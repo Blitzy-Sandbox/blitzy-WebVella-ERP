@@ -310,14 +310,14 @@ namespace WebVella.Erp.Tests.Core.Controllers
 	#region ===== File Controller Tests =====
 
 	/// <summary>
-	/// Integration tests for FileController REST endpoints.
-	/// Validates CWE-400 (RequestSizeLimit), CWE-22 (path traversal), and routing.
+	/// Smoke tests for FileController REST endpoints (routing, CWE-22 path traversal).
+	/// Full integration tests are in FileControllerTests.cs.
 	/// </summary>
-	public class FileControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
+	public class FileControllerSmokeTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Core.Program>>
 	{
 		private readonly WebApplicationFactory<WebVella.Erp.Service.Core.Program> _factory;
 
-		public FileControllerTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
+		public FileControllerSmokeTests(WebApplicationFactory<WebVella.Erp.Service.Core.Program> factory)
 		{
 			_factory = factory.WithWebHostBuilder(builder =>
 			{
