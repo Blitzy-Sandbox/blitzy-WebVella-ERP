@@ -120,6 +120,12 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         /// </summary>
         private static readonly Guid TestEmailId = new Guid("A0000008-0000-0000-0000-000000000008");
 
+        /// <summary>
+        /// Test case ID used as a denormalized cross-service reference in the Project database.
+        /// Per AAP 0.7.1: "Case → Task: rel_* join table → Denormalized case_id in Project DB"
+        /// </summary>
+        private static readonly Guid TestCaseId = new Guid("A0000009-0000-0000-0000-000000000009");
+
         #endregion
 
         #region Private Fields
@@ -381,6 +387,7 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         ///
         /// Cross-service references per AAP 0.7.1:
         ///   - Task.account_id: Denormalized reference to CRM account (TestAccountId)
+        ///   - Task.case_id: Denormalized reference to CRM case (TestCaseId) per AAP 0.7.1
         ///   - Task.created_by: UUID reference resolved via Core gRPC call on read
         ///
         /// Source references:
@@ -421,6 +428,7 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
                     priority        TEXT DEFAULT 'normal',
                     project_id      UUID,
                     account_id      UUID,
+                    case_id         UUID,
                     created_by      UUID,
                     created_on      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     last_modified_by UUID,
@@ -444,11 +452,12 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
 
-            // Step 3: Insert test task record with cross-service reference to CRM account.
+            // Step 3: Insert test task record with cross-service references to CRM account and case.
             // Per AAP 0.7.1: "Denormalized account_id in Project DB; eventual consistency via CRM events"
+            // Per AAP 0.7.1: "Case → Task: Denormalized case_id in Project DB; CRM publishes CaseUpdated events"
             await using (var cmd = new NpgsqlCommand(@"
-                INSERT INTO rec_task (id, subject, status, priority, project_id, account_id, created_by, created_on)
-                VALUES (@id, @subject, @status, @priority, @project_id, @account_id, @created_by, @created_on)
+                INSERT INTO rec_task (id, subject, status, priority, project_id, account_id, case_id, created_by, created_on)
+                VALUES (@id, @subject, @status, @priority, @project_id, @account_id, @case_id, @created_by, @created_on)
                 ON CONFLICT (id) DO NOTHING;", connection))
             {
                 cmd.Parameters.AddWithValue("@id", TestTaskId);
@@ -457,6 +466,7 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
                 cmd.Parameters.AddWithValue("@priority", "normal");
                 cmd.Parameters.AddWithValue("@project_id", TestProjectId);
                 cmd.Parameters.AddWithValue("@account_id", TestAccountId);
+                cmd.Parameters.AddWithValue("@case_id", TestCaseId);
                 cmd.Parameters.AddWithValue("@created_by", SystemIds.SystemUserId);
                 cmd.Parameters.AddWithValue("@created_on", DateTime.UtcNow);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
