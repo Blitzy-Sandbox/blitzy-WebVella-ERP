@@ -91,7 +91,7 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
             // Testcontainers allocates random available ports to prevent conflicts.
             var mappedPort = _container.GetMappedPublicPort(RedisPort);
             Port = mappedPort;
-            ConnectionString = $"localhost:{mappedPort}";
+            ConnectionString = $"localhost:{mappedPort},allowAdmin=true";
             Endpoint = $"localhost:{mappedPort}";
 
             // Log container startup details for debugging test infrastructure issues.
