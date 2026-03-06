@@ -1,12 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WebVella.Erp.Gateway.Configuration;
 
 namespace WebVella.Erp.Gateway.Middleware
@@ -420,19 +423,86 @@ namespace WebVella.Erp.Gateway.Middleware
             await response.WriteAsync(jsonResponse);
         }
 
+        #region << Cross-Service EQL Query Composition (AAP Section 0.7.3) >>
+
         /// <summary>
-        /// Extension point for cross-service EQL query composition (AAP Section 0.7.3).
+        /// Entity-to-service ownership map per AAP Section 0.7.1.
+        /// Maps each entity system name to the backend service property key that owns it.
+        /// Used to determine which service should handle an EQL query's primary entity and
+        /// to detect cross-service relation references that require API composition.
+        /// </summary>
+        private static readonly Dictionary<string, string> EntityServiceOwnershipMap =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                // Core Platform service entities (erp_core database)
+                { "user",         nameof(RouteConfiguration.CoreServiceUrl) },
+                { "role",         nameof(RouteConfiguration.CoreServiceUrl) },
+                { "user_file",    nameof(RouteConfiguration.CoreServiceUrl) },
+                { "language",     nameof(RouteConfiguration.CoreServiceUrl) },
+                { "currency",     nameof(RouteConfiguration.CoreServiceUrl) },
+                { "country",      nameof(RouteConfiguration.CoreServiceUrl) },
+
+                // CRM service entities (erp_crm database)
+                { "account",      nameof(RouteConfiguration.CrmServiceUrl) },
+                { "contact",      nameof(RouteConfiguration.CrmServiceUrl) },
+                { "case",         nameof(RouteConfiguration.CrmServiceUrl) },
+                { "address",      nameof(RouteConfiguration.CrmServiceUrl) },
+                { "salutation",   nameof(RouteConfiguration.CrmServiceUrl) },
+
+                // Project/Task service entities (erp_project database)
+                { "task",         nameof(RouteConfiguration.ProjectServiceUrl) },
+                { "timelog",      nameof(RouteConfiguration.ProjectServiceUrl) },
+                { "comment",      nameof(RouteConfiguration.ProjectServiceUrl) },
+                { "task_type",    nameof(RouteConfiguration.ProjectServiceUrl) },
+
+                // Mail/Notification service entities (erp_mail database)
+                { "email",        nameof(RouteConfiguration.MailServiceUrl) },
+                { "smtp_service", nameof(RouteConfiguration.MailServiceUrl) },
+            };
+
+        /// <summary>
+        /// Compiled regex matching the EQL endpoint URL patterns from the Gateway route configuration.
+        /// Matches: <c>/api/v3/{locale}/eql</c>, <c>/api/v3/{locale}/eql-ds</c>,
+        /// <c>/api/v3/{locale}/eql-ds-select2</c>.
+        /// </summary>
+        private static readonly Regex EqlEndpointPattern =
+            new Regex(@"^/api/v3/[^/]+/eql(-ds(-select2)?)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Compiled regex extracting the primary entity name from an EQL FROM clause.
+        /// Matches: <c>FROM entityname</c> (case-insensitive, word boundaries).
+        /// Captures the entity system name (group 1).
+        /// </summary>
+        private static readonly Regex EqlFromClausePattern =
+            new Regex(@"\bFROM\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Compiled regex detecting EQL relation field references (<c>$relation_name.field</c>
+        /// or <c>$$relation_name.field</c>). Used to identify cross-service relation traversals.
+        /// Captures the relation name (group 1) and optionally the field name (group 2).
+        /// </summary>
+        private static readonly Regex EqlRelationReferencePattern =
+            new Regex(@"\$\$?(\w+)\.(\w+)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Implements cross-service EQL query composition per AAP Section 0.7.3.
         ///
-        /// In the current implementation, all requests are forwarded directly to a single
-        /// backend service. When cross-service EQL query composition is needed, this method
-        /// will be enhanced to:
-        /// 1. Detect cross-service EQL queries (queries joining entities across CRM + Project, etc.)
-        /// 2. Split the query into per-service sub-queries
-        /// 3. Execute sub-queries via gRPC to individual services
-        /// 4. Compose the results and return a unified response
+        /// Composition strategy:
+        /// <list type="number">
+        ///   <item>Detect EQL query endpoints (<c>/api/v3/{locale}/eql*</c>).</item>
+        ///   <item>Parse the EQL text from the POST body to extract the primary entity name.</item>
+        ///   <item>Determine the owning service via <see cref="EntityServiceOwnershipMap"/>.</item>
+        ///   <item>If the owning service differs from the default route target (Core), forward
+        ///         the request to the correct service's base URL.</item>
+        ///   <item>Detect cross-service <c>$relation</c> references by mapping relation target
+        ///         entities to their owning services.</item>
+        ///   <item>For cross-service relations: execute the primary query against the owning
+        ///         service (local fields only), then resolve cross-service relation data via
+        ///         secondary HTTP calls to the related services, and compose the unified response.</item>
+        /// </list>
         ///
-        /// Returns <c>false</c> to indicate that composition was not handled and the request
-        /// should proceed with standard single-service forwarding.
+        /// Returns <c>false</c> for non-EQL requests or when no composition is needed
+        /// (all entities belong to the same service).
         /// </summary>
         /// <param name="context">The current HTTP context.</param>
         /// <param name="requestPath">The incoming request path.</param>
@@ -440,12 +510,481 @@ namespace WebVella.Erp.Gateway.Middleware
         /// <c>true</c> if the request was handled by API composition; <c>false</c> to proceed
         /// with standard single-service forwarding.
         /// </returns>
-        private Task<bool> TryHandleApiComposition(HttpContext context, string requestPath)
+        private async Task<bool> TryHandleApiComposition(HttpContext context, string requestPath)
         {
-            // TODO: Implement cross-service EQL query composition per AAP Section 0.7.3
-            // Currently all requests are forwarded directly to a single backend service.
-            return Task.FromResult(false);
+            // Step 1: Only intercept EQL query endpoints
+            if (!EqlEndpointPattern.IsMatch(requestPath))
+            {
+                return false;
+            }
+
+            // Step 2: Read and buffer the request body to extract EQL text.
+            // EnableBuffering allows the body to be re-read by ForwardRequestAsync if
+            // composition is not needed.
+            context.Request.EnableBuffering();
+            string requestBody;
+            using (var reader = new StreamReader(
+                context.Request.Body,
+                leaveOpen: true))
+            {
+                requestBody = await reader.ReadToEndAsync();
+                context.Request.Body.Position = 0;
+            }
+
+            if (string.IsNullOrWhiteSpace(requestBody))
+            {
+                return false;
+            }
+
+            // Step 3: Extract the EQL text from the request body.
+            // The EQL endpoint accepts: { "eql": "SELECT ... FROM entity ..." }
+            // or form-encoded text where the EQL is in a "queryText" or "eql" field.
+            var eqlText = ExtractEqlTextFromBody(requestBody);
+            if (string.IsNullOrWhiteSpace(eqlText))
+            {
+                return false;
+            }
+
+            // Step 4: Parse the primary entity name from the EQL FROM clause.
+            var entityName = ExtractEntityNameFromEql(eqlText);
+            if (string.IsNullOrWhiteSpace(entityName))
+            {
+                return false;
+            }
+
+            // Step 5: Determine which service owns the primary entity.
+            var owningServiceKey = GetOwningServiceKey(entityName);
+
+            // Step 6: Detect cross-service $relation references in the EQL.
+            var crossServiceRelations = DetectCrossServiceRelations(eqlText, owningServiceKey);
+
+            // Step 7: Determine if routing or composition is needed.
+            var isDefaultRoute = string.Equals(
+                owningServiceKey,
+                nameof(RouteConfiguration.CoreServiceUrl),
+                StringComparison.Ordinal);
+
+            if (isDefaultRoute && crossServiceRelations.Count == 0)
+            {
+                // Primary entity is Core-owned and no cross-service relations detected.
+                // Standard forwarding to Core service handles this correctly.
+                return false;
+            }
+
+            // Step 8: Entity is owned by a non-Core service or has cross-service relations.
+            // Forward the primary query to the owning service.
+            var owningServiceUrl = _routeConfig.GetServiceUrl(owningServiceKey);
+
+            _logger.LogInformation(
+                "EQL API composition: entity '{EntityName}' owned by {OwningService}, " +
+                "cross-service relations detected: {RelationCount}",
+                entityName,
+                owningServiceKey,
+                crossServiceRelations.Count);
+
+            if (crossServiceRelations.Count == 0)
+            {
+                // No cross-service relations — forward the EQL request to the owning service.
+                // The owning service's RecordManager handles EQL against its own database.
+                await ForwardRequestAsync(context, owningServiceUrl);
+                return true;
+            }
+
+            // Step 9: Cross-service composition needed. Execute primary query against the
+            // owning service, then resolve cross-service relation data.
+            return await ExecuteComposedEqlQuery(
+                context, owningServiceUrl, requestBody,
+                entityName, owningServiceKey, crossServiceRelations);
         }
+
+        /// <summary>
+        /// Extracts the EQL query text from the request body. Supports both JSON format
+        /// (<c>{ "queryText": "..." }</c> or <c>{ "eql": "..." }</c>) and plain-text EQL.
+        /// </summary>
+        private static string ExtractEqlTextFromBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return null;
+
+            var trimmed = body.TrimStart();
+            if (trimmed.StartsWith("{") || trimmed.StartsWith("["))
+            {
+                try
+                {
+                    var json = JObject.Parse(body);
+                    // Core's RecordController expects "queryText" field
+                    var eqlText = json["queryText"]?.Value<string>();
+                    if (!string.IsNullOrWhiteSpace(eqlText))
+                        return eqlText;
+
+                    // Alternative field names
+                    eqlText = json["eql"]?.Value<string>();
+                    if (!string.IsNullOrWhiteSpace(eqlText))
+                        return eqlText;
+
+                    eqlText = json["eqlText"]?.Value<string>();
+                    return eqlText;
+                }
+                catch (JsonReaderException)
+                {
+                    return null;
+                }
+            }
+
+            // Plain-text EQL (unlikely but defensive)
+            return body;
+        }
+
+        /// <summary>
+        /// Extracts the primary entity system name from the EQL FROM clause.
+        /// Example: <c>"SELECT *, $user_created_by.username FROM account WHERE ..."</c> → <c>"account"</c>.
+        /// </summary>
+        private static string ExtractEntityNameFromEql(string eqlText)
+        {
+            var match = EqlFromClausePattern.Match(eqlText);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        /// <summary>
+        /// Returns the service property key that owns the given entity.
+        /// Unknown entities default to <see cref="RouteConfiguration.CoreServiceUrl"/>
+        /// since Core manages entity metadata definitions for all services.
+        /// </summary>
+        private static string GetOwningServiceKey(string entityName)
+        {
+            return EntityServiceOwnershipMap.TryGetValue(entityName, out var serviceKey)
+                ? serviceKey
+                : nameof(RouteConfiguration.CoreServiceUrl);
+        }
+
+        /// <summary>
+        /// Detects EQL <c>$relation</c> and <c>$$relation</c> field references whose target
+        /// entities belong to a different service than <paramref name="primaryServiceKey"/>.
+        ///
+        /// Relation names follow the convention: <c>{targetEntity}_{sourceEntity}_{fieldName}</c>
+        /// (e.g., <c>user_account_created_by</c>) or <c>{entity}_{relation}</c>. The first segment
+        /// before the first underscore is extracted as the potential target entity name.
+        /// </summary>
+        /// <returns>
+        /// A list of tuples containing the relation name, detected target entity, and the
+        /// owning service key for each cross-service relation.
+        /// </returns>
+        private static List<(string relationName, string targetEntity, string targetServiceKey)>
+            DetectCrossServiceRelations(string eqlText, string primaryServiceKey)
+        {
+            var crossServiceRelations = new List<(string relationName, string targetEntity, string targetServiceKey)>();
+            var matches = EqlRelationReferencePattern.Matches(eqlText);
+
+            foreach (Match match in matches)
+            {
+                var relationName = match.Groups[1].Value;
+
+                // Extract the target entity from the relation name convention.
+                // Common patterns: "user_account_created_by" → target entity "user",
+                // "account_task" → target entity "account".
+                // The first segment (before first underscore) is typically the target entity.
+                var targetEntity = relationName.Contains('_')
+                    ? relationName.Substring(0, relationName.IndexOf('_'))
+                    : relationName;
+
+                // Check if the target entity's owning service differs from the primary entity's service
+                var targetServiceKey = GetOwningServiceKey(targetEntity);
+                if (!string.Equals(targetServiceKey, primaryServiceKey, StringComparison.Ordinal)
+                    && EntityServiceOwnershipMap.ContainsKey(targetEntity))
+                {
+                    crossServiceRelations.Add((relationName, targetEntity, targetServiceKey));
+                }
+            }
+
+            return crossServiceRelations;
+        }
+
+        /// <summary>
+        /// Executes a composed cross-service EQL query by:
+        /// <list type="number">
+        ///   <item>Forwarding the primary query to the owning service and reading the response.</item>
+        ///   <item>Extracting cross-service foreign key values from the primary results.</item>
+        ///   <item>Making secondary HTTP requests to related services to resolve referenced data.</item>
+        ///   <item>Merging the resolved cross-service data into the primary response.</item>
+        ///   <item>Returning the composed response to the client.</item>
+        /// </list>
+        ///
+        /// If the primary query fails, the error response is returned directly without composition.
+        /// If secondary resolution calls fail, the primary results are returned with null values
+        /// for cross-service fields (graceful degradation per AAP 0.7.3).
+        /// </summary>
+        private async Task<bool> ExecuteComposedEqlQuery(
+            HttpContext context,
+            string owningServiceUrl,
+            string requestBody,
+            string entityName,
+            string owningServiceKey,
+            List<(string relationName, string targetEntity, string targetServiceKey)> crossServiceRelations)
+        {
+            try
+            {
+                // Execute the primary query against the owning service
+                using var httpClient = _httpClientFactory.CreateClient("default");
+
+                var targetUri = BuildTargetUri(owningServiceUrl, context.Request);
+                using var primaryRequest = new HttpRequestMessage(
+                    new HttpMethod(context.Request.Method), targetUri);
+                CopyRequestHeaders(context.Request, primaryRequest);
+
+                // Set the request body on the primary request
+                primaryRequest.Content = new StringContent(
+                    requestBody,
+                    System.Text.Encoding.UTF8,
+                    context.Request.ContentType ?? "application/json");
+
+                using var primaryResponse = await httpClient.SendAsync(
+                    primaryRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+
+                var primaryBody = await primaryResponse.Content.ReadAsStringAsync(context.RequestAborted);
+
+                // If the primary query failed, return the error directly
+                if (!primaryResponse.IsSuccessStatusCode)
+                {
+                    context.Response.StatusCode = (int)primaryResponse.StatusCode;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(primaryBody, context.RequestAborted);
+                    return true;
+                }
+
+                // Attempt to compose cross-service relation data into the primary results
+                var composedBody = await ComposeRelationData(
+                    httpClient, context, primaryBody, crossServiceRelations);
+
+                // Return the composed response
+                context.Response.StatusCode = (int)primaryResponse.StatusCode;
+                foreach (var header in primaryResponse.Headers)
+                {
+                    if (!ExcludedResponseHeaders.Contains(header.Key))
+                        context.Response.Headers[header.Key] = header.Value.ToArray();
+                }
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(composedBody, context.RequestAborted);
+                return true;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex,
+                    "Cross-service EQL composition failed for entity '{Entity}': backend unreachable",
+                    entityName);
+                await WriteErrorResponseAsync(context.Response, 502,
+                    $"Backend service for entity '{entityName}' is unavailable",
+                    "Cross-service EQL composition error");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Unexpected error during cross-service EQL composition for entity '{Entity}'",
+                    entityName);
+                await WriteErrorResponseAsync(context.Response, 500,
+                    "An error occurred during cross-service query composition",
+                    "EQL composition error");
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Enriches the primary query response with cross-service relation data.
+        /// For each cross-service relation reference, extracts the foreign key IDs from the
+        /// primary results and makes HTTP requests to the owning service to resolve the
+        /// related entity records. Resolved data is merged into the primary response under
+        /// the <c>$relation_name</c> field of each record.
+        ///
+        /// Graceful degradation: if resolution fails for any relation, the primary data is
+        /// returned with null values for that relation field. No exception is thrown.
+        /// </summary>
+        private async Task<string> ComposeRelationData(
+            HttpClient httpClient,
+            HttpContext context,
+            string primaryBody,
+            List<(string relationName, string targetEntity, string targetServiceKey)> crossServiceRelations)
+        {
+            JObject primaryJson;
+            try
+            {
+                primaryJson = JObject.Parse(primaryBody);
+            }
+            catch (JsonReaderException)
+            {
+                return primaryBody; // Not JSON — return as-is
+            }
+
+            // Extract records from the response object
+            var objectToken = primaryJson["object"];
+            if (objectToken == null || objectToken.Type == JTokenType.Null)
+            {
+                return primaryBody; // No data to compose
+            }
+
+            // The response object may be a single record or an array of records
+            JArray records;
+            if (objectToken is JArray arr)
+            {
+                records = arr;
+            }
+            else if (objectToken is JObject obj && obj["data"] is JArray dataArr)
+            {
+                records = dataArr;
+            }
+            else
+            {
+                return primaryBody; // Unrecognized structure — return as-is
+            }
+
+            if (records.Count == 0)
+            {
+                return primaryBody; // No records to enrich
+            }
+
+            // For each cross-service relation, resolve related entity data
+            foreach (var (relationName, targetEntity, targetServiceKey) in crossServiceRelations)
+            {
+                try
+                {
+                    // Extract foreign key values from the primary results.
+                    // Relation fields typically use the pattern: "{relation_name}_id" or "created_by" / "last_modified_by"
+                    var fkFieldName = relationName.Contains("created_by") ? "created_by"
+                        : relationName.Contains("modified_by") ? "last_modified_by"
+                        : $"{relationName}_id";
+
+                    var foreignKeyIds = new HashSet<string>();
+                    foreach (var record in records)
+                    {
+                        var fkValue = record[fkFieldName]?.ToString();
+                        if (!string.IsNullOrEmpty(fkValue))
+                        {
+                            foreignKeyIds.Add(fkValue);
+                        }
+                    }
+
+                    if (foreignKeyIds.Count == 0)
+                    {
+                        continue; // No FK values to resolve
+                    }
+
+                    // Resolve the related records from the owning service via HTTP
+                    var resolvedEntities = await ResolveRelatedEntities(
+                        httpClient, context, targetEntity, targetServiceKey, foreignKeyIds);
+
+                    if (resolvedEntities == null || resolvedEntities.Count == 0)
+                    {
+                        continue; // Resolution failed or no data — graceful degradation
+                    }
+
+                    // Merge resolved data into each primary record under $relation_name
+                    foreach (var record in records)
+                    {
+                        if (record is JObject recordObj)
+                        {
+                            var fkValue = recordObj[fkFieldName]?.ToString();
+                            if (!string.IsNullOrEmpty(fkValue) &&
+                                resolvedEntities.TryGetValue(fkValue, out var relatedData))
+                            {
+                                recordObj[$"${relationName}"] = relatedData;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Graceful degradation: log the error but continue with other relations
+                    _logger.LogWarning(ex,
+                        "Failed to resolve cross-service relation '{Relation}' to entity '{Entity}' " +
+                        "during EQL composition. Primary results returned without this relation data.",
+                        relationName, targetEntity);
+                }
+            }
+
+            return primaryJson.ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// Resolves related entity records from a target service by their IDs.
+        /// Makes an HTTP GET request to the target service to fetch the records.
+        /// Returns a dictionary mapping entity record IDs to their JSON data.
+        ///
+        /// For <c>user</c> entity resolution (the most common cross-service relation via
+        /// audit fields <c>created_by</c>/<c>last_modified_by</c>), this calls the Core
+        /// service's user endpoint.
+        /// </summary>
+        private async Task<Dictionary<string, JToken>> ResolveRelatedEntities(
+            HttpClient httpClient,
+            HttpContext context,
+            string entityName,
+            string serviceKey,
+            HashSet<string> entityIds)
+        {
+            var result = new Dictionary<string, JToken>();
+
+            try
+            {
+                var serviceUrl = _routeConfig.GetServiceUrl(serviceKey);
+
+                // Resolve each entity by ID. For production scale, this could be batched
+                // into a single bulk query endpoint. Current implementation resolves individually
+                // for correctness and simplicity.
+                foreach (var entityId in entityIds.Take(100)) // Cap at 100 to prevent runaway queries
+                {
+                    if (!Guid.TryParse(entityId, out _))
+                    {
+                        continue; // Skip non-GUID values
+                    }
+
+                    try
+                    {
+                        // Build the entity lookup URL using the standard record API pattern:
+                        // GET /api/v3/en_US/record/{entityName}/{id}
+                        var lookupUri = new Uri($"{serviceUrl.TrimEnd('/')}/api/v3/en_US/record/{entityName}/{entityId}");
+
+                        using var lookupRequest = new HttpRequestMessage(HttpMethod.Get, lookupUri);
+
+                        // Propagate authorization header for JWT token forwarding
+                        if (context.Request.Headers.ContainsKey("Authorization"))
+                        {
+                            lookupRequest.Headers.TryAddWithoutValidation(
+                                "Authorization",
+                                context.Request.Headers["Authorization"].ToString());
+                        }
+
+                        using var lookupResponse = await httpClient.SendAsync(
+                            lookupRequest, context.RequestAborted);
+
+                        if (lookupResponse.IsSuccessStatusCode)
+                        {
+                            var responseBody = await lookupResponse.Content.ReadAsStringAsync(context.RequestAborted);
+                            var responseJson = JObject.Parse(responseBody);
+                            var entityData = responseJson["object"];
+                            if (entityData != null && entityData.Type != JTokenType.Null)
+                            {
+                                result[entityId] = entityData;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex,
+                            "Failed to resolve {Entity} record {Id} from service {Service}",
+                            entityName, entityId, serviceKey);
+                        // Continue with other IDs — graceful degradation
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to resolve related {Entity} entities from service {Service}",
+                    entityName, serviceKey);
+            }
+
+            return result;
+        }
+
+        #endregion
 
         /// <summary>
         /// Determines whether the given HTTP method typically carries a request body

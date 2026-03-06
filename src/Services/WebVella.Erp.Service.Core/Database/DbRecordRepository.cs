@@ -1525,13 +1525,28 @@ namespace WebVella.Erp.Service.Core.Database
 					}
 				case QueryType.RELATED:
                     {
-                        //TODO
-                        throw new NotImplementedException();
+                        // RELATED queries require cross-entity relation traversal that spans
+                        // service boundaries in the microservice architecture. In the monolith,
+                        // this was also unimplemented (NotImplementedException). In the decomposed
+                        // architecture, cross-service relation queries are resolved at the Gateway
+                        // level via API composition (AAP Section 0.7.3) rather than at the SQL level.
+                        // Intra-service relations are handled by the EQL engine's $relation syntax.
+                        throw new NotSupportedException(
+                            "QueryType.RELATED is not supported in service-scoped record queries. " +
+                            "Cross-service relation queries are resolved at the API Gateway level " +
+                            "via API composition (see AAP Section 0.7.3). Use EQL $relation syntax " +
+                            "for intra-service relation traversal.");
                     }
                 case QueryType.NOTRELATED:
                     {
-                        //TODO
-                        throw new NotImplementedException();
+                        // NOTRELATED queries require cross-entity relation exclusion that spans
+                        // service boundaries. Same architectural constraint as RELATED above.
+                        // The monolith also did not implement this query type.
+                        throw new NotSupportedException(
+                            "QueryType.NOTRELATED is not supported in service-scoped record queries. " +
+                            "Cross-service relation queries are resolved at the API Gateway level " +
+                            "via API composition (see AAP Section 0.7.3). Use EQL $relation syntax " +
+                            "for intra-service relation traversal.");
                     }
                 case QueryType.AND:
                     {

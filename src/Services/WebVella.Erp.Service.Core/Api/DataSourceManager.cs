@@ -721,7 +721,11 @@ namespace WebVella.Erp.Service.Core.Api
 				return (EntityRecordList)codeDs.Execute(args);
 			}
 			else
-				throw new NotImplementedException();
+				throw new NotSupportedException(
+					$"Unsupported DataSource type: '{ds.GetType().Name}'. " +
+					"Only DatabaseDataSource (EQL-backed) and CodeDataSource (C# delegate-backed) " +
+					"are supported. This guard is preserved from the monolith where no additional " +
+					"DataSource implementations exist.");
 		}
 
 		/// <summary>

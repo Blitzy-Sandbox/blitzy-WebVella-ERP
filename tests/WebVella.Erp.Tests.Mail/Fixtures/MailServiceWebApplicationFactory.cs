@@ -86,12 +86,13 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
 
         /// <summary>
         /// Fixed test signing key for JWT token generation and validation.
-        /// Must be at least 32 bytes (256 bits) for HMAC-SHA256 algorithm.
-        /// Used in both <see cref="ConfigureWebHost"/> (JWT Bearer override) and
-        /// <see cref="GenerateTestJwtToken"/> (token creation) to ensure consistency.
+        /// Must match the JWT signing key used by ALL other test projects (Core, CRM,
+        /// Integration, etc.) to ensure cross-service JWT token validation succeeds
+        /// during integration testing. Matches monolith Config.json line 25 value
+        /// and is consistent with CoreServiceWebApplicationFactory and ServiceCollectionFixture.
         /// </summary>
         private const string TestSigningKey =
-            "TestSecretKeyForMailServiceIntegrationTests_MustBe32Bytes!";
+            "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey";
 
         /// <summary>
         /// Default test encryption key matching the format from the monolith's Config.json

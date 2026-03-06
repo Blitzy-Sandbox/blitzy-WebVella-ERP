@@ -306,7 +306,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << EQL Execution Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task EqlQuery_ValidQuery_ReturnsResults()
         {
             // Arrange — Query the system 'user' entity which always exists
@@ -318,7 +318,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Skip if infrastructure is unavailable
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — HTTP 200 with BaseResponseModel envelope
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -329,7 +329,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["object"].Should().NotBeNull("EQL query should return result object");
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task EqlQuery_WithParameters_ReturnsFilteredResults()
         {
             // Arrange — Query with parameterized EQL using known system user entity
@@ -345,7 +345,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(EqlRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return OK even if no records match
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -355,7 +355,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["timestamp"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task EqlQuery_NullBody_ReturnsNotFound()
         {
             // Arrange — Send POST with empty/null body
@@ -367,7 +367,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Skip if infrastructure is not available (e.g., auth pipeline not fully configured)
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (response.StatusCode == HttpStatusCode.Unauthorized) return;
 
             // Assert — HTTP 404 Not Found per controller logic
@@ -377,7 +377,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 "null/empty EQL body should return 404 (NotFound) or 400 (BadRequest)");
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task EqlQuery_InvalidEql_ReturnsEqlErrors()
         {
             // Arrange — Send invalid EQL syntax
@@ -388,7 +388,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(EqlRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error with EQL-specific error key
             var parsed = TryParseJson(body);
@@ -411,7 +411,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task EqlQuery_ExceptionDuringExecution_ReturnsErrorMessage()
         {
             // Arrange — Trigger a general exception by querying a non-existent entity
@@ -426,7 +426,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(EqlRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error response with message
             var parsed = TryParseJson(body);
@@ -455,7 +455,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << GET Single Record Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecord_ValidRecord_ReturnsRecord()
         {
             // Arrange — Use the system 'user' entity and a well-known system user ID
@@ -467,7 +467,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.GetAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — HTTP 200 with record data
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -478,7 +478,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["object"].Should().NotBeNull("GET record should return the record data");
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecord_NonExistentId_ReturnsEmptyResult()
         {
             // Arrange — Use random GUID that doesn't exist
@@ -489,7 +489,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.GetAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return OK with empty/null result or error
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -499,7 +499,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["timestamp"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecord_WithFieldSelection_ReturnsOnlyRequestedFields()
         {
             // Arrange — Request specific fields via query parameter
@@ -510,7 +510,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.GetAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return only requested fields
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -525,7 +525,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << POST Create Record Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_ValidRecord_ReturnsCreatedRecord()
         {
             // Arrange — Create a record in the system 'user' entity
@@ -546,7 +546,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — BaseResponseModel envelope validation
             var parsed = TryParseJson(body);
@@ -562,7 +562,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_WithExplicitId_UsesProvidedId()
         {
             // Arrange — Create record with explicit GUID
@@ -584,7 +584,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — If successful, the record should use the provided ID
             var parsed = TryParseJson(body);
@@ -604,7 +604,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_NonExistentEntity_ReturnsError()
         {
             // Arrange — POST to a non-existent entity
@@ -616,7 +616,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error (entity not found)
             var parsed = TryParseJson(body);
@@ -630,7 +630,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_TransactionRollbackOnError_NoPartialData()
         {
             // Arrange — Attempt to create a record with invalid data that triggers
@@ -650,7 +650,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error; transaction should roll back
             var parsed = TryParseJson(body);
@@ -669,7 +669,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << PUT Update Record Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRecord_ValidUpdate_ReturnsSuccess()
         {
             // Arrange — Update an existing system user record field
@@ -686,7 +686,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PutAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — BaseResponseModel envelope validation
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -697,7 +697,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["errors"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRecord_NonExistentRecord_ReturnsError()
         {
             // Arrange — PUT with non-existent record ID
@@ -714,7 +714,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PutAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error for non-existent record
             var parsed = TryParseJson(body);
@@ -733,7 +733,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << PATCH Record Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task PatchRecord_PartialUpdate_OnlyUpdatesSpecifiedFields()
         {
             // Arrange — PATCH only the first_name field of system user
@@ -757,7 +757,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return OK
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -767,7 +767,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["timestamp"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task PatchRecord_NonExistentRecord_ReturnsError()
         {
             // Arrange — PATCH a non-existent record
@@ -790,7 +790,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error
             var parsed = TryParseJson(body);
@@ -806,7 +806,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << DELETE Record Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task DeleteRecord_ValidRecord_ReturnsSuccess()
         {
             // Arrange — First create a record, then delete it
@@ -824,7 +824,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var createResponse = await _client.PostAsync(createRoute, createContent);
             var createBody = await createResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) return;
+            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var createParsed = TryParseJson(createBody);
             if (createParsed == null || createParsed["success"]?.Value<bool>() != true) return;
@@ -841,7 +841,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var deleteResponse = await _client.DeleteAsync(deleteRoute);
             var deleteBody = await deleteResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(deleteResponse, deleteBody)) return;
+            if (ShouldSkipDueToInfrastructure(deleteResponse, deleteBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return success
             deleteResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -851,19 +851,19 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Verify record no longer exists via GET
             var verifyResponse = await _client.GetAsync(deleteRoute);
             var verifyBody = await verifyResponse.Content.ReadAsStringAsync();
-            if (!ShouldSkipDueToInfrastructure(verifyResponse, verifyBody))
+            if (ShouldSkipDueToInfrastructure(verifyResponse, verifyBody))
+                Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available for verification step.");
+
+            var verifyParsed = TryParseJson(verifyBody);
+            if (verifyParsed != null && verifyParsed["object"] != null)
             {
-                var verifyParsed = TryParseJson(verifyBody);
-                if (verifyParsed != null && verifyParsed["object"] != null)
-                {
-                    // After delete, the object should be null/empty or contain
-                    // no matching data — the exact behavior depends on RecordManager
-                    verifyParsed["success"].Should().NotBeNull();
-                }
+                // After delete, the object should be null/empty or contain
+                // no matching data — the exact behavior depends on RecordManager
+                verifyParsed["success"].Should().NotBeNull();
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task DeleteRecord_NonExistentRecord_ReturnsError()
         {
             // Arrange — DELETE a non-existent record
@@ -874,7 +874,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.DeleteAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error
             var parsed = TryParseJson(body);
@@ -888,7 +888,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task DeleteRecord_TransactionRollbackOnError_DataPreserved()
         {
             // Arrange — Attempt to delete a system user which may have constraints
@@ -901,7 +901,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.DeleteAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Whether it succeeded or failed, the response should be well-formed
             var parsed = TryParseJson(body);
@@ -913,17 +913,17 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Verify the system user still exists (transaction should have rolled back on error)
             var verifyResponse = await _client.GetAsync(route);
             var verifyBody = await verifyResponse.Content.ReadAsStringAsync();
-            if (!ShouldSkipDueToInfrastructure(verifyResponse, verifyBody))
-            {
-                verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            }
+            if (ShouldSkipDueToInfrastructure(verifyResponse, verifyBody))
+                Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available for verification step.");
+
+            verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         }
 
         #endregion
 
         #region << GET Records List Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecordsByEntityName_ReturnsRecordList()
         {
             // Arrange — GET the list of all user records
@@ -933,7 +933,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.GetAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return record list
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -944,7 +944,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["object"].Should().NotBeNull("record list should contain data");
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecordsByEntityName_WithPagination_ReturnsPagedResults()
         {
             // Arrange — Use limit parameter to restrict result count
@@ -954,7 +954,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.GetAsync(route);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return OK with limited results
             response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -974,7 +974,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << Relation Record Forward Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_OneToMany_AttachRecords()
         {
             // Arrange — Use the system user_role ManyToMany relation to attach records
@@ -994,7 +994,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — BaseResponseModel envelope
             var parsed = TryParseJson(body);
@@ -1004,7 +1004,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["errors"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_ManyToMany_AttachAndDetach()
         {
             // Arrange — Test ManyToMany attach and detach using user_role relation
@@ -1026,7 +1026,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var createResponse = await _client.PostAsync(createRoute, createContent);
             var createBody = await createResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) return;
+            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var createParsed = TryParseJson(createBody);
             if (createParsed == null || createParsed["success"]?.Value<bool>() != true) return;
@@ -1046,7 +1046,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var attachResponse = await _client.PostAsync(RecordRelationRoute, attachContent);
             var attachBody = await attachResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(attachResponse, attachBody)) return;
+            if (ShouldSkipDueToInfrastructure(attachResponse, attachBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert attach
             var attachParsed = TryParseJson(attachBody);
@@ -1065,7 +1065,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var detachResponse = await _client.PostAsync(RecordRelationRoute, detachContent);
             var detachBody = await detachResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(detachResponse, detachBody)) return;
+            if (ShouldSkipDueToInfrastructure(detachResponse, detachBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert detach
             var detachParsed = TryParseJson(detachBody);
@@ -1073,7 +1073,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             detachParsed["success"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_InvalidRelation_ReturnsError()
         {
             // Arrange — Use a non-existent relation name
@@ -1090,7 +1090,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error with "Invalid relation name" message
             // (RecordController.cs line ~260)
@@ -1110,7 +1110,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_NullModel_ReturnsError()
         {
             // Arrange — Send POST with empty/null body
@@ -1122,7 +1122,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Skip if infrastructure is not available
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (response.StatusCode == HttpStatusCode.Unauthorized) return;
 
             // Assert — Should return error
@@ -1141,7 +1141,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_DetachRequired_ReturnsError()
         {
             // Arrange — Attempt to detach records from a required field on a non-ManyToMany relation
@@ -1161,7 +1161,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error (relation not found or detach restriction)
             var parsed = TryParseJson(body);
@@ -1173,7 +1173,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecord_DuplicateAttachIds_ReturnsError()
         {
             // Arrange — Send duplicate IDs in the attach list
@@ -1192,7 +1192,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error about duplicate IDs
             var parsed = TryParseJson(body);
@@ -1215,7 +1215,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << Relation Record Reverse Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecordReverse_ValidOperation_ReturnsSuccess()
         {
             // Arrange — Use the reverse relation endpoint with user_role relation
@@ -1233,7 +1233,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationReverseRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — BaseResponseModel envelope
             var parsed = TryParseJson(body);
@@ -1243,7 +1243,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["errors"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task UpdateRelationRecordReverse_InvalidRelation_ReturnsError()
         {
             // Arrange — Use a non-existent relation name for reverse direction
@@ -1260,7 +1260,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(RecordRelationReverseRoute, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return error for invalid relation
             var parsed = TryParseJson(body);
@@ -1281,7 +1281,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << CSV Import Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task ImportCsv_ValidCsv_ImportsRecords()
         {
             // Arrange — Send CSV data to the import endpoint
@@ -1299,7 +1299,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _adminClient.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — BaseResponseModel envelope
             var parsed = TryParseJson(body);
@@ -1309,7 +1309,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             parsed["errors"].Should().NotBeNull();
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task ImportCsv_WithoutAdminRole_Returns403()
         {
             // Arrange — Use non-admin JWT token for CSV import
@@ -1332,7 +1332,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Skip if infrastructure is not available (auth pipeline not fully operational)
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return 403 Forbidden or 401 Unauthorized
             // [Authorize(Roles = "administrator")] denies non-admin tokens
@@ -1342,7 +1342,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 "CSV import without admin role should return 403 (Forbidden) or 401 (Unauthorized)");
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task EvaluateImportCsv_DryRun_ReturnsPreview()
         {
             // Arrange — Send CSV to the evaluate (dry-run) endpoint
@@ -1359,7 +1359,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _adminClient.PostAsync(route, content);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — Should return preview results without actual import
             var parsed = TryParseJson(body);
@@ -1377,7 +1377,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << Permission Enforcement Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_WithoutCreatePermission_ReturnsError()
         {
             // Arrange — Use a non-admin user token to create a user record
@@ -1407,7 +1407,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — The response should be well-formed
             var parsed = TryParseJson(body);
@@ -1420,7 +1420,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Either way, the envelope must be valid
         }
 
-        [Fact]
+        [SkippableFact]
         public async Task GetRecord_WithoutReadPermission_ReturnsError()
         {
             // Arrange — Use unauthenticated client to read a record
@@ -1444,7 +1444,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
 
         #region << Transaction Tests >>
 
-        [Fact]
+        [SkippableFact]
         public async Task CreateRecord_ExceptionDuringTransaction_RollsBack()
         {
             // Arrange — Attempt to create a record that will fail during the transaction
@@ -1467,7 +1467,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var firstResponse = await _client.PostAsync(createRoute, firstContent);
             var firstBody = await firstResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(firstResponse, firstBody)) return;
+            if (ShouldSkipDueToInfrastructure(firstResponse, firstBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var firstParsed = TryParseJson(firstBody);
             if (firstParsed == null || firstParsed["success"]?.Value<bool>() != true) return;
@@ -1488,7 +1488,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var dupResponse = await _client.PostAsync(createRoute, dupContent);
             var dupBody = await dupResponse.Content.ReadAsStringAsync();
 
-            if (ShouldSkipDueToInfrastructure(dupResponse, dupBody)) return;
+            if (ShouldSkipDueToInfrastructure(dupResponse, dupBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Assert — The duplicate should fail
             var dupParsed = TryParseJson(dupBody);

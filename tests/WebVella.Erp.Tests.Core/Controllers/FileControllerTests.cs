@@ -213,7 +213,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             if (ShouldSkipDueToInfrastructure(response, body))
-                return null;
+                Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available for file upload.");
 
             var json = TryParseJson(body);
             if (json == null) return null;
@@ -358,7 +358,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// success=true, and an object containing url and filename fields.
         /// Source: WebApiController.cs line 3343 — returns FSResponse(FSResult { Url, Filename }).
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadFile_ValidFile_ReturnsFSResponse()
         {
             // Arrange
@@ -370,7 +370,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert — infrastructure skip if DB not available
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Upload of a valid file should return 200 OK");
@@ -395,7 +395,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// When no IFormFile is provided to the upload endpoint, the server should
         /// return a 400 Bad Request or similar error indicating missing file data.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadFile_NoFile_ReturnsError()
         {
             // Arrange — send empty multipart content (no file attachment)
@@ -406,7 +406,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert — infrastructure skip if DB not available
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // The server should return an error status — either 400 Bad Request
             // or 415 Unsupported Media Type, or a 200 with success=false.
@@ -434,7 +434,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// The FileController has [Authorize] at the class level; the upload endpoint does not
         /// have [AllowAnonymous], so unauthenticated requests must be rejected.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadFile_WithoutAuth_Returns401()
         {
             // Arrange
@@ -458,7 +458,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// and an appropriate Content-Type header. First uploads a file, then downloads it.
         /// Source: WebApiController.cs line 3323 — returns File(file.GetBytes(), mimeType).
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_ExistingFile_ReturnsFileContent()
         {
             // Arrange — upload a test file first
@@ -472,7 +472,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert — infrastructure skip if DB not available
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Downloading an existing file should return 200 OK");
@@ -487,7 +487,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// table, the DbFileRepository may throw an unhandled Npgsql exception
         /// before the controller can produce a proper HTTP 404 response.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_NonExistentFile_Returns404()
         {
             HttpResponseMessage response;
@@ -509,7 +509,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             }
 
             // Assert — infrastructure skip if DB not available
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.NotFound,
                 "Downloading a non-existent file should return 404 Not Found");
@@ -520,7 +520,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests the /fs/{root}/{root2}/{fileName} route pattern.
         /// Source: WebApiController.cs lines 3253-3257 — multiple route attributes.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_NestedPath_Works()
         {
             // Arrange — upload a file first
@@ -534,7 +534,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // If the file was found, it should return 200; if the nested route doesn't match,
             // we at least validate that the nested route patterns are registered.
@@ -549,7 +549,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: WebApiController.cs lines 3284-3295 — checks If-Modified-Since, returns 304.
         /// CRITICAL caching behavior test per AAP requirements.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_WithIfModifiedSince_ReturnsNotModified304()
         {
             // Arrange — upload a file first
@@ -560,7 +560,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // First download to establish the file exists and get its modification date
             var initialResponse = await _client.GetAsync("/fs" + filePath);
             var initialBody = await initialResponse.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(initialResponse, initialBody)) return;
+            if (ShouldSkipDueToInfrastructure(initialResponse, initialBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (initialResponse.StatusCode != HttpStatusCode.OK) return;
 
             // Act — send request with If-Modified-Since set to a far-future date
@@ -572,7 +572,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.NotModified,
                 "If-Modified-Since with a future date should return 304 Not Modified");
@@ -583,7 +583,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns the full file content with HTTP 200 (the file was modified after that date).
         /// Source: WebApiController.cs lines 3289-3294 — only returns 304 if isModifiedSince <= file date.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_WithOldIfModifiedSince_ReturnsFileContent()
         {
             // Arrange — upload a file
@@ -600,7 +600,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "If-Modified-Since with an old date should return 200 OK with file content");
@@ -614,7 +614,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: WebApiController.cs lines 3297-3299 — sets last-modified and Cache-Control headers.
         /// CRITICAL caching behavior test per AAP requirements.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_ResponseContainsCacheHeaders()
         {
             // Arrange — upload a file
@@ -627,7 +627,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (response.StatusCode != HttpStatusCode.OK) return;
 
             // Validate Last-Modified header is present
@@ -674,7 +674,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// success=true with the moved file's URL and filename in the response.
         /// Source: WebApiController.cs lines 3347-3368 — moves file and returns FSResponse.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task MoveFile_ValidSourceAndTarget_ReturnsSuccess()
         {
             // Arrange — upload a file to get a source path
@@ -690,7 +690,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Moving a valid file should return 200 OK");
@@ -708,7 +708,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Verifies that attempting to move a non-existent source file returns an error response.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task MoveFile_NonExistentSource_ReturnsError()
         {
             // Arrange — source path that does not exist
@@ -723,7 +723,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Either a 400 status or success=false in the response envelope
             var statusOk = response.StatusCode == HttpStatusCode.OK;
@@ -749,7 +749,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// the target path already has an existing file.
         /// Source: WebApiController.cs lines 3354-3355 — overwrite parameter handling.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task MoveFile_WithOverwrite_Succeeds()
         {
             // Arrange — upload two files
@@ -773,7 +773,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Moving a file with overwrite=true should return 200 OK");
@@ -793,7 +793,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// file's URL and filename in the FSResult.
         /// Source: WebApiController.cs line 3382 — returns FSResponse with url and filename.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task DeleteFile_ExistingFile_ReturnsSuccess()
         {
             // Arrange — upload a file to delete
@@ -808,7 +808,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Deleting an existing file should return 200 OK");
@@ -828,7 +828,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Verifies that deleting a non-existent file returns an error response.
         /// The server should indicate failure when the file path does not exist.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task DeleteFile_NonExistentFile_ReturnsError()
         {
             // Act — delete a path that definitely does not exist
@@ -837,7 +837,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Accept either error status code or success=false in the envelope.
             // The monolith's DeleteFile doesn't explicitly check for file existence
@@ -866,7 +866,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Verifies that uploading multiple files creates user_file entity records for each.
         /// Source: WebApiController.cs lines 4043-4132 — processes each file, creates records.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadUserFileMultiple_MultipleFiles_CreatesRecords()
         {
             // Arrange — create multipart content with two test files
@@ -882,7 +882,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Multi-file upload should return 200 OK");
@@ -907,7 +907,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// and includes them in the user_file entity record.
         /// Source: WebApiController.cs lines ~4086-4090 — image dimension extraction via System.Drawing.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadUserFileMultiple_ImageFile_ExtractsDimensions()
         {
             // Arrange — create multipart content with a small PNG image
@@ -923,7 +923,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "Image upload should return 200 OK");
@@ -963,7 +963,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: WebApiController.cs lines ~4085-4109 — file type classification logic.
         /// Tests uploading a .txt file (classified as "document") and a .dat file ("other").
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadUserFileMultiple_FileTypeClassification_Correct()
         {
             // Arrange — upload files of known types
@@ -979,7 +979,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK,
                 "File type classification upload should return 200 OK");
@@ -1009,7 +1009,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Verifies that sending a multi-file upload request without any files returns an error.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UploadUserFileMultiple_NoFiles_ReturnsError()
         {
             // Arrange — send empty multipart content
@@ -1020,7 +1020,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             // Accept error status code or success=false
             var statusOk = response.StatusCode == HttpStatusCode.OK;
@@ -1049,7 +1049,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Verifies that downloading a .txt file returns the correct Content-Type header (text/plain).
         /// Source: WebApiController.cs lines 3301-3302 — MIME type lookup via FileExtensionContentTypeProvider.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_TextFile_ReturnsCorrectMimeType()
         {
             // Arrange — upload a .txt file
@@ -1062,7 +1062,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (response.StatusCode != HttpStatusCode.OK) return;
 
             var contentType = response.Content.Headers.ContentType?.MediaType;
@@ -1078,7 +1078,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Verifies that downloading a .css file returns the correct Content-Type header (text/css).
         /// Source: FileExtensionContentTypeProvider maps .css to text/css.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task Download_CssFile_ReturnsCssMimeType()
         {
             // Arrange — upload a .css file
@@ -1091,7 +1091,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Assert
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
             if (response.StatusCode != HttpStatusCode.OK) return;
 
             var contentType = response.Content.Headers.ContentType?.MediaType;

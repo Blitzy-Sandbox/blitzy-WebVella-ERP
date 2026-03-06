@@ -326,13 +326,25 @@ namespace WebVella.Erp.Service.Core.Database
 		/// deserialization. Required for backward compatibility with entity metadata JSON that
 		/// may contain integer field values serialized as decimals (e.g., <c>1.0</c> instead of <c>1</c>).
 		///
-		/// <para>Write is not supported — this converter is read-only.</para>
+		/// <para>Write is not supported — this converter is read-only. The <see cref="WriteJson"/>
+		/// method throws <see cref="NotSupportedException"/> because entity metadata JSON is only
+		/// deserialized (read) by this converter, never serialized (written) through it.
+		/// Standard Newtonsoft.Json serialization handles writes.</para>
 		/// </summary>
 		public class DecimalToIntFormatConverter : JsonConverter
 		{
+			/// <summary>
+			/// Not supported. This converter is read-only and is used exclusively for
+			/// deserializing entity metadata JSON where integer fields may be stored as
+			/// decimal values (e.g., <c>1.0</c>). Serialization uses the default
+			/// Newtonsoft.Json writer, which handles integer values correctly.
+			/// </summary>
+			/// <exception cref="NotSupportedException">Always thrown — this converter does not support writing.</exception>
 			public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
 			{
-				throw new NotImplementedException();
+				throw new NotSupportedException(
+					"DecimalToIntFormatConverter is a read-only converter used for entity metadata " +
+					"deserialization. Write operations use the default Newtonsoft.Json serializer.");
 			}
 
 			public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)

@@ -383,7 +383,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: SecurityController.cs GetJwtToken — lines 167-234.
         /// Validates: HTTP 200, Success=true, token is non-null, JWT has three Base64 segments.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetJwtToken_ValidCredentials_ReturnsJwtToken()
         {
             // Arrange — use default system admin credentials
@@ -395,7 +395,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var body = await response.Content.ReadAsStringAsync();
 
             // Skip if infrastructure is unavailable (no database)
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -423,7 +423,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns an error response. The monolith returns HTTP 200 with Success=false in body.
         /// Source: SecurityController.cs GetJwtToken — lines 196-205.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetJwtToken_InvalidPassword_ReturnsError()
         {
             // Arrange
@@ -432,7 +432,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _unauthenticatedClient.PostAsync(AuthTokenRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -447,7 +447,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns an error. The SecurityManager.GetUser returns null for unknown users.
         /// Source: SecurityController.cs GetJwtToken — lines 196-205.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetJwtToken_NonExistentUser_ReturnsError()
         {
             // Arrange
@@ -456,7 +456,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _unauthenticatedClient.PostAsync(AuthTokenRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -471,7 +471,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns an error for missing required field.
         /// Source: SecurityController.cs GetJwtToken — lines 186-193.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetJwtToken_MissingUsername_ReturnsError()
         {
             // Arrange — send only password, no email
@@ -480,7 +480,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _unauthenticatedClient.PostAsync(AuthTokenRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -494,7 +494,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/auth/jwt/token with an empty body returns an error.
         /// Source: SecurityController.cs GetJwtToken — lines 180-181.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetJwtToken_NoBody_ReturnsBadRequest()
         {
             // Arrange — empty JSON object body
@@ -503,7 +503,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _unauthenticatedClient.PostAsync(AuthTokenRoute, emptyContent);
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -522,14 +522,14 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns a new JWT token with fresh expiration.
         /// Source: SecurityController.cs GetNewJwtToken — lines 252-339.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetNewJwtToken_ValidExistingToken_ReturnsNewToken()
         {
             // Arrange — first obtain a valid token via the auth endpoint
             var payload = new { email = "erp@webvella.com", password = "erp" };
             var authResponse = await _unauthenticatedClient.PostAsync(AuthTokenRoute, CreateJsonContent(payload));
             var authBody = await authResponse.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(authResponse, authBody)) return;
+            if (ShouldSkipDueToInfrastructure(authResponse, authBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var authObj = TryParseJson(authBody);
             if (authObj == null) return;
@@ -544,7 +544,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var refreshResponse = await refreshClient.PostAsync(AuthRefreshRoute,
                 new StringContent("", Encoding.UTF8, "application/json"));
             var refreshBody = await refreshResponse.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(refreshResponse, refreshBody)) return;
+            if (ShouldSkipDueToInfrastructure(refreshResponse, refreshBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var refreshObj = TryParseJson(refreshBody);
             if (refreshObj == null) return;
@@ -564,7 +564,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// returns an error because the token cannot be validated.
         /// Source: SecurityController.cs GetNewJwtToken — lines 284-292.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetNewJwtToken_ExpiredToken_ReturnsError()
         {
             // Arrange — generate a token that is already expired
@@ -575,7 +575,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await client.PostAsync(AuthRefreshRoute,
                 new StringContent("", Encoding.UTF8, "application/json"));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -590,7 +590,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// header returns an error.
         /// Source: SecurityController.cs GetNewJwtToken — lines 274-281.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task GetNewJwtToken_MalformedToken_ReturnsError()
         {
             // Arrange — send a malformed token
@@ -605,7 +605,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await client.PostAsync(AuthRefreshRoute,
                 new StringContent("", Encoding.UTF8, "application/json"));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -623,13 +623,13 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that GET /api/v3.0/user with an admin JWT returns a list of users.
         /// Each user should have id, username, email, firstName, lastName properties.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ListUsers_AsAdmin_ReturnsUserList()
         {
             // Act
             var response = await _client.GetAsync(UserListRoute);
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -646,7 +646,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that GET /api/v3.0/user without an Authorization header returns 401 Unauthorized.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ListUsers_WithoutAuth_Returns401()
         {
             // Act
@@ -661,7 +661,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user with valid user data creates a new user
         /// and returns the created user with an assigned ID.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task CreateUser_ValidInput_ReturnsCreatedUser()
         {
             // Arrange
@@ -678,7 +678,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _client.PostAsync(UserCreateRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -701,7 +701,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that creating two users with the same username returns an error.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task CreateUser_DuplicateUsername_ReturnsError()
         {
             // Arrange — create first user
@@ -727,7 +727,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             };
             var response = await _client.PostAsync(UserCreateRoute, CreateJsonContent(payload2));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -740,7 +740,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that creating two users with the same email returns an error.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task CreateUser_DuplicateEmail_ReturnsError()
         {
             // Arrange — create first user
@@ -766,7 +766,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             };
             var response = await _client.PostAsync(UserCreateRoute, CreateJsonContent(payload2));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -780,7 +780,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user without required fields (username, email)
         /// returns validation errors.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task CreateUser_MissingRequiredFields_ReturnsError()
         {
             // Arrange — payload missing required username and email
@@ -789,7 +789,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             // Act
             var response = await _client.PostAsync(UserCreateRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -803,7 +803,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user with a non-admin JWT returns 403 Forbidden.
         /// User creation is an admin-only operation.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task CreateUser_NonAdmin_Returns403()
         {
             // Arrange — create a non-admin authenticated client
@@ -832,7 +832,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that PUT /api/v3.0/user/{id} with valid changes updates the user.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UpdateUser_ValidChanges_ReturnsUpdatedUser()
         {
             // Arrange — create a user to update
@@ -849,7 +849,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 $"{UserListRoute}/{userId}",
                 CreateJsonContent(updatePayload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -862,7 +862,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that PUT /api/v3.0/user/{id} with a non-existent GUID returns an error.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UpdateUser_NonExistentId_ReturnsNotFound()
         {
             // Arrange — random GUID that doesn't exist
@@ -874,7 +874,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 $"{UserListRoute}/{nonExistentId}",
                 CreateJsonContent(updatePayload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -888,7 +888,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests the password change flow: create user, change password, then authenticate
         /// with the new password to verify the change was persisted.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task UpdateUser_ChangePassword_Succeeds()
         {
             // Arrange — create a user
@@ -906,7 +906,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             };
             var createResponse = await _client.PostAsync(UserCreateRoute, CreateJsonContent(createPayload));
             var createBody = await createResponse.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) return;
+            if (ShouldSkipDueToInfrastructure(createResponse, createBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var createObj = TryParseJson(createBody);
             if (createObj == null) return;
@@ -921,7 +921,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
                 $"{UserListRoute}/{userId}",
                 CreateJsonContent(updatePayload));
             var updateBody = await updateResponse.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(updateResponse, updateBody)) return;
+            if (ShouldSkipDueToInfrastructure(updateResponse, updateBody)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available.");
 
             var updateObj = TryParseJson(updateBody);
             if (updateObj == null) return;
@@ -949,13 +949,13 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// containing at least the "administrator" and "regular" system roles.
         /// Each role should have id and name properties.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ListRoles_AsAdmin_ReturnsRoleList()
         {
             // Act
             var response = await _client.GetAsync(RoleListRoute);
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -982,7 +982,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// <summary>
         /// Tests that GET /api/v3.0/role without an Authorization header returns 401 Unauthorized.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ListRoles_WithoutAuth_Returns401()
         {
             // Act
@@ -1003,14 +1003,14 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: SecurityController.cs ToggleSidebarSize — lines 360-414.
         /// Modifies authenticated user's ErpUser.Preferences.SidebarSize property.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ToggleSidebarSize_AuthenticatedUser_TogglesPreference()
         {
             // Act — send toggle request with authenticated client
             var response = await _client.PostAsync(ToggleSidebarRoute,
                 new StringContent("", Encoding.UTF8, "application/json"));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -1026,7 +1026,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user/preferences/toggle-sidebar-size without
         /// an Authorization header returns 401 Unauthorized.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ToggleSidebarSize_WithoutAuth_Returns401()
         {
             // Act
@@ -1044,7 +1044,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Source: SecurityController.cs ToggleSectionCollapse — lines 436-597.
         /// Updates the user's collapsed/uncollapsed section node ID lists.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ToggleSectionCollapse_ValidSection_TogglesCollapse()
         {
             // Arrange — provide a valid section nodeId and collapse flag
@@ -1055,7 +1055,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(
                 ToggleSectionCollapseRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -1070,7 +1070,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user/preferences/toggle-section-collapse without
         /// a sectionId (nodeId) returns an error response.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ToggleSectionCollapse_MissingSectionId_ReturnsError()
         {
             // Arrange — missing nodeId in payload
@@ -1080,7 +1080,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _client.PostAsync(
                 ToggleSectionCollapseRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -1094,7 +1094,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that POST /api/v3.0/user/preferences/toggle-section-collapse without
         /// an Authorization header returns 401 Unauthorized.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ToggleSectionCollapse_WithoutAuth_Returns401()
         {
             // Arrange
@@ -1118,7 +1118,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// when accessed without an Authorization header. Covers user list, role list,
         /// sidebar toggle, and section collapse toggle.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task ProtectedEndpoints_WithoutAuth_Return401()
         {
             // Act — send unauthenticated requests to all protected endpoints
@@ -1146,7 +1146,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// Tests that admin-only endpoints return 403 Forbidden (or 401) when accessed
         /// with a non-admin JWT. User creation is restricted to administrators.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task AdminOnlyEndpoints_WithNonAdminToken_Return403()
         {
             // Arrange — create non-admin client
@@ -1178,7 +1178,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// without an Authorization header and return HTTP 200 with valid credentials.
         /// Source: SecurityController.cs GetJwtToken has [AllowAnonymous] attribute.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task AnonymousEndpoints_WithoutAuth_Return200()
         {
             // Arrange — valid credentials for the anonymous auth endpoint
@@ -1209,7 +1209,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// the expected claims (user ID, username, roles) essential for cross-service
         /// identity propagation per AAP section 0.8.3.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task JwtToken_ContainsExpectedClaims()
         {
             // Arrange — obtain a valid JWT token
@@ -1217,7 +1217,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _unauthenticatedClient.PostAsync(
                 AuthTokenRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;
@@ -1254,7 +1254,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         /// expected range. Default expiry is 1440 minutes (24 hours) per JwtTokenOptions.
         /// Note: JwtTokenHandler uses DateTime.Now (not UtcNow) so we use a generous window.
         /// </summary>
-        [Fact]
+        [SkippableFact]
         public async Task JwtToken_ExpirationIsReasonable()
         {
             // Arrange — obtain a valid JWT token
@@ -1262,7 +1262,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
             var response = await _unauthenticatedClient.PostAsync(
                 AuthTokenRoute, CreateJsonContent(payload));
             var body = await response.Content.ReadAsStringAsync();
-            if (ShouldSkipDueToInfrastructure(response, body)) return;
+            if (ShouldSkipDueToInfrastructure(response, body)) Skip.If(true, "Test skipped: database infrastructure (PostgreSQL) is not available. Test requires a running database to execute meaningful assertions.");
 
             var jObj = TryParseJson(body);
             if (jObj == null) return;

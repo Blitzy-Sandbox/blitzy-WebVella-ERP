@@ -63,6 +63,8 @@
     <!-- xUnit test framework providing [Fact], [Theory], and [InlineData]
          attributes for unit and integration test discovery and execution -->
     <PackageReference Include="xunit" />
+    <!-- Runtime test skipping support for integration tests requiring database infrastructure -->
+    <PackageReference Include="Xunit.SkippableFact" />
     <!-- VS/CLI test runner adapter for xUnit — enables test discovery and
          execution via dotnet test and VS Test Explorer -->
     <PackageReference Include="xunit.runner.visualstudio">
