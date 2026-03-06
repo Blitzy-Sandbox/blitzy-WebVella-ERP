@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Builders;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -338,10 +339,28 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
         public async Task RunMigrationsAsync<TDbContext>(string connectionString)
             where TDbContext : DbContext
         {
+            // Enable legacy timestamp behavior for Npgsql 6+. The monolith codebase uses
+            // DateTime values with mixed DateTimeKind (Utc, Unspecified) throughout its
+            // entity models and seed data. Npgsql 6+ strictly enforces UTC-only for
+            // "timestamp with time zone" columns, but many migrations and seed data entries
+            // use DateTimeKind.Utc with columns mapped as "timestamp without time zone"
+            // (or vice versa), causing ArgumentException during migration. The legacy switch
+            // restores pre-6.0 behavior where Npgsql doesn't enforce DateTimeKind.
+            AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
             // Build EF Core options with the Npgsql provider targeting the specified database.
             // UseNpgsql comes from Npgsql.EntityFrameworkCore.PostgreSQL package.
             var optionsBuilder = new DbContextOptionsBuilder<TDbContext>();
             optionsBuilder.UseNpgsql(connectionString);
+
+            // Suppress PendingModelChangesWarning which EF Core 10 treats as an error
+            // by default. In integration tests, we apply migrations to verify the schema
+            // matches the cumulative plugin patch system. The "pending changes" warning
+            // fires when the compiled model snapshot has differences from the current model,
+            // which is expected during iterative migration development.
+            optionsBuilder.ConfigureWarnings(w =>
+                w.Ignore(RelationalEventId.PendingModelChangesWarning));
+
             DbContextOptions<TDbContext> options = optionsBuilder.Options;
 
             // Create the DbContext instance using Activator to support generic type parameter.

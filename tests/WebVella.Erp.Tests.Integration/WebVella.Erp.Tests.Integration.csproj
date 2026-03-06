@@ -236,6 +236,16 @@
        Versions managed centrally via Directory.Packages.props (CPM)
        ========================================================================== -->
   <ItemGroup>
+    <!-- EF Core base package — required as a direct reference to ensure version
+         alignment with service projects (Crm, Project, Mail, Admin) that compile
+         against EF Core 10.0.1. Without this explicit reference, the transitive
+         resolution via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 resolves
+         Microsoft.EntityFrameworkCore 10.0.0, causing CS1705 version mismatch
+         errors at compile time. CPM pin in Directory.Packages.props = 10.0.1. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <!-- EF Core Relational for migration infrastructure types used in
+         PatchSystemMigrationTests and schema verification helpers -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <!-- PostgreSQL ADO.NET driver for direct database access in schema migration
          validation tests — verifies record counts, checksums, and zero data loss
          per AAP 0.8.1 during database-per-service migration.

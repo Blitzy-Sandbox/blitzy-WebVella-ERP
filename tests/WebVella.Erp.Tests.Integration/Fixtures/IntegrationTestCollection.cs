@@ -37,12 +37,24 @@ namespace WebVella.Erp.Tests.Integration.Fixtures
     ///   <item>AAP 0.8.3: LocalStack endpoint injectable via environment variables</item>
     /// </list>
     /// </summary>
+    // NOTE: ICollectionFixture<ServiceCollectionFixture> is intentionally NOT registered
+    // here because ServiceCollectionFixture requires PostgreSqlFixture, LocalStackFixture,
+    // and RedisFixture as constructor parameters — and xUnit v2.9.3 with the v3 runner
+    // (xunit.runner.visualstudio 3.0.0) does not support injecting collection fixtures
+    // into other collection fixture constructors. This causes:
+    //   "Collection fixture type 'ServiceCollectionFixture' had one or more unresolved
+    //    constructor arguments"
+    // To re-enable, either:
+    //   (a) Upgrade to xUnit v3 core which supports fixture dependency injection, or
+    //   (b) Refactor ServiceCollectionFixture to use parameterless constructor with
+    //       lazy initialization via shared static state or IAsyncLifetime discovery.
+    // Cross-service integration tests that need WebApplicationFactory should use
+    // IClassFixture<ServiceCollectionFixture> at the class level instead.
     [CollectionDefinition(IntegrationTestCollection.Name)]
     public class IntegrationTestCollection
         : ICollectionFixture<LocalStackFixture>,
           ICollectionFixture<PostgreSqlFixture>,
-          ICollectionFixture<RedisFixture>,
-          ICollectionFixture<ServiceCollectionFixture>
+          ICollectionFixture<RedisFixture>
     {
         /// <summary>
         /// The well-known collection name referenced by all integration test classes via
