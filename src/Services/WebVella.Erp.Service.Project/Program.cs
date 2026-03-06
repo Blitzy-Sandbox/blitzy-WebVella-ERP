@@ -467,16 +467,25 @@ namespace WebVella.Erp.Service.Project
             // service's initialization at src/Services/WebVella.Erp.Service.Core/Program.cs
             // lines 567-573. Without this, all EQL queries fail with
             // "One or more Eql errors occurred." because the entity provider is null.
-            // Resolved from app.Services (root provider) to match Core service pattern;
-            // the EntityManager and EntityRelationManager are kept alive for the app lifetime.
+            // Resolved from a DI scope to avoid the "Cannot resolve scoped service from
+            // root provider" error in Development mode. The scope is not disposed because
+            // the EQL default providers need to live for the app's lifetime.
             // =================================================================
+            try
             {
-                var entityManager = app.Services.GetRequiredService<EntityManager>();
-                var relationManager = app.Services.GetRequiredService<EntityRelationManager>();
+                var eqlScope = app.Services.CreateScope();
+                var entityManager = eqlScope.ServiceProvider.GetRequiredService<EntityManager>();
+                var relationManager = eqlScope.ServiceProvider.GetRequiredService<EntityRelationManager>();
                 EqlCommand.DefaultEntityProvider = new ProjectEqlEntityProvider(entityManager);
                 EqlCommand.DefaultRelationProvider = new ProjectEqlRelationProvider(relationManager);
                 EqlCommand.DefaultFieldValueExtractor = new ProjectEqlFieldValueExtractor();
                 EqlCommand.DefaultSecurityProvider = new ProjectEqlSecurityProvider();
+            }
+            catch (Exception ex)
+            {
+                var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ProjectStartup");
+                startupLogger.LogError(ex, "Project Service: Failed to initialize EQL providers. " +
+                    "The service will start but EQL queries may not function correctly.");
             }
 
             // =================================================================

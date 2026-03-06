@@ -564,9 +564,14 @@ namespace WebVella.Erp.Service.Core
                     // (used by SecurityManager.GetUser, RecordManager, etc.)
                     // can resolve entity metadata, relation metadata, field values,
                     // and entity permissions.
+                    // Resolved from a DI scope to avoid the "Cannot resolve scoped
+                    // service from root provider" error in Development/test mode.
+                    // The scope is intentionally not disposed because the EQL default
+                    // providers need to live for the application's lifetime.
                     // ============================================================
-                    var entityManager = app.Services.GetRequiredService<EntityManager>();
-                    var relationManager = app.Services.GetRequiredService<EntityRelationManager>();
+                    var eqlScope = app.Services.CreateScope();
+                    var entityManager = eqlScope.ServiceProvider.GetRequiredService<EntityManager>();
+                    var relationManager = eqlScope.ServiceProvider.GetRequiredService<EntityRelationManager>();
                     EqlCommand.DefaultEntityProvider = new CoreEqlEntityProvider(entityManager);
                     EqlCommand.DefaultRelationProvider = new CoreEqlRelationProvider(relationManager);
                     EqlCommand.DefaultFieldValueExtractor = new CoreEqlFieldValueExtractor();
