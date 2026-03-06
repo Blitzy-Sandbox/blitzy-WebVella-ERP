@@ -25,7 +25,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -33,6 +35,7 @@ using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -43,7 +46,7 @@ using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
 using WebVella.Erp.Service.Core.Api;
 using WebVella.Erp.Service.Core.Database;
-using WebVella.Erp.Service.Project.Controllers;
+using WebVella.Erp.Service.Project.Database;
 using WebVella.Erp.Service.Project.Domain.Services;
 using WebVella.Erp.Service.Project.Grpc;
 using WebVella.Erp.Service.Project.Jobs;
@@ -160,35 +163,17 @@ namespace WebVella.Erp.Service.Project
             });
 
             // =================================================================
-            // CORS — environment-aware configuration
-            // In development, allows specified origins. In production, restrict
-            // origins via appsettings CorsOrigins configuration.
+            // CORS — permissive default policy
+            // Preserved from monolith Startup.cs lines 50-56.
+            // AllowAnyOrigin/AllowAnyMethod/AllowAnyHeader for backend
+            // microservice consumed by API Gateway and other services.
             // =================================================================
             builder.Services.AddCors(options =>
             {
-                var allowedOrigins = configuration.GetSection("CorsOrigins").Get<string[]>();
                 options.AddDefaultPolicy(policy =>
-                {
-                    if (allowedOrigins != null && allowedOrigins.Length > 0)
-                    {
-                        policy.WithOrigins(allowedOrigins)
-                              .AllowAnyMethod()
-                              .AllowAnyHeader()
-                              .AllowCredentials();
-                    }
-                    else
-                    {
-                        // Development fallback — restrict to known local ports
-                        policy.WithOrigins(
-                                "http://localhost:5000",
-                                "http://localhost:5090",
-                                "http://localhost:5092",
-                                "https://localhost:5001")
-                              .AllowAnyMethod()
-                              .AllowAnyHeader()
-                              .AllowCredentials();
-                    }
-                });
+                    policy.AllowAnyOrigin()
+                          .AllowAnyMethod()
+                          .AllowAnyHeader());
             });
 
             // =================================================================
@@ -239,6 +224,15 @@ namespace WebVella.Erp.Service.Project
             });
 
             // =================================================================
+            // EF Core ProjectDbContext — for migrations and entity queries
+            // Registered via AddDbContext<T>() with Npgsql provider per AAP
+            // database-per-service pattern. This is SEPARATE from CoreDbContext
+            // which provides the ambient context for RecordManager/EntityManager.
+            // =================================================================
+            builder.Services.AddDbContext<ProjectDbContext>(options =>
+                options.UseNpgsql(connectionString));
+
+            // =================================================================
             // Database Repositories — scoped, one per request
             // =================================================================
             builder.Services.AddScoped<DbEntityRepository>(sp =>
@@ -270,6 +264,40 @@ namespace WebVella.Erp.Service.Project
             builder.Services.AddScoped<TimelogService>();
             builder.Services.AddScoped<TaskService>();
             builder.Services.AddScoped<ReportingService>();
+
+            // =================================================================
+            // HttpClient — inter-service REST calls (AAP 0.5.2)
+            // Named HttpClients for Core (user/entity resolution) and CRM
+            // (account/case lookups) services.
+            // =================================================================
+            var coreServiceUrl = configuration["ServiceUrls:CoreService"] ?? "http://core-service:8080";
+            var crmServiceUrl = configuration["ServiceUrls:CrmService"] ?? "http://crm-service:8080";
+
+            builder.Services.AddHttpClient("CoreService", client =>
+            {
+                client.BaseAddress = new Uri(coreServiceUrl);
+            });
+            builder.Services.AddHttpClient("CrmService", client =>
+            {
+                client.BaseAddress = new Uri(crmServiceUrl);
+            });
+
+            // =================================================================
+            // ICrmServiceClient — cross-service CRM account validation
+            // Used by ReportingService to validate account existence.
+            // Implemented via HttpClient calling CRM REST API.
+            // =================================================================
+            builder.Services.AddScoped<ICrmServiceClient>(sp =>
+            {
+                var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+                return new HttpCrmServiceClient(httpClientFactory);
+            });
+
+            // =================================================================
+            // gRPC Clients — inter-service gRPC communication
+            // =================================================================
+            var coreGrpcUrl = configuration["Grpc:CoreServiceUrl"] ?? "http://core-service:8081";
+            var crmGrpcUrl = configuration["Grpc:CrmServiceUrl"] ?? "http://crm-service:8081";
 
             // =================================================================
             // MassTransit Event Bus (AAP 0.6.1)
@@ -353,6 +381,41 @@ namespace WebVella.Erp.Service.Project
             app.UseAuthentication();
             app.UseAuthorization();
 
+            // =================================================================
+            // SecurityContext bridge — opens a SecurityContext scope from the
+            // authenticated ClaimsPrincipal on each request so that downstream
+            // managers (EntityManager, RecordManager, etc.) can call
+            // SecurityContext.CurrentUser / HasMetaPermission() correctly.
+            // The gRPC services handle this explicitly per-call; REST controllers
+            // rely on this middleware to establish the scope automatically.
+            // Pattern preserved from Core service.
+            // =================================================================
+            app.Use(async (context, next) =>
+            {
+                if (context.User?.Identity?.IsAuthenticated == true)
+                {
+                    try
+                    {
+                        using (SecurityContext.OpenScope(context.User))
+                        {
+                            await next();
+                        }
+                    }
+                    catch (ArgumentException)
+                    {
+                        // If claims cannot be mapped to an ErpUser (e.g. missing
+                        // NameIdentifier), proceed without a SecurityContext scope.
+                        // Permission checks will see CurrentUser == null and deny
+                        // access naturally.
+                        await next();
+                    }
+                }
+                else
+                {
+                    await next();
+                }
+            });
+
             // Health check endpoint — anonymous access for container probes
             app.MapHealthChecks("/health").AllowAnonymous();
 
@@ -366,6 +429,60 @@ namespace WebVella.Erp.Service.Project
             // Run the application
             // =================================================================
             app.Run();
+        }
+    }
+
+    /// <summary>
+    /// HTTP-based implementation of <see cref="ICrmServiceClient"/> for cross-service
+    /// CRM account validation. Uses the named "CrmService" HttpClient to call the
+    /// CRM microservice REST API.
+    ///
+    /// Used by <see cref="ReportingService"/> to validate account existence when
+    /// filtering timelog reports by CRM account. If the CRM service is unreachable
+    /// or returns an error, the validation returns false (fail-safe).
+    ///
+    /// In production, this HTTP call can be replaced with an event-sourced local
+    /// projection once the CRM service publishes AccountCreated/AccountDeleted events.
+    /// </summary>
+    internal sealed class HttpCrmServiceClient : ICrmServiceClient
+    {
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        /// <summary>
+        /// Initializes a new instance using the provided <see cref="IHttpClientFactory"/>
+        /// to create named "CrmService" HTTP clients for each request.
+        /// </summary>
+        /// <param name="httpClientFactory">Factory for creating named HTTP clients.</param>
+        public HttpCrmServiceClient(IHttpClientFactory httpClientFactory)
+        {
+            _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        }
+
+        /// <summary>
+        /// Validates whether an account with the specified ID exists in the CRM service
+        /// by sending a HEAD request to the CRM REST API endpoint.
+        /// Returns false if the CRM service is unreachable or returns a non-success status.
+        /// </summary>
+        /// <param name="accountId">The unique identifier of the account to validate.</param>
+        /// <returns>True if the account exists; false otherwise (including on network errors).</returns>
+        public async Task<bool> AccountExistsAsync(Guid accountId)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient("CrmService");
+                var response = await client.GetAsync($"/api/v3/en_US/record/account/{accountId}");
+                return response.IsSuccessStatusCode;
+            }
+            catch (HttpRequestException)
+            {
+                // CRM service unreachable — fail-safe to false
+                return false;
+            }
+            catch (TaskCanceledException)
+            {
+                // Request timeout — fail-safe to false
+                return false;
+            }
         }
     }
 }
