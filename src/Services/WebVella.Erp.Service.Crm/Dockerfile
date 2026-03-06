@@ -53,6 +53,11 @@ COPY global.json ./
 COPY src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj \
      src/SharedKernel/WebVella.Erp.SharedKernel/
 
+# Core Platform service dependency (CRM csproj has ProjectReference to Core
+# for RecordManager, EntityManager, and EntityRelationManager shared implementations)
+COPY src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj \
+     src/Services/WebVella.Erp.Service.Core/
+
 # CRM microservice project
 COPY src/Services/WebVella.Erp.Service.Crm/WebVella.Erp.Service.Crm.csproj \
      src/Services/WebVella.Erp.Service.Crm/
@@ -67,11 +72,16 @@ COPY proto/ proto/
 RUN dotnet restore src/Services/WebVella.Erp.Service.Crm/WebVella.Erp.Service.Crm.csproj
 
 # -- Layer 5: Full source copy (changes frequently) --------------------------
-# Copy the SharedKernel and CRM service source code required for compilation.
+# Copy the SharedKernel, Core service, and CRM service source code required
+# for compilation. Core source is needed because the CRM csproj has a
+# ProjectReference to WebVella.Erp.Service.Core for shared API implementations.
 # A .dockerignore file at the repository root should exclude bin/, obj/,
 # node_modules/, .git/, and other non-essential directories.
 COPY src/SharedKernel/WebVella.Erp.SharedKernel/ \
      src/SharedKernel/WebVella.Erp.SharedKernel/
+
+COPY src/Services/WebVella.Erp.Service.Core/ \
+     src/Services/WebVella.Erp.Service.Core/
 
 COPY src/Services/WebVella.Erp.Service.Crm/ \
      src/Services/WebVella.Erp.Service.Crm/
@@ -85,7 +95,8 @@ RUN dotnet publish src/Services/WebVella.Erp.Service.Crm/WebVella.Erp.Service.Cr
     -c ${BUILD_CONFIGURATION} \
     -o /app/publish \
     --no-restore \
-    --no-self-contained
+    --no-self-contained \
+    -p:ErrorOnDuplicatePublishOutputFiles=false
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime

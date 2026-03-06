@@ -57,7 +57,14 @@ COPY src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj
 COPY src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj \
      src/Services/WebVella.Erp.Service.Core/
 
-# -- Layer 3: NuGet package restore (cached until csproj/props change) --------
+# -- Layer 3: Proto files for gRPC code generation ----------------------------
+# Copy proto files required by Grpc.Tools during restore/build. The Core service
+# csproj references proto/core.proto and proto/common.proto via <Protobuf>
+# MSBuild items for server-side gRPC stub generation (EntityGrpcService,
+# RecordGrpcService, SecurityGrpcService).
+COPY proto/ proto/
+
+# -- Layer 4: NuGet package restore (cached until csproj/props change) --------
 RUN dotnet restore src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj
 
 # -- Layer 4: Full source copy (changes frequently) --------------------------

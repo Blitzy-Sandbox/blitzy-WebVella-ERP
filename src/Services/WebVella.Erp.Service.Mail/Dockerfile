@@ -55,6 +55,12 @@ COPY global.json ./
 COPY src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj \
      src/SharedKernel/WebVella.Erp.SharedKernel/
 
+# Core Platform service dependency (Mail csproj has ProjectReference to Core
+# for RecordManager, EntityManager, and DbContext used by mail entity CRUD
+# operations and SMTP queue processing)
+COPY src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj \
+     src/Services/WebVella.Erp.Service.Core/
+
 # Mail/Notification service project
 COPY src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.Mail.csproj \
      src/Services/WebVella.Erp.Service.Mail/
@@ -69,11 +75,16 @@ RUN dotnet restore src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.M
 COPY proto/ proto/
 
 # -- Layer 5: Full source copy (changes frequently) --------------------------
-# Copy only the SharedKernel and Mail service source code required for build.
+# Copy the SharedKernel, Core service, and Mail service source code required
+# for build. Core source is needed because the Mail csproj has a ProjectReference
+# to WebVella.Erp.Service.Core for RecordManager, EntityManager, and DbContext.
 # Selective COPY avoids pulling in the entire repository, reducing build
 # context size and improving layer caching.
 COPY src/SharedKernel/WebVella.Erp.SharedKernel/ \
      src/SharedKernel/WebVella.Erp.SharedKernel/
+
+COPY src/Services/WebVella.Erp.Service.Core/ \
+     src/Services/WebVella.Erp.Service.Core/
 
 COPY src/Services/WebVella.Erp.Service.Mail/ \
      src/Services/WebVella.Erp.Service.Mail/
@@ -87,7 +98,8 @@ RUN dotnet publish src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.M
     -c ${BUILD_CONFIGURATION} \
     -o /app/publish \
     --no-restore \
-    --no-self-contained
+    --no-self-contained \
+    -p:ErrorOnDuplicatePublishOutputFiles=false
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime
