@@ -88,6 +88,14 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 		}
 
+		/// <summary>
+		/// Protected parameterless constructor for unit test mocking via Moq.
+		/// Allows <c>new Mock&lt;TimelogService&gt;()</c> without providing all service dependencies.
+		/// </summary>
+		protected TimelogService()
+		{
+		}
+
 		#region << EQL Execution >>
 
 		/// <summary>
@@ -437,7 +445,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="record">The timelog EntityRecord about to be created.</param>
 		/// <param name="errors">Mutable error list for reporting validation failures.</param>
-		public void PreCreateApiHookLogic(EntityRecord record, List<ErrorModel> errors)
+		public virtual void PreCreateApiHookLogic(EntityRecord record, List<ErrorModel> errors)
 		{
 			if (!record.Properties.ContainsKey("id"))
 				throw new Exception("Hook exception: timelog id field not found in record");
@@ -566,7 +574,7 @@ namespace WebVella.Erp.Service.Project.Domain.Services
 		/// </summary>
 		/// <param name="record">The timelog EntityRecord about to be deleted.</param>
 		/// <param name="errors">Mutable error list for reporting validation failures.</param>
-		public void PreDeleteApiHookLogic(EntityRecord record, List<ErrorModel> errors)
+		public virtual void PreDeleteApiHookLogic(EntityRecord record, List<ErrorModel> errors)
 		{
 			if (!record.Properties.ContainsKey("id"))
 				throw new Exception("Hook exception: timelog id field not found in record");
