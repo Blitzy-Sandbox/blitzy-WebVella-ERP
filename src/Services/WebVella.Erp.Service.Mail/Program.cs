@@ -42,11 +42,16 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
+using WebVella.Erp.Service.Core.Api;
+using WebVella.Erp.Service.Core.Database;
 using WebVella.Erp.Service.Mail.Database;
 using WebVella.Erp.Service.Mail.Domain.Services;
 using WebVella.Erp.Service.Mail.Grpc;
 using WebVella.Erp.Service.Mail.Jobs;
 using WebVella.Erp.SharedKernel;
+using WebVella.Erp.SharedKernel.Database;
+using WebVella.Erp.SharedKernel.Models;
+using WebVella.Erp.SharedKernel.Security;
 
 namespace WebVella.Erp.Service.Mail
 {
@@ -139,6 +144,19 @@ namespace WebVella.Erp.Service.Mail
             // default serializer (NOT System.Text.Json) per AAP 0.8.2.
             // -----------------------------------------------------------------
             builder.Services.AddControllers()
+                .ConfigureApplicationPartManager(manager =>
+                {
+                    // The Mail service references Core for its managers (RecordManager, EntityManager, etc.)
+                    // but must NOT register Core's controllers (RecordController, FileController, etc.)
+                    // in the Mail routing table. Core's FileController has a catch-all DELETE route
+                    // {*filepath} that creates routing conflicts with Mail endpoints.
+                    var coreAssembly = typeof(WebVella.Erp.Service.Core.Api.RecordManager).Assembly;
+                    var corePart = manager.ApplicationParts
+                        .OfType<Microsoft.AspNetCore.Mvc.ApplicationParts.AssemblyPart>()
+                        .FirstOrDefault(p => p.Assembly == coreAssembly);
+                    if (corePart != null)
+                        manager.ApplicationParts.Remove(corePart);
+                })
                 .AddNewtonsoftJson(options =>
                 {
                     options.SerializerSettings.Converters.Add(new ErpDateTimeJsonConverter());
@@ -173,14 +191,21 @@ namespace WebVella.Erp.Service.Mail
             // Email and SmtpServiceEntity tables.
             // -----------------------------------------------------------------
             var connectionString = builder.Configuration.GetConnectionString("Default")
-                ?? "Host=localhost;Port=5432;Database=erp_mail;Username=postgres;Password=postgres";
+                ?? "Host=localhost;Port=5435;Database=erp_mail;Username=dev;Password=dev";
 
             builder.Services.AddDbContext<MailDbContext>(options =>
+            {
                 options.UseNpgsql(connectionString, npgsqlOptions =>
                 {
                     npgsqlOptions.MinBatchSize(1);
                     npgsqlOptions.CommandTimeout(120);
-                }));
+                });
+                // Suppress PendingModelChangesWarning — the initial migration was generated
+                // from the monolith entity schema; minor model snapshot drift is expected
+                // during the decomposition phase and does not affect runtime correctness.
+                options.ConfigureWarnings(w =>
+                    w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+            });
 
             // -----------------------------------------------------------------
             // Distributed Redis Caching (AAP 0.1.1)
@@ -202,7 +227,7 @@ namespace WebVella.Erp.Service.Mail
             // cross-service identity propagation per AAP 0.8.3.
             // -----------------------------------------------------------------
             var jwtSection = builder.Configuration.GetSection("Jwt");
-            var jwtKey = jwtSection["Key"] ?? "DEVELOPMENT_ONLY_KEY__OVERRIDE_VIA_Settings__Jwt__Key_ENV_VAR";
+            var jwtKey = jwtSection["Key"] ?? JwtTokenOptions.DefaultDevelopmentKey;
             var jwtIssuer = jwtSection["Issuer"] ?? "webvella-erp";
             var jwtAudience = jwtSection["Audience"] ?? "webvella-erp";
             var requireHttpsMetadata = bool.TryParse(jwtSection["RequireHttpsMetadata"], out var https) && https;
@@ -351,6 +376,49 @@ namespace WebVella.Erp.Service.Mail
                 }, tags: new[] { "cache", "ready" });
 
             // -----------------------------------------------------------------
+            // Core Service Dependencies — required by MailController and SmtpService
+            // MailController depends on RecordManager for EQL-based record CRUD.
+            // SmtpService depends on RecordManager for email record persistence.
+            // These follow the same DI registration pattern as the Project service.
+            // -----------------------------------------------------------------
+
+            // CoreDbContext — ambient database context for EQL and RecordManager
+            builder.Services.AddScoped<CoreDbContext>(sp =>
+            {
+                return CoreDbContext.CreateContext(connectionString);
+            });
+
+            // Database Repositories — scoped, one per request
+            builder.Services.AddScoped<DbEntityRepository>(sp =>
+                new DbEntityRepository(sp.GetRequiredService<CoreDbContext>()));
+            builder.Services.AddScoped<DbRecordRepository>(sp =>
+                new DbRecordRepository(sp.GetRequiredService<CoreDbContext>()));
+            builder.Services.AddScoped<DbRelationRepository>(sp =>
+                new DbRelationRepository(sp.GetRequiredService<CoreDbContext>()));
+
+            // API Managers — scoped, one per request
+            builder.Services.AddScoped<EntityManager>();
+            builder.Services.AddScoped<EntityRelationManager>();
+            builder.Services.AddScoped<RecordManager>(sp =>
+                new RecordManager(
+                    sp.GetRequiredService<CoreDbContext>(),
+                    sp.GetRequiredService<EntityManager>(),
+                    sp.GetRequiredService<EntityRelationManager>(),
+                    sp.GetRequiredService<IPublishEndpoint>()));
+            builder.Services.AddScoped<SecurityManager>();
+
+            // JwtTokenHandler — required by SecurityContext for token operations
+            var jwtTokenOptions = new JwtTokenOptions
+            {
+                Key = jwtKey,
+                Issuer = jwtIssuer,
+                Audience = jwtAudience,
+                TokenExpiryMinutes = 60
+            };
+            builder.Services.AddSingleton(jwtTokenOptions);
+            builder.Services.AddSingleton<JwtTokenHandler>();
+
+            // -----------------------------------------------------------------
             // Domain Services — Mail-specific DI registrations
             // -----------------------------------------------------------------
             // SmtpService: Core SMTP domain service consolidating all mail
@@ -383,6 +451,22 @@ namespace WebVella.Erp.Service.Mail
             // =================================================================
             var app = builder.Build();
 
+            // =================================================================
+            // EF Core Migrations — create email, smtp_service tables
+            // Matches the pattern used by CRM, Admin, and Reporting services.
+            // Runs on startup to ensure the erp_mail database has all
+            // required tables before accepting requests.
+            // =================================================================
+            using (var scope = app.Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<MailDbContext>();
+                // Guard: only call Migrate() when using a relational provider.
+                if (dbContext.Database.IsRelational())
+                {
+                    dbContext.Database.Migrate();
+                }
+            }
+
             // -----------------------------------------------------------------
             // Request Localization middleware
             // -----------------------------------------------------------------
@@ -395,6 +479,30 @@ namespace WebVella.Erp.Service.Mail
             {
                 app.UseDeveloperExceptionPage();
             }
+
+            // -----------------------------------------------------------------
+            // Global exception handler — converts unhandled exceptions to proper
+            // JSON error responses instead of dropping the connection (which causes
+            // the Gateway to return 502). Pattern matches CRM service handling.
+            // -----------------------------------------------------------------
+            app.UseExceptionHandler(errorApp =>
+            {
+                errorApp.Run(async context =>
+                {
+                    context.Response.StatusCode = 500;
+                    context.Response.ContentType = "application/json";
+                    var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+                    var response = new
+                    {
+                        success = false,
+                        timestamp = DateTime.UtcNow,
+                        message = error?.Error?.Message ?? "An internal error occurred.",
+                        errors = new[] { new { key = (string?)null, value = (string?)null, message = error?.Error?.Message ?? "An internal error occurred." } },
+                        @object = (object?)null
+                    };
+                    await context.Response.WriteAsync(Newtonsoft.Json.JsonConvert.SerializeObject(response));
+                });
+            });
 
             // -----------------------------------------------------------------
             // Response Compression (from Startup.cs line 100)

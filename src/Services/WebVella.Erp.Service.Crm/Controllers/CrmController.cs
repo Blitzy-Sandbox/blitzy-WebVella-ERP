@@ -335,7 +335,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// Gets a single CRM record by entity name and record ID.
 		/// Adapted from WebApiController.cs lines 2502-2517.
 		/// </summary>
-		[HttpGet("record/{entityName}/{recordId}")]
+		[HttpGet("record/{entityName}/{recordId:guid}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult GetRecord(string entityName, Guid recordId, string fields = "*")
 		{
@@ -707,7 +707,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// Adapted from WebApiController.cs lines 2786-2833.
 		/// User entity special case removed (belongs to Core service).
 		/// </summary>
-		[HttpPut("record/{entityName}/{recordId}")]
+		[HttpPut("record/{entityName}/{recordId:guid}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> UpdateEntityRecord(string entityName, Guid recordId, [FromBody] EntityRecord postObj)
 		{
@@ -768,7 +768,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// Adapted from WebApiController.cs lines 2835-2875.
 		/// User entity special case removed (belongs to Core service).
 		/// </summary>
-		[HttpPatch("record/{entityName}/{recordId}")]
+		[HttpPatch("record/{entityName}/{recordId:guid}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> PatchEntityRecord(string entityName, Guid recordId, [FromBody] EntityRecord postObj)
 		{
@@ -822,7 +822,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// Deletes a CRM record with transaction management and event publishing.
 		/// Adapted from WebApiController.cs lines 2520-2551.
 		/// </summary>
-		[HttpDelete("record/{entityName}/{recordId}")]
+		[HttpDelete("record/{entityName}/{recordId:guid}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public async Task<IActionResult> DeleteRecord(string entityName, Guid recordId)
 		{
@@ -1600,7 +1600,7 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// Returns address records related to a specific CRM entity record.
 		/// Uses relation lookup to find address records linked via entity relations.
 		/// </summary>
-		[HttpGet("record/{entityName}/{recordId}/addresses")]
+		[HttpGet("record/{entityName}/{recordId:guid}/addresses")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult GetAddresses(string entityName, Guid recordId)
 		{

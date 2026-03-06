@@ -297,6 +297,11 @@ namespace WebVella.Erp.Service.Core.Database
 					JsonSerializerSettings settings = new JsonSerializerSettings
 					{
 						TypeNameHandling = TypeNameHandling.Auto,
+						// ReadAhead is required because AutoMapper-produced DbEntity JSON may place
+						// the $type discriminator after regular properties (e.g., id, name).
+						// Default MetadataPropertyHandling expects $type first, causing
+						// "cannot instantiate abstract DbBaseField" errors on deserialization.
+						MetadataPropertyHandling = MetadataPropertyHandling.ReadAhead,
 						NullValueHandling = NullValueHandling.Ignore,
 						MissingMemberHandling = MissingMemberHandling.Ignore,
 					};

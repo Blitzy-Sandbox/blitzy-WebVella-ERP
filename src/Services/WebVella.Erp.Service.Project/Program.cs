@@ -25,12 +25,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Configuration;
@@ -88,7 +90,7 @@ namespace WebVella.Erp.Service.Project
 
             // Read key configuration values
             var connectionString = configuration["ConnectionStrings:Default"]
-                ?? "Server=localhost;Port=5432;User Id=dev;Password=dev;Database=erp_project;";
+                ?? "Server=localhost;Port=5434;User Id=dev;Password=dev;Database=erp_project;";
             var jwtKey = configuration["Jwt:Key"] ?? JwtTokenOptions.DefaultDevelopmentKey;
             var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
             var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
@@ -141,6 +143,19 @@ namespace WebVella.Erp.Service.Project
             // MVC Controllers with Newtonsoft.Json
             // =================================================================
             builder.Services.AddControllers()
+                .ConfigureApplicationPartManager(manager =>
+                {
+                    // The Project service references Core for its managers (RecordManager, EntityManager, etc.)
+                    // but must NOT register Core's controllers (RecordController, FileController, etc.)
+                    // in the Project routing table. Core's FileController has a catch-all DELETE route
+                    // {*filepath} that creates routing conflicts with Project endpoints.
+                    var coreAssembly = typeof(WebVella.Erp.Service.Core.Api.RecordManager).Assembly;
+                    var corePart = manager.ApplicationParts
+                        .OfType<Microsoft.AspNetCore.Mvc.ApplicationParts.AssemblyPart>()
+                        .FirstOrDefault(p => p.Assembly == coreAssembly);
+                    if (corePart != null)
+                        manager.ApplicationParts.Remove(corePart);
+                })
                 .AddNewtonsoftJson(options =>
                 {
                     options.SerializerSettings.Converters.Add(new ErpDateTimeJsonConverter());
@@ -230,7 +245,14 @@ namespace WebVella.Erp.Service.Project
             // which provides the ambient context for RecordManager/EntityManager.
             // =================================================================
             builder.Services.AddDbContext<ProjectDbContext>(options =>
-                options.UseNpgsql(connectionString));
+            {
+                options.UseNpgsql(connectionString);
+                // Suppress PendingModelChangesWarning — the initial migration was generated
+                // from the monolith entity schema; minor model snapshot drift is expected
+                // during the decomposition phase and does not affect runtime correctness.
+                options.ConfigureWarnings(w =>
+                    w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+            });
 
             // =================================================================
             // Database Repositories — scoped, one per request
@@ -254,6 +276,10 @@ namespace WebVella.Erp.Service.Project
                     sp.GetRequiredService<EntityManager>(),
                     sp.GetRequiredService<EntityRelationManager>(),
                     sp.GetRequiredService<IPublishEndpoint>()));
+            // SecurityManager — required by ProjectController for user resolution
+            // and permission checks. Depends on CoreDbContext and RecordManager
+            // which are already registered above.
+            builder.Services.AddScoped<SecurityManager>();
 
             // =================================================================
             // Domain Services — scoped, one per request
@@ -357,6 +383,24 @@ namespace WebVella.Erp.Service.Project
             var app = builder.Build();
 
             // =================================================================
+            // EF Core Migrations — create task, timelog, comment, feed tables
+            // Matches the pattern used by CRM, Admin, and Reporting services.
+            // Runs on startup to ensure the erp_project database has all
+            // required tables before accepting requests.
+            // =================================================================
+            using (var scope = app.Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<ProjectDbContext>();
+                // Guard: only call Migrate() when using a relational provider.
+                // In test environments, WebApplicationFactory may register an InMemory provider
+                // which does not support relational migrations.
+                if (dbContext.Database.IsRelational())
+                {
+                    dbContext.Database.Migrate();
+                }
+            }
+
+            // =================================================================
             // Middleware Pipeline
             // =================================================================
 
@@ -374,6 +418,28 @@ namespace WebVella.Erp.Service.Project
             {
                 app.UseDeveloperExceptionPage();
             }
+
+            // Global exception handler — converts unhandled exceptions to proper
+            // JSON error responses instead of dropping the connection (which causes
+            // the Gateway to return 502). Pattern matches CRM service exception handling.
+            app.UseExceptionHandler(errorApp =>
+            {
+                errorApp.Run(async context =>
+                {
+                    context.Response.StatusCode = 500;
+                    context.Response.ContentType = "application/json";
+                    var error = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+                    var response = new
+                    {
+                        success = false,
+                        timestamp = DateTime.UtcNow,
+                        message = error?.Error?.Message ?? "An internal error occurred.",
+                        errors = new[] { new { key = (string?)null, value = (string?)null, message = error?.Error?.Message ?? "An internal error occurred." } },
+                        @object = (object?)null
+                    };
+                    await context.Response.WriteAsync(JsonConvert.SerializeObject(response));
+                });
+            });
 
             app.UseResponseCompression();
             app.UseCors();

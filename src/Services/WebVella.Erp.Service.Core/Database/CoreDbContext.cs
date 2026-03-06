@@ -40,6 +40,13 @@ namespace WebVella.Erp.Service.Core.Database
 		//private static AsyncLocal<DbContext> current = new AsyncLocal<DbContext>();
 		private static string connectionString;
 
+		/// <summary>
+		/// Exposes the configured connection string for direct ADO.NET access
+		/// by service components that need raw SQL queries (e.g., SecurityManager
+		/// role loading) without going through the ambient context pattern.
+		/// </summary>
+		public static string ConnectionString => connectionString;
+
 		public DbRecordRepository RecordRepository { get; private set; }
 		public DbEntityRepository EntityRepository { get; private set; }
 		public DbRelationRepository RelationRepository { get; private set; }

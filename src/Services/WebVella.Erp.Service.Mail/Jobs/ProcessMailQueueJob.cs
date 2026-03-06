@@ -262,6 +262,15 @@ namespace WebVella.Erp.Service.Mail.Jobs
 				using var scope = _scopeFactory.CreateScope();
 				var smtpService = scope.ServiceProvider.GetRequiredService<SmtpService>();
 
+				// Resolve CoreDbContext to establish the ambient database context.
+				// SmtpService.ProcessSmtpQueue() uses EqlCommand which requires
+				// DbContextAccessor.Current to be set. The CoreDbContext factory
+				// (registered in Program.cs) calls CoreDbContext.CreateContext()
+				// which sets DbContextAccessor.Current for the current async flow.
+				// We must resolve it here so the ambient context is available when
+				// SmtpService executes EQL queries (SELECT * FROM email WHERE ...).
+				var coreDbContext = scope.ServiceProvider.GetRequiredService<WebVella.Erp.Service.Core.Database.CoreDbContext>();
+
 				// Open system security scope for background job execution.
 				// Preserves the exact pattern from ProcessSmtpQueueJob.Execute() (line 12):
 				//   using (SecurityContext.OpenSystemScope())
@@ -269,12 +278,18 @@ namespace WebVella.Erp.Service.Mail.Jobs
 				// user authentication, granting unlimited permissions per AAP 0.8.3.
 				using (SecurityContext.OpenSystemScope())
 				{
-					// Delegate to SmtpService.ProcessSmtpQueue() which contains ALL the
-					// business logic: EQL query for pending emails (batch size 10),
-					// do-while loop, SMTP send with retry, abort on missing service,
-					// and configurable max retries/wait minutes from SMTP service settings.
-					// The method is synchronous, preserving the monolith's execution model.
-					await Task.Run(() => smtpService.ProcessSmtpQueue(), cancellationToken);
+					// Establish a database connection for the duration of queue processing.
+					// This ensures the ambient CoreDbContext has an active connection that
+					// EqlCommand can use for executing SQL queries.
+					using (var dbConnection = coreDbContext.CreateConnection())
+					{
+						// Delegate to SmtpService.ProcessSmtpQueue() which contains ALL the
+						// business logic: EQL query for pending emails (batch size 10),
+						// do-while loop, SMTP send with retry, abort on missing service,
+						// and configurable max retries/wait minutes from SMTP service settings.
+						// The method is synchronous, preserving the monolith's execution model.
+						await Task.Run(() => smtpService.ProcessSmtpQueue(), cancellationToken);
+					}
 				}
 			}
 			finally

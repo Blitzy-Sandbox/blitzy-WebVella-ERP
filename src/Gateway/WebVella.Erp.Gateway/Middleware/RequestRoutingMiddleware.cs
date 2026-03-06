@@ -169,11 +169,17 @@ namespace WebVella.Erp.Gateway.Middleware
                 // Copy all applicable request headers (Authorization, Accept, etc.)
                 CopyRequestHeaders(context.Request, forwardedRequest);
 
-                // Copy request body for methods that typically carry a payload
+                // Copy request body for methods that typically carry a payload.
+                // The body is fully buffered into a MemoryStream before creating the content
+                // to avoid Content-Length mismatches with FileBufferingReadStream, which may
+                // report Length=0 if the body has not yet been consumed by earlier middleware.
                 if (HasRequestBody(context.Request.Method))
                 {
                     context.Request.Body.Position = 0;
-                    forwardedRequest.Content = new StreamContent(context.Request.Body);
+                    var bodyStream = new MemoryStream();
+                    await context.Request.Body.CopyToAsync(bodyStream);
+                    bodyStream.Position = 0;
+                    forwardedRequest.Content = new StreamContent(bodyStream);
 
                     // Set Content-Type on the content object (not on request headers, since
                     // it was excluded from header copying to avoid duplication)

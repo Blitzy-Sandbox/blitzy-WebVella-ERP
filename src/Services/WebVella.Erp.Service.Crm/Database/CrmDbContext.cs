@@ -259,9 +259,23 @@ namespace WebVella.Erp.Service.Crm.Database
 		private NpgsqlTransaction? transaction;
 
 		/// <summary>
-		/// Connection string for the CRM PostgreSQL database, set by <see cref="CreateContext"/>.
+		/// Connection string for the CRM PostgreSQL database, set by <see cref="CreateContext"/>
+		/// or directly via the public <see cref="ConnectionString"/> property during service startup.
+		/// Used by <see cref="CreateConnection"/> for the legacy DbConnection pattern (write operations).
 		/// </summary>
 		private static string? connectionString;
+
+		/// <summary>
+		/// Gets or sets the static connection string for the CRM database.
+		/// Must be initialized during service startup so that <see cref="CreateConnection"/>
+		/// can open connections for write operations (POST/PUT/DELETE) that use
+		/// the legacy SharedKernel DbConnection pattern outside EF Core.
+		/// </summary>
+		public static string? ConnectionString
+		{
+			get => connectionString;
+			set => connectionString = value;
+		}
 
 		#endregion
 

@@ -86,6 +86,32 @@ namespace WebVella.Erp.SharedKernel.Eql
 		}
 
 		/// <summary>
+		/// Global default entity metadata provider used by constructors that do not
+		/// accept an explicit provider parameter (e.g. the <c>List&lt;EqlParameter&gt;</c>
+		/// overloads preserved from the monolith).  Each microservice sets this once
+		/// during startup so that callers like SecurityManager.GetUser() work without
+		/// code changes.  Thread-safe: set once at startup, read-only thereafter.
+		/// </summary>
+		public static IEqlEntityProvider DefaultEntityProvider { get; set; }
+
+		/// <summary>
+		/// Global default relation metadata provider — see <see cref="DefaultEntityProvider"/>.
+		/// </summary>
+		public static IEqlRelationProvider DefaultRelationProvider { get; set; }
+
+		/// <summary>
+		/// Global default field value extractor — see <see cref="DefaultEntityProvider"/>.
+		/// Converts raw JToken values from PostgreSQL JSON results to typed .NET values.
+		/// </summary>
+		public static IEqlFieldValueExtractor DefaultFieldValueExtractor { get; set; }
+
+		/// <summary>
+		/// Global default security provider — see <see cref="DefaultEntityProvider"/>.
+		/// Checks entity-level read permissions during result materialization.
+		/// </summary>
+		public static IEqlSecurityProvider DefaultSecurityProvider { get; set; }
+
+		/// <summary>
 		/// Provides entity metadata for EQL building and result materialization.
 		/// Replaces monolith's <c>new EntityManager()</c> in <c>ConvertJObjectToEntityRecord</c>.
 		/// </summary>
@@ -214,6 +240,15 @@ namespace WebVella.Erp.SharedKernel.Eql
 
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
+
+			// Fall back to the static default providers so that callers preserved
+			// from the monolith (SecurityManager, RecordManager, etc.) that do not
+			// pass explicit providers still get entity/relation metadata resolution,
+			// field value extraction, and security permission checks.
+			_entityProvider = DefaultEntityProvider;
+			_relationProvider = DefaultRelationProvider;
+			_fieldValueExtractor = DefaultFieldValueExtractor;
+			_securityProvider = DefaultSecurityProvider;
 
 			NpgConnection = null;
 

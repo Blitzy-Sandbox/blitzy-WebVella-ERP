@@ -187,6 +187,19 @@ namespace WebVella.Erp.Service.Crm
 			// API contract stability. Matching monolith Startup.cs lines 41-51.
 			// ================================================================
 			builder.Services.AddControllers()
+				.ConfigureApplicationPartManager(manager =>
+				{
+					// The CRM service references Core for its managers (RecordManager, EntityManager, etc.)
+					// but must NOT register Core's controllers (RecordController, FileController, etc.)
+					// in the CRM routing table. Core's FileController has a catch-all DELETE route
+					// {*filepath} that creates routing conflicts with CRM endpoints.
+					var coreAssembly = typeof(WebVella.Erp.Service.Core.Api.RecordManager).Assembly;
+					var corePart = manager.ApplicationParts
+						.OfType<Microsoft.AspNetCore.Mvc.ApplicationParts.AssemblyPart>()
+						.FirstOrDefault(p => p.Assembly == coreAssembly);
+					if (corePart != null)
+						manager.ApplicationParts.Remove(corePart);
+				})
 				.AddNewtonsoftJson(options =>
 				{
 					// Preserve ErpDateTimeJsonConverter from monolith Startup.cs lines 48-51.
@@ -335,6 +348,13 @@ namespace WebVella.Erp.Service.Crm
 			// AAP 0.8.3: Connection pooling (min 1, max 100) configurable via
 			// connection string. Command timeout (120 seconds) for CRM queries.
 			// ================================================================
+			// Initialize the static connection string for the legacy SharedKernel
+			// DbConnection pattern used by write operations (CreateConnection()).
+			// The EF Core DbContext manages its own connection pool via UseNpgsql,
+			// but the CrmController's POST/PUT/DELETE paths open raw NpgsqlConnections
+			// through CrmDbContext.CreateConnection() which reads this static field.
+			CrmDbContext.ConnectionString = connectionString;
+
 			builder.Services.AddDbContext<CrmDbContext>(options =>
 			{
 				options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -464,6 +484,7 @@ namespace WebVella.Erp.Service.Crm
 
 			// Health check endpoint for container orchestration (K8s liveness/readiness)
 			app.MapHealthChecks("/health");
+
 		}
 	}
 

@@ -66,14 +66,16 @@ namespace WebVella.Erp.Service.Core.Api
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE id = @id",
+				var result = new EqlCommand("SELECT * FROM user WHERE id = @id",
 					new List<EqlParameter> { new EqlParameter("id", userId) },
 					currentContext: _dbContext).Execute();
 
 				if (result.Count != 1)
 					return null;
 
-				return result[0].MapTo<ErpUser>();
+				var user = result[0].MapTo<ErpUser>();
+				LoadUserRoles(user);
+				return user;
 			}
 		}
 
@@ -85,14 +87,16 @@ namespace WebVella.Erp.Service.Core.Api
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email = @email",
+				var result = new EqlCommand("SELECT * FROM user WHERE email = @email",
 					new List<EqlParameter> { new EqlParameter("email", email) },
 					currentContext: _dbContext).Execute();
 
 				if (result.Count != 1)
 					return null;
 
-				return result[0].MapTo<ErpUser>();
+				var user = result[0].MapTo<ErpUser>();
+				LoadUserRoles(user);
+				return user;
 			}
 		}
 
@@ -104,14 +108,16 @@ namespace WebVella.Erp.Service.Core.Api
 		{
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE username = @username",
+				var result = new EqlCommand("SELECT * FROM user WHERE username = @username",
 					new List<EqlParameter> { new EqlParameter("username", username) },
 					currentContext: _dbContext).Execute();
 
 				if (result.Count != 1)
 					return null;
 
-				return result[0].MapTo<ErpUser>();
+				var user = result[0].MapTo<ErpUser>();
+				LoadUserRoles(user);
+				return user;
 			}
 		}
 
@@ -128,7 +134,7 @@ namespace WebVella.Erp.Service.Core.Api
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
 				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email AND password = @password",
+				var result = new EqlCommand("SELECT * FROM user WHERE email ~* @email AND password = @password",
 					new List<EqlParameter>
 					{
 						new EqlParameter("email", email),
@@ -136,13 +142,26 @@ namespace WebVella.Erp.Service.Core.Api
 					},
 					currentContext: _dbContext).Execute();
 
+				ErpUser user = null;
 				foreach (var rec in result)
 				{
-					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
-						return rec.MapTo<ErpUser>();
+					var recEmail = rec["email"] as string;
+					if (recEmail != null && recEmail.ToLowerInvariant() == email.ToLowerInvariant())
+					{
+						user = rec.MapTo<ErpUser>();
+						break;
+					}
 				}
 
-				return null;
+				if (user == null)
+					return null;
+
+				// Explicitly load roles via SQL since EQL cross-entity relation
+				// resolution requires full monolith-level infrastructure.
+				// Uses the same pattern as GetSystemUserWithNoSecurityCheck().
+				LoadUserRoles(user);
+
+				return user;
 			}
 		}
 
@@ -232,22 +251,63 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </summary>
 		public virtual List<ErpUser> GetUsers(params Guid[] roleIds)
 		{
-			List<EqlParameter> parameters = new List<EqlParameter>();
-			StringBuilder sbRoles = new StringBuilder();
-			foreach (Guid id in roleIds)
+			if (roleIds == null || roleIds.Length == 0)
+				return new List<ErpUser>();
+
+			// Use direct SQL via CoreDbContext.ConnectionString for role-filtered user queries
+			// since EQL cross-entity relation resolution ($user_role) requires full
+			// monolith infrastructure that is not available in the microservice.
+			using (NpgsqlConnection connection = new NpgsqlConnection(CoreDbContext.ConnectionString))
 			{
-				if (sbRoles.Length > 0)
-					sbRoles.AppendLine(" OR ");
-				else
-					sbRoles.AppendLine(" WHERE ");
+				connection.Open();
+				try
+				{
+					// Build parameterized IN clause for role IDs
+					var paramNames = new List<string>();
+					var cmd = new NpgsqlCommand();
+					for (int i = 0; i < roleIds.Length; i++)
+					{
+						var paramName = $"@role_{i}";
+						paramNames.Add(paramName);
+						cmd.Parameters.Add(new NpgsqlParameter(paramName, roleIds[i]));
+					}
 
-				var paramName = $"@role_id_{id.ToString().Replace("-", "")}";
-				sbRoles.AppendLine($" $user_role.id = {paramName} ");
-				parameters.Add(new EqlParameter(paramName, id));
+					cmd.Connection = connection;
+					cmd.CommandText = $@"SELECT DISTINCT u.* FROM rec_user u
+						INNER JOIN rel_user_role ur ON ur.target_id = u.id
+						WHERE ur.origin_id IN ({string.Join(", ", paramNames)})";
+
+					var dataAdapter = new NpgsqlDataAdapter(cmd);
+					var dt = new DataTable();
+					dataAdapter.Fill(dt);
+
+					var users = new List<ErpUser>();
+					foreach (DataRow src in dt.Rows)
+					{
+						var user = new ErpUser
+						{
+							Id = (Guid)src["id"],
+							Username = (string)src["username"],
+							Email = (string)src["email"],
+							Password = src["password"] as string,
+							FirstName = (string)src["first_name"],
+							LastName = (string)src["last_name"],
+							Image = src["image"] as string,
+							CreatedOn = (DateTime)src["created_on"],
+							LastLoggedIn = src["last_logged_in"] as DateTime?,
+							Enabled = (bool)src["enabled"],
+							Verified = (bool)src["verified"]
+						};
+						LoadUserRoles(user);
+						users.Add(user);
+					}
+					return users;
+				}
+				finally
+				{
+					connection.Close();
+				}
 			}
-
-			return new EqlCommand("SELECT *, $user_role.* FROM user " + sbRoles,
-				parameters, currentContext: _dbContext).Execute().MapTo<ErpUser>();
 		}
 
 		#endregion
@@ -479,6 +539,54 @@ namespace WebVella.Erp.Service.Core.Api
 			catch
 			{
 				return false;
+			}
+		}
+
+		/// <summary>
+		/// Loads roles for a user via direct SQL join through the rel_user_role table.
+		/// The EQL engine's cross-entity relation resolution ($user_role.*) requires
+		/// full monolith-level relation infrastructure; this method provides an explicit
+		/// fallback that matches GetSystemUserWithNoSecurityCheck() behavior.
+		/// Populates user.Roles with ErpRole instances including Id, Name, and Description.
+		/// </summary>
+		private void LoadUserRoles(ErpUser user)
+		{
+			if (user == null) return;
+
+			// Use CoreDbContext.ConnectionString (static, set during CreateContext) for
+			// direct ADO.NET role loading. This bypasses the ambient context pattern
+			// which requires explicit scope management, and mirrors the approach used
+			// by GetSystemUserWithNoSecurityCheck().
+			using (NpgsqlConnection connection = new NpgsqlConnection(CoreDbContext.ConnectionString))
+			{
+				try
+				{
+					connection.Open();
+					NpgsqlCommand cmd = new NpgsqlCommand(
+						@"SELECT r.* FROM rec_role r
+						  INNER JOIN rel_user_role ur ON ur.origin_id = r.id
+						  WHERE ur.target_id = @user_id", connection);
+					cmd.Parameters.Add(new NpgsqlParameter("user_id", user.Id));
+
+					NpgsqlDataAdapter dataAdapter = new NpgsqlDataAdapter(cmd);
+					DataTable dt = new DataTable();
+					dataAdapter.Fill(dt);
+
+					user.Roles.Clear();
+					foreach (DataRow dr in dt.Rows)
+					{
+						user.Roles.Add(new ErpRole
+						{
+							Id = (Guid)dr["id"],
+							Name = (string)dr["name"],
+							Description = (string)dr["description"]
+						});
+					}
+				}
+				finally
+				{
+					connection.Close();
+				}
 			}
 		}
 

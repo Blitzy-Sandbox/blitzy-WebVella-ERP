@@ -27,7 +27,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
+using AutoMapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Localization;
@@ -43,7 +45,11 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
+using WebVella.Erp.SharedKernel.Eql;
+using WebVella.Erp.SharedKernel.Exceptions;
+using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
+using WebVella.Erp.SharedKernel.Utilities;
 using WebVella.Erp.Service.Core.Api;
 using WebVella.Erp.Service.Core.Database;
 using WebVella.Erp.Service.Core.Grpc;
@@ -510,6 +516,15 @@ namespace WebVella.Erp.Service.Core
             {
                 logger.LogInformation("Core Platform Service: Starting database initialization...");
 
+                // ============================================================
+                // AutoMapper initialization — ported from monolith ErpMvcExtensions.cs
+                // lines 68-76 and Api/Models/AutoMapper/AutoMapperConfiguration.cs.
+                // Registers all type mapping profiles required by EntityManager,
+                // EntityRelationManager, RecordManager and other Core API components.
+                // Must execute before any MapTo<T>() calls.
+                // ============================================================
+                InitializeAutoMapper(logger);
+
                 // Create ambient database context for initialization operations
                 var dbContext = CoreDbContext.CreateContext(connectionString);
 
@@ -537,6 +552,26 @@ namespace WebVella.Erp.Service.Core
 
                         logger.LogInformation("Core Platform Service: Database schema initialized successfully.");
                     }
+
+                    // Seed system entities, relations, and default records
+                    // Ported from monolith ERPService.InitializeSystemEntities() (lines 51-830).
+                    // Uses version-gated initialization so entities are created only once.
+                    SeedSystemEntities(dbContext, app.Configuration, app.Services, logger);
+
+                    // ============================================================
+                    // Register EQL default providers so that EqlCommand instances
+                    // created via the legacy List<EqlParameter> constructors
+                    // (used by SecurityManager.GetUser, RecordManager, etc.)
+                    // can resolve entity metadata, relation metadata, field values,
+                    // and entity permissions.
+                    // ============================================================
+                    var entityManager = app.Services.GetRequiredService<EntityManager>();
+                    var relationManager = app.Services.GetRequiredService<EntityRelationManager>();
+                    EqlCommand.DefaultEntityProvider = new CoreEqlEntityProvider(entityManager);
+                    EqlCommand.DefaultRelationProvider = new CoreEqlRelationProvider(relationManager);
+                    EqlCommand.DefaultFieldValueExtractor = new CoreEqlFieldValueExtractor();
+                    EqlCommand.DefaultSecurityProvider = new CoreEqlSecurityProvider();
+                    logger.LogInformation("Core Platform Service: EQL default providers initialized.");
                 }
                 finally
                 {
@@ -550,6 +585,516 @@ namespace WebVella.Erp.Service.Core
             {
                 logger.LogError(ex, "Core Platform Service: Failed to initialize database. " +
                     "The service will start but may not function correctly until the database is available.");
+            }
+        }
+
+        /// <summary>
+        /// Seeds system entities (user, role, user_file), the user_role relation,
+        /// and default records (admin/regular/guest roles, system user, first user).
+        /// Ported from monolith ERPService.InitializeSystemEntities() lines 51-830.
+        ///
+        /// Uses the system_settings.version column as an idempotency guard:
+        /// - version 0 (or no row): first run → create everything, set version to 1
+        /// - version >= 1: already initialized → skip
+        ///
+        /// All entity definitions, field schemas, permissions, and seed data are
+        /// preserved exactly from the monolith for backward compatibility (AAP 0.8.1).
+        /// </summary>
+        private static void SeedSystemEntities(
+            CoreDbContext dbContext,
+            IConfiguration configuration,
+            IServiceProvider serviceProvider,
+            ILogger logger)
+        {
+            try
+            {
+                using (var connection = dbContext.CreateConnection())
+                {
+                    // Check current version from system_settings to implement idempotency
+                    int currentVersion = 0;
+                    var systemSettingsId = new Guid("F3223177-B2FF-43F5-9A4B-FF16FC67D186");
+
+                    using (var checkCmd = connection.CreateCommand(
+                        "SELECT version FROM system_settings LIMIT 1"))
+                    {
+                        var result = checkCmd.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            currentVersion = Convert.ToInt32(result);
+                        }
+                    }
+
+                    if (currentVersion >= 1)
+                    {
+                        logger.LogInformation(
+                            "Core Platform Service: System entities already initialized (version={Version}). Skipping seed.",
+                            currentVersion);
+                        return;
+                    }
+
+                    logger.LogInformation("Core Platform Service: Seeding system entities (version 0 → 1)...");
+
+                    // Open system security scope for the entire seeding process.
+                    // Preserved from monolith ERPService.InitializeSystemEntities() which
+                    // runs with system-level permissions (no user context during startup).
+                    using var systemScope = SecurityContext.OpenSystemScope();
+
+                    // Create managers for entity/relation/record operations.
+                    // These are created directly (not via DI) because we are in the
+                    // startup initialization phase before the app is accepting requests.
+                    var entMan = new EntityManager(dbContext, configuration);
+                    var relMan = new EntityRelationManager(dbContext, configuration);
+                    // RecordManager needs IPublishEndpoint — resolve from DI for MassTransit
+                    var publishEndpoint = serviceProvider.GetRequiredService<IPublishEndpoint>();
+                    var recMan = new RecordManager(
+                        dbContext, entMan, relMan, publishEndpoint,
+                        ignoreSecurity: true, publishEvents: false);
+
+                    connection.BeginTransaction();
+
+                    try
+                    {
+                        // ============================================================
+                        // Create User Entity
+                        // Preserved from ERPService.cs lines 58-341
+                        // ============================================================
+                        {
+                            var userEntity = new InputEntity();
+                            userEntity.Id = SystemIds.UserEntityId;
+                            userEntity.Name = "user";
+                            userEntity.Label = "User";
+                            userEntity.LabelPlural = "Users";
+                            userEntity.System = true;
+                            userEntity.Color = "#f44336";
+                            userEntity.IconName = "fa fa-user";
+                            userEntity.RecordPermissions = new RecordPermissions();
+                            userEntity.RecordPermissions.CanCreate = new List<Guid>();
+                            userEntity.RecordPermissions.CanRead = new List<Guid>();
+                            userEntity.RecordPermissions.CanUpdate = new List<Guid>();
+                            userEntity.RecordPermissions.CanDelete = new List<Guid>();
+                            userEntity.RecordPermissions.CanCreate.Add(SystemIds.GuestRoleId);
+                            userEntity.RecordPermissions.CanCreate.Add(SystemIds.AdministratorRoleId);
+                            userEntity.RecordPermissions.CanRead.Add(SystemIds.GuestRoleId);
+                            userEntity.RecordPermissions.CanRead.Add(SystemIds.RegularRoleId);
+                            userEntity.RecordPermissions.CanRead.Add(SystemIds.AdministratorRoleId);
+                            userEntity.RecordPermissions.CanUpdate.Add(SystemIds.AdministratorRoleId);
+                            userEntity.RecordPermissions.CanDelete.Add(SystemIds.AdministratorRoleId);
+                            var response = entMan.CreateEntity(userEntity, createOnlyIdField: true, checkPermissions: false);
+                            logger.LogInformation("Core Platform Service: CreateEntity(user) result: Success={Success}, Message={Message}, Object={HasObject}",
+                                response.Success, response.Message, response.Object != null);
+                            if (!response.Success)
+                                throw new Exception("CREATE USER ENTITY:" + response.Message);
+                            // Debug: check if entity was actually saved to DB and what JSON looks like
+                            {
+                                using (var debugCon = dbContext.CreateConnection())
+                                {
+                                    var debugCmd = debugCon.CreateCommand("SELECT left(json::text, 500) FROM entities WHERE id=@id");
+                                    var p = debugCmd.CreateParameter() as Npgsql.NpgsqlParameter;
+                                    p.ParameterName = "id";
+                                    p.Value = SystemIds.UserEntityId;
+                                    debugCmd.Parameters.Add(p);
+                                    var jsonResult = debugCmd.ExecuteScalar();
+                                    logger.LogInformation("Core Platform Service: User entity JSON in DB (first 500 chars): {Json}",
+                                        jsonResult?.ToString() ?? "NULL");
+                                }
+                            }
+
+                            // created_on field
+                            {
+                                var field = new InputDateTimeField();
+                                field.Id = new Guid("6C054A68-9EDE-4940-A0A7-E8D2B4F1E05F");
+                                field.Name = "created_on";
+                                field.Label = "Created On";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = null;
+                                field.Format = "yyyy-MMM-dd HH:mm";
+                                field.UseCurrentTimeAsDefaultValue = true;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // first_name field
+                            {
+                                var field = new InputTextField();
+                                field.Id = new Guid("DF211549-41CC-4D11-BB43-DACA4D89C4EB");
+                                field.Name = "first_name";
+                                field.Label = "First Name";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = "";
+                                field.MaxLength = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // last_name field
+                            {
+                                var field = new InputTextField();
+                                field.Id = new Guid("63E685B9-B2C3-4EC9-85B6-42A8C0D655B4");
+                                field.Name = "last_name";
+                                field.Label = "Last Name";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = "";
+                                field.MaxLength = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // username field
+                            {
+                                var field = new InputTextField();
+                                field.Id = new Guid("263c0b21-88c1-4c2b-80b4-db7402b0d2e2");
+                                field.Name = "username";
+                                field.Label = "Username";
+                                field.Required = true;
+                                field.Unique = true;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = "";
+                                field.MaxLength = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // email field
+                            {
+                                var field = new InputEmailField();
+                                field.Id = new Guid("9FC75C8F-CE80-4A64-81D7-E2BEFA5E4815");
+                                field.Name = "email";
+                                field.Label = "Email";
+                                field.Required = true;
+                                field.Unique = true;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = "";
+                                field.MaxLength = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // password field
+                            {
+                                var field = new InputPasswordField();
+                                field.Id = new Guid("4EDE88D9-217A-4462-9300-EA0D6AFCDCEA");
+                                field.Name = "password";
+                                field.Label = "Password";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.MinLength = null;
+                                field.MaxLength = 24;
+                                field.Encrypted = true;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // last_logged_in field
+                            {
+                                var field = new InputDateTimeField();
+                                field.Id = new Guid("3C85CCEC-D010-4514-8F31-5AFF12760F8B");
+                                field.Name = "last_logged_in";
+                                field.Label = "Last Logged In";
+                                field.Required = false;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = true;
+                                field.System = true;
+                                field.DefaultValue = null;
+                                field.Format = "yyyy-MMM-dd HH:mm";
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // enabled field
+                            {
+                                var field = new InputCheckboxField();
+                                field.Id = new Guid("C0C63650-7572-4A27-8CB4-3FFFE358214A");
+                                field.Name = "enabled";
+                                field.Label = "Enabled";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = true;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // verified field
+                            {
+                                var field = new InputCheckboxField();
+                                field.Id = new Guid("F1BA5069-8CC9-4E66-BCC3-60E33AD8CF68");
+                                field.Name = "verified";
+                                field.Label = "Verified";
+                                field.Required = true;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = false;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // preferences field
+                            {
+                                var field = new InputTextField();
+                                field.Id = new Guid("0b54f803-67a6-4e26-9714-cd9bdbb95742");
+                                field.Name = "preferences";
+                                field.Label = "Preferences";
+                                field.Required = false;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = null;
+                                field.MaxLength = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+
+                            // image field
+                            {
+                                var field = new InputImageField();
+                                field.Id = new Guid("bf199b74-4448-4f58-93f5-6b86d888843b");
+                                field.Name = "image";
+                                field.Label = "Image";
+                                field.Required = false;
+                                field.Unique = false;
+                                field.Searchable = false;
+                                field.Auditable = false;
+                                field.System = true;
+                                field.DefaultValue = null;
+                                entMan.CreateField(SystemIds.UserEntityId, field, false);
+                            }
+                        }
+
+                        // ============================================================
+                        // Create Role Entity
+                        // Preserved from ERPService.cs lines 344-419
+                        // ============================================================
+                        {
+                            var roleEntity = new InputEntity();
+                            roleEntity.Id = SystemIds.RoleEntityId;
+                            roleEntity.Name = "role";
+                            roleEntity.Label = "Role";
+                            roleEntity.LabelPlural = "Roles";
+                            roleEntity.System = true;
+                            roleEntity.Color = "#f44336";
+                            roleEntity.IconName = "fa fa-key";
+                            roleEntity.RecordPermissions = new RecordPermissions();
+                            roleEntity.RecordPermissions.CanCreate = new List<Guid>();
+                            roleEntity.RecordPermissions.CanRead = new List<Guid>();
+                            roleEntity.RecordPermissions.CanUpdate = new List<Guid>();
+                            roleEntity.RecordPermissions.CanDelete = new List<Guid>();
+                            roleEntity.RecordPermissions.CanCreate.Add(SystemIds.GuestRoleId);
+                            roleEntity.RecordPermissions.CanCreate.Add(SystemIds.AdministratorRoleId);
+                            roleEntity.RecordPermissions.CanRead.Add(SystemIds.RegularRoleId);
+                            roleEntity.RecordPermissions.CanRead.Add(SystemIds.GuestRoleId);
+                            roleEntity.RecordPermissions.CanRead.Add(SystemIds.AdministratorRoleId);
+                            roleEntity.RecordPermissions.CanUpdate.Add(SystemIds.AdministratorRoleId);
+                            roleEntity.RecordPermissions.CanDelete.Add(SystemIds.AdministratorRoleId);
+                            var response = entMan.CreateEntity(roleEntity, createOnlyIdField: true, checkPermissions: false);
+                            if (!response.Success)
+                                throw new Exception("CREATE ROLE ENTITY:" + response.Message);
+
+                            // name field
+                            {
+                                var nameField = new InputTextField();
+                                nameField.Id = new Guid("36F91EBD-5A02-4032-8498-B7F716F6A349");
+                                nameField.Name = "name";
+                                nameField.Label = "Name";
+                                nameField.PlaceholderText = "";
+                                nameField.Description = "The name of the role";
+                                nameField.HelpText = "";
+                                nameField.Required = true;
+                                nameField.Unique = false;
+                                nameField.Searchable = false;
+                                nameField.Auditable = false;
+                                nameField.System = true;
+                                nameField.DefaultValue = "";
+                                nameField.MaxLength = 200;
+                                nameField.EnableSecurity = true;
+                                nameField.Permissions = new FieldPermissions();
+                                nameField.Permissions.CanRead = new List<Guid>();
+                                nameField.Permissions.CanUpdate = new List<Guid>();
+                                nameField.Permissions.CanRead.Add(SystemIds.AdministratorRoleId);
+                                nameField.Permissions.CanRead.Add(SystemIds.RegularRoleId);
+                                nameField.Permissions.CanUpdate.Add(SystemIds.AdministratorRoleId);
+                                entMan.CreateField(roleEntity.Id.Value, nameField, false);
+                            }
+
+                            // description field
+                            {
+                                var descField = new InputTextField();
+                                descField.Id = new Guid("4A8B9E0A-1C36-40C6-972B-B19E2B5D265B");
+                                descField.Name = "description";
+                                descField.Label = "Description";
+                                descField.PlaceholderText = "";
+                                descField.Description = "";
+                                descField.HelpText = "";
+                                descField.Required = true;
+                                descField.Unique = false;
+                                descField.Searchable = false;
+                                descField.Auditable = false;
+                                descField.System = true;
+                                descField.DefaultValue = "";
+                                descField.MaxLength = 200;
+                                entMan.CreateField(roleEntity.Id.Value, descField, false);
+                            }
+                        }
+
+                        // ============================================================
+                        // Create User-Role Relation
+                        // Preserved from ERPService.cs lines 421-442
+                        // ============================================================
+                        {
+                            var userEntity = entMan.ReadEntity(SystemIds.UserEntityId).Object;
+                            var roleEntity = entMan.ReadEntity(SystemIds.RoleEntityId).Object;
+
+                            var userRoleRelation = new EntityRelation();
+                            userRoleRelation.Id = SystemIds.UserRoleRelationId;
+                            userRoleRelation.Name = "user_role";
+                            userRoleRelation.Label = "User-Role";
+                            userRoleRelation.System = true;
+                            userRoleRelation.RelationType = EntityRelationType.ManyToMany;
+                            userRoleRelation.TargetEntityId = userEntity.Id;
+                            userRoleRelation.TargetFieldId = userEntity.Fields.Single(x => x.Name == "id").Id;
+                            userRoleRelation.OriginEntityId = roleEntity.Id;
+                            userRoleRelation.OriginFieldId = roleEntity.Fields.Single(x => x.Name == "id").Id;
+                            var result = relMan.Create(userRoleRelation);
+                            if (!result.Success)
+                                throw new Exception("CREATE USER-ROLE RELATION:" + result.Message);
+                        }
+
+                        // ============================================================
+                        // Seed System Records
+                        // Preserved from ERPService.cs lines 444-527
+                        // ============================================================
+
+                        // System user
+                        {
+                            var user = new EntityRecord();
+                            user["id"] = SystemIds.SystemUserId;
+                            user["first_name"] = "Local";
+                            user["last_name"] = "System";
+                            user["password"] = Guid.NewGuid().ToString();
+                            user["email"] = "system@webvella.com";
+                            user["username"] = "system";
+                            user["created_on"] = new DateTime(2010, 10, 10);
+                            user["enabled"] = true;
+                            var result = recMan.CreateRecord("user", user);
+                            if (!result.Success)
+                                throw new Exception("CREATE SYSTEM USER RECORD:" + result.Message);
+                        }
+
+                        // First (admin) user
+                        {
+                            var user = new EntityRecord();
+                            user["id"] = SystemIds.FirstUserId;
+                            user["first_name"] = "WebVella";
+                            user["last_name"] = "Erp";
+                            user["password"] = "erp";
+                            user["email"] = "erp@webvella.com";
+                            user["username"] = "administrator";
+                            user["created_on"] = new DateTime(2010, 10, 10);
+                            user["enabled"] = true;
+                            var result = recMan.CreateRecord("user", user);
+                            if (!result.Success)
+                                throw new Exception("CREATE FIRST USER RECORD:" + result.Message);
+                        }
+
+                        // Administrator role
+                        {
+                            var adminRole = new EntityRecord();
+                            adminRole["id"] = SystemIds.AdministratorRoleId;
+                            adminRole["name"] = "administrator";
+                            adminRole["description"] = "";
+                            var result = recMan.CreateRecord("role", adminRole);
+                            if (!result.Success)
+                                throw new Exception("CREATE ADMINISTRATOR ROLE RECORD:" + result.Message);
+                        }
+
+                        // Regular role
+                        {
+                            var regularRole = new EntityRecord();
+                            regularRole["id"] = SystemIds.RegularRoleId;
+                            regularRole["name"] = "regular";
+                            regularRole["description"] = "";
+                            var result = recMan.CreateRecord("role", regularRole);
+                            if (!result.Success)
+                                throw new Exception("CREATE REGULAR ROLE RECORD:" + result.Message);
+                        }
+
+                        // Guest role
+                        {
+                            var guestRole = new EntityRecord();
+                            guestRole["id"] = SystemIds.GuestRoleId;
+                            guestRole["name"] = "guest";
+                            guestRole["description"] = "";
+                            var result = recMan.CreateRecord("role", guestRole);
+                            if (!result.Success)
+                                throw new Exception("CREATE GUEST ROLE RECORD:" + result.Message);
+                        }
+
+                        // System user → administrator role
+                        {
+                            var result = recMan.CreateRelationManyToManyRecord(
+                                SystemIds.UserRoleRelationId, SystemIds.AdministratorRoleId, SystemIds.SystemUserId);
+                            if (!result.Success)
+                                throw new Exception("CREATE SYSTEM-USER <-> ADMINISTRATOR ROLE:" + result.Message);
+                        }
+
+                        // First user → administrator + regular roles
+                        {
+                            var result = recMan.CreateRelationManyToManyRecord(
+                                SystemIds.UserRoleRelationId, SystemIds.AdministratorRoleId, SystemIds.FirstUserId);
+                            if (!result.Success)
+                                throw new Exception("CREATE FIRST-USER <-> ADMINISTRATOR ROLE:" + result.Message);
+
+                            result = recMan.CreateRelationManyToManyRecord(
+                                SystemIds.UserRoleRelationId, SystemIds.RegularRoleId, SystemIds.FirstUserId);
+                            if (!result.Success)
+                                throw new Exception("CREATE FIRST-USER <-> REGULAR ROLE:" + result.Message);
+                        }
+
+                        // ============================================================
+                        // Update system_settings version to 1
+                        // ============================================================
+                        using (var versionCmd = connection.CreateCommand(
+                            "INSERT INTO system_settings (id, version) VALUES (@id, 1) " +
+                            "ON CONFLICT (id) DO UPDATE SET version = 1"))
+                        {
+                            versionCmd.Parameters.Add(new Npgsql.NpgsqlParameter("id", systemSettingsId));
+                            versionCmd.ExecuteNonQuery();
+                        }
+
+                        connection.CommitTransaction();
+
+                        logger.LogInformation(
+                            "Core Platform Service: System entities seeded successfully. " +
+                            "Created entities: user, role. Relations: user_role. " +
+                            "Seed records: 2 users, 3 roles, 3 role assignments.");
+                    }
+                    catch
+                    {
+                        connection.RollbackTransaction();
+                        throw;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Core Platform Service: Failed to seed system entities. " +
+                    "Entity-based operations (EQL queries, record CRUD) will not function " +
+                    "until system entities are manually created.");
             }
         }
 
@@ -656,6 +1201,415 @@ namespace WebVella.Erp.Service.Core
                     );");
 
                 command.ExecuteNonQuery();
+            }
+        }
+        /// <summary>
+        /// Initializes the global AutoMapper configuration required by EntityManager,
+        /// EntityRelationManager, RecordManager, and other Core API components.
+        /// Ported from monolith: WebVella.Erp/Api/Models/AutoMapper/AutoMapperConfiguration.cs
+        /// and WebVella.Erp/Api/Models/AutoMapper/Profiles/*.cs
+        /// </summary>
+        private static void InitializeAutoMapper(ILogger logger)
+        {
+            if (ErpAutoMapper.Mapper != null)
+            {
+                logger.LogInformation("Core Platform Service: AutoMapper already initialized — skipping.");
+                return;
+            }
+
+            logger.LogInformation("Core Platform Service: Initializing AutoMapper profiles...");
+
+            var cfg = ErpAutoMapperConfiguration.MappingExpressions;
+
+            // ================================================================
+            // Type converters (from monolith AutoMapperConfiguration.cs)
+            // ================================================================
+            cfg.CreateMap<Guid, string>().ConvertUsing(src => src.ToString());
+            cfg.CreateMap<DateTimeOffset, DateTime>().ConvertUsing(src => src.DateTime);
+
+            // ================================================================
+            // Entity mappings (from monolith EntityProfile.cs)
+            // ================================================================
+            cfg.CreateMap<Entity, InputEntity>();
+            cfg.CreateMap<InputEntity, Entity>()
+                .ForMember(x => x.Id, opt => opt.MapFrom(y => (y.Id.HasValue) ? y.Id.Value : Guid.Empty))
+                .ForMember(x => x.System, opt => opt.MapFrom(y => (y.System.HasValue) ? y.System.Value : false));
+            cfg.CreateMap<Entity, DbEntity>();
+            cfg.CreateMap<DbEntity, Entity>();
+
+            // ================================================================
+            // EntityRelation mappings (from monolith EntityRelationProfile.cs)
+            // ================================================================
+            cfg.CreateMap<EntityRelation, DbEntityRelation>();
+            cfg.CreateMap<DbEntityRelation, EntityRelation>();
+
+            // ================================================================
+            // EntityRelationOptions mappings
+            // ================================================================
+            cfg.CreateMap<EntityRelationOptions, DbEntityRelationOptions>();
+            cfg.CreateMap<DbEntityRelationOptions, EntityRelationOptions>();
+
+            // ================================================================
+            // Permission mappings (from monolith RecordPermissionsProfile.cs / FieldPermissionsProfile.cs)
+            // ================================================================
+            cfg.CreateMap<RecordPermissions, DbRecordPermissions>();
+            cfg.CreateMap<DbRecordPermissions, RecordPermissions>();
+            cfg.CreateMap<FieldPermissions, DbFieldPermissions>();
+            cfg.CreateMap<DbFieldPermissions, FieldPermissions>();
+
+            // ================================================================
+            // Select option / currency type mappings
+            // ================================================================
+            cfg.CreateMap<SelectOption, DbSelectFieldOption>();
+            cfg.CreateMap<DbSelectFieldOption, SelectOption>();
+            cfg.CreateMap<CurrencyType, DbCurrencyType>();
+            cfg.CreateMap<DbCurrencyType, CurrencyType>();
+
+            // ================================================================
+            // Field base type with polymorphic includes (from monolith FieldProfile.cs)
+            // ================================================================
+            cfg.CreateMap<Field, InputField>()
+                .Include<AutoNumberField, InputAutoNumberField>()
+                .Include<CheckboxField, InputCheckboxField>()
+                .Include<CurrencyField, InputCurrencyField>()
+                .Include<DateField, InputDateField>()
+                .Include<DateTimeField, InputDateTimeField>()
+                .Include<EmailField, InputEmailField>()
+                .Include<FileField, InputFileField>()
+                .Include<GeographyField, InputGeographyField>()
+                .Include<GuidField, InputGuidField>()
+                .Include<HtmlField, InputHtmlField>()
+                .Include<ImageField, InputImageField>()
+                .Include<MultiLineTextField, InputMultiLineTextField>()
+                .Include<MultiSelectField, InputMultiSelectField>()
+                .Include<NumberField, InputNumberField>()
+                .Include<PasswordField, InputPasswordField>()
+                .Include<PercentField, InputPercentField>()
+                .Include<PhoneField, InputPhoneField>()
+                .Include<SelectField, InputSelectField>()
+                .Include<TextField, InputTextField>()
+                .Include<UrlField, InputUrlField>();
+
+            cfg.CreateMap<InputField, Field>()
+                .Include<InputAutoNumberField, AutoNumberField>()
+                .Include<InputCheckboxField, CheckboxField>()
+                .Include<InputCurrencyField, CurrencyField>()
+                .Include<InputDateField, DateField>()
+                .Include<InputDateTimeField, DateTimeField>()
+                .Include<InputEmailField, EmailField>()
+                .Include<InputFileField, FileField>()
+                .Include<InputGeographyField, GeographyField>()
+                .Include<InputGuidField, GuidField>()
+                .Include<InputHtmlField, HtmlField>()
+                .Include<InputImageField, ImageField>()
+                .Include<InputMultiLineTextField, MultiLineTextField>()
+                .Include<InputMultiSelectField, MultiSelectField>()
+                .Include<InputNumberField, NumberField>()
+                .Include<InputPasswordField, PasswordField>()
+                .Include<InputPercentField, PercentField>()
+                .Include<InputPhoneField, PhoneField>()
+                .Include<InputSelectField, SelectField>()
+                .Include<InputTextField, TextField>()
+                .Include<InputUrlField, UrlField>()
+                .ForMember(x => x.Id, opt => opt.MapFrom(y => (y.Id.HasValue) ? y.Id.Value : Guid.Empty))
+                .ForMember(x => x.System, opt => opt.MapFrom(y => (y.System.HasValue) ? y.System.Value : false))
+                .ForMember(x => x.Required, opt => opt.MapFrom(y => (y.Required.HasValue) ? y.Required.Value : false))
+                .ForMember(x => x.Unique, opt => opt.MapFrom(y => (y.Unique.HasValue) ? y.Unique.Value : false))
+                .ForMember(x => x.Searchable, opt => opt.MapFrom(y => (y.Searchable.HasValue) ? y.Searchable.Value : false))
+                .ForMember(x => x.Auditable, opt => opt.MapFrom(y => (y.Auditable.HasValue) ? y.Auditable.Value : false));
+
+            cfg.CreateMap<Field, DbBaseField>()
+                .Include<AutoNumberField, DbAutoNumberField>()
+                .Include<CheckboxField, DbCheckboxField>()
+                .Include<CurrencyField, DbCurrencyField>()
+                .Include<DateField, DbDateField>()
+                .Include<DateTimeField, DbDateTimeField>()
+                .Include<EmailField, DbEmailField>()
+                .Include<FileField, DbFileField>()
+                .Include<GeographyField, DbGeographyField>()
+                .Include<GuidField, DbGuidField>()
+                .Include<HtmlField, DbHtmlField>()
+                .Include<ImageField, DbImageField>()
+                .Include<MultiLineTextField, DbMultiLineTextField>()
+                .Include<MultiSelectField, DbMultiSelectField>()
+                .Include<NumberField, DbNumberField>()
+                .Include<PasswordField, DbPasswordField>()
+                .Include<PercentField, DbPercentField>()
+                .Include<PhoneField, DbPhoneField>()
+                .Include<SelectField, DbSelectField>()
+                .Include<TextField, DbTextField>()
+                .Include<UrlField, DbUrlField>();
+
+            cfg.CreateMap<DbBaseField, Field>()
+                .Include<DbAutoNumberField, AutoNumberField>()
+                .Include<DbCheckboxField, CheckboxField>()
+                .Include<DbCurrencyField, CurrencyField>()
+                .Include<DbDateField, DateField>()
+                .Include<DbDateTimeField, DateTimeField>()
+                .Include<DbEmailField, EmailField>()
+                .Include<DbFileField, FileField>()
+                .Include<DbGeographyField, GeographyField>()
+                .Include<DbGuidField, GuidField>()
+                .Include<DbHtmlField, HtmlField>()
+                .Include<DbImageField, ImageField>()
+                .Include<DbMultiLineTextField, MultiLineTextField>()
+                .Include<DbMultiSelectField, MultiSelectField>()
+                .Include<DbNumberField, NumberField>()
+                .Include<DbPasswordField, PasswordField>()
+                .Include<DbPercentField, PercentField>()
+                .Include<DbPhoneField, PhoneField>()
+                .Include<DbSelectField, SelectField>()
+                .Include<DbTextField, TextField>()
+                .Include<DbUrlField, UrlField>();
+
+            // ================================================================
+            // Individual field type concrete maps (all 21 field types × 4 directions)
+            // ================================================================
+            var fieldTypeTriples = new (Type field, Type input, Type db)[]
+            {
+                (typeof(AutoNumberField), typeof(InputAutoNumberField), typeof(DbAutoNumberField)),
+                (typeof(CheckboxField), typeof(InputCheckboxField), typeof(DbCheckboxField)),
+                (typeof(CurrencyField), typeof(InputCurrencyField), typeof(DbCurrencyField)),
+                (typeof(DateField), typeof(InputDateField), typeof(DbDateField)),
+                (typeof(DateTimeField), typeof(InputDateTimeField), typeof(DbDateTimeField)),
+                (typeof(EmailField), typeof(InputEmailField), typeof(DbEmailField)),
+                (typeof(FileField), typeof(InputFileField), typeof(DbFileField)),
+                (typeof(GeographyField), typeof(InputGeographyField), typeof(DbGeographyField)),
+                (typeof(GuidField), typeof(InputGuidField), typeof(DbGuidField)),
+                (typeof(HtmlField), typeof(InputHtmlField), typeof(DbHtmlField)),
+                (typeof(ImageField), typeof(InputImageField), typeof(DbImageField)),
+                (typeof(MultiLineTextField), typeof(InputMultiLineTextField), typeof(DbMultiLineTextField)),
+                (typeof(MultiSelectField), typeof(InputMultiSelectField), typeof(DbMultiSelectField)),
+                (typeof(NumberField), typeof(InputNumberField), typeof(DbNumberField)),
+                (typeof(PasswordField), typeof(InputPasswordField), typeof(DbPasswordField)),
+                (typeof(PercentField), typeof(InputPercentField), typeof(DbPercentField)),
+                (typeof(PhoneField), typeof(InputPhoneField), typeof(DbPhoneField)),
+                (typeof(SelectField), typeof(InputSelectField), typeof(DbSelectField)),
+                (typeof(TextField), typeof(InputTextField), typeof(DbTextField)),
+                (typeof(UrlField), typeof(InputUrlField), typeof(DbUrlField)),
+            };
+
+            foreach (var (field, input, db) in fieldTypeTriples)
+            {
+                cfg.CreateMap(field, input);
+                cfg.CreateMap(input, field);
+                cfg.CreateMap(field, db);
+                cfg.CreateMap(db, field);
+            }
+
+            // ================================================================
+            // ErpUser / ErpRole converters (from monolith AutoMapperConfiguration.cs)
+            // EntityRecord → ErpUser, ErpUser → EntityRecord, EntityRecord → ErpRole
+            // ================================================================
+            cfg.CreateMap<EntityRecord, ErpUser>().ConvertUsing(new ErpUserRecordConverter());
+            cfg.CreateMap<ErpUser, EntityRecord>().ConvertUsing(new ErpUserToRecordConverter());
+            cfg.CreateMap<EntityRecord, ErpRole>().ConvertUsing(new ErpRoleRecordConverter());
+
+            // ================================================================
+            // ErrorModel → ValidationError (from monolith ErrorModelProfile.cs)
+            // ================================================================
+            cfg.CreateMap<ErrorModel, ValidationError>().ConvertUsing(
+                src => src == null ? null : new ValidationError(src.Key ?? "id", src.Message));
+
+            // ================================================================
+            // SearchResult mapping (from monolith SearchResultProfile.cs)
+            // ================================================================
+            cfg.CreateMap<System.Data.DataRow, SearchResult>().ConvertUsing(
+                src => src == null ? null : new SearchResult());
+
+            // ================================================================
+            // Database NN Relation Record mapping
+            // ================================================================
+            cfg.CreateMap<System.Data.DataRow, DatabaseNNRelationRecord>().ConvertUsing(
+                src => src == null ? null : new DatabaseNNRelationRecord());
+
+            // ================================================================
+            // DataSource mapping (from monolith DataSourceProfile.cs)
+            // DataSource data is stored as DataRow in the DB; mapped to model on retrieval
+            // ================================================================
+            cfg.CreateMap<System.Data.DataRow, DatabaseDataSource>().ConvertUsing(new DataRowToDatabaseDataSourceConverter());
+
+            // ================================================================
+            // Configure and initialize
+            // ================================================================
+            ErpAutoMapperConfiguration.Configure(cfg);
+            ErpAutoMapper.Initialize(cfg);
+
+            logger.LogInformation("Core Platform Service: AutoMapper initialized successfully.");
+        }
+
+        /// <summary>
+        /// Converts EntityRecord to ErpUser. Ported from monolith ErpUserConverter.
+        /// </summary>
+        private class ErpUserRecordConverter : ITypeConverter<EntityRecord, ErpUser>
+        {
+            public ErpUser Convert(EntityRecord src, ErpUser dest, ResolutionContext ctx)
+            {
+                if (src == null) return null;
+                var user = new ErpUser();
+                user.Id = (Guid)src["id"];
+                try { user.Username = (string)src["username"]; } catch (KeyNotFoundException) { }
+                try { user.Email = (string)src["email"]; } catch (KeyNotFoundException) { }
+                try { user.FirstName = (string)src["first_name"]; } catch (KeyNotFoundException) { }
+                try { user.LastName = (string)src["last_name"]; } catch (KeyNotFoundException) { }
+                try { user.Image = (string)src["image"]; } catch (KeyNotFoundException) { }
+                try { user.Password = (string)src["password"]; } catch (KeyNotFoundException) { user.Password = null; }
+                return user;
+            }
+        }
+
+        /// <summary>
+        /// Converts ErpUser to EntityRecord. Ported from monolith ErpUserConverterOposite.
+        /// </summary>
+        private class ErpUserToRecordConverter : ITypeConverter<ErpUser, EntityRecord>
+        {
+            public EntityRecord Convert(ErpUser src, EntityRecord dest, ResolutionContext ctx)
+            {
+                if (src == null) return null;
+                var rec = new EntityRecord();
+                rec["id"] = src.Id;
+                rec["username"] = src.Username;
+                rec["email"] = src.Email;
+                rec["first_name"] = src.FirstName;
+                rec["last_name"] = src.LastName;
+                rec["image"] = src.Image;
+                return rec;
+            }
+        }
+
+        /// <summary>
+        /// Converts EntityRecord to ErpRole. Ported from monolith ErpRoleConverter.
+        /// </summary>
+        private class ErpRoleRecordConverter : ITypeConverter<EntityRecord, ErpRole>
+        {
+            public ErpRole Convert(EntityRecord src, ErpRole dest, ResolutionContext ctx)
+            {
+                if (src == null) return null;
+                var role = new ErpRole();
+                role.Id = (Guid)src["id"];
+                try { role.Name = (string)src["name"]; } catch (KeyNotFoundException) { }
+                try { role.Description = (string)src["description"]; } catch (KeyNotFoundException) { }
+                return role;
+            }
+        }
+
+        /// <summary>
+        /// Converts DataRow to DatabaseDataSource. Ported from monolith DataSourceProfile.cs.
+        /// </summary>
+        private class DataRowToDatabaseDataSourceConverter : ITypeConverter<System.Data.DataRow, DatabaseDataSource>
+        {
+            public DatabaseDataSource Convert(System.Data.DataRow source, DatabaseDataSource destination, ResolutionContext context)
+            {
+                if (source == null) return null;
+                var outputObj = new DatabaseDataSource();
+                outputObj.Id = (Guid)source["id"];
+                outputObj.Name = (string)source["name"];
+                outputObj.Description = (string)source["description"];
+                outputObj.Weight = (int)source["weight"];
+                outputObj.ReturnTotal = (bool)source["return_total"];
+                outputObj.EqlText = (string)source["eql_text"];
+                outputObj.SqlText = (string)source["sql_text"];
+                outputObj.Parameters.AddRange(
+                    JsonConvert.DeserializeObject<List<DataSourceParameter>>((string)source["parameters_json"]).ToArray());
+                outputObj.Fields.AddRange(
+                    JsonConvert.DeserializeObject<List<DataSourceModelFieldMeta>>((string)source["fields_json"]).ToArray());
+                outputObj.EntityName = (string)source["entity_name"];
+                foreach (var par in outputObj.Parameters)
+                    if (par.Name.StartsWith("@"))
+                        par.Name = par.Name.Substring(1);
+                return outputObj;
+            }
+        }
+
+        /// <summary>
+        /// IEqlEntityProvider implementation that delegates to EntityManager for entity
+        /// metadata resolution.  Registered as a singleton and also assigned to
+        /// <see cref="EqlCommand.DefaultEntityProvider"/> so that EQL queries created
+        /// via the legacy <c>List&lt;EqlParameter&gt;</c> constructors (SecurityManager,
+        /// RecordManager, etc.) automatically resolve entity metadata.
+        /// </summary>
+        private class CoreEqlEntityProvider : IEqlEntityProvider
+        {
+            private readonly EntityManager _entityManager;
+
+            public CoreEqlEntityProvider(EntityManager entityManager)
+            {
+                _entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
+            }
+
+            public Entity ReadEntity(string entityName)
+            {
+                var response = _entityManager.ReadEntity(entityName);
+                return response?.Object;
+            }
+
+            public Entity ReadEntity(Guid entityId)
+            {
+                var response = _entityManager.ReadEntity(entityId);
+                return response?.Object;
+            }
+
+            public List<Entity> ReadEntities()
+            {
+                var response = _entityManager.ReadEntities();
+                return response?.Object ?? new List<Entity>();
+            }
+        }
+
+        /// <summary>
+        /// IEqlRelationProvider implementation that delegates to EntityRelationManager.
+        /// Registered as a singleton and assigned to <see cref="EqlCommand.DefaultRelationProvider"/>.
+        /// </summary>
+        private class CoreEqlRelationProvider : IEqlRelationProvider
+        {
+            private readonly EntityRelationManager _relationManager;
+
+            public CoreEqlRelationProvider(EntityRelationManager relationManager)
+            {
+                _relationManager = relationManager ?? throw new ArgumentNullException(nameof(relationManager));
+            }
+
+            public List<EntityRelation> Read()
+            {
+                var response = _relationManager.Read();
+                return response?.Object ?? new List<EntityRelation>();
+            }
+
+            public EntityRelation Read(string name)
+            {
+                var response = _relationManager.Read(name);
+                return response?.Object;
+            }
+
+            public EntityRelation Read(Guid id)
+            {
+                var response = _relationManager.Read(id);
+                return response?.Object;
+            }
+        }
+
+        /// <summary>
+        /// IEqlFieldValueExtractor implementation that delegates to DbRecordRepository.ExtractFieldValue.
+        /// Bridges the EQL engine's result materialization to the existing field value conversion logic.
+        /// </summary>
+        private class CoreEqlFieldValueExtractor : IEqlFieldValueExtractor
+        {
+            public object ExtractFieldValue(object jToken, Field field)
+            {
+                return DbRecordRepository.ExtractFieldValue(jToken, field);
+            }
+        }
+
+        /// <summary>
+        /// IEqlSecurityProvider implementation that delegates entity-level permission checks
+        /// to SecurityContext.HasEntityPermission. SecurityContext internally handles system user
+        /// (unlimited permissions), role-based checks for authenticated users, and guest fallback.
+        /// </summary>
+        private class CoreEqlSecurityProvider : IEqlSecurityProvider
+        {
+            public bool HasEntityPermission(EntityPermission permission, Entity entity)
+            {
+                return SecurityContext.HasEntityPermission(permission, entity);
             }
         }
     }
