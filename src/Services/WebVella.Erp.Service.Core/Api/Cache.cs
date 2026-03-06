@@ -31,7 +31,7 @@ namespace WebVella.Erp.Service.Core.Api
 	///   <item>All public method signatures</item>
 	/// </list>
 	/// </summary>
-	internal class Cache
+	public class Cache
 	{
 		#region <=== Constants and Fields ===>
 

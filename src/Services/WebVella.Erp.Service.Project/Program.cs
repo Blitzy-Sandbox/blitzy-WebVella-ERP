@@ -35,6 +35,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
@@ -44,8 +45,10 @@ using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
+using WebVella.Erp.SharedKernel.Eql;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
+using WebVella.Erp.SharedKernel.Utilities;
 using WebVella.Erp.Service.Core.Api;
 using WebVella.Erp.Service.Core.Database;
 using WebVella.Erp.Service.Project.Database;
@@ -401,6 +404,82 @@ namespace WebVella.Erp.Service.Project
             }
 
             // =================================================================
+            // AutoMapper Initialization — required for EntityManager.ReadEntities()
+            // EntityManager.ReadEntities() calls MapTo<Entity>() which requires
+            // ErpAutoMapper.Mapper to be initialized. The Core service calls
+            // InitializeAutoMapper() during its startup. Since the Project service
+            // runs independently, it must also initialize the mapper with the
+            // essential Entity/Field/Relation mapping profiles.
+            // This mirrors Core service's InitializeAutoMapper() but only includes
+            // the mappings needed for the Project service's operations.
+            // =================================================================
+            if (ErpAutoMapper.Mapper == null)
+            {
+                var cfg = ErpAutoMapperConfiguration.MappingExpressions;
+                cfg.CreateMap<Guid, string>().ConvertUsing(src => src.ToString());
+                cfg.CreateMap<DateTimeOffset, DateTime>().ConvertUsing(src => src.DateTime);
+                cfg.CreateMap<Entity, DbEntity>();
+                cfg.CreateMap<DbEntity, Entity>();
+                cfg.CreateMap<EntityRelation, DbEntityRelation>();
+                cfg.CreateMap<DbEntityRelation, EntityRelation>();
+                cfg.CreateMap<RecordPermissions, DbRecordPermissions>();
+                cfg.CreateMap<DbRecordPermissions, RecordPermissions>();
+                cfg.CreateMap<FieldPermissions, DbFieldPermissions>();
+                cfg.CreateMap<DbFieldPermissions, FieldPermissions>();
+                // Field type mappings — required for polymorphic DbBaseField → Field mapping
+                cfg.CreateMap<Field, DbBaseField>().IncludeAllDerived();
+                cfg.CreateMap<DbBaseField, Field>().IncludeAllDerived();
+                cfg.CreateMap<DbGuidField, GuidField>();
+                cfg.CreateMap<GuidField, DbGuidField>();
+                cfg.CreateMap<DbTextField, TextField>();
+                cfg.CreateMap<TextField, DbTextField>();
+                cfg.CreateMap<DbNumberField, NumberField>();
+                cfg.CreateMap<NumberField, DbNumberField>();
+                cfg.CreateMap<DbDateTimeField, DateTimeField>();
+                cfg.CreateMap<DateTimeField, DbDateTimeField>();
+                cfg.CreateMap<DbCheckboxField, CheckboxField>();
+                cfg.CreateMap<CheckboxField, DbCheckboxField>();
+                // Entity relation options
+                cfg.CreateMap<EntityRelationOptionsItem, DbEntityRelationOptions>();
+                cfg.CreateMap<DbEntityRelationOptions, EntityRelationOptionsItem>();
+                // Error model
+                cfg.CreateMap<ErrorModel, ErrorModel>();
+                ErpAutoMapperConfiguration.Configure(cfg);
+                ErpAutoMapper.Initialize(cfg);
+            }
+
+            // =================================================================
+            // Cache Initialization — required before EntityManager.ReadEntities()
+            // EntityManager.ReadEntities() calls Cache.GetEntities() which requires
+            // the static IDistributedCache to be initialized. Without this,
+            // a NullReferenceException occurs at Cache._cache.GetString().
+            // Mirrors Core service's Cache.Initialize() at Program.cs line 536.
+            // =================================================================
+            {
+                var distributedCache = app.Services.GetRequiredService<IDistributedCache>();
+                Cache.Initialize(distributedCache);
+            }
+
+            // =================================================================
+            // EQL Default Providers — required for TaskService, RecordManager, etc.
+            // The EQL engine uses static default providers (EqlCommand.DefaultEntityProvider,
+            // etc.) when callers do not pass explicit providers. This mirrors the Core
+            // service's initialization at src/Services/WebVella.Erp.Service.Core/Program.cs
+            // lines 567-573. Without this, all EQL queries fail with
+            // "One or more Eql errors occurred." because the entity provider is null.
+            // Resolved from app.Services (root provider) to match Core service pattern;
+            // the EntityManager and EntityRelationManager are kept alive for the app lifetime.
+            // =================================================================
+            {
+                var entityManager = app.Services.GetRequiredService<EntityManager>();
+                var relationManager = app.Services.GetRequiredService<EntityRelationManager>();
+                EqlCommand.DefaultEntityProvider = new ProjectEqlEntityProvider(entityManager);
+                EqlCommand.DefaultRelationProvider = new ProjectEqlRelationProvider(relationManager);
+                EqlCommand.DefaultFieldValueExtractor = new ProjectEqlFieldValueExtractor();
+                EqlCommand.DefaultSecurityProvider = new ProjectEqlSecurityProvider();
+            }
+
+            // =================================================================
             // Middleware Pipeline
             // =================================================================
 
@@ -510,6 +589,96 @@ namespace WebVella.Erp.Service.Project
     /// In production, this HTTP call can be replaced with an event-sourced local
     /// projection once the CRM service publishes AccountCreated/AccountDeleted events.
     /// </summary>
+    /// <summary>
+    /// IEqlEntityProvider implementation for the Project service, delegating to EntityManager.
+    /// Mirrors Core service's CoreEqlEntityProvider. Required so that EqlCommand instances
+    /// created via legacy constructors (e.g., in TaskService.ExecuteEql) can resolve
+    /// entity metadata from the Project service's own database.
+    /// </summary>
+    internal sealed class ProjectEqlEntityProvider : IEqlEntityProvider
+    {
+        private readonly EntityManager _entityManager;
+
+        public ProjectEqlEntityProvider(EntityManager entityManager)
+        {
+            _entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
+        }
+
+        public Entity ReadEntity(string entityName)
+        {
+            var response = _entityManager.ReadEntity(entityName);
+            return response?.Object;
+        }
+
+        public Entity ReadEntity(Guid entityId)
+        {
+            var response = _entityManager.ReadEntity(entityId);
+            return response?.Object;
+        }
+
+        public List<Entity> ReadEntities()
+        {
+            var response = _entityManager.ReadEntities();
+            return response?.Object ?? new List<Entity>();
+        }
+    }
+
+    /// <summary>
+    /// IEqlRelationProvider implementation for the Project service.
+    /// Mirrors Core service's CoreEqlRelationProvider.
+    /// </summary>
+    internal sealed class ProjectEqlRelationProvider : IEqlRelationProvider
+    {
+        private readonly EntityRelationManager _relationManager;
+
+        public ProjectEqlRelationProvider(EntityRelationManager relationManager)
+        {
+            _relationManager = relationManager ?? throw new ArgumentNullException(nameof(relationManager));
+        }
+
+        public List<EntityRelation> Read()
+        {
+            var response = _relationManager.Read();
+            return response?.Object ?? new List<EntityRelation>();
+        }
+
+        public EntityRelation Read(string name)
+        {
+            var response = _relationManager.Read(name);
+            return response?.Object;
+        }
+
+        public EntityRelation Read(Guid id)
+        {
+            var response = _relationManager.Read(id);
+            return response?.Object;
+        }
+    }
+
+    /// <summary>
+    /// IEqlFieldValueExtractor implementation for the Project service.
+    /// Mirrors Core service's CoreEqlFieldValueExtractor.
+    /// </summary>
+    internal sealed class ProjectEqlFieldValueExtractor : IEqlFieldValueExtractor
+    {
+        public object ExtractFieldValue(object jToken, Field field)
+        {
+            return DbRecordRepository.ExtractFieldValue(jToken, field);
+        }
+    }
+
+    /// <summary>
+    /// IEqlSecurityProvider implementation for the Project service.
+    /// Mirrors Core service's CoreEqlSecurityProvider.
+    /// </summary>
+    internal sealed class ProjectEqlSecurityProvider : IEqlSecurityProvider
+    {
+        public bool HasEntityPermission(EntityPermission permission, Entity entity)
+        {
+            return SecurityContext.HasEntityPermission(permission, entity);
+        }
+    }
+
     internal sealed class HttpCrmServiceClient : ICrmServiceClient
     {
         private readonly IHttpClientFactory _httpClientFactory;

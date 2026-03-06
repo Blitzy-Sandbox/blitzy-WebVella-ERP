@@ -316,21 +316,42 @@ namespace WebVella.Erp.Tests.Project.Fixtures
             // PostgreSQL instance with the configured database, user, and password.
             await _postgresContainer.StartAsync();
 
-            // Step 2: Create the WebApplicationFactory with the live connection string.
+            // Step 2: Apply EF Core migrations DIRECTLY against the Testcontainer.
+            // CRITICAL: We must run migrations using a standalone DbContext with the
+            // Testcontainer connection string rather than through the factory's DI
+            // container. This is because WebApplicationFactory's ConfigureAppConfiguration
+            // overrides are applied after Program.cs captures the connection string
+            // variable (minimal hosting model timing issue), so the factory-resolved
+            // ProjectDbContext may connect to the wrong database. By creating the
+            // DbContext directly with the Testcontainer connection string, we ensure
+            // migrations run against the correct database. The ConfigureWarnings
+            // suppression for PendingModelChangesWarning is required because the
+            // initial migration was generated from the monolith schema and minor
+            // model snapshot drift is expected during decomposition.
+            var migrationOptions = new DbContextOptionsBuilder<ProjectDbContext>()
+                .UseNpgsql(PostgresConnectionString)
+                .ConfigureWarnings(w =>
+                    w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
+                .Options;
+
+            using (var migrationContext = new ProjectDbContext(migrationOptions))
+            {
+                await migrationContext.Database.MigrateAsync();
+            }
+
+            // Step 2b: Seed entity metadata system tables.
+            // The EQL engine and RecordManager depend on entity metadata stored
+            // in the "entities" and "entity_relations" tables. These are Core
+            // service infrastructure tables not created by the Project EF Core
+            // migration. Without them, all EQL queries fail with
+            // "One or more Eql errors occurred" because the engine cannot resolve
+            // entity names to table definitions.
+            await SeedEntityMetadataAsync();
+
+            // Step 3: Create the WebApplicationFactory with the live connection string.
             // This configures the Project service test host to use the Testcontainer
             // database instead of a production PostgreSQL instance.
             Factory = new ProjectWebApplicationFactory(PostgresConnectionString);
-
-            // Step 3: Apply EF Core migrations to establish the complete schema.
-            // This creates all tables (rec_task, rec_timelog, rec_comment, rec_feed_item,
-            // rec_project, rec_task_type, rec_task_status, rec_milestone, rel_* join tables)
-            // and seeds reference data (task types, task statuses) defined in
-            // ProjectDbContext.OnModelCreating().
-            using (var scope = Factory.Services.CreateScope())
-            {
-                var dbContext = scope.ServiceProvider.GetRequiredService<ProjectDbContext>();
-                await dbContext.Database.MigrateAsync();
-            }
 
             // Step 4: Seed representative domain data for tests.
             // Uses the TestDataBuilders to create one project, task, timelog,
@@ -430,15 +451,20 @@ namespace WebVella.Erp.Tests.Project.Fixtures
             // Field structure matches TaskService.SetCalculationFields(),
             // GetTask(), GetPageHookLogic(), StartTaskTimelog(), and
             // PreCreateRecordPageHookLogic().
-            // Note: status_id is null (no default status seeded in this fixture;
-            // EF Core seed data provides task_status records if migrations include
-            // them). Priority "1" matches the monolith's default.
+            // status_id and type_id are NOT NULL in the EF Core migration, so
+            // we must use valid seeded IDs from the migration seed data.
+            // "Not Started" status: f3fdd750-0c16-4215-93b3-5373bd528d1f
+            // "General" type: da9bf72d-3655-4c51-9f99-047ef9297bf2
+            // Priority "1" matches the monolith's default.
             // -----------------------------------------------------------------
+            var notStartedStatusId = new Guid("f3fdd750-0c16-4215-93b3-5373bd528d1f");
+            var generalTypeId = new Guid("da9bf72d-3655-4c51-9f99-047ef9297bf2");
             var task = new TaskRecordBuilder()
                 .WithId(TestTaskId)
                 .WithSubject("Test Task Subject")
                 .WithNumber(1)
-                .WithStatusId(null)
+                .WithStatusId(notStartedStatusId)
+                .WithTypeId(generalTypeId)
                 .WithPriority("1")
                 .WithOwnerId(FirstUserId)
                 .WithStartTime(DateTime.UtcNow.Date)
@@ -486,6 +512,290 @@ namespace WebVella.Erp.Tests.Project.Fixtures
                 .WithType("task")
                 .Build();
             await InsertRecordAsync("feed_item", feedItem);
+
+            // Seed the rel_project_nn_task join table row linking project ↔ task
+            using var relConn = new NpgsqlConnection(PostgresConnectionString);
+            await relConn.OpenAsync();
+            using var relCmd = new NpgsqlCommand(
+                "INSERT INTO rel_project_nn_task (origin_id, target_id) VALUES (@oid, @tid) ON CONFLICT DO NOTHING",
+                relConn);
+            relCmd.Parameters.AddWithValue("oid", TestProjectId);
+            relCmd.Parameters.AddWithValue("tid", TestTaskId);
+            await relCmd.ExecuteNonQueryAsync();
+        }
+
+        // =================================================================
+        // SeedEntityMetadataAsync — Entity Metadata for EQL Engine
+        // =================================================================
+
+        /// <summary>
+        /// Seeds the Core infrastructure system tables (entities, entity_relations)
+        /// required by the EQL engine and RecordManager. These tables are normally
+        /// managed by the Core service but must exist in each service's database
+        /// for the shared EntityManager/RecordManager to resolve entity metadata.
+        /// </summary>
+        private async Task SeedEntityMetadataAsync()
+        {
+            using var connection = new NpgsqlConnection(PostgresConnectionString);
+            await connection.OpenAsync();
+
+            // Create system tables
+            using (var cmd = new NpgsqlCommand(@"
+                CREATE TABLE IF NOT EXISTS public.entities (
+                    id uuid NOT NULL,
+                    json json NOT NULL,
+                    CONSTRAINT entities_pkey PRIMARY KEY (id)
+                );
+                CREATE TABLE IF NOT EXISTS public.entity_relations (
+                    id uuid NOT NULL,
+                    json json NOT NULL,
+                    CONSTRAINT entity_relations_pkey PRIMARY KEY (id)
+                );", connection))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            var adminRoleId = AdministratorRoleId.ToString();
+            var regularRoleId = RegularRoleId.ToString();
+            var guestRoleId = GuestRoleId.ToString();
+            var asmName = "WebVella.Erp.SharedKernel";
+            var ns = "WebVella.Erp.SharedKernel.Database";
+
+            // Helper: build a minimal DbEntity JSON blob.
+            // The JSON must use Newtonsoft.Json TypeNameHandling.Auto format
+            // with $type discriminators for polymorphic DbBaseField subclasses.
+            string BuildEntityJson(Guid entityId, string name, string label, List<(string fieldType, Guid fieldId, string fieldName, string fieldLabel, bool required)> fields)
+            {
+                var fieldJsons = new List<string>();
+                foreach (var f in fields)
+                {
+                    // Each field needs a $type discriminator for Newtonsoft.Json deserialization
+                    var fieldJson = $@"{{
+                        ""$type"":""{ns}.{f.fieldType}, {asmName}"",
+                        ""id"":""{f.fieldId}"",
+                        ""name"":""{f.fieldName}"",
+                        ""label"":""{f.fieldLabel}"",
+                        ""placeholder_text"":"""",
+                        ""description"":"""",
+                        ""help_text"":"""",
+                        ""required"":{(f.required ? "true" : "false")},
+                        ""unique"":false,
+                        ""searchable"":false,
+                        ""auditable"":false,
+                        ""system"":false,
+                        ""permissions"":{{""can_read"":[],""can_update"":[]}}
+                    }}";
+                    fieldJsons.Add(fieldJson);
+                }
+
+                return $@"{{
+                    ""id"":""{entityId}"",
+                    ""name"":""{name}"",
+                    ""label"":""{label}"",
+                    ""label_plural"":""{label}s"",
+                    ""system"":false,
+                    ""icon_name"":"""",
+                    ""color"":"""",
+                    ""record_permissions"":{{
+                        ""can_read"":[""{adminRoleId}"",""{regularRoleId}"",""{guestRoleId}""],
+                        ""can_create"":[""{adminRoleId}"",""{regularRoleId}""],
+                        ""can_update"":[""{adminRoleId}"",""{regularRoleId}""],
+                        ""can_delete"":[""{adminRoleId}""]
+                    }},
+                    ""fields"":[{string.Join(",", fieldJsons)}]
+                }}";
+            }
+
+            // Deterministic entity IDs matching the migration comments
+            var projectEntityId = new Guid("ab1fb3e4-508c-48a3-b576-bfdd395f69d5");
+            var taskEntityId = new Guid("9386226e-381e-4522-b27b-fb5514d77902");
+            var taskStatusEntityId = new Guid("541ccc20-e86b-4b78-8570-0745b4a17497");
+            var taskTypeEntityId = new Guid("12244aea-878f-4a33-b205-26e53f9ed25b");
+            var timelogEntityId = new Guid("750153c5-1df9-408f-b856-727078a525bc");
+            var commentEntityId = new Guid("b1d218d5-68c2-41a5-bea5-1b4a78cbf91d");
+            var feedItemEntityId = new Guid("2ac9a907-1bdf-4700-8874-6e06a8d22c97");
+
+            // Fixed field IDs for id fields used in relation metadata
+            var projectIdFieldId = new Guid("e1a1a5c0-0001-0000-0000-000000000001");
+            var taskIdFieldId = new Guid("e1a1a5c0-0002-0000-0000-000000000001");
+
+            // ----- project entity metadata -----
+            var projectFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", projectIdFieldId, "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "name", "Name", true),
+                ("DbTextField", Guid.NewGuid(), "abbr", "Abbreviation", true),
+                ("DbTextField", Guid.NewGuid(), "description", "Description", false),
+                ("DbGuidField", Guid.NewGuid(), "owner_id", "Owner", false),
+                ("DbTextField", Guid.NewGuid(), "color", "Color", false),
+                ("DbTextField", Guid.NewGuid(), "icon", "Icon", false),
+                ("DbDateTimeField", Guid.NewGuid(), "start_date", "Start Date", false),
+                ("DbDateTimeField", Guid.NewGuid(), "end_date", "End Date", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_billable", "Is Billable", false),
+                ("DbTextField", Guid.NewGuid(), "scope_key", "Scope Key", false),
+                ("DbNumberField", Guid.NewGuid(), "x_billable_hours", "Billable Hours", false),
+                ("DbNumberField", Guid.NewGuid(), "x_nonbillable_hours", "Non-billable Hours", false),
+                ("DbNumberField", Guid.NewGuid(), "x_tasks_not_started", "Tasks Not Started", false),
+                ("DbNumberField", Guid.NewGuid(), "x_tasks_in_progress", "Tasks In Progress", false),
+                ("DbNumberField", Guid.NewGuid(), "x_tasks_completed", "Tasks Completed", false),
+                ("DbNumberField", Guid.NewGuid(), "x_overdue_tasks", "Overdue Tasks", false),
+                ("DbNumberField", Guid.NewGuid(), "x_milestones_on_track", "Milestones On Track", false),
+                ("DbNumberField", Guid.NewGuid(), "x_milestones_missed", "Milestones Missed", false),
+                ("DbNumberField", Guid.NewGuid(), "x_budget", "Budget", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+                ("DbTextField", Guid.NewGuid(), "x_search", "Search Index", false),
+                ("DbDateTimeField", Guid.NewGuid(), "created_on", "Created On", false),
+                ("DbGuidField", Guid.NewGuid(), "created_by", "Created By", false),
+            };
+            await InsertEntityMetadataAsync(connection, projectEntityId,
+                BuildEntityJson(projectEntityId, "project", "Project", projectFields));
+
+            // ----- task entity metadata -----
+            var taskFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", taskIdFieldId, "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "subject", "Subject", true),
+                ("DbTextField", Guid.NewGuid(), "body", "Body", false),
+                ("DbGuidField", Guid.NewGuid(), "owner_id", "Owner", false),
+                ("DbDateTimeField", Guid.NewGuid(), "start_time", "Start Time", false),
+                ("DbDateTimeField", Guid.NewGuid(), "end_time", "End Time", false),
+                ("DbDateTimeField", Guid.NewGuid(), "created_on", "Created On", false),
+                ("DbGuidField", Guid.NewGuid(), "created_by", "Created By", true),
+                ("DbDateTimeField", Guid.NewGuid(), "completed_on", "Completed On", false),
+                ("DbNumberField", Guid.NewGuid(), "number", "Number", true),
+                ("DbGuidField", Guid.NewGuid(), "parent_id", "Parent Task", false),
+                ("DbGuidField", Guid.NewGuid(), "status_id", "Status", true),
+                ("DbGuidField", Guid.NewGuid(), "type_id", "Type", true),
+                ("DbTextField", Guid.NewGuid(), "priority", "Priority", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+                ("DbTextField", Guid.NewGuid(), "l_related_records", "Related Records", false),
+                ("DbTextField", Guid.NewGuid(), "x_search", "Search Index", false),
+                ("DbGuidField", Guid.NewGuid(), "recurrence_id", "Recurrence", false),
+                ("DbTextField", Guid.NewGuid(), "recurrence_template", "Recurrence Template", false),
+                ("DbTextField", Guid.NewGuid(), "key", "Key", true),
+                ("DbNumberField", Guid.NewGuid(), "estimated_minutes", "Estimated Minutes", false),
+                ("DbNumberField", Guid.NewGuid(), "x_billable_minutes", "Billable Minutes", false),
+                ("DbNumberField", Guid.NewGuid(), "x_nonbillable_minutes", "Non-billable Minutes", false),
+                ("DbDateTimeField", Guid.NewGuid(), "timelog_started_on", "Timelog Started On", false),
+                ("DbCheckboxField", Guid.NewGuid(), "reserve_time", "Reserve Time", false),
+            };
+            await InsertEntityMetadataAsync(connection, taskEntityId,
+                BuildEntityJson(taskEntityId, "task", "Task", taskFields));
+
+            // ----- task_status entity metadata -----
+            var taskStatusFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", Guid.NewGuid(), "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "label", "Label", true),
+                ("DbNumberField", Guid.NewGuid(), "sort_index", "Sort Index", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_closed", "Is Closed", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_default", "Is Default", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_enabled", "Is Enabled", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_system", "Is System", false),
+                ("DbTextField", Guid.NewGuid(), "icon_class", "Icon Class", false),
+                ("DbTextField", Guid.NewGuid(), "color", "Color", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+            };
+            await InsertEntityMetadataAsync(connection, taskStatusEntityId,
+                BuildEntityJson(taskStatusEntityId, "task_status", "Task Status", taskStatusFields));
+
+            // ----- task_type entity metadata -----
+            var taskTypeFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", Guid.NewGuid(), "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "label", "Label", true),
+                ("DbNumberField", Guid.NewGuid(), "sort_index", "Sort Index", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_default", "Is Default", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_enabled", "Is Enabled", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_system", "Is System", false),
+                ("DbTextField", Guid.NewGuid(), "icon_class", "Icon Class", false),
+                ("DbTextField", Guid.NewGuid(), "color", "Color", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+            };
+            await InsertEntityMetadataAsync(connection, taskTypeEntityId,
+                BuildEntityJson(taskTypeEntityId, "task_type", "Task Type", taskTypeFields));
+
+            // ----- timelog entity metadata -----
+            var timelogFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", Guid.NewGuid(), "id", "Id", true),
+                ("DbNumberField", Guid.NewGuid(), "minutes", "Minutes", false),
+                ("DbCheckboxField", Guid.NewGuid(), "is_billable", "Is Billable", false),
+                ("DbTextField", Guid.NewGuid(), "body", "Body", false),
+                ("DbDateTimeField", Guid.NewGuid(), "logged_on", "Logged On", false),
+                ("DbDateTimeField", Guid.NewGuid(), "created_on", "Created On", false),
+                ("DbGuidField", Guid.NewGuid(), "created_by", "Created By", false),
+                ("DbTextField", Guid.NewGuid(), "l_related_records", "Related Records", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+            };
+            await InsertEntityMetadataAsync(connection, timelogEntityId,
+                BuildEntityJson(timelogEntityId, "timelog", "Timelog", timelogFields));
+
+            // ----- comment entity metadata -----
+            var commentFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", Guid.NewGuid(), "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "body", "Body", false),
+                ("DbGuidField", Guid.NewGuid(), "parent_id", "Parent Comment", false),
+                ("DbDateTimeField", Guid.NewGuid(), "created_on", "Created On", false),
+                ("DbGuidField", Guid.NewGuid(), "created_by", "Created By", false),
+                ("DbTextField", Guid.NewGuid(), "l_related_records", "Related Records", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+            };
+            await InsertEntityMetadataAsync(connection, commentEntityId,
+                BuildEntityJson(commentEntityId, "comment", "Comment", commentFields));
+
+            // ----- feed_item entity metadata -----
+            var feedItemFields = new List<(string, Guid, string, string, bool)>
+            {
+                ("DbGuidField", Guid.NewGuid(), "id", "Id", true),
+                ("DbTextField", Guid.NewGuid(), "subject", "Subject", false),
+                ("DbTextField", Guid.NewGuid(), "body", "Body", false),
+                ("DbTextField", Guid.NewGuid(), "type", "Type", false),
+                ("DbDateTimeField", Guid.NewGuid(), "created_on", "Created On", false),
+                ("DbGuidField", Guid.NewGuid(), "created_by", "Created By", false),
+                ("DbTextField", Guid.NewGuid(), "l_related_records", "Related Records", false),
+                ("DbTextField", Guid.NewGuid(), "l_scope", "Scope", false),
+            };
+            await InsertEntityMetadataAsync(connection, feedItemEntityId,
+                BuildEntityJson(feedItemEntityId, "feed_item", "Feed Item", feedItemFields));
+
+            // ----- Seed relation metadata for project_nn_task (M:N) -----
+            // Required by EQL queries that use $project_nn_task.xxx syntax
+            var projectNnTaskRelationId = new Guid("d7a285c0-0001-0000-0000-000000000001");
+            var relationJson = $@"{{
+                ""id"":""{projectNnTaskRelationId}"",
+                ""name"":""project_nn_task"",
+                ""label"":""Project - Task"",
+                ""description"":""M:N relation between project and task entities"",
+                ""system"":false,
+                ""relation_type"":3,
+                ""origin_entity_id"":""{projectEntityId}"",
+                ""origin_field_id"":""{projectIdFieldId}"",
+                ""target_entity_id"":""{taskEntityId}"",
+                ""target_field_id"":""{taskIdFieldId}""
+            }}";
+            using (var relCmd = new NpgsqlCommand(
+                "INSERT INTO entity_relations (id, json) VALUES (@id, @json::json) ON CONFLICT (id) DO UPDATE SET json = @json::json",
+                connection))
+            {
+                relCmd.Parameters.AddWithValue("id", projectNnTaskRelationId);
+                relCmd.Parameters.AddWithValue("json", relationJson);
+                await relCmd.ExecuteNonQueryAsync();
+            }
+        }
+
+        /// <summary>
+        /// Inserts a single entity metadata JSON row into the entities table.
+        /// </summary>
+        private static async Task InsertEntityMetadataAsync(NpgsqlConnection connection, Guid entityId, string json)
+        {
+            using var cmd = new NpgsqlCommand(
+                "INSERT INTO entities (id, json) VALUES (@id, @json::json) ON CONFLICT (id) DO UPDATE SET json = @json::json",
+                connection);
+            cmd.Parameters.AddWithValue("id", entityId);
+            cmd.Parameters.AddWithValue("json", json);
+            await cmd.ExecuteNonQueryAsync();
         }
 
         // =================================================================

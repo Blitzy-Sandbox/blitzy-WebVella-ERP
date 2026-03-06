@@ -590,7 +590,10 @@ namespace WebVella.Erp.Tests.Project.Fixtures
             record["name"] = _name;
             record["abbr"] = _abbr;
             record["owner_id"] = _ownerId;
-            record["account_id"] = _accountId;
+            // Note: account_id is NOT included — in the microservice architecture,
+            // the account relationship is a cross-service reference resolved via
+            // CRM gRPC calls, not a direct column in rec_project. The EF Core
+            // migration (20250101000000_InitialCreate) does not define this column.
             record["is_billable"] = _isBillable;
             record["created_by"] = _createdBy;
             record["created_on"] = _createdOn;

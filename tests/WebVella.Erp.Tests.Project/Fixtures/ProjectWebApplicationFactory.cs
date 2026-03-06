@@ -41,6 +41,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using WebVella.Erp.Service.Core.Database;
 using WebVella.Erp.Service.Project;
 
 namespace WebVella.Erp.Tests.Project.Fixtures
@@ -321,7 +322,36 @@ namespace WebVella.Erp.Tests.Project.Fixtures
 				});
 
 				// -------------------------------------------------------------
-				// 4. Remove Background Job Hosted Services
+				// 4. Override CoreDbContext registration
+				// Program.cs line 93 captures the connection string from
+				// builder.Configuration BEFORE ConfigureAppConfiguration
+				// overrides take effect (minimal hosting timing issue).
+				// This means CoreDbContext.CreateContext() would use the
+				// appsettings.json default, not the Testcontainer string.
+				// We re-register the scoped factory here so that ALL
+				// CoreDbContext instances use the Testcontainer database.
+				// Without this, EQL queries fail because they read from
+				// a non-existent production database.
+				// -------------------------------------------------------------
+				services.RemoveAll<CoreDbContext>();
+				services.AddScoped<CoreDbContext>(sp =>
+				{
+					return CoreDbContext.CreateContext(_postgresConnectionString);
+				});
+
+				// Also re-register repositories that depend on CoreDbContext
+				services.RemoveAll<DbEntityRepository>();
+				services.AddScoped<DbEntityRepository>(sp =>
+					new DbEntityRepository(sp.GetRequiredService<CoreDbContext>()));
+				services.RemoveAll<DbRecordRepository>();
+				services.AddScoped<DbRecordRepository>(sp =>
+					new DbRecordRepository(sp.GetRequiredService<CoreDbContext>()));
+				services.RemoveAll<DbRelationRepository>();
+				services.AddScoped<DbRelationRepository>(sp =>
+					new DbRelationRepository(sp.GetRequiredService<CoreDbContext>()));
+
+				// -------------------------------------------------------------
+				// 5 (was 4). Remove Background Job Hosted Services
 				// While Jobs:Enabled is set to false (which prevents job
 				// registration in Program.cs lines 375-378), this provides an
 				// additional safety net by removing any IHostedService
@@ -419,7 +449,7 @@ namespace WebVella.Erp.Tests.Project.Fixtures
 		public GrpcChannel CreateGrpcChannel()
 		{
 			var client = CreateDefaultClient();
-			var channel = Grpc.Net.Client.GrpcChannel.ForAddress(
+			var channel = global::Grpc.Net.Client.GrpcChannel.ForAddress(
 				client.BaseAddress ?? new Uri("http://localhost"),
 				new GrpcChannelOptions
 				{
@@ -467,7 +497,7 @@ namespace WebVella.Erp.Tests.Project.Fixtures
 			client.DefaultRequestHeaders.Authorization =
 				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", jwtToken);
 
-			var channel = Grpc.Net.Client.GrpcChannel.ForAddress(
+			var channel = global::Grpc.Net.Client.GrpcChannel.ForAddress(
 				client.BaseAddress ?? new Uri("http://localhost"),
 				new GrpcChannelOptions
 				{
