@@ -284,7 +284,7 @@ namespace WebVella.Erp.Tests.Mail.Database
 
             await using var cmd = new NpgsqlCommand(
                 @"INSERT INTO rec_smtp_service (id, name, server, port, username, password,
-                    default_sender_name, default_sender_email, default_reply_to_email,
+                    default_from_name, default_from_email, default_reply_to_email,
                     max_retries_count, retry_wait_minutes, is_default, is_enabled, connection_security)
                   VALUES (@id, @name, @server, @port, @username, @password,
                     @defaultSenderName, @defaultSenderEmail, @defaultReplyToEmail,
@@ -495,8 +495,8 @@ namespace WebVella.Erp.Tests.Mail.Database
             columnNames.Should().Contain("port");
             columnNames.Should().Contain("username");
             columnNames.Should().Contain("password");
-            columnNames.Should().Contain("default_sender_name");
-            columnNames.Should().Contain("default_sender_email");
+            columnNames.Should().Contain("default_from_name");
+            columnNames.Should().Contain("default_from_email");
             columnNames.Should().Contain("default_reply_to_email");
             columnNames.Should().Contain("max_retries_count");
             columnNames.Should().Contain("retry_wait_minutes");
@@ -527,8 +527,8 @@ namespace WebVella.Erp.Tests.Mail.Database
             columns.FirstOrDefault(c => c.ColumnName == "port")!.DataType.Should().Be("numeric");
             columns.FirstOrDefault(c => c.ColumnName == "username")!.DataType.Should().Be("text");
             columns.FirstOrDefault(c => c.ColumnName == "password")!.DataType.Should().Be("text");
-            columns.FirstOrDefault(c => c.ColumnName == "default_sender_name")!.DataType.Should().Be("text");
-            columns.FirstOrDefault(c => c.ColumnName == "default_sender_email")!.DataType.Should().Be("character varying");
+            columns.FirstOrDefault(c => c.ColumnName == "default_from_name")!.DataType.Should().Be("text");
+            columns.FirstOrDefault(c => c.ColumnName == "default_from_email")!.DataType.Should().Be("character varying");
             columns.FirstOrDefault(c => c.ColumnName == "default_reply_to_email")!.DataType.Should().Be("character varying");
             columns.FirstOrDefault(c => c.ColumnName == "max_retries_count")!.DataType.Should().Be("numeric");
             columns.FirstOrDefault(c => c.ColumnName == "retry_wait_minutes")!.DataType.Should().Be("numeric");

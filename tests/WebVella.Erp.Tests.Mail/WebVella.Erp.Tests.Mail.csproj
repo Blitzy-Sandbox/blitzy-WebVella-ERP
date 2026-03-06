@@ -135,4 +135,10 @@
   <!-- needed here — avoids CS0436 duplicate type warnings.                 -->
   <!-- =================================================================== -->
 
+  <!-- xUnit runner configuration — disables parallel test execution to     -->
+  <!-- avoid race conditions on CoreDbContext.connectionString static field  -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

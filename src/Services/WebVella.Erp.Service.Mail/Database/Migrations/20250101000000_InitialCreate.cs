@@ -245,12 +245,12 @@ namespace WebVella.Erp.Service.Mail.Database.Migrations
 
                     // Default sender display name. Optional, searchable.
                     // Source: Patch20190215 InputTextField, Required=false, Searchable=true
-                    default_sender_name = table.Column<string>(type: "text", nullable: true),
+                    default_from_name = table.Column<string>(type: "text", nullable: true),
 
                     // Default sender email address. Required, searchable.
                     // Source: Patch20190215 InputEmailField, Required=true, Searchable=true, DefaultValue=""
                     // Note: InputEmailField defaults to varchar(500) in WebVella ERP.
-                    default_sender_email = table.Column<string>(type: "varchar(500)", maxLength: 500, nullable: false, defaultValue: ""),
+                    default_from_email = table.Column<string>(type: "varchar(500)", maxLength: 500, nullable: false, defaultValue: ""),
 
                     // Whether this SMTP service is currently active. Boolean, required, default true.
                     // Source: Patch20190215 InputCheckboxField, Required=true, Searchable=true, DefaultValue=true
@@ -275,17 +275,17 @@ namespace WebVella.Erp.Service.Mail.Database.Migrations
                 column: "name",
                 unique: true);
 
-            // default_sender_name: Searchable=true in Patch20190215
+            // default_from_name: Searchable=true in Patch20190215
             migrationBuilder.CreateIndex(
-                name: "idx_rec_smtp_service_default_sender_name",
+                name: "idx_rec_smtp_service_default_from_name",
                 table: "rec_smtp_service",
-                column: "default_sender_name");
+                column: "default_from_name");
 
-            // default_sender_email: Searchable=true in Patch20190215
+            // default_from_email: Searchable=true in Patch20190215
             migrationBuilder.CreateIndex(
-                name: "idx_rec_smtp_service_default_sender_email",
+                name: "idx_rec_smtp_service_default_from_email",
                 table: "rec_smtp_service",
-                column: "default_sender_email");
+                column: "default_from_email");
         }
 
         /// <summary>

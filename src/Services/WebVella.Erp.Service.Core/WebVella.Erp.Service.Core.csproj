@@ -36,6 +36,8 @@
        ========================================================================== -->
   <ItemGroup>
     <InternalsVisibleTo Include="WebVella.Erp.Tests.Core" />
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Mail" />
+    <InternalsVisibleTo Include="WebVella.Erp.Service.Mail" />
   </ItemGroup>
 
   <!-- ==========================================================================

@@ -50,6 +50,7 @@ using WebVella.Erp.Service.Mail.Grpc;
 using WebVella.Erp.Service.Mail.Jobs;
 using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
+using WebVella.Erp.SharedKernel.Eql;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Security;
 
@@ -347,7 +348,10 @@ namespace WebVella.Erp.Service.Mail
                 {
                     try
                     {
-                        using var conn = new Npgsql.NpgsqlConnection(connectionString);
+                        // Use CoreDbContext.ConnectionString which is set at resolution time
+                        // (not the captured build-time variable) for test compatibility
+                        var healthConnStr = CoreDbContext.ConnectionString ?? connectionString;
+                        using var conn = new Npgsql.NpgsqlConnection(healthConnStr);
                         conn.Open();
                         using var cmd = conn.CreateCommand();
                         cmd.CommandText = "SELECT 1";
@@ -383,9 +387,17 @@ namespace WebVella.Erp.Service.Mail
             // -----------------------------------------------------------------
 
             // CoreDbContext — ambient database context for EQL and RecordManager
+            // IMPORTANT: Read connection string from IConfiguration at resolution time,
+            // NOT from the captured 'connectionString' variable. WebApplicationFactory's
+            // ConfigureAppConfiguration overrides are applied AFTER the builder phase,
+            // so the captured variable still holds the default value during integration tests.
             builder.Services.AddScoped<CoreDbContext>(sp =>
             {
-                return CoreDbContext.CreateContext(connectionString);
+                var config = sp.GetRequiredService<IConfiguration>();
+                var resolvedConnStr = config.GetConnectionString("Default")
+                    ?? config["Settings:ConnectionString"]
+                    ?? connectionString;
+                return CoreDbContext.CreateContext(resolvedConnStr);
             });
 
             // Database Repositories — scoped, one per request
@@ -461,9 +473,71 @@ namespace WebVella.Erp.Service.Mail
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<MailDbContext>();
                 // Guard: only call Migrate() when using a relational provider.
-                if (dbContext.Database.IsRelational())
+                // Support Database:SkipMigration=true for integration test environments
+                // where the test fixture manages schema creation independently.
+                var skipMigration = app.Configuration.GetValue<bool>("Database:SkipMigration", false);
+                if (dbContext.Database.IsRelational() && !skipMigration)
                 {
                     dbContext.Database.Migrate();
+                }
+            }
+
+            // =================================================================
+            // Initialize Core Cache — EntityManager.ReadEntities() and
+            // RecordManager depend on Cache being initialized with an
+            // IDistributedCache instance before any entity lookups.
+            // =================================================================
+            using (var cacheScope = app.Services.CreateScope())
+            {
+                var distributedCache = cacheScope.ServiceProvider
+                    .GetRequiredService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>();
+                WebVella.Erp.Service.Core.Api.Cache.Initialize(distributedCache);
+            }
+
+            // =================================================================
+            // AutoMapper initialization — required for MapTo<SmtpServiceConfig>(),
+            // MapTo<Email>(), and other EntityRecord ↔ DTO conversions used by
+            // SmtpService.GetSmtpServiceInternal() and other domain services.
+            // =================================================================
+            if (WebVella.Erp.SharedKernel.Utilities.ErpAutoMapper.Mapper == null)
+            {
+                var cfg = WebVella.Erp.SharedKernel.Utilities.ErpAutoMapperConfiguration.MappingExpressions;
+                // Type converters required by EntityRecord property resolution
+                cfg.CreateMap<Guid, string>().ConvertUsing(src => src.ToString());
+                cfg.CreateMap<DateTimeOffset, DateTime>().ConvertUsing(src => src.DateTime);
+                WebVella.Erp.SharedKernel.Utilities.ErpAutoMapperConfiguration.Configure(cfg);
+                WebVella.Erp.SharedKernel.Utilities.ErpAutoMapper.Initialize(cfg);
+            }
+
+            // =================================================================
+            // EQL Default Providers — required for EqlCommand instances used by
+            // MailController (e.g., "SELECT * FROM email", "SELECT * FROM smtp_service").
+            // Mirrors the Core service's startup pattern (Core/Program.cs lines 562-573).
+            // Sets the static providers only if not already set (e.g., by test fixtures).
+            // =================================================================
+            using (var eqlScope = app.Services.CreateScope())
+            {
+                var entityManager = eqlScope.ServiceProvider.GetRequiredService<EntityManager>();
+                var relationManager = eqlScope.ServiceProvider.GetRequiredService<EntityRelationManager>();
+                if (WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultEntityProvider == null)
+                {
+                    WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultEntityProvider =
+                        new MailEqlEntityProvider(entityManager);
+                }
+                if (WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultRelationProvider == null)
+                {
+                    WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultRelationProvider =
+                        new MailEqlRelationProvider(relationManager);
+                }
+                if (WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultFieldValueExtractor == null)
+                {
+                    WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultFieldValueExtractor =
+                        new MailEqlFieldValueExtractor();
+                }
+                if (WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultSecurityProvider == null)
+                {
+                    WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultSecurityProvider =
+                        new MailEqlSecurityProvider();
                 }
             }
 
@@ -523,6 +597,30 @@ namespace WebVella.Erp.Service.Mail
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
+
+            // -----------------------------------------------------------------
+            // SecurityContext scope middleware — opens a SharedKernel SecurityContext
+            // scope from the authenticated user's JWT claims on each request.
+            // This replaces the monolith's ErpMiddleware which did the same.
+            // Without this, EQL security checks fail with "No access to entity"
+            // because SecurityContext.CurrentUser is null.
+            // -----------------------------------------------------------------
+            app.Use(async (context, next) =>
+            {
+                IDisposable securityScope = null;
+                try
+                {
+                    if (context.User?.Identity?.IsAuthenticated == true)
+                    {
+                        securityScope = WebVella.Erp.SharedKernel.Security.SecurityContext.OpenScope(context.User);
+                    }
+                    await next();
+                }
+                finally
+                {
+                    securityScope?.Dispose();
+                }
+            });
 
             // -----------------------------------------------------------------
             // Endpoint mapping
@@ -610,6 +708,98 @@ namespace WebVella.Erp.Service.Mail
             if (bridgeEntries.Count > 0)
             {
                 configuration.AddInMemoryCollection(bridgeEntries);
+            }
+        }
+
+        // =============================================================
+        // EQL Provider implementations for Mail service
+        // Mirrors Core service's CoreEqlEntityProvider / CoreEqlRelationProvider
+        // pattern so that EqlCommand instances in MailController can
+        // resolve entity metadata (email, smtp_service) and relations.
+        // =============================================================
+
+        /// <summary>
+        /// IEqlEntityProvider implementation delegating to EntityManager.
+        /// Provides entity metadata for EQL queries within the Mail service.
+        /// </summary>
+        private class MailEqlEntityProvider : IEqlEntityProvider
+        {
+            private readonly EntityManager _entityManager;
+
+            public MailEqlEntityProvider(EntityManager entityManager)
+            {
+                _entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
+            }
+
+            public Entity ReadEntity(string entityName)
+            {
+                var response = _entityManager.ReadEntity(entityName);
+                return response?.Object;
+            }
+
+            public Entity ReadEntity(Guid entityId)
+            {
+                var response = _entityManager.ReadEntity(entityId);
+                return response?.Object;
+            }
+
+            public List<Entity> ReadEntities()
+            {
+                var response = _entityManager.ReadEntities();
+                return response?.Object ?? new List<Entity>();
+            }
+        }
+
+        /// <summary>
+        /// IEqlRelationProvider implementation delegating to EntityRelationManager.
+        /// </summary>
+        private class MailEqlRelationProvider : IEqlRelationProvider
+        {
+            private readonly EntityRelationManager _relationManager;
+
+            public MailEqlRelationProvider(EntityRelationManager relationManager)
+            {
+                _relationManager = relationManager ?? throw new ArgumentNullException(nameof(relationManager));
+            }
+
+            public List<EntityRelation> Read()
+            {
+                var response = _relationManager.Read();
+                return response?.Object ?? new List<EntityRelation>();
+            }
+
+            public EntityRelation Read(string name)
+            {
+                var response = _relationManager.Read(name);
+                return response?.Object;
+            }
+
+            public EntityRelation Read(Guid id)
+            {
+                var response = _relationManager.Read(id);
+                return response?.Object;
+            }
+        }
+
+        /// <summary>
+        /// IEqlFieldValueExtractor implementation that delegates to DbRecordRepository.
+        /// </summary>
+        private class MailEqlFieldValueExtractor : IEqlFieldValueExtractor
+        {
+            public object ExtractFieldValue(object jToken, Field field)
+            {
+                return DbRecordRepository.ExtractFieldValue(jToken, field);
+            }
+        }
+
+        /// <summary>
+        /// IEqlSecurityProvider implementation that delegates to SecurityContext.
+        /// </summary>
+        private class MailEqlSecurityProvider : IEqlSecurityProvider
+        {
+            public bool HasEntityPermission(EntityPermission permission, Entity entity)
+            {
+                return SecurityContext.HasEntityPermission(permission, entity);
             }
         }
     }

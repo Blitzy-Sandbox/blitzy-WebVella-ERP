@@ -91,11 +91,11 @@ namespace WebVella.Erp.Tests.Mail.Controllers
 	/// Validates HTTP routing, authorization, response envelope shape, and proper
 	/// delegation to SmtpService domain service.
 	/// </summary>
-	public class MailControllerTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Mail.Program>>
+	public class MailControllerIntegrationTests : IClassFixture<WebApplicationFactory<WebVella.Erp.Service.Mail.Program>>
 	{
 		private readonly WebApplicationFactory<WebVella.Erp.Service.Mail.Program> _factory;
 
-		public MailControllerTests(WebApplicationFactory<WebVella.Erp.Service.Mail.Program> factory)
+		public MailControllerIntegrationTests(WebApplicationFactory<WebVella.Erp.Service.Mail.Program> factory)
 		{
 			_factory = factory.WithWebHostBuilder(builder =>
 			{

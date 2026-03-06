@@ -155,16 +155,16 @@ namespace WebVella.Erp.Service.Mail.Database.Migrations
                     .HasColumnType("varchar(500)")
                     .HasColumnName("default_reply_to_email");
 
-                b.Property<string>("DefaultSenderEmail")
+                b.Property<string>("DefaultFromEmail")
                     .IsRequired()
                     .HasDefaultValue("")
                     .HasMaxLength(500)
                     .HasColumnType("varchar(500)")
-                    .HasColumnName("default_sender_email");
+                    .HasColumnName("default_from_email");
 
-                b.Property<string>("DefaultSenderName")
+                b.Property<string>("DefaultFromName")
                     .HasColumnType("text")
-                    .HasColumnName("default_sender_name");
+                    .HasColumnName("default_from_name");
 
                 b.Property<bool>("IsDefault")
                     .HasDefaultValue(false)
@@ -213,11 +213,11 @@ namespace WebVella.Erp.Service.Mail.Database.Migrations
 
                 b.HasKey("Id");
 
-                b.HasIndex("DefaultSenderEmail")
-                    .HasDatabaseName("idx_rec_smtp_service_default_sender_email");
+                b.HasIndex("DefaultFromEmail")
+                    .HasDatabaseName("idx_rec_smtp_service_default_from_email");
 
-                b.HasIndex("DefaultSenderName")
-                    .HasDatabaseName("idx_rec_smtp_service_default_sender_name");
+                b.HasIndex("DefaultFromName")
+                    .HasDatabaseName("idx_rec_smtp_service_default_from_name");
 
                 b.HasIndex("Name")
                     .IsUnique()

@@ -166,11 +166,16 @@ namespace WebVella.Erp.SharedKernel.Eql
 			if (string.IsNullOrWhiteSpace(text))
 				throw new ArgumentException("Command text cannot be null or empty.");
 
-			_entityProvider = entityProvider;
-			_relationProvider = relationProvider;
-			_securityProvider = securityProvider;
+			// Fall back to the static default providers when explicit providers are
+			// null, matching the behavior of the List<EqlParameter> constructor overload.
+			// This ensures callers such as MailController that use named-parameter syntax
+			// (parameters: array) still get entity/relation metadata resolution via the
+			// globally-registered providers set at service startup.
+			_entityProvider = entityProvider ?? DefaultEntityProvider;
+			_relationProvider = relationProvider ?? DefaultRelationProvider;
+			_securityProvider = securityProvider ?? DefaultSecurityProvider;
 			_hookProvider = hookProvider;
-			_fieldValueExtractor = fieldValueExtractor;
+			_fieldValueExtractor = fieldValueExtractor ?? DefaultFieldValueExtractor;
 
 			NpgConnection = null;
 

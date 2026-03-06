@@ -22,7 +22,7 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
     ///
     /// Column schemas are derived from the source model properties:
     ///   - rec_smtp_service: 14 columns from SmtpService.cs (id, name, server, port, username,
-    ///     password, default_sender_name, default_sender_email, default_reply_to_email,
+    ///     password, default_from_name, default_from_email, default_reply_to_email,
     ///     max_retries_count, retry_wait_minutes, is_default, is_enabled, connection_security)
     ///   - rec_email: 17 columns from Email.cs (id, service_id, sender, recipients,
     ///     reply_to_email, subject, content_text, content_html, created_on, sent_on,
@@ -80,8 +80,8 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                 port                  INTEGER DEFAULT 587,
                 username              TEXT,
                 password              TEXT,
-                default_sender_name   TEXT,
-                default_sender_email  TEXT,
+                default_from_name     TEXT,
+                default_from_email    TEXT,
                 default_reply_to_email TEXT,
                 max_retries_count     INTEGER DEFAULT 3,
                 retry_wait_minutes    INTEGER DEFAULT 5,
@@ -102,8 +102,8 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
             CREATE TABLE IF NOT EXISTS rec_email (
                 id              UUID PRIMARY KEY,
                 service_id      UUID NOT NULL REFERENCES rec_smtp_service(id),
-                sender          JSONB,
-                recipients      JSONB,
+                sender          TEXT,
+                recipients      TEXT,
                 reply_to_email  TEXT,
                 subject         TEXT,
                 content_text    TEXT,
@@ -116,7 +116,7 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                 scheduled_on    TIMESTAMP WITH TIME ZONE,
                 retries_count   INTEGER DEFAULT 0,
                 x_search        TEXT,
-                attachments     JSONB
+                attachments     TEXT
             );";
 
         /// <summary>
@@ -126,11 +126,11 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
         private const string InsertSmtpServiceSql = @"
             INSERT INTO rec_smtp_service (
                 id, name, server, port, username, password,
-                default_sender_name, default_sender_email, default_reply_to_email,
+                default_from_name, default_from_email, default_reply_to_email,
                 max_retries_count, retry_wait_minutes, is_default, is_enabled, connection_security
             ) VALUES (
                 @id, @name, @server, @port, @username, @password,
-                @default_sender_name, @default_sender_email, @default_reply_to_email,
+                @default_from_name, @default_from_email, @default_reply_to_email,
                 @max_retries_count, @retry_wait_minutes, @is_default, @is_enabled, @connection_security
             ) ON CONFLICT (id) DO NOTHING;";
 
@@ -145,9 +145,9 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                 content_text, content_html, created_on, sent_on, status, priority,
                 server_error, scheduled_on, retries_count, x_search, attachments
             ) VALUES (
-                @id, @service_id, @sender::jsonb, @recipients::jsonb, @reply_to_email, @subject,
+                @id, @service_id, @sender, @recipients, @reply_to_email, @subject,
                 @content_text, @content_html, @created_on, @sent_on, @status, @priority,
-                @server_error, @scheduled_on, @retries_count, @x_search, @attachments::jsonb
+                @server_error, @scheduled_on, @retries_count, @x_search, @attachments
             ) ON CONFLICT (id) DO NOTHING;";
 
         /// <summary>
@@ -412,8 +412,8 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
             cmd.Parameters.Add(new NpgsqlParameter("server", GetValueOrDbNull(data["server"])));
             cmd.Parameters.Add(new NpgsqlParameter("username", GetValueOrDbNull(data["username"])));
             cmd.Parameters.Add(new NpgsqlParameter("password", GetValueOrDbNull(data["password"])));
-            cmd.Parameters.Add(new NpgsqlParameter("default_sender_name", GetValueOrDbNull(data["default_sender_name"])));
-            cmd.Parameters.Add(new NpgsqlParameter("default_sender_email", GetValueOrDbNull(data["default_sender_email"])));
+            cmd.Parameters.Add(new NpgsqlParameter("default_from_name", GetValueOrDbNull(data["default_from_name"])));
+            cmd.Parameters.Add(new NpgsqlParameter("default_from_email", GetValueOrDbNull(data["default_from_email"])));
             cmd.Parameters.Add(new NpgsqlParameter("default_reply_to_email", GetValueOrDbNull(data["default_reply_to_email"])));
 
             // Integer columns

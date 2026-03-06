@@ -49,8 +49,8 @@ namespace WebVella.Erp.Tests.Mail.Domain
                 Port = 587,
                 Username = "user",
                 Password = "pass",
-                DefaultSenderName = "Test Sender",
-                DefaultSenderEmail = "sender@test.com",
+                DefaultFromName = "Test Sender",
+                DefaultFromEmail = "sender@test.com",
                 DefaultReplyToEmail = "reply@test.com",
                 MaxRetriesCount = 3,
                 RetryWaitMinutes = 5,
@@ -223,7 +223,7 @@ namespace WebVella.Erp.Tests.Mail.Domain
         public void SendEmail_WithSingleRecipient_UsesDefaultSender()
         {
             // Arrange — The SendEmail method with config creates an Email record with the config's
-            // DefaultSenderEmail and DefaultSenderName when no explicit sender is provided.
+            // DefaultFromEmail and DefaultFromName when no explicit sender is provided.
             // We verify this by exercising the validation-only path (validation passes, then
             // SMTP client will throw since no real server; we just verify validation passes).
             var service = CreateSmtpService();
@@ -476,7 +476,7 @@ namespace WebVella.Erp.Tests.Mail.Domain
         [Trait("Category", "Unit")]
         public void QueueEmail_WithNullSender_FallsBackToDefault()
         {
-            // Arrange — null sender should fall back to config's DefaultSenderEmail
+            // Arrange — null sender should fall back to config's DefaultFromEmail
             var service = CreateSmtpService();
             var config = CreateTestSmtpConfig();
             var recipient = CreateTestRecipient();
@@ -1630,8 +1630,8 @@ namespace WebVella.Erp.Tests.Mail.Domain
             config.Server.Should().Be(string.Empty);
             config.Username.Should().Be(string.Empty);
             config.Password.Should().Be(string.Empty);
-            config.DefaultSenderName.Should().Be(string.Empty);
-            config.DefaultSenderEmail.Should().Be(string.Empty);
+            config.DefaultFromName.Should().Be(string.Empty);
+            config.DefaultFromEmail.Should().Be(string.Empty);
             config.DefaultReplyToEmail.Should().Be(string.Empty);
         }
 

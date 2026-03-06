@@ -244,15 +244,15 @@ namespace WebVella.Erp.Service.Mail.Database
         /// <summary>
         /// Default sender display name. Optional, searchable.
         /// </summary>
-        [JsonProperty("default_sender_name")]
-        public string? DefaultSenderName { get; set; }
+        [JsonProperty("default_from_name")]
+        public string? DefaultFromName { get; set; }
 
         /// <summary>
         /// Default sender email address. Required, searchable.
         /// varchar(500), defaults to empty string.
         /// </summary>
-        [JsonProperty("default_sender_email")]
-        public string DefaultSenderEmail { get; set; } = "";
+        [JsonProperty("default_from_email")]
+        public string DefaultFromEmail { get; set; } = "";
 
         /// <summary>
         /// Whether this SMTP service is currently active. Boolean, required.
@@ -585,12 +585,12 @@ namespace WebVella.Erp.Service.Mail.Database
                     .IsRequired()
                     .HasDefaultValue("1");
 
-                entity.Property(e => e.DefaultSenderName)
-                    .HasColumnName("default_sender_name")
+                entity.Property(e => e.DefaultFromName)
+                    .HasColumnName("default_from_name")
                     .HasColumnType("text");
 
-                entity.Property(e => e.DefaultSenderEmail)
-                    .HasColumnName("default_sender_email")
+                entity.Property(e => e.DefaultFromEmail)
+                    .HasColumnName("default_from_email")
                     .HasColumnType("varchar(500)")
                     .IsRequired()
                     .HasDefaultValue("");
@@ -612,11 +612,11 @@ namespace WebVella.Erp.Service.Mail.Database
                     .HasDatabaseName("idx_rec_smtp_service_name_unique");
 
                 // Searchable fields from Patch20190215
-                entity.HasIndex(e => e.DefaultSenderName)
-                    .HasDatabaseName("idx_rec_smtp_service_default_sender_name");
+                entity.HasIndex(e => e.DefaultFromName)
+                    .HasDatabaseName("idx_rec_smtp_service_default_from_name");
 
-                entity.HasIndex(e => e.DefaultSenderEmail)
-                    .HasDatabaseName("idx_rec_smtp_service_default_sender_email");
+                entity.HasIndex(e => e.DefaultFromEmail)
+                    .HasDatabaseName("idx_rec_smtp_service_default_from_email");
             });
         }
 

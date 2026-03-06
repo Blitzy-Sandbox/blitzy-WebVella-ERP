@@ -435,8 +435,8 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				{
 					sender = new EmailAddress
 					{
-						Address = smtpConfig.DefaultSenderEmail,
-						Name = smtpConfig.DefaultSenderName
+						Address = smtpConfig.DefaultFromEmail,
+						Name = smtpConfig.DefaultFromName
 					};
 				}
 
@@ -677,10 +677,9 @@ namespace WebVella.Erp.Service.Mail.Controllers
 						case "password":
 							record["password"] = prop.Value.ToString();
 							break;
-						case "default_sender_name":
-							record["default_sender_name"] = prop.Value.ToString();
+						case "default_from_name":
+							record["default_from_name"] = prop.Value.ToString();
 							break;
-						case "default_sender_email":
 						case "default_from_email":
 							record["default_from_email"] = prop.Value.ToString();
 							break;
@@ -806,10 +805,9 @@ namespace WebVella.Erp.Service.Mail.Controllers
 						case "password":
 							record["password"] = prop.Value.ToString();
 							break;
-						case "default_sender_name":
-							record["default_sender_name"] = prop.Value.ToString();
+						case "default_from_name":
+							record["default_from_name"] = prop.Value.ToString();
 							break;
-						case "default_sender_email":
 						case "default_from_email":
 							record["default_from_email"] = prop.Value.ToString();
 							break;

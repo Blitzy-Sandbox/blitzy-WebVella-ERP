@@ -121,7 +121,7 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
         }
 
         /// <summary>Sets the default sender display name for outgoing emails.</summary>
-        /// <param name="name">Sender display name. Maps to JsonProperty "default_sender_name".</param>
+        /// <param name="name">Sender display name. Maps to JsonProperty "default_from_name".</param>
         /// <returns>This builder instance for fluent chaining.</returns>
         public SmtpServiceBuilder WithDefaultSenderName(string name)
         {
@@ -130,7 +130,7 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
         }
 
         /// <summary>Sets the default sender email address for outgoing emails.</summary>
-        /// <param name="email">Sender email address (must be valid email format per SmtpInternalService validation). Maps to JsonProperty "default_sender_email".</param>
+        /// <param name="email">Sender email address (must be valid email format per SmtpInternalService validation). Maps to JsonProperty "default_from_email".</param>
         /// <returns>This builder instance for fluent chaining.</returns>
         public SmtpServiceBuilder WithDefaultSenderEmail(string email)
         {
@@ -202,8 +202,9 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
         /// from the source SmtpService.cs model exactly.
         /// </summary>
         /// <returns>
-        /// A dictionary with 14 entries whose keys match the SmtpService JSON contract:
-        /// id, name, server, port, username, password, default_sender_name, default_sender_email,
+        /// A dictionary with 14 entries whose keys match the DB column names
+        /// (after monolith patch renames: default_from_name, default_from_email):
+        /// id, name, server, port, username, password, default_from_name, default_from_email,
         /// default_reply_to_email, max_retries_count, retry_wait_minutes, is_default, is_enabled,
         /// connection_security.
         /// </returns>
@@ -217,8 +218,8 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                 ["port"] = _port,
                 ["username"] = _username,
                 ["password"] = _password,
-                ["default_sender_name"] = _defaultSenderName,
-                ["default_sender_email"] = _defaultSenderEmail,
+                ["default_from_name"] = _defaultSenderName,
+                ["default_from_email"] = _defaultSenderEmail,
                 ["default_reply_to_email"] = _defaultReplyToEmail,
                 ["max_retries_count"] = _maxRetriesCount,
                 ["retry_wait_minutes"] = _retryWaitMinutes,

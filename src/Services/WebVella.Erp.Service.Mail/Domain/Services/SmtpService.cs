@@ -91,6 +91,83 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			// certificates from recognized CAs — no callback override needed.
 		}
 
+		#region <--- JSON Roundtrip Mapping Helpers --->
+
+		/// <summary>
+		/// Maps an EntityRecord (Expando with snake_case keys from EQL/DB) to a
+		/// strongly-typed domain object using Newtonsoft.Json as the intermediate
+		/// serializer. This respects [JsonProperty] attributes on the target type,
+		/// ensuring correct property mapping despite the naming convention difference
+		/// between EntityRecord keys (snake_case) and C# properties (PascalCase).
+		///
+		/// AutoMapper's convention-based mapping does NOT handle DynamicObject
+		/// (Expando) sources with snake_case keys → PascalCase destination properties.
+		/// This helper provides a reliable alternative.
+		/// </summary>
+		private static T MapRecordTo<T>(EntityRecord record)
+		{
+			if (record == null) return default;
+			// Use JObject.FromObject → ToObject<T> to leverage JToken's type coercion,
+			// which handles numeric type mismatches (e.g., double 587.0 → int 587)
+			// that raw JsonConvert.DeserializeObject cannot handle.
+			var jObj = Newtonsoft.Json.Linq.JObject.FromObject(record.Properties);
+			// Pre-process: The monolith stores some numeric values as strings in the DB
+			// (e.g., connection_security = "1", port = "587"). Newtonsoft.Json cannot
+			// directly convert string "1" to an enum like SecureSocketOptions. Convert
+			// numeric strings to actual numeric JTokens before deserialization.
+			foreach (var prop in jObj.Properties().ToList())
+			{
+				if (prop.Value.Type == Newtonsoft.Json.Linq.JTokenType.String)
+				{
+					var str = (string)prop.Value;
+					if (!string.IsNullOrEmpty(str) && long.TryParse(str, out long longVal))
+					{
+						prop.Value = longVal;
+					}
+					else if (!string.IsNullOrEmpty(str) && decimal.TryParse(str,
+						System.Globalization.NumberStyles.Any,
+						System.Globalization.CultureInfo.InvariantCulture, out decimal decVal))
+					{
+						prop.Value = decVal;
+					}
+				}
+			}
+			return jObj.ToObject<T>();
+		}
+
+		/// <summary>
+		/// Maps an EntityRecordList (from EQL Execute) to a strongly-typed domain
+		/// object by extracting the first record and applying MapRecordTo{T}.
+		/// </summary>
+		private static T MapFirstRecordTo<T>(EntityRecordList list)
+		{
+			if (list == null || list.Count == 0) return default;
+			return MapRecordTo<T>(list[0]);
+		}
+
+		/// <summary>
+		/// Maps a strongly-typed domain object (Email, SmtpServiceConfig) to an
+		/// EntityRecord using Newtonsoft.Json serialization. The [JsonProperty]
+		/// attributes on the source type produce snake_case keys in the JSON output,
+		/// which are then loaded into the EntityRecord's Properties dictionary.
+		/// This ensures RecordManager receives correctly-keyed records.
+		/// </summary>
+		private static EntityRecord MapToRecord(object obj)
+		{
+			if (obj == null) return null;
+			var json = JsonConvert.SerializeObject(obj);
+			var dict = JsonConvert.DeserializeObject<Dictionary<string, object>>(json);
+			var record = new EntityRecord();
+			if (dict != null)
+			{
+				foreach (var kvp in dict)
+					record[kvp.Key] = kvp.Value;
+			}
+			return record;
+		}
+
+		#endregion
+
 		#region <--- SMTP Service Caching (from EmailServiceManager.cs) --->
 
 		/// <summary>
@@ -173,7 +250,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 				smtpServiceRec = result[0];
 			}
-			return smtpServiceRec.MapTo<SmtpServiceConfig>();
+			return MapRecordTo<SmtpServiceConfig>(smtpServiceRec);
 		}
 
 		/// <summary>
@@ -186,7 +263,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			if (result.Count == 0)
 				throw new Exception($"SmtpService with id = '{id}' not found.");
 
-			return result[0].MapTo<SmtpServiceConfig>();
+			return MapRecordTo<SmtpServiceConfig>(result[0]);
 		}
 
 		/// <summary>
@@ -610,9 +687,9 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			var recMan = _recordManager;
 			var response = recMan.Find(new EntityQuery("email", "*", EntityQuery.QueryEQ("id", email.Id)));
 			if (response.Object != null && response.Object.Data != null && response.Object.Data.Count != 0)
-				response = recMan.UpdateRecord("email", email.MapTo<EntityRecord>());
+				response = recMan.UpdateRecord("email", MapToRecord(email));
 			else
-				response = recMan.CreateRecord("email", email.MapTo<EntityRecord>());
+				response = recMan.CreateRecord("email", MapToRecord(email));
 
 			if (!response.Success)
 				throw new Exception(response.Message);
@@ -626,7 +703,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 		{
 			var result = new EqlCommand("SELECT * FROM email WHERE id = @id", parameters: new EqlParameter[] { new EqlParameter("id", id) }).Execute();
 			if (result.Count == 1)
-				return result[0].MapTo<Email>();
+				return MapRecordTo<Email>(result[0]);
 
 			return null;
 		}
@@ -843,10 +920,10 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			ex.CheckAndThrow();
 
 			var message = new MimeMessage();
-			if (!string.IsNullOrWhiteSpace(config.DefaultSenderName))
-				message.From.Add(new MailboxAddress(config.DefaultSenderName, config.DefaultSenderEmail));
+			if (!string.IsNullOrWhiteSpace(config.DefaultFromName))
+				message.From.Add(new MailboxAddress(config.DefaultFromName, config.DefaultFromEmail));
 			else
-				message.From.Add(new MailboxAddress(config.DefaultSenderEmail, config.DefaultSenderEmail));
+				message.From.Add(new MailboxAddress(config.DefaultFromEmail, config.DefaultFromEmail));
 
 			if (!string.IsNullOrWhiteSpace(recipient.Name))
 				message.To.Add(new MailboxAddress(recipient.Name, recipient.Address));
@@ -914,7 +991,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			email.ReplyToEmail = config.DefaultReplyToEmail;
 			email.Recipients = new List<EmailAddress> { recipient };
 			email.Subject = subject;
@@ -987,10 +1064,10 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 			ex.CheckAndThrow();
 
 			var message = new MimeMessage();
-			if (!string.IsNullOrWhiteSpace(config.DefaultSenderName))
-				message.From.Add(new MailboxAddress(config.DefaultSenderName, config.DefaultSenderEmail));
+			if (!string.IsNullOrWhiteSpace(config.DefaultFromName))
+				message.From.Add(new MailboxAddress(config.DefaultFromName, config.DefaultFromEmail));
 			else
-				message.From.Add(new MailboxAddress(config.DefaultSenderEmail, config.DefaultSenderEmail));
+				message.From.Add(new MailboxAddress(config.DefaultFromEmail, config.DefaultFromEmail));
 
 			foreach (var recipient in recipients)
 			{
@@ -1061,7 +1138,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			email.ReplyToEmail = config.DefaultReplyToEmail;
 			email.Recipients = recipients;
 			email.Subject = subject;
@@ -1566,7 +1643,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			email.ReplyToEmail = config.DefaultReplyToEmail;
 			email.Recipients = new List<EmailAddress> { recipient };
 			email.Subject = subject;
@@ -1650,7 +1727,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			email.ReplyToEmail = config.DefaultReplyToEmail;
 			email.Recipients = recipients;
 			email.Subject = subject;
@@ -1753,7 +1830,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = sender ?? new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = sender ?? new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			if (string.IsNullOrWhiteSpace(replyTo))
 				email.ReplyToEmail = config.DefaultReplyToEmail;
 			else
@@ -1849,7 +1926,7 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 
 			Email email = new Email();
 			email.Id = Guid.NewGuid();
-			email.Sender = sender ?? new EmailAddress { Address = config.DefaultSenderEmail, Name = config.DefaultSenderName };
+			email.Sender = sender ?? new EmailAddress { Address = config.DefaultFromEmail, Name = config.DefaultFromName };
 			if (string.IsNullOrWhiteSpace(replyTo))
 				email.ReplyToEmail = config.DefaultReplyToEmail;
 			else
@@ -1918,12 +1995,15 @@ namespace WebVella.Erp.Service.Mail.Domain.Services
 				List<Email> pendingEmails = new List<Email>();
 				do
 				{
-					pendingEmails = new EqlCommand("SELECT * FROM email WHERE status = @status AND scheduled_on <> NULL" +
+					var eqlResult = new EqlCommand("SELECT * FROM email WHERE status = @status AND scheduled_on <> NULL" +
 													" AND scheduled_on < @scheduled_on  ORDER BY priority DESC, scheduled_on ASC PAGE 1 PAGESIZE 10",
 							parameters: new EqlParameter[] {
 								new EqlParameter("status", ((int)EmailStatus.Pending).ToString()),
 								new EqlParameter("scheduled_on", DateTime.UtcNow)
-							}).Execute().MapTo<Email>();
+							}).Execute();
+						pendingEmails = new List<Email>();
+						foreach (var rec in eqlResult)
+							pendingEmails.Add(MapRecordTo<Email>(rec));
 
 					foreach (var email in pendingEmails)
 					{

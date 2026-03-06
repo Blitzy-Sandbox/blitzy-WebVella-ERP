@@ -185,7 +185,14 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                     ["Redis:InstanceName"] = "MailServiceTest_",
 
                     // Messaging — set transport hint for any config-based branching
-                    ["Messaging:Transport"] = "InMemory"
+                    ["Messaging:Transport"] = "InMemory",
+
+                    // Skip EF Core migrations in tests — the DatabaseSeeder creates
+                    // tables with the correct schema via raw SQL in InitializeAsync.
+                    // EF Core migrations would conflict because its DDL uses different
+                    // column types (varchar vs integer, text vs jsonb) and does not
+                    // use IF NOT EXISTS guards.
+                    ["Database:SkipMigration"] = "true"
                 });
             });
 
@@ -440,7 +447,10 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
                 signingKey, SecurityAlgorithms.HmacSha256Signature);
 
             // Build claims matching the JWT structure expected by the Mail service's
-            // authorization middleware and any SharedKernel SecurityContext integration.
+            // authorization middleware and SharedKernel SecurityContext integration.
+            // CRITICAL: ErpUser.FromClaims expects ClaimTypes.Role values to be GUIDs
+            // (it uses Guid.TryParse), NOT role name strings. Map well-known role names
+            // to their SystemIds GUIDs so SecurityContext.HasEntityPermission works correctly.
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
@@ -449,7 +459,16 @@ namespace WebVella.Erp.Tests.Mail.Fixtures
 
             foreach (var role in resolvedRoles)
             {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                // Map role name strings to their well-known SystemIds GUIDs
+                var roleId = role.ToLowerInvariant() switch
+                {
+                    "administrator" => "BDC56420-CAF0-4030-8A0E-D264938E0CDA",
+                    "regular" => "F16EC6DB-626D-4C27-8DE0-3E7CE542C55F",
+                    "guest" => "987148B1-AFA8-4B33-8616-55861E5FD065",
+                    _ => role // If already a GUID string, pass through
+                };
+                claims.Add(new Claim(ClaimTypes.Role, roleId));
+                claims.Add(new Claim("role_name", role));
             }
 
             var tokenDescriptor = new SecurityTokenDescriptor

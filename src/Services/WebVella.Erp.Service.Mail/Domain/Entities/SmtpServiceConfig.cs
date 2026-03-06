@@ -69,16 +69,16 @@ namespace WebVella.Erp.Service.Mail.Domain.Entities
         /// when no explicit sender name is provided.
         /// Maps to the "From" header's display name portion.
         /// </summary>
-        [JsonProperty(PropertyName = "default_sender_name")]
-        public string DefaultSenderName { get; set; } = string.Empty;
+        [JsonProperty(PropertyName = "default_from_name")]
+        public string DefaultFromName { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the default sender email address used in outgoing emails
         /// when no explicit sender address is provided.
         /// Maps to the "From" header's email address portion.
         /// </summary>
-        [JsonProperty(PropertyName = "default_sender_email")]
-        public string DefaultSenderEmail { get; set; } = string.Empty;
+        [JsonProperty(PropertyName = "default_from_email")]
+        public string DefaultFromEmail { get; set; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the default "Reply-To" email address appended to outgoing emails.
@@ -133,6 +133,17 @@ namespace WebVella.Erp.Service.Mail.Domain.Entities
         /// </list>
         /// </summary>
         [JsonProperty(PropertyName = "connection_security")]
-        public SecureSocketOptions ConnectionSecurity { get; set; }
+        public int ConnectionSecurityValue { get; set; }
+
+        /// <summary>
+        /// Convenience property to access ConnectionSecurityValue as the MailKit
+        /// SecureSocketOptions enum. Used by SMTP client code for TLS configuration.
+        /// </summary>
+        [JsonIgnore]
+        public SecureSocketOptions ConnectionSecurity
+        {
+            get => (SecureSocketOptions)ConnectionSecurityValue;
+            set => ConnectionSecurityValue = (int)value;
+        }
     }
 }

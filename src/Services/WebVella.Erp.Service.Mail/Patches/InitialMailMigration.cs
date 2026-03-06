@@ -81,8 +81,8 @@ namespace WebVella.Erp.Service.Mail.Patches
     // password:                 420b9f71-ed26-4fd1-9c25-933d39b7d610
     // port:                     8d52e394-8e1c-4e97-b192-06e238d6c550
     // connection_security:      fdd4123b-7578-4a57-9a57-ef51034fd145
-    // default_sender_name:      cd7c8228-e40b-4b1b-86d0-4764663f03ec
-    // default_sender_email:     362cd0c1-ea7c-4aee-8909-df3e91ec15cb
+    // default_from_name:      cd7c8228-e40b-4b1b-86d0-4764663f03ec
+    // default_from_email:     362cd0c1-ea7c-4aee-8909-df3e91ec15cb
     // is_enabled:               6c3ba722-e78e-4365-8376-86584025c065
     //
     // --- Application/Metadata GUIDs ---
@@ -268,10 +268,10 @@ namespace WebVella.Erp.Service.Mail.Patches
                     connection_security = table.Column<string>(type: "varchar(200)", nullable: false, defaultValue: "1"),
 
                     // Default sender display name — Searchable=true (Patch20190215)
-                    default_sender_name = table.Column<string>(type: "text", nullable: true, defaultValue: ""),
+                    default_from_name = table.Column<string>(type: "text", nullable: true, defaultValue: ""),
 
                     // Default sender email address — Required, Searchable=true (Patch20190215)
-                    default_sender_email = table.Column<string>(type: "varchar(500)", nullable: false, defaultValue: ""),
+                    default_from_email = table.Column<string>(type: "varchar(500)", nullable: false, defaultValue: ""),
 
                     // Whether this service is active — Required, Searchable=true (Patch20190215)
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true)
@@ -297,17 +297,17 @@ namespace WebVella.Erp.Service.Mail.Patches
                 table: "rec_smtp_service",
                 column: "name");
 
-            // Searchable index on default_sender_name (Searchable=true in Patch20190215)
+            // Searchable index on default_from_name (Searchable=true in Patch20190215)
             migrationBuilder.CreateIndex(
-                name: "idx_rec_smtp_service_default_sender_name",
+                name: "idx_rec_smtp_service_default_from_name",
                 table: "rec_smtp_service",
-                column: "default_sender_name");
+                column: "default_from_name");
 
-            // Searchable index on default_sender_email (Searchable=true in Patch20190215)
+            // Searchable index on default_from_email (Searchable=true in Patch20190215)
             migrationBuilder.CreateIndex(
-                name: "idx_rec_smtp_service_default_sender_email",
+                name: "idx_rec_smtp_service_default_from_email",
                 table: "rec_smtp_service",
-                column: "default_sender_email");
+                column: "default_from_email");
 
             // =================================================================
             // 5. Seed entity permission metadata

@@ -387,11 +387,11 @@ namespace WebVella.Erp.Service.Mail.Grpc
 				ConnectionSecurity = ((int)config.ConnectionSecurity).ToString()
 			};
 
-			// Compose default_sender from DefaultSenderName + DefaultSenderEmail
+			// Compose default_sender from DefaultFromName + DefaultFromEmail
 			proto.DefaultSender = new EmailAddressProto
 			{
-				Name = config.DefaultSenderName ?? string.Empty,
-				Address = config.DefaultSenderEmail ?? string.Empty
+				Name = config.DefaultFromName ?? string.Empty,
+				Address = config.DefaultFromEmail ?? string.Empty
 			};
 
 			// Decompose DefaultReplyToEmail from semicolon-separated string
@@ -1196,8 +1196,8 @@ namespace WebVella.Erp.Service.Mail.Grpc
 			if (!string.IsNullOrEmpty(proto.ConnectionSecurity)) record["connection_security"] = proto.ConnectionSecurity;
 			if (proto.DefaultSender != null)
 			{
-				record["default_sender_email"] = proto.DefaultSender.Address;
-				record["default_sender_name"] = proto.DefaultSender.Name;
+				record["default_from_email"] = proto.DefaultSender.Address;
+				record["default_from_name"] = proto.DefaultSender.Name;
 			}
 			if (proto.DefaultReplyTo.Count > 0)
 			{
