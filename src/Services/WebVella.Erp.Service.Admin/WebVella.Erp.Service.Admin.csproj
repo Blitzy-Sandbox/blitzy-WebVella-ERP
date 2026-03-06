@@ -88,6 +88,7 @@
     <!-- RabbitMQ transport for MassTransit message bus, used in
          local/Docker development environments -->
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
 
     <!-- Amazon SQS/SNS transport for MassTransit, enabling LocalStack
          deployment validation and production AWS messaging -->

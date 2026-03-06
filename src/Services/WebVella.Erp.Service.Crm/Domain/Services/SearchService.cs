@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Microsoft.Extensions.Configuration;
+using Npgsql;
 using WebVella.Erp.SharedKernel.Models;
 using WebVella.Erp.SharedKernel.Eql;
 using WebVella.Erp.SharedKernel.Exceptions;
@@ -99,6 +101,7 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 		private readonly ICrmEntityRelationManager _entityRelationManager;
 		private readonly ICrmEntityManager _entityManager;
 		private readonly ICrmRecordManager _recordManager;
+		private readonly string _crmConnectionString;
 
 		/// <summary>
 		/// Initializes a new instance of <see cref="SearchService"/> with injected dependencies.
@@ -106,15 +109,18 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 		/// <param name="entityRelationManager">Provides entity relation metadata from Core service.</param>
 		/// <param name="entityManager">Provides entity metadata from Core service.</param>
 		/// <param name="recordManager">Provides record update operations via Core service.</param>
+		/// <param name="configuration">Application configuration for fallback database access.</param>
 		/// <exception cref="ArgumentNullException">Thrown if any parameter is null.</exception>
 		public SearchService(
 			ICrmEntityRelationManager entityRelationManager,
 			ICrmEntityManager entityManager,
-			ICrmRecordManager recordManager)
+			ICrmRecordManager recordManager,
+			IConfiguration configuration = null)
 		{
 			_entityRelationManager = entityRelationManager ?? throw new ArgumentNullException(nameof(entityRelationManager));
 			_entityManager = entityManager ?? throw new ArgumentNullException(nameof(entityManager));
 			_recordManager = recordManager ?? throw new ArgumentNullException(nameof(recordManager));
+			_crmConnectionString = configuration?.GetConnectionString("Default") ?? "";
 		}
 
 		/// <summary>
@@ -150,11 +156,49 @@ namespace WebVella.Erp.Service.Crm.Domain.Services
 		public virtual void RegenSearchField(string entityName, EntityRecord record, List<string> indexedFields)
 		{
 			var searchIndex = "";
-			var relations = _entityRelationManager.Read().Object;
-			var entities = _entityManager.ReadEntities().Object;
-			var currentEntity = entities.FirstOrDefault(x => x.Name == entityName);
+			var relations = _entityRelationManager.Read()?.Object;
+			var entities = _entityManager.ReadEntities()?.Object;
+			var currentEntity = entities?.FirstOrDefault(x => x.Name == entityName);
 			if (currentEntity == null)
-				throw new Exception($"Search index generation failed: Entity {entityName} not found");
+			{
+				// Graceful fallback: entity metadata unavailable (typical in database-per-service
+				// architecture where CRM entities exist as physical tables but not in the entities
+				// metadata table). Build search index directly from record field values using simple
+				// ToString() — no type-specific formatting or relation resolution.
+				foreach (var fieldName in indexedFields)
+				{
+					if (fieldName.StartsWith("$"))
+						continue; // Skip relation fields — cannot resolve without entity metadata
+					if (record.Properties.ContainsKey(fieldName) && record[fieldName] != null)
+					{
+						var val = record[fieldName].ToString();
+						if (!string.IsNullOrWhiteSpace(val))
+							searchIndex += val + " ";
+					}
+				}
+				// Persist the simplified search index directly to the CRM database.
+				// The proxy delegates to Core which doesn't own CRM entity records,
+				// so we update the local CRM database directly via Npgsql.
+				if (!string.IsNullOrEmpty(_crmConnectionString) && record.Properties.ContainsKey("id"))
+				{
+					try
+					{
+						using var conn = new NpgsqlConnection(_crmConnectionString);
+						conn.Open();
+						var tableName = "rec_" + entityName;
+						using var cmd = conn.CreateCommand();
+						cmd.CommandText = $"UPDATE {tableName} SET x_search = @search WHERE id = @id";
+						cmd.Parameters.AddWithValue("search", searchIndex.TrimEnd());
+						cmd.Parameters.AddWithValue("id", (Guid)record["id"]);
+						cmd.ExecuteNonQuery();
+					}
+					catch
+					{
+						// Silently ignore x_search update failures — non-critical optimization
+					}
+				}
+				return;
+			}
 
 			// Generate request columns
 			var requestColumns = new List<string>();

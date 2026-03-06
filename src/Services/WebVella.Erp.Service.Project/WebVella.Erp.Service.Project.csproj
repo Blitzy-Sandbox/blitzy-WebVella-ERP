@@ -25,6 +25,7 @@
 		<PackageReference Include="MassTransit" />
 		<!-- RabbitMQ transport for MassTransit message bus -->
 		<PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
 		<!-- Distributed Redis caching replacing in-process IMemoryCache -->
 		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
 		<!-- EF Core PostgreSQL provider for database-per-service model -->

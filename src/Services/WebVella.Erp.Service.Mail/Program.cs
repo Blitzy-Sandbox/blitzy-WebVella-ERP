@@ -305,7 +305,8 @@ namespace WebVella.Erp.Service.Mail
                             // in the AmazonSQS section of appsettings.json.
                             // MassTransit picks up the standard AWS env vars.
                         });
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
                 else
@@ -325,7 +326,8 @@ namespace WebVella.Erp.Service.Mail
                             h.Password(password);
                         });
 
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
             });
@@ -483,6 +485,266 @@ namespace WebVella.Erp.Service.Mail
             }
 
             // =================================================================
+            // Ensure Entity Metadata System Tables — required for EQL engine
+            // The EntityManager and EQL engine require 'entities' and
+            // 'entity_relations' tables in the service database. These tables
+            // are populated by syncing entity metadata from the Core service.
+            // =================================================================
+            {
+                var metaScope = app.Services.CreateScope();
+                var coreCtx = metaScope.ServiceProvider.GetRequiredService<CoreDbContext>();
+                using (var conn = coreCtx.CreateConnection())
+                {
+                    try
+                    {
+                        using (var cmd = conn.CreateCommand(@"
+                            CREATE TABLE IF NOT EXISTS entities (
+                                id UUID NOT NULL PRIMARY KEY,
+                                json TEXT NOT NULL,
+                                created_on TIMESTAMPTZ NOT NULL DEFAULT now()
+                            )"))
+                        { cmd.ExecuteNonQuery(); }
+
+                        using (var cmd = conn.CreateCommand(@"
+                            CREATE TABLE IF NOT EXISTS entity_relations (
+                                id UUID NOT NULL PRIMARY KEY,
+                                json TEXT NOT NULL,
+                                created_on TIMESTAMPTZ NOT NULL DEFAULT now()
+                            )"))
+                        { cmd.ExecuteNonQuery(); }
+                    }
+                    catch (Exception ex)
+                    {
+                        var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MailStartup");
+                        startupLogger.LogError(ex, "Mail Service: Failed to create entity metadata system tables.");
+                    }
+                }
+            }
+
+            // =================================================================
+            // Seed Entity Metadata from Database Schema (DbEntity format)
+            // The EQL engine reads entity metadata via DbEntityRepository which
+            // deserializes JSON with TypeNameHandling.Auto. We introspect the 
+            // local database schema and build proper DbEntity-format metadata.
+            // =================================================================
+            {
+                var seedLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MailStartup");
+                try
+                {
+                    var seedScope = app.Services.CreateScope();
+                    var coreCtx2 = seedScope.ServiceProvider.GetRequiredService<CoreDbContext>();
+                    using var seedConn = coreCtx2.CreateConnection();
+
+                    // Helper: generate deterministic GUID from a string key
+                    static Guid DeterministicGuid(string input)
+                    {
+                        using var md5 = System.Security.Cryptography.MD5.Create();
+                        var hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes("webvella_erp_" + input));
+                        return new Guid(hash);
+                    }
+
+                    // Helper: convert column_name to PascalCase label
+                    static string ToLabel(string colName)
+                    {
+                        var parts = colName.Split('_');
+                        return string.Join(" ", parts.Select(p =>
+                            p.Length > 0 ? char.ToUpper(p[0]) + p.Substring(1) : p));
+                    }
+
+                    // Helper: map PostgreSQL data type to a DbBaseField instance
+                    static DbBaseField MapColumnToField(string colName, string pgType)
+                    {
+                        DbBaseField field = pgType switch
+                        {
+                            "uuid" => new DbGuidField
+                            {
+                                GenerateNewId = (colName == "id"),
+                                DefaultValue = null
+                            },
+                            "timestamp with time zone" or "timestamp without time zone" => new DbDateTimeField
+                            {
+                                DefaultValue = null,
+                                Format = "yyyy-MMM-dd HH:mm",
+                                UseCurrentTimeAsDefaultValue = (colName == "created_on")
+                            },
+                            "boolean" => new DbCheckboxField
+                            {
+                                DefaultValue = false
+                            },
+                            "numeric" or "integer" or "bigint" or "smallint"
+                                or "double precision" or "real" => new DbNumberField
+                            {
+                                DefaultValue = null,
+                                MinValue = null,
+                                MaxValue = null,
+                                DecimalPlaces = 2
+                            },
+                            _ => new DbTextField
+                            {
+                                DefaultValue = null,
+                                MaxLength = null
+                            }
+                        };
+                        return field;
+                    }
+
+                    // Step 1: Discover all rec_* tables and their columns
+                    var entityDefs = new List<(string entityName, List<(string colName, string pgType)> columns)>();
+                    using (var tablesCmd = seedConn.CreateCommand(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'rec\\_%' ORDER BY table_name"))
+                    {
+                        using var tableReader = tablesCmd.ExecuteReader();
+                        var tableNames = new List<string>();
+                        while (tableReader.Read())
+                            tableNames.Add(tableReader.GetString(0));
+                        tableReader.Close();
+
+                        foreach (var tableName in tableNames)
+                        {
+                            var entityName = tableName.Substring(4);
+                            var columns = new List<(string colName, string pgType)>();
+                            using (var colCmd = seedConn.CreateCommand(
+                                "SELECT column_name, data_type FROM information_schema.columns " +
+                                "WHERE table_schema = 'public' AND table_name = @tbl ORDER BY ordinal_position",
+                                parameters: new List<Npgsql.NpgsqlParameter> { new Npgsql.NpgsqlParameter("@tbl", tableName) }))
+                            {
+                                using var colReader = colCmd.ExecuteReader();
+                                while (colReader.Read())
+                                    columns.Add((colReader.GetString(0), colReader.GetString(1)));
+                                colReader.Close();
+                            }
+                            entityDefs.Add((entityName, columns));
+                        }
+                    }
+
+                    // Step 2: Clear stale entity metadata
+                    using (var clearCmd = seedConn.CreateCommand("DELETE FROM entities WHERE TRUE"))
+                        clearCmd.ExecuteNonQuery();
+                    using (var clearRelCmd = seedConn.CreateCommand("DELETE FROM entity_relations WHERE TRUE"))
+                        clearRelCmd.ExecuteNonQuery();
+
+                    // Step 3: Build and seed DbEntity metadata
+                    var seededEntityIds = new Dictionary<string, Guid>();
+                    var seededFieldIds = new Dictionary<string, Guid>();
+                    var jsonSettings = new Newtonsoft.Json.JsonSerializerSettings { TypeNameHandling = Newtonsoft.Json.TypeNameHandling.Auto };
+
+                    foreach (var (entityName, columns) in entityDefs)
+                    {
+                        var entityId = DeterministicGuid($"entity_{entityName}");
+                        seededEntityIds[entityName] = entityId;
+
+                        var fields = new List<DbBaseField>();
+                        foreach (var (colName, pgType) in columns)
+                        {
+                            var field = MapColumnToField(colName, pgType);
+                            var fieldId = DeterministicGuid($"{entityName}_{colName}");
+                            field.Id = fieldId;
+                            field.Name = colName;
+                            field.Label = ToLabel(colName);
+                            field.Required = (colName == "id");
+                            field.Unique = (colName == "id");
+                            field.Searchable = (colName == "id" || colName == "x_search");
+                            field.Auditable = false;
+                            field.System = false;
+                            field.EnableSecurity = false;
+                            field.Permissions = new DbFieldPermissions();
+                            fields.Add(field);
+                            seededFieldIds[$"{entityName}.{colName}"] = fieldId;
+                        }
+
+                        var dbEntity = new DbEntity
+                        {
+                            Id = entityId,
+                            Name = entityName,
+                            Label = ToLabel(entityName),
+                            LabelPlural = ToLabel(entityName) + "s",
+                            System = false,
+                            IconName = "fa fa-cube",
+                            Color = "#999999",
+                            RecordPermissions = new DbRecordPermissions
+                            {
+                                CanRead = new List<Guid> {
+                                    Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda"),
+                                    Guid.Parse("f16ec6db-626d-4c27-8de0-3e7ce542c55f"),
+                                    Guid.Parse("987148b1-afa8-4b33-8616-55861e5fd065")
+                                },
+                                CanCreate = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") },
+                                CanUpdate = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") },
+                                CanDelete = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") }
+                            },
+                            Fields = fields
+                        };
+
+                        var entityJson = Newtonsoft.Json.JsonConvert.SerializeObject(dbEntity, jsonSettings);
+                        using var insertCmd = seedConn.CreateCommand(
+                            "INSERT INTO entities (id, json) VALUES (@id, @json) ON CONFLICT (id) DO UPDATE SET json = @json",
+                            parameters: new List<Npgsql.NpgsqlParameter>
+                            {
+                                new Npgsql.NpgsqlParameter("@id", entityId),
+                                new Npgsql.NpgsqlParameter("@json", entityJson)
+                            });
+                        insertCmd.ExecuteNonQuery();
+                    }
+
+                    // Step 4: Seed entity_relations for local rel_* join tables
+                    var relTableNames = new List<string>();
+                    using (var relTablesCmd = seedConn.CreateCommand(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'rel\\_%' ORDER BY table_name"))
+                    {
+                        using var relReader = relTablesCmd.ExecuteReader();
+                        while (relReader.Read())
+                            relTableNames.Add(relReader.GetString(0));
+                        relReader.Close();
+                    }
+
+                    foreach (var relTableName in relTableNames)
+                    {
+                        var relParts = relTableName.Substring(4);
+                        var nnIdx = relParts.IndexOf("_nn_");
+                        if (nnIdx < 0) continue;
+
+                        var originEntityName = relParts.Substring(0, nnIdx);
+                        var targetEntityName = relParts.Substring(nnIdx + 4);
+
+                        if (!seededEntityIds.ContainsKey(originEntityName) || !seededEntityIds.ContainsKey(targetEntityName))
+                            continue;
+
+                        var relId = DeterministicGuid($"rel_{originEntityName}_nn_{targetEntityName}");
+                        var dbRelation = new DbEntityRelation
+                        {
+                            Id = relId,
+                            Name = $"{originEntityName}_nn_{targetEntityName}",
+                            Label = $"{ToLabel(originEntityName)}-{ToLabel(targetEntityName)}",
+                            Description = null,
+                            System = false,
+                            RelationType = EntityRelationType.ManyToMany,
+                            OriginEntityId = seededEntityIds[originEntityName],
+                            OriginFieldId = seededFieldIds.GetValueOrDefault($"{originEntityName}.id", DeterministicGuid($"{originEntityName}_id")),
+                            TargetEntityId = seededEntityIds[targetEntityName],
+                            TargetFieldId = seededFieldIds.GetValueOrDefault($"{targetEntityName}.id", DeterministicGuid($"{targetEntityName}_id"))
+                        };
+
+                        var relJson = Newtonsoft.Json.JsonConvert.SerializeObject(dbRelation, jsonSettings);
+                        using var insertRelCmd = seedConn.CreateCommand(
+                            "INSERT INTO entity_relations (id, json) VALUES (@id, @json) ON CONFLICT (id) DO UPDATE SET json = @json",
+                            parameters: new List<Npgsql.NpgsqlParameter>
+                            {
+                                new Npgsql.NpgsqlParameter("@id", relId),
+                                new Npgsql.NpgsqlParameter("@json", relJson)
+                            });
+                        insertRelCmd.ExecuteNonQuery();
+                    }
+
+                    seedLogger.LogInformation("Mail Service: Seeded {EntityCount} entities and {RelCount} relations from database schema.",
+                        entityDefs.Count, relTableNames.Count);
+                }
+                catch (Exception ex)
+                {
+                    seedLogger.LogError(ex, "Mail Service: Failed to seed entity metadata from database schema.");
+                }
+            }
+
+            // =================================================================
             // Initialize Core Cache — EntityManager.ReadEntities() and
             // RecordManager depend on Cache being initialized with an
             // IDistributedCache instance before any entity lookups.
@@ -492,6 +754,11 @@ namespace WebVella.Erp.Service.Mail
                 var distributedCache = cacheScope.ServiceProvider
                     .GetRequiredService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>();
                 WebVella.Erp.Service.Core.Api.Cache.Initialize(distributedCache);
+                // Clear stale entity/relation cache from previous runs so that
+                // EntityManager.ReadEntities() reads freshly-seeded metadata from DB
+                // instead of returning an empty cached list.
+                WebVella.Erp.Service.Core.Api.Cache.ClearEntities();
+                WebVella.Erp.Service.Core.Api.Cache.ClearRelations();
             }
 
             // =================================================================
@@ -502,9 +769,68 @@ namespace WebVella.Erp.Service.Mail
             if (WebVella.Erp.SharedKernel.Utilities.ErpAutoMapper.Mapper == null)
             {
                 var cfg = WebVella.Erp.SharedKernel.Utilities.ErpAutoMapperConfiguration.MappingExpressions;
+
                 // Type converters required by EntityRecord property resolution
                 cfg.CreateMap<Guid, string>().ConvertUsing(src => src.ToString());
                 cfg.CreateMap<DateTimeOffset, DateTime>().ConvertUsing(src => src.DateTime);
+
+                // Entity mappings — required for DbEntityRepository.Read() → MapTo<Entity>()
+                // Without these, EntityManager.ReadEntities() throws AutoMapperMappingException
+                // and EQL queries fail with "Entity not found" because entity metadata cannot be loaded.
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.Entity, WebVella.Erp.SharedKernel.Database.DbEntity>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbEntity, WebVella.Erp.SharedKernel.Models.Entity>();
+
+                // EntityRelation mappings
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.EntityRelation, WebVella.Erp.SharedKernel.Database.DbEntityRelation>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbEntityRelation, WebVella.Erp.SharedKernel.Models.EntityRelation>();
+
+                // Permission mappings
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.RecordPermissions, WebVella.Erp.SharedKernel.Database.DbRecordPermissions>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbRecordPermissions, WebVella.Erp.SharedKernel.Models.RecordPermissions>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.FieldPermissions, WebVella.Erp.SharedKernel.Database.DbFieldPermissions>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbFieldPermissions, WebVella.Erp.SharedKernel.Models.FieldPermissions>();
+
+                // Field type mappings — required for polymorphic DbBaseField → Field mapping
+                // IncludeAllDerived() handles any field type subclass automatically
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.Field, WebVella.Erp.SharedKernel.Database.DbBaseField>().IncludeAllDerived();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbBaseField, WebVella.Erp.SharedKernel.Models.Field>().IncludeAllDerived();
+
+                // Explicit maps for all field types used in Mail entities (email, smtp_service)
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbGuidField, WebVella.Erp.SharedKernel.Models.GuidField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.GuidField, WebVella.Erp.SharedKernel.Database.DbGuidField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbTextField, WebVella.Erp.SharedKernel.Models.TextField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.TextField, WebVella.Erp.SharedKernel.Database.DbTextField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbNumberField, WebVella.Erp.SharedKernel.Models.NumberField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.NumberField, WebVella.Erp.SharedKernel.Database.DbNumberField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbDateTimeField, WebVella.Erp.SharedKernel.Models.DateTimeField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.DateTimeField, WebVella.Erp.SharedKernel.Database.DbDateTimeField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbCheckboxField, WebVella.Erp.SharedKernel.Models.CheckboxField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.CheckboxField, WebVella.Erp.SharedKernel.Database.DbCheckboxField>();
+                // Additional field types for completeness (may be used in cross-entity queries)
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbEmailField, WebVella.Erp.SharedKernel.Models.EmailField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.EmailField, WebVella.Erp.SharedKernel.Database.DbEmailField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbAutoNumberField, WebVella.Erp.SharedKernel.Models.AutoNumberField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.AutoNumberField, WebVella.Erp.SharedKernel.Database.DbAutoNumberField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbMultiLineTextField, WebVella.Erp.SharedKernel.Models.MultiLineTextField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.MultiLineTextField, WebVella.Erp.SharedKernel.Database.DbMultiLineTextField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbHtmlField, WebVella.Erp.SharedKernel.Models.HtmlField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.HtmlField, WebVella.Erp.SharedKernel.Database.DbHtmlField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbPasswordField, WebVella.Erp.SharedKernel.Models.PasswordField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.PasswordField, WebVella.Erp.SharedKernel.Database.DbPasswordField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbSelectField, WebVella.Erp.SharedKernel.Models.SelectField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.SelectField, WebVella.Erp.SharedKernel.Database.DbSelectField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbMultiSelectField, WebVella.Erp.SharedKernel.Models.MultiSelectField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.MultiSelectField, WebVella.Erp.SharedKernel.Database.DbMultiSelectField>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbSelectFieldOption, WebVella.Erp.SharedKernel.Models.SelectOption>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.SelectOption, WebVella.Erp.SharedKernel.Database.DbSelectFieldOption>();
+
+                // Entity relation options
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.EntityRelationOptionsItem, WebVella.Erp.SharedKernel.Database.DbEntityRelationOptions>();
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Database.DbEntityRelationOptions, WebVella.Erp.SharedKernel.Models.EntityRelationOptionsItem>();
+
+                // Error model
+                cfg.CreateMap<WebVella.Erp.SharedKernel.Models.ErrorModel, WebVella.Erp.SharedKernel.Models.ErrorModel>();
+
                 WebVella.Erp.SharedKernel.Utilities.ErpAutoMapperConfiguration.Configure(cfg);
                 WebVella.Erp.SharedKernel.Utilities.ErpAutoMapper.Initialize(cfg);
             }
@@ -515,8 +841,13 @@ namespace WebVella.Erp.Service.Mail
             // Mirrors the Core service's startup pattern (Core/Program.cs lines 562-573).
             // Sets the static providers only if not already set (e.g., by test fixtures).
             // =================================================================
-            using (var eqlScope = app.Services.CreateScope())
+            // Scope is intentionally NOT disposed — the EQL default providers need the
+            // EntityManager and RelationManager (and their underlying CoreDbContext) to
+            // remain alive for the application lifetime. Disposing the scope would dispose
+            // the CoreDbContext, causing "Object disposed" errors on EQL queries.
+            // This matches the Project service's pattern (Program.cs line 765).
             {
+                var eqlScope = app.Services.CreateScope();
                 var entityManager = eqlScope.ServiceProvider.GetRequiredService<EntityManager>();
                 var relationManager = eqlScope.ServiceProvider.GetRequiredService<EntityRelationManager>();
                 if (WebVella.Erp.SharedKernel.Eql.EqlCommand.DefaultEntityProvider == null)

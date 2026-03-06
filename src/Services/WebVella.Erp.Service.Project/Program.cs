@@ -43,6 +43,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Npgsql;
 using WebVella.Erp.SharedKernel;
 using WebVella.Erp.SharedKernel.Database;
 using WebVella.Erp.SharedKernel.Eql;
@@ -349,7 +351,8 @@ namespace WebVella.Erp.Service.Project
                             h.AccessKey(sqsAccessKey);
                             h.SecretKey(sqsSecretKey);
                         });
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
                 else
@@ -367,7 +370,8 @@ namespace WebVella.Erp.Service.Project
                             h.Username(rabbitUser);
                             h.Password(rabbitPass);
                         });
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
             });
@@ -400,6 +404,288 @@ namespace WebVella.Erp.Service.Project
                 if (dbContext.Database.IsRelational())
                 {
                     dbContext.Database.Migrate();
+                }
+            }
+
+            // =================================================================
+            // Ensure Entity Metadata System Tables — required for EQL engine
+            // The EntityManager and EQL engine require 'entities' and
+            // 'entity_relations' tables in the service database. In the monolith
+            // these tables existed in the single shared DB. In the microservice
+            // architecture, each service that uses EQL needs these tables locally.
+            // They are populated by syncing entity metadata from the Core service.
+            // =================================================================
+            {
+                var coreCtx = app.Services.CreateScope().ServiceProvider.GetRequiredService<CoreDbContext>();
+                using (var conn = coreCtx.CreateConnection())
+                {
+                    try
+                    {
+                        // Create entities table if not exists
+                        using (var cmd = conn.CreateCommand(@"
+                            CREATE TABLE IF NOT EXISTS entities (
+                                id UUID NOT NULL PRIMARY KEY,
+                                json TEXT NOT NULL,
+                                created_on TIMESTAMPTZ NOT NULL DEFAULT now()
+                            )"))
+                        {
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        // Create entity_relations table if not exists
+                        using (var cmd = conn.CreateCommand(@"
+                            CREATE TABLE IF NOT EXISTS entity_relations (
+                                id UUID NOT NULL PRIMARY KEY,
+                                json TEXT NOT NULL,
+                                created_on TIMESTAMPTZ NOT NULL DEFAULT now()
+                            )"))
+                        {
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ProjectStartup");
+                        startupLogger.LogInformation("Project Service: Entity metadata system tables ensured in project database.");
+                    }
+                    catch (Exception ex)
+                    {
+                        var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ProjectStartup");
+                        startupLogger.LogError(ex, "Project Service: Failed to create entity metadata system tables.");
+                    }
+                }
+            }
+
+            // =================================================================
+            // Seed Entity Metadata from Database Schema (DbEntity format)
+            // The EQL engine reads entity metadata via DbEntityRepository which
+            // deserializes JSON with TypeNameHandling.Auto (requires $type
+            // discriminators for polymorphic DbBaseField subclasses). Instead
+            // of syncing from Core API (which returns camelCase Entity JSON
+            // without $type discriminators), we introspect the local database
+            // schema and build proper DbEntity-format metadata directly.
+            // This ensures EQL can resolve all project-local entities.
+            // =================================================================
+            {
+                var seedLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ProjectStartup");
+                try
+                {
+                    var seedScope = app.Services.CreateScope();
+                    var coreCtx = seedScope.ServiceProvider.GetRequiredService<CoreDbContext>();
+                    using var seedConn = coreCtx.CreateConnection();
+
+                    // Helper: generate deterministic GUID from a string key
+                    static Guid DeterministicGuid(string input)
+                    {
+                        using var md5 = System.Security.Cryptography.MD5.Create();
+                        var hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes("webvella_erp_" + input));
+                        return new Guid(hash);
+                    }
+
+                    // Helper: convert column_name to PascalCase label
+                    static string ToLabel(string colName)
+                    {
+                        var parts = colName.Split('_');
+                        return string.Join(" ", parts.Select(p =>
+                            p.Length > 0 ? char.ToUpper(p[0]) + p.Substring(1) : p));
+                    }
+
+                    // Helper: map PostgreSQL data type to a DbBaseField instance
+                    static DbBaseField MapColumnToField(string colName, string pgType, string entityName)
+                    {
+                        DbBaseField field = pgType switch
+                        {
+                            "uuid" => new DbGuidField
+                            {
+                                GenerateNewId = (colName == "id"),
+                                DefaultValue = null
+                            },
+                            "timestamp with time zone" or "timestamp without time zone" => new DbDateTimeField
+                            {
+                                DefaultValue = null,
+                                Format = "yyyy-MMM-dd HH:mm",
+                                UseCurrentTimeAsDefaultValue = (colName == "created_on")
+                            },
+                            "boolean" => new DbCheckboxField
+                            {
+                                DefaultValue = false
+                            },
+                            "numeric" or "integer" or "bigint" or "smallint"
+                                or "double precision" or "real" => new DbNumberField
+                            {
+                                DefaultValue = null,
+                                MinValue = null,
+                                MaxValue = null,
+                                DecimalPlaces = 2
+                            },
+                            _ => new DbTextField
+                            {
+                                DefaultValue = null,
+                                MaxLength = null
+                            }
+                        };
+                        return field;
+                    }
+
+                    // Step 1: Discover all rec_* tables and their columns
+                    var entityDefs = new List<(string entityName, List<(string colName, string pgType)> columns)>();
+                    using (var tablesCmd = seedConn.CreateCommand(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'rec\\_%' ORDER BY table_name"))
+                    {
+                        using var tableReader = tablesCmd.ExecuteReader();
+                        var tableNames = new List<string>();
+                        while (tableReader.Read())
+                            tableNames.Add(tableReader.GetString(0));
+                        tableReader.Close();
+
+                        foreach (var tableName in tableNames)
+                        {
+                            var entityName = tableName.Substring(4); // strip "rec_" prefix
+                            var columns = new List<(string colName, string pgType)>();
+                            using (var colCmd = seedConn.CreateCommand(
+                                "SELECT column_name, data_type FROM information_schema.columns " +
+                                "WHERE table_schema = 'public' AND table_name = @tbl ORDER BY ordinal_position",
+                                parameters: new List<NpgsqlParameter> { new NpgsqlParameter("@tbl", tableName) }))
+                            {
+                                using var colReader = colCmd.ExecuteReader();
+                                while (colReader.Read())
+                                    columns.Add((colReader.GetString(0), colReader.GetString(1)));
+                                colReader.Close();
+                            }
+                            entityDefs.Add((entityName, columns));
+                        }
+                    }
+
+                    // Step 2: Clear stale entity metadata (may have wrong format from previous sync)
+                    using (var clearCmd = seedConn.CreateCommand("DELETE FROM entities WHERE TRUE"))
+                        clearCmd.ExecuteNonQuery();
+                    using (var clearRelCmd = seedConn.CreateCommand("DELETE FROM entity_relations WHERE TRUE"))
+                        clearRelCmd.ExecuteNonQuery();
+
+                    // Step 3: Build and seed DbEntity metadata for each discovered entity
+                    var seededEntityIds = new Dictionary<string, Guid>(); // entityName -> entityId
+                    var seededFieldIds = new Dictionary<string, Guid>();  // entityName.fieldName -> fieldId
+                    var jsonSettings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+
+                    foreach (var (entityName, columns) in entityDefs)
+                    {
+                        var entityId = DeterministicGuid($"entity_{entityName}");
+                        seededEntityIds[entityName] = entityId;
+
+                        var fields = new List<DbBaseField>();
+                        foreach (var (colName, pgType) in columns)
+                        {
+                            var field = MapColumnToField(colName, pgType, entityName);
+                            var fieldId = DeterministicGuid($"{entityName}_{colName}");
+                            field.Id = fieldId;
+                            field.Name = colName;
+                            field.Label = ToLabel(colName);
+                            field.Required = (colName == "id");
+                            field.Unique = (colName == "id");
+                            field.Searchable = (colName == "id" || colName == "x_search");
+                            field.Auditable = false;
+                            field.System = false;
+                            field.EnableSecurity = false;
+                            field.Permissions = new DbFieldPermissions();
+                            fields.Add(field);
+                            seededFieldIds[$"{entityName}.{colName}"] = fieldId;
+                        }
+
+                        var dbEntity = new DbEntity
+                        {
+                            Id = entityId,
+                            Name = entityName,
+                            Label = ToLabel(entityName),
+                            LabelPlural = ToLabel(entityName) + "s",
+                            System = false,
+                            IconName = "fa fa-cube",
+                            Color = "#999999",
+                            RecordPermissions = new DbRecordPermissions
+                            {
+                                CanRead = new List<Guid> {
+                                    Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda"),
+                                    Guid.Parse("f16ec6db-626d-4c27-8de0-3e7ce542c55f"),
+                                    Guid.Parse("987148b1-afa8-4b33-8616-55861e5fd065")
+                                },
+                                CanCreate = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") },
+                                CanUpdate = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") },
+                                CanDelete = new List<Guid> { Guid.Parse("bdc56420-caf0-4030-8a0e-d264938e0cda") }
+                            },
+                            Fields = fields
+                        };
+
+                        var entityJson = JsonConvert.SerializeObject(dbEntity, jsonSettings);
+                        using var insertCmd = seedConn.CreateCommand(
+                            "INSERT INTO entities (id, json) VALUES (@id, @json) ON CONFLICT (id) DO UPDATE SET json = @json",
+                            parameters: new List<NpgsqlParameter>
+                            {
+                                new NpgsqlParameter("@id", entityId),
+                                new NpgsqlParameter("@json", entityJson)
+                            });
+                        insertCmd.ExecuteNonQuery();
+                    }
+
+                    // Step 4: Seed entity_relations for local rel_* join tables
+                    // Discover rel_* tables and create M:N relation metadata
+                    var relTableNames = new List<string>();
+                    using (var relTablesCmd = seedConn.CreateCommand(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'rel\\_%' ORDER BY table_name"))
+                    {
+                        using var relReader = relTablesCmd.ExecuteReader();
+                        while (relReader.Read())
+                            relTableNames.Add(relReader.GetString(0));
+                        relReader.Close();
+                    }
+
+                    foreach (var relTableName in relTableNames)
+                    {
+                        // Parse relation table name: rel_{origin}_nn_{target}
+                        var relParts = relTableName.Substring(4); // strip "rel_"
+                        var nnIdx = relParts.IndexOf("_nn_");
+                        if (nnIdx < 0) continue;
+
+                        var originEntityName = relParts.Substring(0, nnIdx);
+                        var targetEntityName = relParts.Substring(nnIdx + 4);
+
+                        if (!seededEntityIds.ContainsKey(originEntityName) || !seededEntityIds.ContainsKey(targetEntityName))
+                            continue;
+
+                        var relId = DeterministicGuid($"rel_{originEntityName}_nn_{targetEntityName}");
+                        var originEntityId = seededEntityIds[originEntityName];
+                        var targetEntityId = seededEntityIds[targetEntityName];
+                        var originFieldId = seededFieldIds.GetValueOrDefault($"{originEntityName}.id", DeterministicGuid($"{originEntityName}_id"));
+                        var targetFieldId = seededFieldIds.GetValueOrDefault($"{targetEntityName}.id", DeterministicGuid($"{targetEntityName}_id"));
+
+                        var dbRelation = new DbEntityRelation
+                        {
+                            Id = relId,
+                            Name = $"{originEntityName}_nn_{targetEntityName}",
+                            Label = $"{ToLabel(originEntityName)}-{ToLabel(targetEntityName)}",
+                            Description = null,
+                            System = false,
+                            RelationType = EntityRelationType.ManyToMany,
+                            OriginEntityId = originEntityId,
+                            OriginFieldId = originFieldId,
+                            TargetEntityId = targetEntityId,
+                            TargetFieldId = targetFieldId
+                        };
+
+                        var relJson = JsonConvert.SerializeObject(dbRelation, jsonSettings);
+                        using var insertRelCmd = seedConn.CreateCommand(
+                            "INSERT INTO entity_relations (id, json) VALUES (@id, @json) ON CONFLICT (id) DO UPDATE SET json = @json",
+                            parameters: new List<NpgsqlParameter>
+                            {
+                                new NpgsqlParameter("@id", relId),
+                                new NpgsqlParameter("@json", relJson)
+                            });
+                        insertRelCmd.ExecuteNonQuery();
+                    }
+
+                    seedLogger.LogInformation(
+                        "Project Service: Seeded {EntityCount} entities and {RelCount} relations from database schema.",
+                        entityDefs.Count, relTableNames.Count);
+                }
+                catch (Exception ex)
+                {
+                    seedLogger.LogError(ex, "Project Service: Failed to seed entity metadata from database schema.");
                 }
             }
 
@@ -458,6 +744,11 @@ namespace WebVella.Erp.Service.Project
             {
                 var distributedCache = app.Services.GetRequiredService<IDistributedCache>();
                 Cache.Initialize(distributedCache);
+                // Clear stale entity/relation cache from previous runs so that
+                // EntityManager.ReadEntities() reads freshly-seeded metadata from DB
+                // instead of returning an empty cached list.
+                Cache.ClearEntities();
+                Cache.ClearRelations();
             }
 
             // =================================================================

@@ -181,6 +181,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_core_
@@ -218,6 +219,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-crm;Port=5432;User Id=dev;Password=dev;Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_crm_
@@ -256,6 +258,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-project;Port=5432;User Id=dev;Password=dev;Database=erp_project;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_project_
@@ -295,6 +298,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-mail;Port=5432;User Id=dev;Password=dev;Database=erp_mail;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_mail_
@@ -337,6 +341,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_reporting;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_reporting_
@@ -378,6 +383,7 @@ services:
         condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_admin;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
       - Redis__ConnectionString=redis:6379
       - Redis__InstanceName=erp_admin_
@@ -425,6 +431,7 @@ services:
         condition: service_started
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
       - Services__Core=http://core-service:8080
       - Services__Crm=http://crm-service:8080
       - Services__Project=http://project-service:8080

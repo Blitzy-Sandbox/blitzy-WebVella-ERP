@@ -180,9 +180,23 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				{
 					foreach (var item in (JArray)recipientsToken)
 					{
-						var name = item.Value<string>("name") ?? string.Empty;
-						var address = item.Value<string>("address") ?? string.Empty;
-						recipientsList.Add(new EmailAddress(name, address));
+						// Support both string format ["email@example.com"] and
+						// object format [{"name":"...", "address":"..."}] for recipients.
+						// The QA report (Issue 16) found that string array format causes
+						// "Cannot access child value on JValue" because item.Value<string>("name")
+						// is called on a JValue (string), not a JObject.
+						if (item.Type == JTokenType.String)
+						{
+							var emailStr = item.Value<string>() ?? string.Empty;
+							if (!string.IsNullOrWhiteSpace(emailStr))
+								recipientsList.Add(new EmailAddress(string.Empty, emailStr));
+						}
+						else if (item.Type == JTokenType.Object)
+						{
+							var name = item.Value<string>("name") ?? string.Empty;
+							var address = item.Value<string>("address") ?? string.Empty;
+							recipientsList.Add(new EmailAddress(name, address));
+						}
 					}
 				}
 
@@ -194,7 +208,8 @@ namespace WebVella.Erp.Service.Mail.Controllers
 
 				var subject = requestBody.Value<string>("subject") ?? string.Empty;
 				var contentText = requestBody.Value<string>("content_text") ?? string.Empty;
-				var contentHtml = requestBody.Value<string>("content_html") ?? string.Empty;
+				// Support both "content_html" (explicit) and "body" (shorthand) field names
+				var contentHtml = requestBody.Value<string>("content_html") ?? requestBody.Value<string>("body") ?? string.Empty;
 
 				// Parse optional attachments
 				var attachments = new List<string>();
@@ -312,16 +327,28 @@ namespace WebVella.Erp.Service.Mail.Controllers
 					return DoResponse(response);
 				}
 
-				// Parse recipients
+				// Parse recipients — supports both array of strings ["email@test.com"]
+				// and array of objects [{"name": "John", "address": "email@test.com"}]
 				var recipientsList = new List<EmailAddress>();
 				var recipientsToken = requestBody["recipients"];
 				if (recipientsToken != null && recipientsToken.Type == JTokenType.Array)
 				{
 					foreach (var item in (JArray)recipientsToken)
 					{
-						var name = item.Value<string>("name") ?? string.Empty;
-						var address = item.Value<string>("address") ?? string.Empty;
-						recipientsList.Add(new EmailAddress(name, address));
+						if (item.Type == JTokenType.String)
+						{
+							// Plain string email address
+							var address = item.Value<string>() ?? string.Empty;
+							if (!string.IsNullOrWhiteSpace(address))
+								recipientsList.Add(new EmailAddress(string.Empty, address));
+						}
+						else if (item.Type == JTokenType.Object)
+						{
+							// Object with name and address properties
+							var name = item.Value<string>("name") ?? string.Empty;
+							var address = item.Value<string>("address") ?? string.Empty;
+							recipientsList.Add(new EmailAddress(name, address));
+						}
 					}
 				}
 
@@ -544,6 +571,12 @@ namespace WebVella.Erp.Service.Mail.Controllers
 				response.Success = true;
 				response.Object = new { list = result, total_count = result.TotalCount };
 				return DoResponse(response);
+			}
+			catch (WebVella.Erp.SharedKernel.Eql.EqlException eqlEx)
+			{
+				var errorDetails = string.Join("; ", eqlEx.Errors?.Select(e => e.Message) ?? Array.Empty<string>());
+				var fullMessage = $"EQL Error: {eqlEx.Message} | Details: {errorDetails} | Inner: {eqlEx.InnerException?.Message}";
+				return DoBadRequestResponse(response, fullMessage, eqlEx);
 			}
 			catch (Exception ex)
 			{

@@ -189,9 +189,13 @@ namespace WebVella.Erp.SharedKernel.Security
 			DateTime tokenRefreshAfterDateTime = DateTime.UtcNow.AddMinutes(_options.TokenRefreshMinutes);
 			claims.Add(new Claim(type: TokenRefreshAfterClaimType, value: tokenRefreshAfterDateTime.ToBinary().ToString()));
 
-			// Sign with HMAC SHA-256 using configured key (padded to min 256 bits if needed)
+			// Sign with HMAC SHA-256 using standard "HS256" algorithm identifier.
+			// CRITICAL: Must use SecurityAlgorithms.HmacSha256 (= "HS256"), NOT
+			// SecurityAlgorithms.HmacSha256Signature (= XML URI), because downstream
+			// services validate with ValidAlgorithms = { "HS256" } and will reject
+			// tokens signed with the XML URI algorithm identifier.
 			var securityKey = new SymmetricSecurityKey(GetSigningKeyBytes());
-			var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256Signature);
+			var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
 			// Create token with configured issuer, audience, and expiry
 			// NOTE: expires uses DateTime.Now (local time) — preserved from source line 158
@@ -229,9 +233,10 @@ namespace WebVella.Erp.SharedKernel.Security
 				claimsList.Add(new Claim(type: TokenRefreshAfterClaimType, value: tokenRefreshAfterDateTime.ToBinary().ToString()));
 			}
 
-			// Sign with HMAC SHA-256 using configured key (padded to min 256 bits if needed)
+			// Sign with HMAC SHA-256 using standard "HS256" algorithm identifier.
+			// Must match BuildTokenAsync(ErpUser) above for consistency.
 			var securityKey = new SymmetricSecurityKey(GetSigningKeyBytes());
-			var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256Signature);
+			var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
 			// Create token with configured issuer, audience, and expiry
 			// NOTE: expires uses DateTime.Now (local time) — consistent with ErpUser overload

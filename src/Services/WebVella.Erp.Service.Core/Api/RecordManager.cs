@@ -114,9 +114,24 @@ namespace WebVella.Erp.Service.Core.Api
 		}
 
 		/// <summary>
+		/// Sanitizes a string value by HTML-encoding special characters to prevent XSS attacks.
+		/// Applied to text-type fields (TextField, EmailField, PhoneField, UrlField, SelectField,
+		/// MultiLineTextField, GeographyField) on input before storage.
+		/// HtmlField values are NOT sanitized because they intentionally contain HTML content.
+		/// Returns null for null/empty inputs, encoded string otherwise.
+		/// </summary>
+		private static string SanitizeTextValue(string value)
+		{
+			if (string.IsNullOrEmpty(value))
+				return value;
+
+			return System.Net.WebUtility.HtmlEncode(value);
+		}
+
+		/// <summary>
 		/// Extracts a typed field value from a key-value pair based on the field's type.
-		/// Handles type coercion, timezone conversion, password hashing, and multi-select arrays.
-		/// Preserved exactly from monolith RecordManager.ExtractFieldValue() (lines 1857-2064).
+		/// Handles type coercion, timezone conversion, password hashing, XSS sanitization, and multi-select arrays.
+		/// Preserved from monolith RecordManager.ExtractFieldValue() (lines 1857-2064) with XSS sanitization added.
 		/// </summary>
 		private object ExtractFieldValue(KeyValuePair<string, object>? fieldValue, Field field, bool encryptPasswordFields = false)
 		{
@@ -236,17 +251,17 @@ namespace WebVella.Erp.Service.Core.Api
 					return date;
 				}
 				else if (field is EmailField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is FileField)
-					return pair.Value as string;
+					return pair.Value as string; // File paths should not be sanitized
 				else if (field is ImageField)
-					return pair.Value as string;
+					return pair.Value as string; // Image paths should not be sanitized
 				else if (field is HtmlField)
-					return pair.Value as string;
+					return pair.Value as string; // HTML fields intentionally contain HTML content — not sanitized
 				else if (field is MultiLineTextField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is GeographyField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is MultiSelectField)
 				{
 					if (pair.Value == null)
@@ -291,7 +306,7 @@ namespace WebVella.Erp.Service.Core.Api
 					return Convert.ToDecimal(pair.Value);
 				}
 				else if (field is PhoneField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is GuidField)
 				{
 					if (pair.Value is string)
@@ -311,11 +326,11 @@ namespace WebVella.Erp.Service.Core.Api
 					throw new Exception("Invalid Guid field value.");
 				}
 				else if (field is SelectField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is TextField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 				else if (field is UrlField)
-					return pair.Value as string;
+					return SanitizeTextValue(pair.Value as string);
 			}
 			else
 			{
@@ -642,6 +657,39 @@ namespace WebVella.Erp.Service.Core.Api
 							response.Errors.Add(new ErrorModel { Message = "Access denied." });
 							return response;
 						}
+					}
+
+					// Validate required fields — reject empty/whitespace values for required text-type fields
+					// This prevents creation of records with empty usernames, missing emails, etc.
+					foreach (var field in entity.Fields)
+					{
+						if (!field.Required) continue;
+						// Skip auto-managed fields that get default values
+						if (field.GetFieldType() == FieldType.AutoNumberField ||
+						    field.GetFieldType() == FieldType.GuidField) continue;
+
+						if (record.Properties.ContainsKey(field.Name))
+						{
+							var val = record[field.Name];
+							// For string-type fields, reject empty/whitespace-only values
+							bool isTextType = (field is TextField || field is EmailField || field is PhoneField || field is UrlField);
+							if (isTextType && val is string checkVal && string.IsNullOrWhiteSpace(checkVal))
+							{
+								response.Errors.Add(new ErrorModel
+								{
+									Key = field.Name,
+									Message = $"Required field '{field.Name}' cannot be empty."
+								});
+							}
+						}
+					}
+
+					if (response.Errors.Count > 0)
+					{
+						response.Object = null;
+						response.Success = false;
+						response.Timestamp = DateTime.UtcNow;
+						return response;
 					}
 
 					// Always open transaction when publishEvents is true or when relation fields are present

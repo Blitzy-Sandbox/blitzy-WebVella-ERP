@@ -70,6 +70,7 @@
     <PackageReference Include="MassTransit" />
     <!-- RabbitMQ transport for local/Docker messaging -->
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
     <!-- Amazon SQS/SNS transport for LocalStack deployment validation -->
     <PackageReference Include="MassTransit.AmazonSQS" />
     <!-- Distributed Redis caching replacing monolith IMemoryCache -->

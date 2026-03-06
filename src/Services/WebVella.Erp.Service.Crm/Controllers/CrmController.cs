@@ -162,6 +162,10 @@ namespace WebVella.Erp.Service.Crm.Controllers
 		/// </summary>
 		protected IActionResult DoResponse(BaseResponseModel response)
 		{
+			// Ensure timestamp is always set to current UTC time (Issue 13)
+			if (response.Timestamp == default(DateTime))
+				response.Timestamp = DateTime.UtcNow;
+
 			if (response.Errors.Count > 0 || !response.Success)
 			{
 				if (response.StatusCode == HttpStatusCode.OK)

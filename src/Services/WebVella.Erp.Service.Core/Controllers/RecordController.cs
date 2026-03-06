@@ -83,12 +83,83 @@ namespace WebVella.Erp.Service.Core.Controllers
 		#region << Response Helpers — from ApiControllerBase.cs >>
 
 		/// <summary>
+		/// List of field names that must never be returned in API responses.
+		/// Password hashes are stripped to prevent credential leakage (Issue 7).
+		/// </summary>
+		private static readonly HashSet<string> SensitiveFieldNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+		{
+			"password"
+		};
+
+		/// <summary>
+		/// Strips sensitive fields (e.g., password hashes) from all EntityRecord objects
+		/// within a response model before returning to the client.
+		/// Handles ResponseModel (single object), QueryResponse (data list), and nested structures.
+		/// </summary>
+		private void StripSensitiveFields(BaseResponseModel response)
+		{
+			if (response is QueryResponse queryResponse)
+			{
+				// QueryResponse.Object is QueryResult with Data list
+				if (queryResponse.Object?.Data != null)
+				{
+					foreach (var record in queryResponse.Object.Data)
+					{
+						StripSensitiveFieldsFromRecord(record);
+					}
+				}
+			}
+			else if (response is ResponseModel responseModel)
+			{
+				// ResponseModel.Object could be EntityRecordList (which IS List<EntityRecord>) or EntityRecord
+				if (responseModel.Object is EntityRecordList recordList)
+				{
+					foreach (var record in recordList)
+					{
+						StripSensitiveFieldsFromRecord(record);
+					}
+				}
+				else if (responseModel.Object is EntityRecord singleRecord)
+				{
+					StripSensitiveFieldsFromRecord(singleRecord);
+				}
+				else if (responseModel.Object is List<EntityRecord> recordListPlain)
+				{
+					foreach (var record in recordListPlain)
+					{
+						StripSensitiveFieldsFromRecord(record);
+					}
+				}
+			}
+		}
+
+		/// <summary>
+		/// Removes all sensitive field entries from a single EntityRecord dictionary.
+		/// </summary>
+		private void StripSensitiveFieldsFromRecord(EntityRecord record)
+		{
+			if (record == null) return;
+			foreach (var fieldName in SensitiveFieldNames)
+			{
+				record.Properties.Remove(fieldName);
+			}
+		}
+
+		/// <summary>
 		/// Standard response helper. Sets HTTP status code based on response model state.
+		/// Strips sensitive fields (password hashes) before serialization.
 		/// If errors exist or Success is false, returns 400 BadRequest (unless StatusCode is overridden).
 		/// Preserved from monolith ApiControllerBase.cs lines 16-30.
 		/// </summary>
 		protected IActionResult DoResponse(BaseResponseModel response)
 		{
+			// Ensure timestamp is always set to current UTC time
+			if (response.Timestamp == default(DateTime))
+				response.Timestamp = DateTime.UtcNow;
+
+			// Strip sensitive fields (e.g., password hashes) from all record data
+			StripSensitiveFields(response);
+
 			if (response.Errors.Count > 0 || !response.Success)
 			{
 				if (response.StatusCode == HttpStatusCode.OK)
@@ -215,15 +286,20 @@ namespace WebVella.Erp.Service.Core.Controllers
 				{
 					response.Errors.Add(new ErrorModel("eql", "", eqlError.Message));
 				}
+				response.Timestamp = DateTime.UtcNow;
 				return Json(response);
 			}
 			catch (Exception ex)
 			{
 				response.Success = false;
 				response.Message = ex.Message;
+				response.Timestamp = DateTime.UtcNow;
 				return Json(response);
 			}
 
+			// Strip sensitive fields (e.g., password hashes) from EQL results
+			StripSensitiveFields(response);
+			response.Timestamp = DateTime.UtcNow;
 			return Json(response);
 		}
 
@@ -703,7 +779,8 @@ namespace WebVella.Erp.Service.Core.Controllers
 			if (!result.Success)
 				return DoResponse(result);
 
-			return Json(result);
+			// Strip sensitive fields before returning
+			return DoResponse(result);
 		}
 
 		/// <summary>
@@ -766,7 +843,8 @@ namespace WebVella.Erp.Service.Core.Controllers
 			if (!result.Success)
 				return DoResponse(result);
 
-			return Json(result);
+			// Strip sensitive fields before returning
+			return DoResponse(result);
 		}
 
 		/// <summary>

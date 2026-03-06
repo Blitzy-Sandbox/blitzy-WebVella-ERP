@@ -70,12 +70,93 @@ namespace WebVella.Erp.Gateway.Middleware
         {
             try
             {
-                await _next(context);
+                // For API requests, buffer the response so we can replace non-JSON
+                // error responses (HTML error pages, empty 4xx/5xx) with proper
+                // JSON BaseResponseModel envelopes. This ensures backward compatibility
+                // with the monolith's REST API v3 contract (AAP 0.8.1).
+                if (IsApiRequest(context))
+                {
+                    var originalBodyStream = context.Response.Body;
+                    using var memoryStream = new System.IO.MemoryStream();
+                    context.Response.Body = memoryStream;
+
+                    await _next(context);
+
+                    // Check if the response is an error status and either has no body
+                    // or has a non-JSON content type (HTML error page)
+                    var contentType = context.Response.ContentType ?? string.Empty;
+                    if (context.Response.StatusCode >= 400
+                        && (memoryStream.Length == 0 || !contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        // Discard the original (HTML or empty) response body and replace
+                        // with JSON BaseResponseModel format
+                        memoryStream.SetLength(0);
+                        context.Response.Body = memoryStream;
+                        context.Response.ContentType = null; // Reset so WriteJsonErrorResponse sets it
+                        await WriteJsonErrorResponse(context, context.Response.StatusCode);
+                    }
+
+                    // Copy the (possibly replaced) response to the real output stream
+                    memoryStream.Seek(0, System.IO.SeekOrigin.Begin);
+                    context.Response.Body = originalBodyStream;
+                    context.Response.ContentLength = memoryStream.Length;
+                    await memoryStream.CopyToAsync(originalBodyStream);
+                }
+                else
+                {
+                    await _next(context);
+                }
             }
             catch (Exception ex)
             {
                 await HandleExceptionAsync(context, ex);
             }
+        }
+
+        /// <summary>
+        /// Determines if the current request is an API request that expects JSON responses.
+        /// Checks the request path and Accept header.
+        /// </summary>
+        private static bool IsApiRequest(HttpContext context)
+        {
+            var path = context.Request.Path.Value ?? string.Empty;
+            // All API endpoints start with /api/
+            if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Also check Accept header
+            var accept = context.Request.Headers["Accept"].ToString();
+            if (accept.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Writes a JSON error response in BaseResponseModel format for non-exception errors.
+        /// </summary>
+        private static async Task WriteJsonErrorResponse(HttpContext context, int statusCode)
+        {
+            var statusMessage = statusCode switch
+            {
+                401 => "Authentication required. Please provide a valid JWT token.",
+                403 => "Access denied. You do not have permission to access this resource.",
+                404 => "The requested resource was not found.",
+                405 => "The HTTP method is not allowed for this resource.",
+                _ => $"An error occurred (HTTP {statusCode})."
+            };
+
+            var errorResponse = new
+            {
+                success = false,
+                message = statusMessage,
+                timestamp = DateTime.UtcNow,
+                errors = new[] { new { message = statusMessage, key = string.Empty, value = string.Empty } },
+                @object = (object)null
+            };
+
+            context.Response.ContentType = "application/json";
+            // Status code is already set by the pipeline
+            await context.Response.WriteAsync(
+                JsonConvert.SerializeObject(errorResponse));
         }
 
         /// <summary>

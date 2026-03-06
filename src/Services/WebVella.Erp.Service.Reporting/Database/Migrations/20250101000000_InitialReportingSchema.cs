@@ -249,6 +249,26 @@ namespace WebVella.Erp.Service.Reporting.Database.Migrations
                 name: "idx_report_def_created_by",
                 table: "report_definitions",
                 column: "created_by");
+
+            // ================================================================
+            // Step 10: Seed default report definitions.
+            // Pre-populates the Monthly Timelog Report definition so that
+            // GET /api/v3.0/p/reporting/definitions returns persisted data
+            // from the database rather than hardcoded in-memory values.
+            // Uses the well-known ID from ReportController.MonthlyTimelogReportId.
+            // ================================================================
+            migrationBuilder.InsertData(
+                table: "report_definitions",
+                columns: new[] { "id", "name", "description", "report_type", "parameters_json", "created_by" },
+                values: new object[]
+                {
+                    new Guid("a0d5e2f1-b3c4-4d6e-8f7a-9b0c1d2e3f4a"),
+                    "Monthly Timelog Report",
+                    "Aggregated timelog data by task and project for a given month, optionally filtered by account.",
+                    "timelog_monthly",
+                    "{\"year\":{\"type\":\"int\",\"required\":true},\"month\":{\"type\":\"int\",\"required\":true},\"accountId\":{\"type\":\"Guid?\",\"required\":false}}",
+                    new Guid("b0000000-0000-0000-0000-000000000001") // system user
+                });
         }
 
         /// <summary>

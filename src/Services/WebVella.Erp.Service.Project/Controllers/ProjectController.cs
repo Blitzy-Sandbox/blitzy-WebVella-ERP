@@ -707,10 +707,38 @@ namespace WebVella.Erp.Service.Project.Controllers
 		/// </summary>
 		[Route("api/v3.0/p/project/user/get-current")]
 		[HttpGet]
-		public ActionResult GetCurrentUser()
+		public async Task<ActionResult> GetCurrentUser()
 		{
-			var request = _recordManager.Find(new EntityQuery("user","*", EntityQuery.QueryEQ("id", CurrentUserId.Value))).Object.Data;
-			return Json(request[0]);
+			// Cross-service call: 'user' entity is owned by Core Platform service (AAP Section 0.7.1).
+			// In the database-per-service model, user records do not exist in the Project DB.
+			// Fetch current user from Core service via HTTP.
+			try
+			{
+				var client = _httpClientFactory.CreateClient("CoreService");
+				// Forward the Authorization header to Core service
+				if (Request.Headers.ContainsKey("Authorization"))
+					client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", Request.Headers["Authorization"].ToString());
+
+				var response = await client.GetAsync($"api/v3/en_US/record/user/list?queryFilter=id%20eq%20{CurrentUserId.Value}");
+				if (response.IsSuccessStatusCode)
+				{
+					var content = await response.Content.ReadAsStringAsync();
+					var coreResponse = Newtonsoft.Json.Linq.JObject.Parse(content);
+					var data = coreResponse["object"]?["data"];
+					if (data != null && data.HasValues)
+						return Content(data.First.ToString(), "application/json");
+				}
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning(ex, "Failed to fetch current user from Core service");
+			}
+			// Fallback: return basic user info from JWT claims
+			var userRecord = new EntityRecord();
+			userRecord["id"] = CurrentUserId.Value;
+			userRecord["username"] = User.FindFirst("username")?.Value ?? "";
+			userRecord["email"] = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+			return Json(userRecord);
 		}
 
 		#endregion

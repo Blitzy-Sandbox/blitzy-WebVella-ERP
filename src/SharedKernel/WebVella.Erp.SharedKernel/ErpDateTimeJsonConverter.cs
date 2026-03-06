@@ -23,7 +23,46 @@ namespace WebVella.Erp.SharedKernel
 
 		public ErpDateTimeJsonConverter()
 		{
-			erpTimeZone = TimeZoneInfo.FindSystemTimeZoneById(ErpSettings.TimeZoneName);
+			erpTimeZone = FindTimeZoneCrossPlatform(ErpSettings.TimeZoneName);
+		}
+
+		/// <summary>
+		/// Cross-platform timezone resolution. Windows uses names like "FLE Standard Time"
+		/// while Linux/macOS use IANA identifiers like "Europe/Kyiv". This method tries
+		/// the configured name first, then falls back to a well-known mapping for the
+		/// default "FLE Standard Time" timezone, and finally falls back to UTC.
+		/// Fixes TimeZoneNotFoundException on Linux where "FLE Standard Time" is unavailable.
+		/// </summary>
+		private static TimeZoneInfo FindTimeZoneCrossPlatform(string timeZoneName)
+		{
+			// Try the configured timezone name directly (works on the native OS)
+			if (TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneName, out var tz))
+				return tz;
+
+			// Map well-known Windows timezone IDs to IANA equivalents for Linux
+			var windowsToIana = new System.Collections.Generic.Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+			{
+				["FLE Standard Time"] = new[] { "Europe/Kyiv", "Europe/Kiev", "Europe/Helsinki" },
+				["Eastern Standard Time"] = new[] { "America/New_York" },
+				["Pacific Standard Time"] = new[] { "America/Los_Angeles" },
+				["Central Standard Time"] = new[] { "America/Chicago" },
+				["UTC"] = new[] { "Etc/UTC" },
+			};
+
+			if (windowsToIana.TryGetValue(timeZoneName, out var ianaNames))
+			{
+				foreach (var ianaName in ianaNames)
+				{
+					if (TimeZoneInfo.TryFindSystemTimeZoneById(ianaName, out var ianaTz))
+						return ianaTz;
+				}
+			}
+
+			// Also try the reverse: if an IANA name was given, try it directly
+			// (already handled by the first TryFind above)
+
+			// Final fallback: UTC to prevent crashes
+			return TimeZoneInfo.Utc;
 		}
 
 		public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)

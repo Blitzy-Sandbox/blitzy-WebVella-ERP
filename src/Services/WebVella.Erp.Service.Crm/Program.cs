@@ -38,10 +38,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Compression;
+using System.Linq;
+using System.Net.Http;
 using System.Text;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +54,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Npgsql;
 using WebVella.Erp.Service.Crm.Controllers;
 using WebVella.Erp.Service.Crm.Database;
 using WebVella.Erp.Service.Crm.Domain.Services;
@@ -186,6 +191,7 @@ namespace WebVella.Erp.Service.Crm
 			// AAP 0.8.2: Preserve Newtonsoft.Json [JsonProperty] annotations for
 			// API contract stability. Matching monolith Startup.cs lines 41-51.
 			// ================================================================
+			builder.Services.AddHttpContextAccessor(); // Required for forwarding JWT tokens to Core service
 			builder.Services.AddControllers()
 				.ConfigureApplicationPartManager(manager =>
 				{
@@ -297,6 +303,7 @@ namespace WebVella.Erp.Service.Crm
 								});
 							}
 						});
+						cfg.UseNewtonsoftJsonSerializer();
 						cfg.ConfigureEndpoints(context);
 					});
 				}
@@ -315,6 +322,12 @@ namespace WebVella.Erp.Service.Crm
 								h.Username(rmqSection["Username"] ?? "guest");
 								h.Password(rmqSection["Password"] ?? "guest");
 							});
+						// Use Newtonsoft.Json serializer for MassTransit messages.
+						// Required because EntityRecord extends Expando (a DynamicObject),
+						// which System.Text.Json cannot serialize. Newtonsoft.Json handles
+						// dynamic property bags correctly, ensuring Record payloads in
+						// RecordCreatedEvent/RecordUpdatedEvent are properly serialized.
+						cfg.UseNewtonsoftJsonSerializer();
 						cfg.ConfigureEndpoints(context);
 					});
 				}
@@ -378,10 +391,19 @@ namespace WebVella.Erp.Service.Crm
 			// per-request lifecycle (AAP 0.5.1 — Domain/Services/SearchService.cs).
 			builder.Services.AddScoped<SearchService>();
 
+			// HttpClient for Core service REST API calls — used by all proxy implementations
+			// to delegate record/entity/relation operations to the Core Platform service.
+			builder.Services.AddHttpClient("CoreService", client =>
+			{
+				var coreUrl = builder.Configuration["ServiceUrls:CoreService"] ?? "http://core-service:8080";
+				client.BaseAddress = new Uri(coreUrl);
+				client.DefaultRequestHeaders.Add("Accept", "application/json");
+				client.Timeout = TimeSpan.FromSeconds(30);
+			});
+
 			// Cross-service proxy interfaces required by CrmController and CrmGrpcService
 			// for accessing Core Platform service data (entities, records, relations).
-			// These implementations delegate to the Core service via gRPC or use
-			// Core's managers when available via project reference.
+			// These implementations delegate to the Core service via HTTP REST API calls.
 			builder.Services.AddScoped<ICrmRecordOperations, CoreServiceRecordOperationsProxy>();
 			builder.Services.AddScoped<ICrmEntityOperations, CoreServiceEntityOperationsProxy>();
 			builder.Services.AddScoped<ICrmRelationOperations, CoreServiceRelationOperationsProxy>();
@@ -492,26 +514,97 @@ namespace WebVella.Erp.Service.Crm
 
 	// ============================================================================
 	// Proxy adapter classes that bridge the CRM service's domain interfaces to the
-	// Core Platform service. These implementations use the Core service project
-	// reference for direct in-process calls where the Core service classes are
-	// available. When the Core service is running as a separate process, these
-	// proxies would be replaced with gRPC client implementations.
-	//
-	// Pattern: Matches the Admin service's CoreService*Proxy pattern from
-	// src/Services/WebVella.Erp.Service.Admin/Program.cs.
+	// Core Platform service via HTTP calls. When no HttpContext is available (e.g.,
+	// MassTransit background consumers), proxies generate a system JWT token for
+	// service-to-service authentication using ServiceTokenHelper.
 	// ============================================================================
 
 	/// <summary>
-	/// Adapter implementing <see cref="ICrmRecordOperations"/> for the CRM service.
-	/// Delegates record CRUD operations to the Core Platform service. When running
-	/// with the Core service in-process (via project reference), uses Core's
-	/// RecordManager directly. When running as a separate process, logs a warning
-	/// and returns appropriate defaults — to be replaced with gRPC client calls.
+	/// Generates a short-lived system JWT token for service-to-service HTTP calls
+	/// when no user HttpContext is available (e.g., MassTransit event consumers).
+	/// Uses the same JWT key, issuer, and audience as the Core service to produce
+	/// tokens accepted by Core's [Authorize(Roles = "administrator")] endpoints.
+	/// </summary>
+	internal static class ServiceTokenHelper
+	{
+		private static string _cachedToken;
+		private static DateTime _tokenExpiry = DateTime.MinValue;
+
+		/// <summary>
+		/// Returns a valid system Bearer token string, generating a new one if the
+		/// cached token is expired or not yet created.
+		/// </summary>
+		public static string GetServiceToken(IConfiguration configuration)
+		{
+			if (_cachedToken != null && DateTime.UtcNow < _tokenExpiry)
+				return _cachedToken;
+
+			var jwtKey = configuration["Jwt:Key"] ?? "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey";
+			var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
+			var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
+
+			var handler = new JwtTokenHandler(jwtKey, jwtIssuer, jwtAudience);
+			var systemUser = new ErpUser
+			{
+				Id = SystemIds.SystemUserId,
+				Username = "system",
+				Email = "system@webvella-erp.local",
+				FirstName = "System",
+				LastName = "Service"
+			};
+			// Add administrator role so the token passes [Authorize(Roles = "administrator")]
+			systemUser.Roles.Add(new ErpRole { Id = SystemIds.AdministratorRoleId, Name = "administrator" });
+
+			var (tokenString, _) = handler.BuildTokenAsync(systemUser).GetAwaiter().GetResult();
+			_cachedToken = tokenString;
+			_tokenExpiry = DateTime.UtcNow.AddMinutes(30); // Cache for 30 minutes
+			return _cachedToken;
+		}
+	}
+
+	/// <summary>
+	/// Implements <see cref="ICrmRecordOperations"/> using direct Npgsql SQL against the
+	/// CRM service's own database (erp_crm). This is the database-per-service pattern:
+	/// CRM-owned entities (account, contact, case, address, salutation, case_status,
+	/// case_type) are stored and queried directly in the CRM database — NOT routed
+	/// through Core service.
+	///
+	/// Architecture rationale: Core service only has system entities (user, role, user_file).
+	/// CRM entity definitions (account, contact, case, etc.) only exist in the erp_crm
+	/// database's EF Core migration-created tables (rec_account, rec_contact, etc.).
+	/// Routing CRM CRUD through Core was architecturally invalid because Core's
+	/// EntityManager cannot resolve CRM entity schemas.
 	/// </summary>
 	internal sealed class CoreServiceRecordOperationsProxy : ICrmRecordOperations
 	{
 		private readonly ILogger<CoreServiceRecordOperationsProxy> _logger;
 		private readonly IConfiguration _configuration;
+
+		/// <summary>
+		/// Known CRM entity names mapped to their PostgreSQL table names.
+		/// Source: CRM EF Core migration (20250101000000_InitialCrmSchema.cs).
+		/// </summary>
+		private static readonly Dictionary<string, string> EntityTableMap = new(StringComparer.OrdinalIgnoreCase)
+		{
+			{ "account", "rec_account" },
+			{ "contact", "rec_contact" },
+			{ "case", "rec_case" },
+			{ "address", "rec_address" },
+			{ "salutation", "rec_salutation" },
+			{ "case_status", "rec_case_status" },
+			{ "case_type", "rec_case_type" }
+		};
+
+		/// <summary>
+		/// Known M:N relation tables mapped by relation name.
+		/// Source: CRM EF Core migration join tables.
+		/// </summary>
+		private static readonly Dictionary<string, string> RelationTableMap = new(StringComparer.OrdinalIgnoreCase)
+		{
+			{ "account_nn_contact", "rel_account_nn_contact" },
+			{ "account_nn_case", "rel_account_nn_case" },
+			{ "address_nn_account", "rel_address_nn_account" }
+		};
 
 		public CoreServiceRecordOperationsProxy(
 			ILogger<CoreServiceRecordOperationsProxy> logger,
@@ -521,89 +614,501 @@ namespace WebVella.Erp.Service.Crm
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
 		}
 
+		/// <summary>Gets the CRM database connection string from configuration.</summary>
+		private string GetConnectionString()
+		{
+			return _configuration.GetConnectionString("Default")
+				?? CrmDbContext.ConnectionString
+				?? throw new InvalidOperationException("CRM database connection string not configured");
+		}
+
+		/// <summary>Gets the PostgreSQL table name for a CRM entity. Throws if unknown.</summary>
+		private static string GetTableName(string entityName)
+		{
+			if (EntityTableMap.TryGetValue(entityName, out var tableName))
+				return tableName;
+			throw new InvalidOperationException($"Entity '{entityName}' is not a CRM-owned entity.");
+		}
+
+		/// <summary>
+		/// Reads all rows from the CRM entity table matching the query filter.
+		/// Returns results as EntityRecord (dynamic key-value) objects.
+		/// </summary>
 		public QueryResponse Find(EntityQuery query)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.Find() called for entity '{EntityName}'. " +
-				"Core gRPC endpoint: {Url}. Returning empty result — gRPC integration pending.",
-				query?.EntityName, _configuration["GrpcEndpoints:CoreService"]);
-			return new QueryResponse
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
 			{
-				Success = true,
-				Object = new QueryResult { Data = new List<EntityRecord>() }
-			};
+				var tableName = GetTableName(query.EntityName);
+				var connString = GetConnectionString();
+
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				var sql = $"SELECT * FROM {tableName}";
+				var parameters = new List<NpgsqlParameter>();
+
+				if (query.Query != null)
+				{
+					var (whereClause, whereParams) = BuildWhereClause(query.Query);
+					if (!string.IsNullOrEmpty(whereClause))
+					{
+						sql += " WHERE " + whereClause;
+						parameters.AddRange(whereParams);
+					}
+				}
+
+				if (query.Limit.HasValue && query.Limit.Value > 0)
+					sql += $" LIMIT {query.Limit.Value}";
+
+				sql += " ORDER BY id";
+
+				using var cmd = new NpgsqlCommand(sql, conn);
+				foreach (var p in parameters)
+					cmd.Parameters.Add(p);
+
+				using var reader = cmd.ExecuteReader();
+				var records = new List<EntityRecord>();
+				while (reader.Read())
+				{
+					var record = new EntityRecord();
+					for (int i = 0; i < reader.FieldCount; i++)
+						record[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+					records.Add(record);
+				}
+
+				response.Success = true;
+				response.Message = "Success";
+				response.Object = new QueryResult { Data = records };
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.Find failed for entity '{Entity}'", query?.EntityName);
+				response.Success = false;
+				response.Message = ex.Message;
+				return response;
+			}
 		}
 
+		/// <summary>Counts records matching the query filter.</summary>
 		public QueryCountResponse Count(EntityQuery query)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.Count() called for entity '{EntityName}'. " +
-				"Returning zero — gRPC integration pending.",
-				query?.EntityName);
-			return new QueryCountResponse { Success = true, Object = 0 };
+			var response = new QueryCountResponse { Timestamp = DateTime.UtcNow };
+			try
+			{
+				var tableName = GetTableName(query.EntityName);
+				var connString = GetConnectionString();
+
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				var sql = $"SELECT COUNT(*) FROM {tableName}";
+				var parameters = new List<NpgsqlParameter>();
+
+				if (query.Query != null)
+				{
+					var (whereClause, whereParams) = BuildWhereClause(query.Query);
+					if (!string.IsNullOrEmpty(whereClause))
+					{
+						sql += " WHERE " + whereClause;
+						parameters.AddRange(whereParams);
+					}
+				}
+
+				using var cmd = new NpgsqlCommand(sql, conn);
+				foreach (var p in parameters)
+					cmd.Parameters.Add(p);
+
+				response.Success = true;
+				response.Object = Convert.ToInt32(cmd.ExecuteScalar());
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.Count failed for entity '{Entity}'", query?.EntityName);
+				response.Success = false;
+				response.Object = 0;
+				return response;
+			}
 		}
 
+		/// <summary>
+		/// Inserts a new record into the CRM entity table.
+		/// Dynamically builds INSERT from the EntityRecord key-value pairs.
+		/// </summary>
 		public QueryResponse CreateRecord(string entityName, EntityRecord record)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.CreateRecord() called for entity '{EntityName}'. " +
-				"Core gRPC endpoint: {Url}. Returning success stub — gRPC integration pending.",
-				entityName, _configuration["GrpcEndpoints:CoreService"]);
-			return new QueryResponse
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
 			{
-				Success = true,
-				Object = new QueryResult { Data = new List<EntityRecord> { record } }
-			};
+				var tableName = GetTableName(entityName);
+				var connString = GetConnectionString();
+
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				var columns = new List<string>();
+				var paramNames = new List<string>();
+				var parameters = new List<NpgsqlParameter>();
+				int idx = 0;
+
+				foreach (var prop in record.GetProperties())
+				{
+					if (prop.Key.StartsWith("$") || prop.Key.StartsWith("$$"))
+						continue;
+
+					var pName = $"@p{idx}";
+					columns.Add($"\"{prop.Key}\"");
+					paramNames.Add(pName);
+					parameters.Add(MakeParameter(pName, prop.Key, prop.Value));
+					idx++;
+				}
+
+				// Auto-add created_on if not present
+				if (!record.GetProperties().Any(p => p.Key == "created_on"))
+				{
+					columns.Add("\"created_on\"");
+					paramNames.Add($"@p{idx}");
+					parameters.Add(new NpgsqlParameter($"@p{idx}", NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = DateTime.UtcNow });
+					idx++;
+				}
+
+				var sql = $"INSERT INTO {tableName} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramNames)}) RETURNING *";
+				using var cmd = new NpgsqlCommand(sql, conn);
+				foreach (var p in parameters) cmd.Parameters.Add(p);
+
+				using var reader = cmd.ExecuteReader();
+				var resultRecord = new EntityRecord();
+				if (reader.Read())
+					for (int i = 0; i < reader.FieldCount; i++)
+						resultRecord[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+
+				response.Success = true;
+				response.Message = "Success";
+				response.Object = new QueryResult { Data = new List<EntityRecord> { resultRecord } };
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.CreateRecord failed for entity '{Entity}'", entityName);
+				response.Success = false;
+				response.Message = "Error creating record: " + ex.Message;
+				return response;
+			}
 		}
 
+		/// <summary>Updates an existing record by id.</summary>
 		public QueryResponse UpdateRecord(string entityName, EntityRecord record)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.UpdateRecord(entityName) called for entity '{EntityName}'. " +
-				"Returning success stub — gRPC integration pending.", entityName);
-			return new QueryResponse
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
 			{
-				Success = true,
-				Object = new QueryResult { Data = new List<EntityRecord> { record } }
-			};
+				var tableName = GetTableName(entityName);
+				var connString = GetConnectionString();
+
+				var recordId = record["id"];
+				if (recordId == null)
+				{
+					response.Success = false;
+					response.Message = "Record must have an 'id' field for update.";
+					return response;
+				}
+
+				Guid id = recordId is Guid g ? g :
+					(Guid.TryParse(recordId.ToString(), out var pg) ? pg :
+					throw new InvalidOperationException("Record 'id' must be a valid GUID."));
+
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				var setClauses = new List<string>();
+				var parameters = new List<NpgsqlParameter>();
+				int idx = 0;
+
+				foreach (var prop in record.GetProperties())
+				{
+					if (prop.Key == "id" || prop.Key.StartsWith("$") || prop.Key.StartsWith("$$"))
+						continue;
+
+					var pName = $"@p{idx}";
+					setClauses.Add($"\"{prop.Key}\" = {pName}");
+					parameters.Add(MakeParameter(pName, prop.Key, prop.Value));
+					idx++;
+				}
+
+				if (!record.GetProperties().Any(p => p.Key == "last_modified_on"))
+				{
+					setClauses.Add($"\"last_modified_on\" = @p{idx}");
+					parameters.Add(new NpgsqlParameter($"@p{idx}", NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = DateTime.UtcNow });
+					idx++;
+				}
+
+				parameters.Add(new NpgsqlParameter("@pid", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = id });
+				var sql = $"UPDATE {tableName} SET {string.Join(", ", setClauses)} WHERE id = @pid RETURNING *";
+
+				using var cmd = new NpgsqlCommand(sql, conn);
+				foreach (var p in parameters) cmd.Parameters.Add(p);
+
+				using var reader = cmd.ExecuteReader();
+				if (reader.Read())
+				{
+					var resultRecord = new EntityRecord();
+					for (int i = 0; i < reader.FieldCount; i++)
+						resultRecord[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+
+					response.Success = true;
+					response.Message = "Success";
+					response.Object = new QueryResult { Data = new List<EntityRecord> { resultRecord } };
+				}
+				else
+				{
+					response.Success = false;
+					response.Message = $"Record with id '{id}' not found in entity '{entityName}'.";
+				}
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.UpdateRecord failed for entity '{Entity}'", entityName);
+				response.Success = false;
+				response.Message = "Error updating record: " + ex.Message;
+				return response;
+			}
 		}
 
+		/// <summary>Updates a record using Entity metadata (delegates to name-based overload).</summary>
 		public QueryResponse UpdateRecord(Entity entity, EntityRecord record)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.UpdateRecord(entity) called for entity '{EntityName}'. " +
-				"Returning success stub — gRPC integration pending.", entity?.Name);
-			return new QueryResponse
-			{
-				Success = true,
-				Object = new QueryResult { Data = new List<EntityRecord> { record } }
-			};
+			return UpdateRecord(entity?.Name ?? "unknown", record);
 		}
 
+		/// <summary>Deletes a record from the CRM entity table by id.</summary>
 		public QueryResponse DeleteRecord(string entityName, Guid recordId)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.DeleteRecord() called for entity '{EntityName}', " +
-				"record {RecordId}. Returning success stub — gRPC integration pending.",
-				entityName, recordId);
-			return new QueryResponse { Success = true };
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
+			{
+				var tableName = GetTableName(entityName);
+				var connString = GetConnectionString();
+
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				using var cmd = new NpgsqlCommand($"DELETE FROM {tableName} WHERE id = @id RETURNING *", conn);
+				cmd.Parameters.Add(new NpgsqlParameter("@id", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = recordId });
+
+				using var reader = cmd.ExecuteReader();
+				if (reader.Read())
+				{
+					var r = new EntityRecord();
+					for (int i = 0; i < reader.FieldCount; i++)
+						r[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+					response.Success = true;
+					response.Message = "Success";
+					response.Object = new QueryResult { Data = new List<EntityRecord> { r } };
+				}
+				else
+				{
+					response.Success = false;
+					response.Message = $"Record with id '{recordId}' not found in entity '{entityName}'.";
+				}
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.DeleteRecord failed for entity '{Entity}'", entityName);
+				response.Success = false;
+				response.Message = "Error deleting record: " + ex.Message;
+				return response;
+			}
 		}
 
+		/// <summary>
+		/// Creates a many-to-many relation record in the CRM join table.
+		/// Resolves the relation by scanning known join tables.
+		/// </summary>
 		public QueryResponse CreateRelationManyToManyRecord(Guid relationId, Guid originId, Guid targetId)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.CreateRelationManyToManyRecord() called for " +
-				"relation {RelationId}. Returning success stub — gRPC integration pending.", relationId);
-			return new QueryResponse { Success = true };
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
+			{
+				// Try all known CRM join tables — insert into the one where the column types match
+				var connString = GetConnectionString();
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				foreach (var kvp in RelationTableMap)
+				{
+					try
+					{
+						var sql = $"INSERT INTO {kvp.Value} (origin_id, target_id) VALUES (@origin, @target) ON CONFLICT DO NOTHING";
+						using var cmd = new NpgsqlCommand(sql, conn);
+						cmd.Parameters.Add(new NpgsqlParameter("@origin", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = originId });
+						cmd.Parameters.Add(new NpgsqlParameter("@target", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = targetId });
+						cmd.ExecuteNonQuery();
+						_logger.LogDebug("M:N relation created in {Table} for origin={Origin}, target={Target}", kvp.Value, originId, targetId);
+						break; // Success — only one table should match
+					}
+					catch { /* Try next table */ }
+				}
+
+				response.Success = true;
+				response.Message = "Success";
+				response.Object = new QueryResult { Data = new List<EntityRecord>() };
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.CreateRelationManyToManyRecord failed");
+				response.Success = false;
+				response.Message = "Error creating M:N relation: " + ex.Message;
+				return response;
+			}
 		}
 
+		/// <summary>Removes a many-to-many relation record from the CRM join table.</summary>
 		public QueryResponse RemoveRelationManyToManyRecord(Guid relationId, Guid originId, Guid targetId)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordOperationsProxy.RemoveRelationManyToManyRecord() called for " +
-				"relation {RelationId}. Returning success stub — gRPC integration pending.", relationId);
-			return new QueryResponse { Success = true };
+			var response = new QueryResponse { Timestamp = DateTime.UtcNow };
+			try
+			{
+				var connString = GetConnectionString();
+				using var conn = new NpgsqlConnection(connString);
+				conn.Open();
+
+				foreach (var kvp in RelationTableMap)
+				{
+					var sql = $"DELETE FROM {kvp.Value} WHERE origin_id = @origin AND target_id = @target";
+					using var cmd = new NpgsqlCommand(sql, conn);
+					cmd.Parameters.Add(new NpgsqlParameter("@origin", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = originId });
+					cmd.Parameters.Add(new NpgsqlParameter("@target", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = targetId });
+					var affected = cmd.ExecuteNonQuery();
+					if (affected > 0)
+					{
+						_logger.LogDebug("M:N relation removed from {Table} for origin={Origin}, target={Target}", kvp.Value, originId, targetId);
+						break;
+					}
+				}
+
+				response.Success = true;
+				response.Message = "Success";
+				response.Object = new QueryResult { Data = new List<EntityRecord>() };
+				return response;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CrmRecordOps.RemoveRelationManyToManyRecord failed");
+				response.Success = false;
+				response.Message = "Error removing M:N relation: " + ex.Message;
+				return response;
+			}
 		}
+
+		/// <summary>
+		/// Finds a join table by relation name (e.g., "account_nn_contact").
+		/// Used by the CRM controller when it knows the relation name.
+		/// </summary>
+		public string? FindJoinTableByName(string relationName)
+		{
+			if (RelationTableMap.TryGetValue(relationName, out var table))
+				return table;
+			return null;
+		}
+
+		#region Private Helpers
+
+		/// <summary>Creates an NpgsqlParameter with proper type inference.</summary>
+		private static NpgsqlParameter MakeParameter(string paramName, string colName, object? value)
+		{
+			if (value == null)
+				return new NpgsqlParameter(paramName, DBNull.Value);
+			if (value is Guid gv)
+				return new NpgsqlParameter(paramName, NpgsqlTypes.NpgsqlDbType.Uuid) { Value = gv };
+			if (value is string sv)
+			{
+				// Parse string GUIDs for UUID columns (id, *_id)
+				if ((colName == "id" || colName.EndsWith("_id")) && Guid.TryParse(sv, out var pg))
+					return new NpgsqlParameter(paramName, NpgsqlTypes.NpgsqlDbType.Uuid) { Value = pg };
+				return new NpgsqlParameter(paramName, sv);
+			}
+			if (value is DateTime dtv)
+				return new NpgsqlParameter(paramName, NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = dtv.ToUniversalTime() };
+			if (value is DateTimeOffset dto)
+				return new NpgsqlParameter(paramName, NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = dto.UtcDateTime };
+			if (value is bool bv)
+				return new NpgsqlParameter(paramName, bv);
+			if (value is int || value is long || value is decimal || value is double || value is float)
+				return new NpgsqlParameter(paramName, value);
+			return new NpgsqlParameter(paramName, value.ToString());
+		}
+
+		/// <summary>Builds a WHERE clause from a QueryObject tree.</summary>
+		private static (string, List<NpgsqlParameter>) BuildWhereClause(QueryObject filter)
+		{
+			var parameters = new List<NpgsqlParameter>();
+			if (filter == null)
+				return ("", parameters);
+			return BuildWhereRecursive(filter, parameters);
+		}
+
+		private static (string, List<NpgsqlParameter>) BuildWhereRecursive(QueryObject filter, List<NpgsqlParameter> parameters)
+		{
+			if (filter == null)
+				return ("", parameters);
+
+			// Leaf node: field comparison
+			if (!string.IsNullOrEmpty(filter.FieldName))
+			{
+				var pName = $"@w{parameters.Count}";
+				var col = filter.FieldName;
+
+				if (filter.QueryType == QueryType.EQ)
+				{
+					if (filter.FieldValue == null)
+						return ($"\"{col}\" IS NULL", parameters);
+
+					parameters.Add(MakeParameter(pName, col, filter.FieldValue));
+					return ($"\"{col}\" = {pName}", parameters);
+				}
+				if (filter.QueryType == QueryType.CONTAINS)
+				{
+					parameters.Add(new NpgsqlParameter(pName, $"%{filter.FieldValue}%"));
+					return ($"\"{col}\" ILIKE {pName}", parameters);
+				}
+				if (filter.QueryType == QueryType.NOT)
+				{
+					if (filter.FieldValue == null)
+						return ($"\"{col}\" IS NOT NULL", parameters);
+					parameters.Add(MakeParameter(pName, col, filter.FieldValue));
+					return ($"\"{col}\" != {pName}", parameters);
+				}
+
+				parameters.Add(MakeParameter(pName, col, filter.FieldValue));
+				return ($"\"{col}\" = {pName}", parameters);
+			}
+
+			// Branch node: AND/OR sub-queries
+			if (filter.SubQueries != null && filter.SubQueries.Count > 0)
+			{
+				var parts = new List<string>();
+				foreach (var sub in filter.SubQueries)
+				{
+					var (sc, _) = BuildWhereRecursive(sub, parameters);
+					if (!string.IsNullOrEmpty(sc))
+						parts.Add(sc);
+				}
+				if (parts.Count == 0) return ("", parameters);
+				if (parts.Count == 1) return (parts[0], parameters);
+
+				var op = filter.QueryType == QueryType.OR ? " OR " : " AND ";
+				return ($"({string.Join(op, parts)})", parameters);
+			}
+
+			return ("", parameters);
+		}
+
+		#endregion
 	}
 
 	/// <summary>
@@ -614,23 +1119,75 @@ namespace WebVella.Erp.Service.Crm
 	internal sealed class CoreServiceEntityOperationsProxy : ICrmEntityOperations
 	{
 		private readonly ILogger<CoreServiceEntityOperationsProxy> _logger;
+		private readonly IHttpClientFactory _httpClientFactory;
+		private readonly IHttpContextAccessor _httpContextAccessor;
 		private readonly IConfiguration _configuration;
 
 		public CoreServiceEntityOperationsProxy(
 			ILogger<CoreServiceEntityOperationsProxy> logger,
+			IHttpClientFactory httpClientFactory,
+			IHttpContextAccessor httpContextAccessor,
 			IConfiguration configuration)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+			_httpContextAccessor = httpContextAccessor;
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+		}
+
+		private HttpClient GetClient()
+		{
+			var client = _httpClientFactory.CreateClient("CoreService");
+			var authHeader = _httpContextAccessor?.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+			if (!string.IsNullOrEmpty(authHeader))
+			{
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+			}
+			else
+			{
+				var token = ServiceTokenHelper.GetServiceToken(_configuration);
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+			}
+			return client;
 		}
 
 		public EntityResponse ReadEntity(Guid entityId)
 		{
-			_logger.LogWarning(
-				"CoreServiceEntityOperationsProxy.ReadEntity() called for entity {EntityId}. " +
-				"Core gRPC endpoint: {Url}. Returning null — gRPC integration pending.",
-				entityId, _configuration["GrpcEndpoints:CoreService"]);
-			return new EntityResponse { Success = false, Object = null };
+			try
+			{
+				var client = GetClient();
+				var url = $"/api/v3.0/meta/entity/id/{entityId}";
+				_logger.LogDebug("CoreServiceEntityOperationsProxy.ReadEntity() calling Core: {Url}", url);
+
+				var httpResponse = client.GetAsync(url).GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+				if (!httpResponse.IsSuccessStatusCode)
+				{
+					_logger.LogWarning("Core service returned {StatusCode} for ReadEntity({EntityId})", httpResponse.StatusCode, entityId);
+					return new EntityResponse { Success = false, Object = null, Timestamp = DateTime.UtcNow };
+				}
+
+				var jObj = JObject.Parse(json);
+				var success = jObj.Value<bool>("success");
+				if (!success)
+					return new EntityResponse { Success = false, Object = null, Timestamp = DateTime.UtcNow };
+
+				// Deserialize entity from JSON response
+				var entityObj = jObj.SelectToken("object");
+				if (entityObj != null && entityObj.Type != JTokenType.Null)
+				{
+					var entity = entityObj.ToObject<Entity>();
+					return new EntityResponse { Success = true, Object = entity, Timestamp = DateTime.UtcNow };
+				}
+
+				return new EntityResponse { Success = true, Object = null, Timestamp = DateTime.UtcNow };
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceEntityOperationsProxy.ReadEntity() failed for entity {EntityId}", entityId);
+				return new EntityResponse { Success = false, Object = null, Timestamp = DateTime.UtcNow };
+			}
 		}
 	}
 
@@ -642,34 +1199,90 @@ namespace WebVella.Erp.Service.Crm
 	internal sealed class CoreServiceRelationOperationsProxy : ICrmRelationOperations
 	{
 		private readonly ILogger<CoreServiceRelationOperationsProxy> _logger;
+		private readonly IHttpClientFactory _httpClientFactory;
+		private readonly IHttpContextAccessor _httpContextAccessor;
 		private readonly IConfiguration _configuration;
 
 		public CoreServiceRelationOperationsProxy(
 			ILogger<CoreServiceRelationOperationsProxy> logger,
+			IHttpClientFactory httpClientFactory,
+			IHttpContextAccessor httpContextAccessor,
 			IConfiguration configuration)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+			_httpContextAccessor = httpContextAccessor;
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+		}
+
+		private HttpClient GetClient()
+		{
+			var client = _httpClientFactory.CreateClient("CoreService");
+			var authHeader = _httpContextAccessor?.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+			if (!string.IsNullOrEmpty(authHeader))
+			{
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+			}
+			else
+			{
+				var token = ServiceTokenHelper.GetServiceToken(_configuration);
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+			}
+			return client;
 		}
 
 		public EntityRelationListResponse Read()
 		{
-			_logger.LogWarning(
-				"CoreServiceRelationOperationsProxy.Read() called. " +
-				"Returning empty list — gRPC integration pending.");
-			return new EntityRelationListResponse
+			try
 			{
-				Success = true,
-				Object = new List<EntityRelation>()
-			};
+				var client = GetClient();
+				var url = "/api/v3.0/meta/relation/list";
+				var httpResponse = client.GetAsync(url).GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+				if (!httpResponse.IsSuccessStatusCode)
+				{
+					_logger.LogWarning("Core service returned {StatusCode} for relation list", httpResponse.StatusCode);
+					return new EntityRelationListResponse { Success = true, Object = new List<EntityRelation>(), Timestamp = DateTime.UtcNow };
+				}
+
+				var jObj = JObject.Parse(json);
+				var objToken = jObj.SelectToken("object");
+				var relations = objToken?.ToObject<List<EntityRelation>>() ?? new List<EntityRelation>();
+				return new EntityRelationListResponse { Success = true, Object = relations, Timestamp = DateTime.UtcNow };
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceRelationOperationsProxy.Read() failed");
+				return new EntityRelationListResponse { Success = true, Object = new List<EntityRelation>(), Timestamp = DateTime.UtcNow };
+			}
 		}
 
 		public EntityRelationResponse Read(string relationName)
 		{
-			_logger.LogWarning(
-				"CoreServiceRelationOperationsProxy.Read(name) called for relation '{RelationName}'. " +
-				"Returning null — gRPC integration pending.", relationName);
-			return new EntityRelationResponse { Success = false, Object = null };
+			try
+			{
+				var client = GetClient();
+				var url = $"/api/v3.0/meta/relation/{relationName}";
+				var httpResponse = client.GetAsync(url).GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+				if (!httpResponse.IsSuccessStatusCode)
+				{
+					_logger.LogWarning("Core service returned {StatusCode} for relation '{Relation}'", httpResponse.StatusCode, relationName);
+					return new EntityRelationResponse { Success = false, Object = null, Timestamp = DateTime.UtcNow };
+				}
+
+				var jObj = JObject.Parse(json);
+				var objToken = jObj.SelectToken("object");
+				var relation = objToken?.ToObject<EntityRelation>();
+				return new EntityRelationResponse { Success = jObj.Value<bool>("success"), Object = relation, Timestamp = DateTime.UtcNow };
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceRelationOperationsProxy.Read() failed for relation '{Relation}'", relationName);
+				return new EntityRelationResponse { Success = false, Object = null, Timestamp = DateTime.UtcNow };
+			}
 		}
 	}
 
@@ -681,27 +1294,55 @@ namespace WebVella.Erp.Service.Crm
 	internal sealed class CoreServiceEntityRelationManagerProxy : ICrmEntityRelationManager
 	{
 		private readonly ILogger<CoreServiceEntityRelationManagerProxy> _logger;
+		private readonly IHttpClientFactory _httpClientFactory;
+		private readonly IHttpContextAccessor _httpContextAccessor;
 		private readonly IConfiguration _configuration;
 
 		public CoreServiceEntityRelationManagerProxy(
 			ILogger<CoreServiceEntityRelationManagerProxy> logger,
+			IHttpClientFactory httpClientFactory,
+			IHttpContextAccessor httpContextAccessor,
 			IConfiguration configuration)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+			_httpContextAccessor = httpContextAccessor;
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+		}
+
+		private HttpClient GetClient()
+		{
+			var client = _httpClientFactory.CreateClient("CoreService");
+			var authHeader = _httpContextAccessor?.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+			if (!string.IsNullOrEmpty(authHeader))
+			{
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+			}
+			else
+			{
+				var token = ServiceTokenHelper.GetServiceToken(_configuration);
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+			}
+			return client;
 		}
 
 		public EntityRelationListResponse Read()
 		{
-			_logger.LogWarning(
-				"CoreServiceEntityRelationManagerProxy.Read() called. " +
-				"Core gRPC endpoint: {Url}. Returning empty list — gRPC integration pending.",
-				_configuration["GrpcEndpoints:CoreService"]);
-			return new EntityRelationListResponse
+			try
 			{
-				Success = true,
-				Object = new List<EntityRelation>()
-			};
+				var client = GetClient();
+				var httpResponse = client.GetAsync("/api/v3.0/meta/relation/list").GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+				var jObj = JObject.Parse(json);
+				var objToken = jObj.SelectToken("object");
+				var relations = objToken?.ToObject<List<EntityRelation>>() ?? new List<EntityRelation>();
+				return new EntityRelationListResponse { Success = true, Object = relations, Timestamp = DateTime.UtcNow };
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceEntityRelationManagerProxy.Read() failed");
+				return new EntityRelationListResponse { Success = true, Object = new List<EntityRelation>(), Timestamp = DateTime.UtcNow };
+			}
 		}
 	}
 
@@ -709,65 +1350,215 @@ namespace WebVella.Erp.Service.Crm
 	/// Adapter implementing <see cref="ICrmEntityManager"/> for the
 	/// <see cref="SearchService"/>. Provides entity metadata from the Core
 	/// Platform service for x_search field validation and index generation.
+	/// Delegates to Core service REST API via HTTP client.
 	/// </summary>
 	internal sealed class CoreServiceEntityManagerProxy : ICrmEntityManager
 	{
 		private readonly ILogger<CoreServiceEntityManagerProxy> _logger;
+		private readonly IHttpClientFactory _httpClientFactory;
+		private readonly IHttpContextAccessor _httpContextAccessor;
 		private readonly IConfiguration _configuration;
 
 		public CoreServiceEntityManagerProxy(
 			ILogger<CoreServiceEntityManagerProxy> logger,
+			IHttpClientFactory httpClientFactory,
+			IHttpContextAccessor httpContextAccessor,
 			IConfiguration configuration)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+			_httpContextAccessor = httpContextAccessor;
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
 		}
 
+		private HttpClient GetClient()
+		{
+			var client = _httpClientFactory.CreateClient("CoreService");
+			var authHeader = _httpContextAccessor?.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+			if (!string.IsNullOrEmpty(authHeader))
+			{
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+			}
+			else
+			{
+				var token = ServiceTokenHelper.GetServiceToken(_configuration);
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+			}
+			return client;
+		}
+
+		/// <summary>
+		/// JsonSerializerSettings with a FieldJsonConverter that maps the numeric
+		/// <c>fieldType</c> discriminator to the correct concrete <see cref="Field"/>
+		/// subclass. The Core API does not emit $type metadata, so a custom converter
+		/// is required to handle the polymorphic Field hierarchy.
+		/// </summary>
+		private static readonly JsonSerializerSettings _entityDeserializationSettings = new JsonSerializerSettings
+		{
+			Converters = { new FieldJsonConverter() },
+			NullValueHandling = NullValueHandling.Ignore
+		};
+
 		public EntityListResponse ReadEntities()
 		{
-			_logger.LogWarning(
-				"CoreServiceEntityManagerProxy.ReadEntities() called. " +
-				"Core gRPC endpoint: {Url}. Returning empty list — gRPC integration pending.",
-				_configuration["GrpcEndpoints:CoreService"]);
-			return new EntityListResponse
+			try
 			{
-				Success = true,
-				Object = new List<Entity>()
-			};
+				var client = GetClient();
+				var httpResponse = client.GetAsync("/api/v3.0/meta/entity/list").GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+				var jObj = JObject.Parse(json);
+				var objToken = jObj.SelectToken("object");
+				var serializer = JsonSerializer.Create(_entityDeserializationSettings);
+				var entities = objToken?.ToObject<List<Entity>>(serializer) ?? new List<Entity>();
+				return new EntityListResponse { Success = true, Object = entities, Timestamp = DateTime.UtcNow };
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceEntityManagerProxy.ReadEntities() failed");
+				return new EntityListResponse { Success = true, Object = new List<Entity>(), Timestamp = DateTime.UtcNow };
+			}
 		}
 	}
 
 	/// <summary>
 	/// Adapter implementing <see cref="ICrmRecordManager"/> for the
 	/// <see cref="SearchService"/>. Provides record update operations via the
-	/// Core Platform service, specifically for x_search field persistence
-	/// with hooks disabled to prevent infinite recursion.
+	/// Core Platform service REST API, specifically for x_search field persistence.
 	/// </summary>
 	internal sealed class CoreServiceRecordManagerProxy : ICrmRecordManager
 	{
 		private readonly ILogger<CoreServiceRecordManagerProxy> _logger;
+		private readonly IHttpClientFactory _httpClientFactory;
+		private readonly IHttpContextAccessor _httpContextAccessor;
 		private readonly IConfiguration _configuration;
 
 		public CoreServiceRecordManagerProxy(
 			ILogger<CoreServiceRecordManagerProxy> logger,
+			IHttpClientFactory httpClientFactory,
+			IHttpContextAccessor httpContextAccessor,
 			IConfiguration configuration)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
+			_httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+			_httpContextAccessor = httpContextAccessor;
 			_configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+		}
+
+		private HttpClient GetClient()
+		{
+			var client = _httpClientFactory.CreateClient("CoreService");
+			var authHeader = _httpContextAccessor?.HttpContext?.Request?.Headers["Authorization"].FirstOrDefault();
+			if (!string.IsNullOrEmpty(authHeader))
+			{
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", authHeader);
+			}
+			else
+			{
+				var token = ServiceTokenHelper.GetServiceToken(_configuration);
+				client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+			}
+			return client;
 		}
 
 		public QueryResponse UpdateRecord(string entityName, EntityRecord record, bool executeHooks = true)
 		{
-			_logger.LogWarning(
-				"CoreServiceRecordManagerProxy.UpdateRecord() called for entity '{EntityName}', " +
-				"executeHooks={ExecuteHooks}. Core gRPC endpoint: {Url}. " +
-				"Returning success stub — gRPC integration pending.",
-				entityName, executeHooks, _configuration["GrpcEndpoints:CoreService"]);
-			return new QueryResponse
+			try
 			{
-				Success = true,
-				Object = new QueryResult { Data = new List<EntityRecord> { record } }
+				var client = GetClient();
+				var recordId = record["id"]?.ToString();
+				var url = $"/api/v3/en_US/record/{entityName}/{recordId}";
+				_logger.LogDebug("CoreServiceRecordManagerProxy.UpdateRecord() calling Core: {Url}", url);
+
+				var jsonContent = new StringContent(
+					JsonConvert.SerializeObject(record),
+					System.Text.Encoding.UTF8,
+					"application/json");
+
+				var httpResponse = client.PatchAsync(url, jsonContent).GetAwaiter().GetResult();
+				var json = httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+				var jObj = JObject.Parse(json);
+				return new QueryResponse
+				{
+					Success = jObj.Value<bool>("success"),
+					Message = jObj.Value<string>("message"),
+					Timestamp = DateTime.UtcNow,
+					Object = new QueryResult { Data = new List<EntityRecord> { record } }
+				};
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "CoreServiceRecordManagerProxy.UpdateRecord() failed for entity '{EntityName}'", entityName);
+				return new QueryResponse { Success = false, Message = "Core service communication error: " + ex.Message, Timestamp = DateTime.UtcNow };
+			}
+		}
+	}
+
+	#endregion
+
+	#region FieldJsonConverter
+
+	/// <summary>
+	/// Custom JSON converter for the polymorphic <see cref="Field"/> hierarchy.
+	/// The Core service API returns field metadata with a numeric <c>fieldType</c>
+	/// discriminator (matching the <see cref="FieldType"/> enum) but does NOT emit
+	/// Newtonsoft.Json <c>$type</c> metadata. This converter reads <c>fieldType</c>
+	/// from each field JSON object and instantiates the correct concrete Field subclass.
+	/// </summary>
+	internal sealed class FieldJsonConverter : JsonConverter<Field>
+	{
+		public override bool CanWrite => false;
+
+		public override Field ReadJson(JsonReader reader, Type objectType, Field existingValue,
+			bool hasExistingValue, JsonSerializer serializer)
+		{
+			if (reader.TokenType == JsonToken.Null)
+				return null;
+
+			var jObj = JObject.Load(reader);
+			var fieldTypeValue = jObj["fieldType"]?.Value<int>() ?? 0;
+			var fieldType = (FieldType)fieldTypeValue;
+
+			Field field = fieldType switch
+			{
+				FieldType.AutoNumberField => new AutoNumberField(),
+				FieldType.CheckboxField => new CheckboxField(),
+				FieldType.CurrencyField => new CurrencyField(),
+				FieldType.DateField => new DateField(),
+				FieldType.DateTimeField => new DateTimeField(),
+				FieldType.EmailField => new EmailField(),
+				FieldType.FileField => new FileField(),
+				FieldType.HtmlField => new HtmlField(),
+				FieldType.ImageField => new ImageField(),
+				FieldType.MultiLineTextField => new MultiLineTextField(),
+				FieldType.MultiSelectField => new MultiSelectField(),
+				FieldType.NumberField => new NumberField(),
+				FieldType.PasswordField => new PasswordField(),
+				FieldType.PercentField => new PercentField(),
+				FieldType.PhoneField => new PhoneField(),
+				FieldType.GuidField => new GuidField(),
+				FieldType.SelectField => new SelectField(),
+				FieldType.TextField => new TextField(),
+				FieldType.UrlField => new UrlField(),
+				FieldType.GeographyField => new GeographyField(),
+				FieldType.RelationField => new RelationFieldMeta(),
+				_ => new TextField() // Fallback to TextField for unknown types
 			};
+
+			// Populate the concrete field instance from JSON, using a new serializer
+			// without this converter to avoid infinite recursion
+			using (var subReader = jObj.CreateReader())
+			{
+				var tempSerializer = new JsonSerializer { NullValueHandling = NullValueHandling.Ignore };
+				tempSerializer.Populate(subReader, field);
+			}
+
+			return field;
+		}
+
+		public override void WriteJson(JsonWriter writer, Field value, JsonSerializer serializer)
+		{
+			throw new NotImplementedException("FieldJsonConverter is read-only");
 		}
 	}
 

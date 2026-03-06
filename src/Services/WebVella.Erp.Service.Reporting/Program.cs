@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -244,7 +245,8 @@ namespace WebVella.Erp.Service.Reporting
                             h.Username(builder.Configuration["Messaging:RabbitMQ:Username"] ?? "guest");
                             h.Password(builder.Configuration["Messaging:RabbitMQ:Password"] ?? "guest");
                         });
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
                 else
@@ -257,7 +259,8 @@ namespace WebVella.Erp.Service.Reporting
                             h.AccessKey(builder.Configuration["Messaging:AmazonSQS:AccessKey"] ?? "test");
                             h.SecretKey(builder.Configuration["Messaging:AmazonSQS:SecretKey"] ?? "test");
                         });
-                        cfg.ConfigureEndpoints(context);
+                        cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
                     });
                 }
             });
@@ -296,6 +299,43 @@ namespace WebVella.Erp.Service.Reporting
                 if (dbContext.Database.IsRelational())
                 {
                     dbContext.Database.Migrate();
+
+                    // Seed default report definitions if table is empty (QA Issue 17).
+                    // The migration's InsertData may not have run if the table was created
+                    // by an earlier migration version without seed data.
+                    try
+                    {
+                        var conn = dbContext.Database.GetDbConnection();
+                        if (conn.State != System.Data.ConnectionState.Open)
+                            conn.Open();
+                        using var checkCmd = conn.CreateCommand();
+                        checkCmd.CommandText = "SELECT count(*) FROM report_definitions";
+                        var count = (long)(checkCmd.ExecuteScalar() ?? 0);
+                        if (count == 0)
+                        {
+                            using var seedCmd = conn.CreateCommand();
+                            seedCmd.CommandText = @"
+                                INSERT INTO report_definitions (id, name, description, report_type, parameters_json, created_by, created_on, last_modified_on)
+                                VALUES (
+                                    'a0d5e2f1-b3c4-4d6e-8f7a-9b0c1d2e3f4a',
+                                    'Monthly Timelog Report',
+                                    'Aggregated timelog data by task and project for a given month, optionally filtered by account.',
+                                    'timelog_monthly',
+                                    '{""year"":{""type"":""int"",""required"":true},""month"":{""type"":""int"",""required"":true},""accountId"":{""type"":""Guid?"",""required"":false}}',
+                                    'b0000000-0000-0000-0000-000000000001',
+                                    now(),
+                                    now()
+                                ) ON CONFLICT (id) DO NOTHING;";
+                            seedCmd.ExecuteNonQuery();
+                            var startupLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("ReportingStartup");
+                            startupLogger.LogInformation("Seeded default report definition: Monthly Timelog Report");
+                        }
+                    }
+                    catch (Exception seedEx)
+                    {
+                        var startupLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("ReportingStartup");
+                        startupLogger.LogWarning(seedEx, "Failed to seed report definitions — definitions will be returned from in-memory fallback");
+                    }
                 }
             }
 

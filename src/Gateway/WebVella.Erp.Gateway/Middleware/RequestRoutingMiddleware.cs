@@ -55,6 +55,18 @@ namespace WebVella.Erp.Gateway.Middleware
             };
 
         /// <summary>
+        /// Compiled regex for detecting legacy locale-prefixed route patterns such as
+        /// <c>/api/v3/en_US/meta/...</c> or <c>/api/v3/bg_BG/auth/...</c>. These legacy routes
+        /// must be rewritten to the new service-internal pattern <c>/api/v3.0/meta/...</c> or
+        /// <c>/api/v3.0/auth/...</c> before forwarding, because the backend controllers register
+        /// only <c>api/v3.0/meta</c> and <c>api/v3.0/auth</c> route prefixes.
+        /// Captures: group 1 = segment after locale (meta, auth, etc.), group 2 = remaining path.
+        /// </summary>
+        private static readonly Regex LegacyLocaleMetaAuthPattern = new Regex(
+            @"^/api/v3/[^/]+/(meta|auth)(/.*)$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
         /// Response headers that should not be copied from the backend response to the gateway
         /// response. Transfer-Encoding and Content-Length are excluded to let Kestrel handle
         /// chunked transfer encoding and content length computation.
@@ -126,6 +138,27 @@ namespace WebVella.Erp.Gateway.Middleware
                 requestPath,
                 serviceKey,
                 serviceUrl);
+
+            // Rewrite legacy locale-prefixed paths (/api/v3/{locale}/meta/... and
+            // /api/v3/{locale}/auth/...) to the new service-internal paths (/api/v3.0/meta/...
+            // and /api/v3.0/auth/...). Backend controllers (EntityController, SecurityController)
+            // only register the /api/v3.0/* route prefixes, so the legacy paths must be
+            // transformed before forwarding. This preserves backward compatibility with
+            // existing API v3 clients per AAP Section 0.8.1.
+            var match = LegacyLocaleMetaAuthPattern.Match(requestPath);
+            if (match.Success)
+            {
+                var segment = match.Groups[1].Value;   // "meta" or "auth"
+                var remainder = match.Groups[2].Value;  // e.g., "/entity/list"
+                var rewrittenPath = $"/api/v3.0/{segment}{remainder}";
+
+                _logger.LogInformation(
+                    "Rewriting legacy locale path {OriginalPath} → {RewrittenPath}",
+                    requestPath,
+                    rewrittenPath);
+
+                context.Request.Path = rewrittenPath;
+            }
 
             // Check if this request requires cross-service API composition
             // (e.g., cross-service EQL queries spanning CRM + Project entities)

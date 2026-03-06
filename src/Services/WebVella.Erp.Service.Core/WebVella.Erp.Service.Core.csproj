@@ -94,6 +94,7 @@
          other microservices via RabbitMQ (local/Docker) or SQS/SNS (LocalStack) -->
     <PackageReference Include="MassTransit" />
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
     <PackageReference Include="MassTransit.AmazonSQS" />
 
     <!-- AWS S3 — File storage via LocalStack (AAP 0.6.1)

@@ -82,6 +82,7 @@
     <!-- RabbitMQ transport for local/Docker messaging environments,
          replacing the monolith's PostgreSQL LISTEN/NOTIFY pub/sub -->
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
     <!-- Amazon SQS/SNS transport for LocalStack deployment validation
          with AWS-compatible event routing -->
     <PackageReference Include="MassTransit.AmazonSQS" />

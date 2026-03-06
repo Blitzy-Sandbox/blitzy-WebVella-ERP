@@ -58,11 +58,16 @@ namespace WebVella.Erp.Service.Core.Controllers
 		#region << Response Helper Methods >>
 
 		/// <summary>
-		/// Standard response handler. If response contains errors or is not successful,
-		/// sets HTTP status code from response model. Preserves original ApiControllerBase behavior.
+		/// Standard response handler. Sets the Timestamp to current UTC time if not already set.
+		/// If response contains errors or is not successful, sets HTTP status code from response model.
+		/// Preserves original ApiControllerBase behavior.
 		/// </summary>
 		protected IActionResult DoResponse(BaseResponseModel response)
 		{
+			// Ensure timestamp is always set to current UTC time
+			if (response.Timestamp == default(DateTime))
+				response.Timestamp = DateTime.UtcNow;
+
 			if (response.Errors.Count > 0 || !response.Success)
 			{
 				if (response.StatusCode == HttpStatusCode.OK)
@@ -151,12 +156,21 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <summary>
 		/// Get entity metadata by name.
 		/// GET: api/v3.0/meta/entity/{name}
+		/// Returns 404 with success:false when entity is not found.
 		/// </summary>
 		[HttpGet("entity/{name}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult GetEntityMeta(string name)
 		{
-			return DoResponse(_entityManager.ReadEntity(name));
+			var response = _entityManager.ReadEntity(name);
+			response.Timestamp = DateTime.UtcNow;
+			if (response.Success && response.Object == null)
+			{
+				response.Success = false;
+				response.Message = $"Entity '{name}' was not found.";
+				return DoItemNotFoundResponse(response);
+			}
+			return DoResponse(response);
 		}
 
 		/// <summary>
@@ -308,38 +322,50 @@ namespace WebVella.Erp.Service.Core.Controllers
 		}
 
 		/// <summary>
-		/// Delete an entity by ID.
+		/// Delete an entity by ID (GUID) or by name.
 		/// DELETE: api/v3.0/meta/entity/{name}
-		/// The name parameter is the entity ID as a GUID string, preserving the monolith route contract.
+		/// Accepts both GUID strings and entity names. When a name is provided,
+		/// resolves it to a GUID internally before deletion.
 		/// </summary>
 		[HttpDelete("entity/{name}")]
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult DeleteEntity(string name)
 		{
 			EntityResponse response = new EntityResponse();
+			response.Timestamp = DateTime.UtcNow;
 
-			if (Guid.TryParse(name, out Guid newGuid))
+			Guid entityId;
+			if (Guid.TryParse(name, out entityId))
 			{
-				using (var connection = CoreDbContext.Current.CreateConnection())
-				{
-					connection.BeginTransaction();
-					try
-					{
-						response = _entityManager.DeleteEntity(newGuid);
-						connection.CommitTransaction();
-					}
-					catch (Exception ex)
-					{
-						connection.RollbackTransaction();
-						return DoBadRequestResponse(response, ex.Message, ex);
-					}
-				}
+				// GUID provided directly
 			}
 			else
 			{
-				response.Success = false;
-				response.Message = "The entity Id should be a valid Guid";
-				HttpContext.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+				// Name provided — resolve to entity ID
+				var entityResponse = _entityManager.ReadEntity(name);
+				if (!entityResponse.Success || entityResponse.Object == null)
+				{
+					response.Success = false;
+					response.Message = $"Entity '{name}' was not found.";
+					return DoItemNotFoundResponse(response);
+				}
+				entityId = entityResponse.Object.Id;
+			}
+
+			using (var connection = CoreDbContext.Current.CreateConnection())
+			{
+				connection.BeginTransaction();
+				try
+				{
+					response = _entityManager.DeleteEntity(entityId);
+					response.Timestamp = DateTime.UtcNow;
+					connection.CommitTransaction();
+				}
+				catch (Exception ex)
+				{
+					connection.RollbackTransaction();
+					return DoBadRequestResponse(response, ex.Message, ex);
+				}
 			}
 			return DoResponse(response);
 		}

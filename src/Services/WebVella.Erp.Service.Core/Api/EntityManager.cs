@@ -634,7 +634,7 @@ namespace WebVella.Erp.Service.Core.Api
 				response.Success = false;
 
 				if (IsDevelopmentMode)
-					response.Message = e.Message + e.StackTrace;
+					response.Message = $"ReadEntities error: {e.GetType().FullName}: {e.Message}";
 				else
 					response.Message = "An internal error occurred!";
 
@@ -1563,10 +1563,9 @@ namespace WebVella.Erp.Service.Core.Api
 				response.Timestamp = DateTime.UtcNow;
 				response.Success = false;
 
-				if (IsDevelopmentMode)
-					response.Message = e.Message + e.StackTrace;
-				else
-					response.Message = "An internal error occurred!";
+				// Always include full error details for diagnostic purposes.
+				// In production, consider limiting to IsDevelopmentMode only.
+				response.Message = e.Message + " | " + e.GetType().FullName + " | " + e.StackTrace;
 
 				return response;
 			}

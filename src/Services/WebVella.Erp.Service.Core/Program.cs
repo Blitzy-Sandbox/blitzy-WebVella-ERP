@@ -346,6 +346,7 @@ namespace WebVella.Erp.Service.Core
                             h.AccessKey(sqsAccessKey);
                             h.SecretKey(sqsSecretKey);
                         });
+                        cfg.UseNewtonsoftJsonSerializer();
                         cfg.ConfigureEndpoints(context);
                     });
                 }
@@ -365,6 +366,12 @@ namespace WebVella.Erp.Service.Core
                             h.Username(rabbitUser);
                             h.Password(rabbitPass);
                         });
+                        // Use Newtonsoft.Json serializer for MassTransit messages.
+                        // Required because EntityRecord extends Expando (a DynamicObject),
+                        // which System.Text.Json cannot serialize. Newtonsoft.Json handles
+                        // dynamic property bags correctly, ensuring Record payloads in
+                        // domain events are properly serialized across service boundaries.
+                        cfg.UseNewtonsoftJsonSerializer();
                         cfg.ConfigureEndpoints(context);
                     });
                 }
@@ -1203,6 +1210,30 @@ namespace WebVella.Erp.Service.Core
                         id UUID PRIMARY KEY DEFAULT uuid_generate_v1(),
                         name TEXT NOT NULL,
                         data JSONB DEFAULT '{}'::jsonb
+                    );
+
+                    CREATE TABLE IF NOT EXISTS files (
+                        id UUID PRIMARY KEY DEFAULT uuid_generate_v1(),
+                        object_id NUMERIC(18) NOT NULL DEFAULT 0,
+                        filepath TEXT NOT NULL,
+                        created_on TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        modified_on TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        created_by UUID,
+                        modified_by UUID
+                    );
+
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_filepath ON files (filepath);
+
+                    CREATE TABLE IF NOT EXISTS data_source (
+                        id UUID PRIMARY KEY DEFAULT uuid_generate_v1(),
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        weight INTEGER NOT NULL DEFAULT 10,
+                        eql_text TEXT,
+                        sql_text TEXT,
+                        parameters_json JSONB DEFAULT '[]'::jsonb,
+                        fields_json JSONB DEFAULT '[]'::jsonb,
+                        CONSTRAINT ux_data_source_name UNIQUE (name)
                     );");
 
                 command.ExecuteNonQuery();

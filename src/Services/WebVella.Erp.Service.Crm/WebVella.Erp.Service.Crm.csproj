@@ -97,6 +97,7 @@
     <PackageReference Include="MassTransit" />
     <!-- RabbitMQ transport: default messaging for local/Docker deployments -->
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
     <!-- Amazon SQS/SNS transport: for LocalStack deployment validation where
          event routing flows through SNS topics and SQS queues on port 4566 -->
     <PackageReference Include="MassTransit.AmazonSQS" />

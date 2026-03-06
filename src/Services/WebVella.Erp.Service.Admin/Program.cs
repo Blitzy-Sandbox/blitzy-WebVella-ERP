@@ -187,7 +187,11 @@ namespace WebVella.Erp.Service.Admin
 					ValidAudience = jwtAudience,
 					IssuerSigningKey = new SymmetricSecurityKey(
 						Encoding.UTF8.GetBytes(jwtKey)),
-					ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 }
+					ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
+					// Map the "role_name" claim to the role identity so that
+					// [Authorize(Roles = "administrator")] works with the human-readable
+					// role names emitted by Core's JwtTokenHandler (Issue 18).
+					RoleClaimType = "role_name"
 				};
 			});
 
@@ -219,7 +223,8 @@ namespace WebVella.Erp.Service.Admin
 						h.Password(rabbitPass);
 					});
 
-					cfg.ConfigureEndpoints(context);
+					cfg.UseNewtonsoftJsonSerializer();
+						cfg.ConfigureEndpoints(context);
 				});
 			});
 
