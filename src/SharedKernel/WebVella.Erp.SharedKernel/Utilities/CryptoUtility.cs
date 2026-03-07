@@ -13,8 +13,18 @@ namespace WebVella.Erp.SharedKernel.Utilities
 	{
 		#region <--- Fields --->
 
+		/// <summary>
+		/// Development-only fallback encryption key. In production, MUST be overridden via
+		/// ErpSettings.EncryptionKey (from environment variable or configuration).
+		/// A startup warning is logged if this default is used.
+		/// </summary>
 		private const string defaultCryptKey = "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658";
 		private static string cryptKey;
+
+		/// <summary>
+		/// Tracks whether the hardcoded default key is in use (for startup diagnostics).
+		/// </summary>
+		public static bool IsUsingDefaultKey { get; private set; }
 
 		#endregion
 
@@ -28,10 +38,11 @@ namespace WebVella.Erp.SharedKernel.Utilities
 				{
 					if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey)) {
 						cryptKey = defaultCryptKey;
+						IsUsingDefaultKey = true;
 					}
 					else {
-
 						cryptKey = ErpSettings.EncryptionKey;
+						IsUsingDefaultKey = false;
 					}
 				}
 				return cryptKey;

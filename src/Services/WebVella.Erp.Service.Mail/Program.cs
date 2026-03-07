@@ -88,6 +88,10 @@ namespace WebVella.Erp.Service.Mail
 
             var builder = WebApplication.CreateBuilder(args);
 
+            // Suppress Kestrel Server header to reduce information leakage (defense-in-depth)
+            builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(
+                options => options.AddServerHeader = false);
+
             // -----------------------------------------------------------------
             // Configuration bridge: Map new microservice config paths to legacy
             // Settings:* paths expected by SharedKernel's ErpSettings.Initialize().
@@ -232,6 +236,14 @@ namespace WebVella.Erp.Service.Mail
             var jwtIssuer = jwtSection["Issuer"] ?? "webvella-erp";
             var jwtAudience = jwtSection["Audience"] ?? "webvella-erp";
             var requireHttpsMetadata = bool.TryParse(jwtSection["RequireHttpsMetadata"], out var https) && https;
+
+            // SECURITY — Startup key validation warnings
+            if (JwtTokenOptions.IsDefaultKey(jwtKey))
+            {
+                Console.Error.WriteLine("[Mail Service] SECURITY WARNING: JWT signing key " +
+                    "is the built-in default development key. Set 'Jwt:Key' configuration " +
+                    "or WEBVELLA_JWT_KEY environment variable before deploying to production.");
+            }
 
             builder.Services.AddAuthentication(options =>
             {
@@ -914,6 +926,18 @@ namespace WebVella.Erp.Service.Mail
             // Should be before static files and routing.
             // -----------------------------------------------------------------
             app.UseResponseCompression();
+
+            // Security Headers Middleware — defense-in-depth HTTP response headers
+            // X-Content-Type-Options: nosniff — prevents MIME type sniffing
+            // X-Frame-Options: DENY — prevents clickjacking via iframes
+            // Cache-Control: no-store — prevents caching of authenticated responses
+            app.Use(async (context, next) =>
+            {
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                context.Response.Headers["Cache-Control"] = "no-store";
+                await next();
+            });
 
             // -----------------------------------------------------------------
             // CORS (from Startup.cs line 102)

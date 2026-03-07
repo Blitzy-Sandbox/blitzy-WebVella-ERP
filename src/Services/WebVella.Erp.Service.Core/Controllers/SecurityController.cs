@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -165,6 +166,8 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// <param name="submitObj">JSON body containing <c>email</c> and <c>password</c> fields.</param>
 		/// <returns>A ResponseModel with <c>{ token, expiration }</c> on success, or error details on failure.</returns>
 		[AllowAnonymous]
+		[ResponseCache(NoStore = true)]
+		[EnableRateLimiting("login")]
 		[HttpPost("~/api/v3.0/auth/jwt/token")]
 		public async Task<IActionResult> GetJwtToken([FromBody] JObject submitObj)
 		{
@@ -250,6 +253,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 		/// </summary>
 		/// <returns>A ResponseModel with <c>{ token }</c> on success, or error details on failure.</returns>
 		[AllowAnonymous]
+		[ResponseCache(NoStore = true)]
 		[HttpPost("~/api/v3.0/auth/jwt/token/new")]
 		public async Task<IActionResult> GetNewJwtToken()
 		{
@@ -314,6 +318,16 @@ namespace WebVella.Erp.Service.Core.Controllers
 					return DoResponse(response);
 				}
 
+				// Check if the existing token has been blacklisted (previously revoked)
+				if (await _jwtTokenHandler.IsTokenBlacklistedAsync(jwtToken))
+				{
+					response.Success = false;
+					response.StatusCode = HttpStatusCode.Unauthorized;
+					response.Message = "Token has been revoked";
+					response.Errors.Add(new ErrorModel("token", "", "Token has been revoked"));
+					return DoResponse(response);
+				}
+
 				// Issue a new token with fresh expiration and the current user's claims
 				var refreshedToken = await _jwtTokenHandler.RefreshTokenAsync(existingToken, currentUser);
 				if (string.IsNullOrEmpty(refreshedToken))
@@ -324,6 +338,10 @@ namespace WebVella.Erp.Service.Core.Controllers
 					response.Errors.Add(new ErrorModel("token", "", "Token refresh failed"));
 					return DoResponse(response);
 				}
+
+				// Blacklist the old token so it cannot be reused after refresh.
+				// The blacklist entry TTL matches the old token's remaining lifetime.
+				await _jwtTokenHandler.BlacklistTokenAsync(jwtToken);
 
 				response.Object = new { token = refreshedToken };
 				response.Success = true;

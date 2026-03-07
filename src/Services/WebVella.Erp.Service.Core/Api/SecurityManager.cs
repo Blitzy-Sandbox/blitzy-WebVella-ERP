@@ -122,9 +122,22 @@ namespace WebVella.Erp.Service.Core.Api
 		}
 
 		/// <summary>
-		/// Authenticates a user by email and password (MD5 hashed).
+		/// Authenticates a user by email and password.
+		/// Supports both legacy MD5 hashes (existing users) and modern PBKDF2-SHA256
+		/// hashes (newly created or upgraded users).
+		///
+		/// Migration strategy: When a user authenticates successfully with a legacy
+		/// MD5-hashed password, the password is automatically rehashed using PBKDF2
+		/// and the stored hash is updated in-place. This provides a transparent,
+		/// zero-downtime migration from MD5 to PBKDF2 without forcing password resets.
+		///
+		/// Authentication flow:
+		/// 1. Query user by email only (cannot compare salted PBKDF2 hashes in SQL)
+		/// 2. Verify password in application code via PasswordUtil.VerifyPassword()
+		/// 3. If verified and hash is legacy MD5, rehash with PBKDF2 and update record
+		///
 		/// Uses case-insensitive email matching via PostgreSQL regex (~*).
-		/// Preserved from monolith SecurityManager.GetUser(string, string).
+		/// Preserved and enhanced from monolith SecurityManager.GetUser(string, string).
 		/// </summary>
 		public virtual ErpUser GetUser(string email, string password)
 		{
@@ -133,28 +146,72 @@ namespace WebVella.Erp.Service.Core.Api
 
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT * FROM user WHERE email ~* @email AND password = @password",
+				// Step 1: Query by email only — PBKDF2 salted hashes cannot be
+				// compared in SQL (each hash is unique even for the same password).
+				var result = new EqlCommand("SELECT *,$user_role.id FROM user WHERE email ~* @email",
 					new List<EqlParameter>
 					{
-						new EqlParameter("email", email),
-						new EqlParameter("password", encryptedPassword)
+						new EqlParameter("email", email)
 					},
 					currentContext: _dbContext).Execute();
 
+				EntityRecord matchedRecord = null;
 				ErpUser user = null;
 				foreach (var rec in result)
 				{
 					var recEmail = rec["email"] as string;
 					if (recEmail != null && recEmail.ToLowerInvariant() == email.ToLowerInvariant())
 					{
-						user = rec.MapTo<ErpUser>();
+						matchedRecord = rec;
 						break;
 					}
 				}
 
-				if (user == null)
+				if (matchedRecord == null)
 					return null;
+
+				// Step 2: Verify password in application code — supports both
+				// legacy MD5 hashes and modern PBKDF2-SHA256 hashes.
+				var storedHash = matchedRecord["password"] as string;
+				if (string.IsNullOrEmpty(storedHash) || !PasswordUtil.VerifyPassword(password, storedHash))
+					return null;
+
+				user = matchedRecord.MapTo<ErpUser>();
+
+				// Step 3: Transparent migration — if the password is stored as a
+				// legacy MD5 hash, rehash it with PBKDF2-SHA256 and update the
+				// database record. This migrates users one-by-one on successful login.
+				if (PasswordUtil.NeedsUpgrade(storedHash))
+				{
+					try
+					{
+						var newHash = PasswordUtil.HashPassword(password);
+						using (var connection = _dbContext.CreateConnection())
+						{
+							connection.BeginTransaction();
+							try
+							{
+								var updateCmd = connection.CreateCommand(
+									"UPDATE rec_user SET password = @password WHERE id = @id");
+								updateCmd.Parameters.AddWithValue("password", newHash);
+								updateCmd.Parameters.AddWithValue("id", (Guid)matchedRecord["id"]);
+								updateCmd.ExecuteNonQuery();
+								connection.CommitTransaction();
+							}
+							catch
+							{
+								connection.RollbackTransaction();
+								// Silently ignore upgrade failure — user is already authenticated;
+								// the upgrade will be retried on next login.
+							}
+						}
+					}
+					catch
+					{
+						// Non-critical: password upgrade failed but authentication succeeded.
+						// The legacy MD5 hash remains valid until the next successful login.
+					}
+				}
 
 				// Explicitly load roles via SQL since EQL cross-entity relation
 				// resolution requires full monolith-level infrastructure.

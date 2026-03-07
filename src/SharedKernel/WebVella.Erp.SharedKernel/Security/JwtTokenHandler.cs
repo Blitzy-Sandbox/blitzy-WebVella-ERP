@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using WebVella.Erp.SharedKernel.Models;
 
@@ -23,20 +24,25 @@ namespace WebVella.Erp.SharedKernel.Security
 		/// ensures that in development environments without explicit config, all
 		/// services use the same signing key and can validate each other's tokens.
 		///
-		/// The key is 50 characters (400 bits) — well above the 256-bit HMAC-SHA256
+		/// The key is 51 characters (408 bits) — well above the 256-bit HMAC-SHA256
 		/// minimum — so no padding is required by JwtTokenHandler.GetSigningKeyBytes().
 		///
-		/// Based on the monolith's Config.json key pattern (repeated base key).
-		/// MUST be overridden in production via configuration.
+		/// WARNING: This key is publicly visible in source code and MUST be overridden
+		/// in production via configuration or environment variables. Services should
+		/// validate that a non-default key is configured at startup.
 		/// </summary>
-		public const string DefaultDevelopmentKey = "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKe";
+		public const string DefaultDevelopmentKey = "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey";
+
+		/// <summary>
+		/// Returns true if the provided key matches the hardcoded development default.
+		/// Used by services to emit startup warnings when running with insecure defaults.
+		/// </summary>
+		public static bool IsDefaultKey(string key) =>
+			string.Equals(key, DefaultDevelopmentKey, StringComparison.Ordinal);
 
 		/// <summary>
 		/// HMAC SHA-256 signing key for JWT tokens.
-		/// Default: <see cref="DefaultDevelopmentKey"/> — a 50-character development-only key.
-		/// The monolith's ErpSettings default was "ThisIsMySecretKey" (17 chars), but
-		/// production Config.json used a 50-character key. The longer default prevents
-		/// key padding discrepancies across services.
+		/// Default: <see cref="DefaultDevelopmentKey"/> — a development-only key.
 		/// MUST be overridden in production environments.
 		/// </summary>
 		public string Key { get; set; } = DefaultDevelopmentKey;
@@ -99,23 +105,39 @@ namespace WebVella.Erp.SharedKernel.Security
 		private const int MinKeyLengthBytes = 32;
 
 		/// <summary>
+		/// Prefix for token blacklist cache keys in the distributed cache.
+		/// Format: "jwt_blacklist:{jti}" where jti is the token's unique identifier.
+		/// </summary>
+		private const string BlacklistKeyPrefix = "jwt_blacklist:";
+
+		/// <summary>
 		/// JWT configuration options injected via constructor.
 		/// </summary>
 		private readonly JwtTokenOptions _options;
 
 		/// <summary>
-		/// Creates a new JwtTokenHandler with the specified JWT options.
+		/// Optional distributed cache for token blacklisting (revocation).
+		/// When set, <see cref="BlacklistTokenAsync"/> stores revoked JTIs and
+		/// <see cref="IsTokenBlacklistedAsync"/> checks them during validation.
+		/// </summary>
+		private readonly IDistributedCache _cache;
+
+		/// <summary>
+		/// Creates a new JwtTokenHandler with the specified JWT options and optional distributed cache.
 		/// </summary>
 		/// <param name="options">JWT configuration options containing signing key, issuer, audience, and expiry settings.</param>
+		/// <param name="cache">Optional distributed cache for token blacklisting. Pass null to disable revocation.</param>
 		/// <exception cref="ArgumentNullException">Thrown when <paramref name="options"/> is null.</exception>
-		public JwtTokenHandler(JwtTokenOptions options)
+		public JwtTokenHandler(JwtTokenOptions options, IDistributedCache cache = null)
 		{
 			_options = options ?? throw new ArgumentNullException(nameof(options));
+			_cache = cache;
 		}
 
 		/// <summary>
 		/// Creates a new JwtTokenHandler with explicit key, issuer, and audience values.
 		/// Other settings (TokenExpiryMinutes, TokenRefreshMinutes) use their defaults.
+		/// Token blacklisting is not available with this constructor (no cache).
 		/// </summary>
 		/// <param name="key">HMAC SHA-256 signing key string.</param>
 		/// <param name="issuer">JWT issuer claim value.</param>
@@ -128,6 +150,80 @@ namespace WebVella.Erp.SharedKernel.Security
 				Issuer = issuer ?? throw new ArgumentNullException(nameof(issuer)),
 				Audience = audience ?? throw new ArgumentNullException(nameof(audience))
 			};
+			_cache = null;
+		}
+
+		/// <summary>
+		/// Adds a token's JTI (or raw token hash) to the blacklist in the distributed cache.
+		/// The entry is set with a TTL matching the token's remaining lifetime so that
+		/// blacklist entries automatically expire when the token would have expired.
+		/// </summary>
+		/// <param name="token">The validated JwtSecurityToken to blacklist.</param>
+		/// <returns>A task that completes when the blacklist entry is written.</returns>
+		public async Task BlacklistTokenAsync(JwtSecurityToken token)
+		{
+			if (_cache == null || token == null) return;
+
+			// Use the token's JTI claim if present; otherwise use a hash of the raw token
+			string jti = token.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
+			if (string.IsNullOrEmpty(jti))
+			{
+				// Fallback: use the raw value hash as the key
+				jti = Convert.ToBase64String(
+					System.Security.Cryptography.SHA256.HashData(
+						Encoding.UTF8.GetBytes(token.RawData ?? "")));
+			}
+
+			// Calculate remaining lifetime for TTL
+			var remaining = token.ValidTo > DateTime.UtcNow
+				? token.ValidTo - DateTime.UtcNow
+				: TimeSpan.FromMinutes(5); // minimum TTL if already near expiry
+
+			var cacheOptions = new DistributedCacheEntryOptions
+			{
+				AbsoluteExpirationRelativeToNow = remaining
+			};
+
+			await _cache.SetStringAsync($"{BlacklistKeyPrefix}{jti}", "revoked", cacheOptions);
+		}
+
+		/// <summary>
+		/// Blacklists a token given its raw string representation by first validating
+		/// and parsing it, then delegating to <see cref="BlacklistTokenAsync(JwtSecurityToken)"/>.
+		/// </summary>
+		/// <param name="tokenString">The raw JWT token string to blacklist.</param>
+		/// <returns>A task that completes when the blacklist entry is written.</returns>
+		public async Task BlacklistTokenAsync(string tokenString)
+		{
+			if (_cache == null || string.IsNullOrWhiteSpace(tokenString)) return;
+
+			var token = await GetValidSecurityTokenAsync(tokenString);
+			if (token != null)
+			{
+				await BlacklistTokenAsync(token);
+			}
+		}
+
+		/// <summary>
+		/// Checks whether a token has been blacklisted (revoked) in the distributed cache.
+		/// Returns false if no cache is configured (blacklisting disabled).
+		/// </summary>
+		/// <param name="token">The validated JwtSecurityToken to check.</param>
+		/// <returns>True if the token is blacklisted; false otherwise.</returns>
+		public async Task<bool> IsTokenBlacklistedAsync(JwtSecurityToken token)
+		{
+			if (_cache == null || token == null) return false;
+
+			string jti = token.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
+			if (string.IsNullOrEmpty(jti))
+			{
+				jti = Convert.ToBase64String(
+					System.Security.Cryptography.SHA256.HashData(
+						Encoding.UTF8.GetBytes(token.RawData ?? "")));
+			}
+
+			var value = await _cache.GetStringAsync($"{BlacklistKeyPrefix}{jti}");
+			return value != null;
 		}
 
 		/// <summary>

@@ -26,13 +26,17 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Threading.RateLimiting;
 using AutoMapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
@@ -81,6 +85,14 @@ namespace WebVella.Erp.Service.Core
             var builder = WebApplication.CreateBuilder(args);
 
             // =====================================================================
+            // Kestrel Server Header Suppression
+            // Prevents disclosure of server technology stack in HTTP responses.
+            // Reduces information leakage that aids attacker reconnaissance.
+            // =====================================================================
+            builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(
+                options => options.AddServerHeader = false);
+
+            // =====================================================================
             // ErpSettings initialization — bind from appsettings.json Settings section
             // MUST be called before any code that uses ErpSettings (e.g.,
             // ErpDateTimeJsonConverter uses ErpSettings.TimeZoneName).
@@ -102,6 +114,30 @@ namespace WebVella.Erp.Service.Core
             var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
             var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
             var redisConnectionString = configuration["Redis:ConnectionString"] ?? "localhost:6379";
+
+            // =================================================================
+            // SECURITY — Startup key validation warnings
+            // Detect when hardcoded default keys are in use and emit prominent
+            // warnings. In a production deployment environment variables MUST
+            // supply unique keys; default constants exist only to keep the
+            // developer inner-loop functional.
+            // =================================================================
+            if (JwtTokenOptions.IsDefaultKey(jwtKey))
+            {
+                var msg = "SECURITY WARNING: JWT signing key is the built-in " +
+                          "default development key. Set the 'Jwt:Key' " +
+                          "configuration value or WEBVELLA_JWT_KEY environment " +
+                          "variable before deploying to production.";
+                Console.Error.WriteLine($"[Core Service] {msg}");
+                builder.Services.AddSingleton<string>(sp => msg); // discoverable marker
+            }
+            if (CryptoUtility.IsUsingDefaultKey)
+            {
+                var msg = "SECURITY WARNING: AES encryption key is the built-in " +
+                          "default. Set the 'WEBVELLA_ENCRYPTION_KEY' environment " +
+                          "variable before deploying to production.";
+                Console.Error.WriteLine($"[Core Service] {msg}");
+            }
             var redisInstanceName = configuration["Redis:InstanceName"] ?? "erp_core_";
             var messagingTransport = configuration["Messaging:Transport"] ?? "RabbitMQ";
             var jobsEnabled = configuration.GetValue<bool>("Jobs:Enabled");
@@ -115,7 +151,11 @@ namespace WebVella.Erp.Service.Core
             // =====================================================================
             JsonConvert.DefaultSettings = () => new JsonSerializerSettings
             {
-                Converters = new List<JsonConverter> { new ErpDateTimeJsonConverter() }
+                Converters = new List<JsonConverter> { new ErpDateTimeJsonConverter() },
+                // Limit deserialization depth to prevent stack overflow / DoS from
+                // deeply nested JSON payloads. 64 levels is generous for legitimate
+                // ERP data while blocking adversarial inputs (e.g., 200+ levels).
+                MaxDepth = 64
             };
 
             // =================================================================
@@ -148,6 +188,47 @@ namespace WebVella.Erp.Service.Core
                     // "role_name" instead of the default ClaimTypes.Role.
                     RoleClaimType = "role_name"
                 };
+
+                // =============================================================
+                // Token Revocation Check via Distributed Cache
+                // After a token is refreshed, the old token's identifier is
+                // stored in Redis with a TTL matching its remaining lifetime.
+                // This event handler rejects blacklisted tokens on every request.
+                // =============================================================
+                options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+                {
+                    OnTokenValidated = async context =>
+                    {
+                        var cache = context.HttpContext.RequestServices
+                            .GetService<IDistributedCache>();
+                        if (cache == null) return;
+
+                        // Extract raw token from Authorization header to compute
+                        // the blacklist key — compatible with both JwtSecurityToken
+                        // and JsonWebToken (default in .NET 10+).
+                        var authHeader = context.HttpContext.Request.Headers["Authorization"]
+                            .FirstOrDefault();
+                        if (string.IsNullOrEmpty(authHeader)) return;
+
+                        var rawToken = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                            ? authHeader.Substring(7)
+                            : authHeader;
+
+                        // Derive the blacklist key using the same logic as
+                        // JwtTokenHandler.BlacklistTokenAsync: SHA256 hash of the raw
+                        // token string (fallback when no JTI claim is present).
+                        var key = Convert.ToBase64String(
+                            System.Security.Cryptography.SHA256.HashData(
+                                Encoding.UTF8.GetBytes(rawToken)));
+
+                        var blacklisted = await cache.GetStringAsync(
+                            $"jwt_blacklist:{key}");
+                        if (blacklisted != null)
+                        {
+                            context.Fail("Token has been revoked.");
+                        }
+                    }
+                };
             });
 
             // =================================================================
@@ -171,6 +252,9 @@ namespace WebVella.Erp.Service.Core
                     options.SerializerSettings.Converters.Add(new ErpDateTimeJsonConverter());
                     options.SerializerSettings.DateFormatString =
                         configuration["Settings:JsonDateTimeFormat"] ?? "yyyy-MM-ddTHH:mm:ss.fff";
+                    // Limit deserialization depth to prevent stack overflow / DoS from
+                    // deeply nested JSON payloads sent to REST API endpoints.
+                    options.SerializerSettings.MaxDepth = 64;
                 });
 
             // =================================================================
@@ -392,6 +476,25 @@ namespace WebVella.Erp.Service.Core
             }
 
             // =================================================================
+            // Rate Limiting — brute force protection for login endpoint
+            // Configured as a fixed-window limiter: 5 requests per minute per
+            // IP address on the "login" policy. Returns HTTP 429 Too Many
+            // Requests when exceeded. Applied via [EnableRateLimiting("login")]
+            // attribute on the SecurityController login action.
+            // =================================================================
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                options.AddFixedWindowLimiter("login", opt =>
+                {
+                    opt.PermitLimit = 5;
+                    opt.Window = TimeSpan.FromMinutes(1);
+                    opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                    opt.QueueLimit = 0;
+                });
+            });
+
+            // =================================================================
             // Build the application
             // =================================================================
             var app = builder.Build();
@@ -430,8 +533,86 @@ namespace WebVella.Erp.Service.Core
                 app.UseDeveloperExceptionPage();
             }
 
+            // =================================================================
+            // JSON Payload Depth Guard Middleware
+            // Inspects the raw request body of JSON-typed requests using
+            // System.Text.Json's Utf8JsonReader (which has reliable built-in
+            // MaxDepth enforcement). Returns HTTP 400 if the JSON nesting
+            // depth exceeds 64 levels. This prevents DoS via deeply nested
+            // payloads that can cause stack overflows or excessive memory use
+            // in the downstream Newtonsoft.Json model binder.
+            //
+            // The body stream is buffered and rewound so that downstream
+            // middleware and MVC can re-read it normally.
+            // =================================================================
+            app.Use(async (context, next) =>
+            {
+                const int maxJsonDepth = 64;
+
+                if (context.Request.ContentType != null &&
+                    context.Request.ContentType.Contains("application/json", StringComparison.OrdinalIgnoreCase) &&
+                    context.Request.ContentLength > 0 &&
+                    (context.Request.Method == "POST" || context.Request.Method == "PUT" || context.Request.Method == "PATCH"))
+                {
+                    context.Request.EnableBuffering();
+                    var body = context.Request.Body;
+                    var memoryStream = new MemoryStream();
+                    await body.CopyToAsync(memoryStream);
+                    var bytes = memoryStream.ToArray();
+
+                    // Validate JSON depth using System.Text.Json (fast, streaming)
+                    try
+                    {
+                        var readerOptions = new System.Text.Json.JsonReaderOptions
+                        {
+                            MaxDepth = maxJsonDepth,
+                            AllowTrailingCommas = true,
+                            CommentHandling = System.Text.Json.JsonCommentHandling.Skip
+                        };
+                        var reader = new System.Text.Json.Utf8JsonReader(bytes, readerOptions);
+                        while (reader.Read()) { /* exhaust all tokens to trigger depth check */ }
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        context.Response.StatusCode = 400;
+                        context.Response.ContentType = "application/json";
+                        var errorResponse = new
+                        {
+                            success = false,
+                            timestamp = DateTime.UtcNow,
+                            message = $"Invalid JSON payload: the JSON payload exceeds the maximum allowed nesting depth of {maxJsonDepth}.",
+                            errors = new[] { new { key = (string?)null, value = (string?)null, message = $"JSON nesting depth exceeds {maxJsonDepth}" } },
+                            @object = (object?)null
+                        };
+                        await context.Response.WriteAsync(
+                            JsonConvert.SerializeObject(errorResponse));
+                        return; // short-circuit — do not call next()
+                    }
+
+                    // Rewind the body stream so MVC can re-read it
+                    context.Request.Body = new MemoryStream(bytes);
+                }
+
+                await next();
+            });
+
             // Response compression — before routing
             app.UseResponseCompression();
+
+            // =================================================================
+            // Security Headers Middleware
+            // Adds defense-in-depth HTTP response headers to ALL responses:
+            // - X-Content-Type-Options: nosniff — prevents MIME type sniffing
+            // - X-Frame-Options: DENY — prevents clickjacking via iframes
+            // Placed early in the pipeline so headers are added even for error
+            // responses and health check endpoints.
+            // =================================================================
+            app.Use(async (context, next) =>
+            {
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                await next();
+            });
 
             // CORS — before routing and auth
             app.UseCors();
@@ -442,6 +623,9 @@ namespace WebVella.Erp.Service.Core
             // Authentication and Authorization
             app.UseAuthentication();
             app.UseAuthorization();
+
+            // Rate limiting — after auth so IP and user context are available
+            app.UseRateLimiter();
 
             // SecurityContext bridge — opens a SecurityContext scope from the
             // authenticated ClaimsPrincipal on each request so that downstream

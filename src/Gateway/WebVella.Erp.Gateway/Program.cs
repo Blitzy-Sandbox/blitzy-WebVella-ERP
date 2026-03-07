@@ -51,6 +51,10 @@ using WebVella.Erp.SharedKernel.Security;
 // =========================================================================
 var builder = WebApplication.CreateBuilder(args);
 
+// Suppress Kestrel Server header to reduce information leakage (defense-in-depth)
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(
+    options => options.AddServerHeader = false);
+
 // =========================================================================
 // Npgsql legacy timestamp behavior — preserved from monolith Startup.cs
 // line 40. Required until system tables are migrated to timestamptz columns.
@@ -225,10 +229,20 @@ builder.Services.AddAuthentication(options =>
 // Binds JwtTokenOptions from appsettings.json Settings:Jwt section
 // (Key, Issuer, Audience, TokenExpiryMinutes, TokenRefreshMinutes).
 // -----------------------------------------------------------------------
+// SECURITY — Startup key validation warnings
+var gatewayJwtKey = builder.Configuration["Settings:Jwt:Key"]
+    ?? JwtTokenOptions.DefaultDevelopmentKey;
+if (JwtTokenOptions.IsDefaultKey(gatewayJwtKey))
+{
+    Console.Error.WriteLine("[Gateway] SECURITY WARNING: JWT signing key " +
+        "is the built-in default development key. Set 'Settings:Jwt:Key' " +
+        "configuration or WEBVELLA_JWT_KEY environment variable before " +
+        "deploying to production.");
+}
+
 var jwtOptions = new JwtTokenOptions
 {
-    Key = builder.Configuration["Settings:Jwt:Key"]
-        ?? JwtTokenOptions.DefaultDevelopmentKey,
+    Key = gatewayJwtKey,
     Issuer = builder.Configuration["Settings:Jwt:Issuer"] ?? "webvella-erp",
     Audience = builder.Configuration["Settings:Jwt:Audience"] ?? "webvella-erp",
     TokenExpiryMinutes = double.TryParse(
@@ -395,6 +409,16 @@ else
 // Response Compression — before static files (monolith pattern, line 161)
 // -----------------------------------------------------------------------
 app.UseResponseCompression();
+
+// Security Headers Middleware — defense-in-depth HTTP response headers
+// X-Content-Type-Options: nosniff — prevents MIME type sniffing
+// X-Frame-Options: DENY — prevents clickjacking via iframes
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    await next();
+});
 
 // -----------------------------------------------------------------------
 // CORS — before static files to enable CORS for static assets too

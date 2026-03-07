@@ -44,7 +44,9 @@
     <PackageVersion Include="WebVella.TagHelpers" Version="1.8.0" />
 
     <!-- Mail Plugin packages (from WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj) -->
-    <PackageVersion Include="MailKit" Version="4.14.1" />
+    <PackageVersion Include="MailKit" Version="4.15.1" />
+    <!-- MimeKit pinned explicitly to resolve GHSA-g7hc-96xr-gvvx / CVE-2026-30227 (CRLF injection in ≤4.15.0) -->
+    <PackageVersion Include="MimeKit" Version="4.15.1" />
 
     <!-- MicrosoftCDM Plugin packages (from WebVella.Erp.Plugins.MicrosoftCDM/WebVella.Erp.Plugins.MicrosoftCDM.csproj) -->
     <PackageVersion Include="Microsoft.AspNetCore.Components" Version="10.0.1" />

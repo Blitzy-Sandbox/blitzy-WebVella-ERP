@@ -84,6 +84,10 @@ namespace WebVella.Erp.Service.Project
 
             var builder = WebApplication.CreateBuilder(args);
 
+            // Suppress Kestrel Server header to reduce information leakage (defense-in-depth)
+            builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(
+                options => options.AddServerHeader = false);
+
             // =====================================================================
             // ErpSettings initialization — bind from appsettings.json
             // MUST be called before any code that uses ErpSettings (e.g.,
@@ -101,6 +105,14 @@ namespace WebVella.Erp.Service.Project
             var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
             var redisConnectionString = configuration["Redis:ConnectionString"] ?? "localhost:6379";
             var messagingTransport = configuration["Messaging:Transport"] ?? "RabbitMQ";
+
+            // SECURITY — Startup key validation warnings
+            if (JwtTokenOptions.IsDefaultKey(jwtKey))
+            {
+                Console.Error.WriteLine("[Project Service] SECURITY WARNING: JWT signing key " +
+                    "is the built-in default development key. Set 'Jwt:Key' configuration " +
+                    "or WEBVELLA_JWT_KEY environment variable before deploying to production.");
+            }
             var jobsEnabled = configuration.GetValue<bool>("Jobs:Enabled");
             var locale = configuration["Locale"] ?? configuration["Settings:Locale"] ?? "en-US";
 
@@ -821,6 +833,19 @@ namespace WebVella.Erp.Service.Project
             });
 
             app.UseResponseCompression();
+
+            // Security Headers Middleware — defense-in-depth HTTP response headers
+            // X-Content-Type-Options: nosniff — prevents MIME type sniffing
+            // X-Frame-Options: DENY — prevents clickjacking via iframes
+            // Cache-Control: no-store — prevents caching of authenticated responses
+            app.Use(async (context, next) =>
+            {
+                context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                context.Response.Headers["Cache-Control"] = "no-store";
+                await next();
+            });
+
             app.UseCors();
             app.UseRouting();
             app.UseAuthentication();

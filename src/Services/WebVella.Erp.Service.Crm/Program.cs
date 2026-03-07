@@ -102,6 +102,10 @@ namespace WebVella.Erp.Service.Crm
 
 			var builder = WebApplication.CreateBuilder(args);
 
+			// Suppress Kestrel Server header to reduce information leakage (defense-in-depth)
+			builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(
+				options => options.AddServerHeader = false);
+
 			// Map CRM-specific configuration section to the Settings section that
 			// ErpSettings.Initialize() expects. CRM appsettings.json uses "CrmService"
 			// section for service-specific settings; ErpSettings reads from "Settings:*".
@@ -232,6 +236,14 @@ namespace WebVella.Erp.Service.Crm
 				?? JwtTokenOptions.DefaultDevelopmentKey;
 			var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
 			var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
+
+			// SECURITY — Startup key validation warnings
+			if (JwtTokenOptions.IsDefaultKey(jwtKey))
+			{
+				Console.Error.WriteLine("[CRM Service] SECURITY WARNING: JWT signing key " +
+					"is the built-in default development key. Set 'Jwt:Key' configuration " +
+					"or WEBVELLA_JWT_KEY environment variable before deploying to production.");
+			}
 
 			builder.Services.AddAuthentication(options =>
 			{
@@ -485,6 +497,16 @@ namespace WebVella.Erp.Service.Crm
 			// Response compression (before routing, matching monolith Startup.cs line 100)
 			app.UseResponseCompression();
 
+			// Security Headers Middleware — defense-in-depth HTTP response headers
+			// X-Content-Type-Options: nosniff — prevents MIME type sniffing
+			// X-Frame-Options: DENY — prevents clickjacking via iframes
+			app.Use(async (context, next) =>
+			{
+				context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+				context.Response.Headers["X-Frame-Options"] = "DENY";
+				await next();
+			});
+
 			// CORS (before routing, matching monolith Startup.cs line 102)
 			app.UseCors();
 
@@ -539,7 +561,7 @@ namespace WebVella.Erp.Service.Crm
 			if (_cachedToken != null && DateTime.UtcNow < _tokenExpiry)
 				return _cachedToken;
 
-			var jwtKey = configuration["Jwt:Key"] ?? "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey";
+			var jwtKey = configuration["Jwt:Key"] ?? JwtTokenOptions.DefaultDevelopmentKey;
 			var jwtIssuer = configuration["Jwt:Issuer"] ?? "webvella-erp";
 			var jwtAudience = configuration["Jwt:Audience"] ?? "webvella-erp";
 
