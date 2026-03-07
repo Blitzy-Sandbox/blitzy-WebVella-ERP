@@ -1,0 +1,131 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM) for WebVella ERP Microservices Solution.
+    All NuGet package versions are pinned here so individual .csproj files use
+    <PackageReference Include="..." /> without Version attributes.
+    See: https://learn.microsoft.com/nuget/consume-packages/central-package-management
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    <!-- ===================================================================== -->
+    <!-- EXISTING PACKAGES — Preserved from Monolith (AAP Section 0.6.1)       -->
+    <!-- Versions extracted from source .csproj files across the repository     -->
+    <!-- ===================================================================== -->
+
+    <!-- Core Engine packages (from WebVella.Erp/WebVella.Erp.csproj) -->
+    <PackageVersion Include="AutoMapper" Version="14.0.0" />
+    <PackageVersion Include="CsvHelper" Version="33.1.0" />
+    <PackageVersion Include="Ical.Net" Version="5.1.4" />
+    <PackageVersion Include="Irony.NetCore" Version="1.1.11" />
+    <PackageVersion Include="MimeMapping" Version="3.1.0" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="Npgsql" Version="9.0.4" />
+    <PackageVersion Include="Storage.Net" Version="9.3.0" />
+    <PackageVersion Include="System.Drawing.Common" Version="10.0.1" />
+
+    <!-- Web Layer packages (from WebVella.Erp.Web/WebVella.Erp.Web.csproj) -->
+    <PackageVersion Include="CS-Script" Version="4.13.1" />
+    <PackageVersion Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Common" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.1" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
+    <PackageVersion Include="Wangkanai.Detection" Version="8.20.0" />
+    <PackageVersion Include="WebVella.TagHelpers" Version="1.8.0" />
+
+    <!-- Mail Plugin packages (from WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj) -->
+    <PackageVersion Include="MailKit" Version="4.15.1" />
+    <!-- MimeKit pinned explicitly to resolve GHSA-g7hc-96xr-gvvx / CVE-2026-30227 (CRLF injection in ≤4.15.0) -->
+    <PackageVersion Include="MimeKit" Version="4.15.1" />
+
+    <!-- MicrosoftCDM Plugin packages (from WebVella.Erp.Plugins.MicrosoftCDM/WebVella.Erp.Plugins.MicrosoftCDM.csproj) -->
+    <PackageVersion Include="Microsoft.AspNetCore.Components" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="10.0.1" />
+
+    <!-- Site Host packages (from WebVella.Erp.Site/WebVella.Erp.Site.csproj) -->
+    <PackageVersion Include="Microsoft.Web.LibraryManager.Build" Version="3.0.71" />
+    <PackageVersion Include="morelinq" Version="4.4.0" />
+
+    <!-- Blazor WebAssembly Client packages (from WebVella.Erp.WebAssembly/Client) -->
+    <PackageVersion Include="Blazored.LocalStorage" Version="4.5.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.1" />
+
+    <!-- Blazor WebAssembly Server package (from WebVella.Erp.WebAssembly/Server, net7.0) -->
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="7.0.13" />
+
+    <!-- ===================================================================== -->
+    <!-- NEW PACKAGES — Required for Microservice Architecture                 -->
+    <!-- (AAP Section 0.6.1 — New Packages)                                    -->
+    <!-- ===================================================================== -->
+
+    <!-- gRPC — Inter-service communication -->
+    <PackageVersion Include="Google.Protobuf" Version="3.29.3" />
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.71.0" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageVersion Include="Grpc.Tools" Version="2.71.0" />
+
+    <!-- MassTransit — Message bus abstraction (RabbitMQ + Amazon SQS/SNS) -->
+    <PackageVersion Include="MassTransit" Version="8.4.0" />
+    <PackageVersion Include="MassTransit.AmazonSQS" Version="8.4.0" />
+    <PackageVersion Include="MassTransit.Newtonsoft" Version="8.4.0" />
+    <PackageVersion Include="MassTransit.RabbitMQ" Version="8.4.0" />
+
+    <!-- AWS SDK — LocalStack integration for cloud-native validation -->
+    <PackageVersion Include="AWSSDK.S3" Version="3.7.400" />
+    <PackageVersion Include="AWSSDK.SimpleNotificationService" Version="3.7.400" />
+    <PackageVersion Include="AWSSDK.SQS" Version="3.7.400" />
+
+    <!-- Distributed Caching — Redis for cross-service cache coordination -->
+    <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.1" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />
+
+    <!-- Authentication — JWT Bearer and Identity Model for cross-service token propagation -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.15.0" />
+
+    <!-- EF Core — Database-per-service migrations -->
+    <!-- Microsoft.EntityFrameworkCore: 10.0.1 base EF Core package for test projects referencing service assemblies -->
+    <!-- Microsoft.EntityFrameworkCore.Design: 10.0.1 per AAP 0.6.1 -->
+    <!-- Microsoft.EntityFrameworkCore.InMemory: 10.0.1 for test support -->
+    <!-- Npgsql.EntityFrameworkCore.PostgreSQL: 10.0.0 (latest stable; 10.0.2 per AAP does not exist on NuGet) -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.1" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+
+    <!-- OpenAPI/Swagger — API documentation and exploration -->
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+
+    <!-- Testing — xUnit, mocking, assertions, and integration test infrastructure -->
+    <PackageVersion Include="FluentAssertions" Version="7.2.0" />
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.4.13" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="Testcontainers" Version="4.10.0" />
+    <PackageVersion Include="Testcontainers.LocalStack" Version="4.10.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.10.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <!-- NOTE: AAP 0.6.1 specifies xunit.runner.visualstudio 2.9.3, but that version is
+         not available on NuGet. Using 3.0.0 as the closest available version.
+         This is a known and accepted deviation from the AAP specification. -->
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+
+  </ItemGroup>
+
+</Project>

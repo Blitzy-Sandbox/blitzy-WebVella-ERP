@@ -1,0 +1,276 @@
+// =============================================================================
+// WebVella ERP - Reporting Service gRPC Protocol Buffer Definition
+// =============================================================================
+// This proto defines the gRPC service interface for the Reporting microservice,
+// which provides aggregated report data (timelog summaries, task metrics)
+// consumed by the Gateway/BFF and other services.
+//
+// This replaces the monolith's in-process ReportService.GetTimelogData()
+// method calls from WebVella.Erp.Plugins.Project/Services/ReportService.cs.
+// The Reporting service is event-driven: it consumes domain events published
+// by the Project service (timelog/task data) and the Core service, then
+// aggregates them into queryable report datasets.
+//
+// Source files:
+//   - ReportService.cs        (GetTimelogData: year/month/accountId aggregation)
+//   - TimeLogService.cs       (Timelog entity: id, minutes, is_billable, logged_on, body)
+//   - EntityRecord.cs         (Dynamic Expando-based record — mapped to typed messages)
+//   - EntityRecordList.cs     (List<EntityRecord> with TotalCount)
+//
+// Cross-service communication:
+//   - Project service: publishes timelog/task data via events; Reporting aggregates
+//   - Core service: user resolution for created_by/owner fields
+//   - CRM service: account resolution for account-filtered reports
+//   - Gateway/BFF: primary consumer of aggregated report data
+//
+// Services defined:
+//   - ReportingService (Timelog reports, task summary reports)
+// =============================================================================
+
+syntax = "proto3";
+
+package webvella.erp.reporting;
+
+option csharp_namespace = "WebVella.Erp.Service.Reporting.Grpc";
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// ReportingService provides aggregated report data for timelog summaries and
+// task metrics. It replaces direct in-process calls to ReportService.GetTimelogData()
+// and supports future report aggregation needs (per AAP Section 0.4.1 —
+// ReportAggregationService).
+//
+// The service operates in an event-driven model: it receives domain events from
+// the Project and Core services, maintains materialized views of aggregated data,
+// and exposes query RPCs for the Gateway/BFF to consume.
+//
+// NOTE: This proto defines the gRPC service contract for client-side code
+// generation and potential future server-side implementation. The Reporting
+// microservice currently exposes REST endpoints only (via ReportController)
+// and does not host a gRPC server. The Gateway communicates with the
+// Reporting service via HTTP/REST proxying. This service definition serves
+// as the canonical contract for inter-service communication and may be
+// activated as a server-side gRPC endpoint in a future iteration.
+service ReportingService {
+
+  // ---------------------------------------------------------------------------
+  // Timelog Reporting (source: ReportService.GetTimelogData)
+  // ---------------------------------------------------------------------------
+
+  // Retrieves aggregated timelog report data for a given year and month,
+  // optionally filtered by account ID.
+  //
+  // Source: ReportService.GetTimelogData(int year, int month, Guid? accountId)
+  //   - Validates month (1-12) and year (>0)
+  //   - If accountId is provided, validates the account exists via CRM service
+  //   - Loads timelogs for the specified date range (first to last day of month)
+  //   - Joins with related task and project data
+  //   - Filters by account when accountId is specified
+  //   - Returns per-timelog entries with task/project/billability metadata
+  //
+  // Returns: GetTimelogReportResponse with repeated TimelogReportEntry records.
+  // Each entry represents a single timelog record enriched with task/project context.
+  //
+  // Error conditions:
+  //   - Invalid month (not 1-12): returns error with key "month"
+  //   - Invalid year (<=0): returns error with key "year"
+  //   - Account not found (when accountId specified): returns error with key "accountId"
+  rpc GetTimelogReport(GetTimelogReportRequest) returns (GetTimelogReportResponse);
+
+  // ---------------------------------------------------------------------------
+  // Task Summary Reporting (source: ReportAggregationService — AAP 0.4.1)
+  // ---------------------------------------------------------------------------
+
+  // Retrieves a summary of tasks grouped by status, with total hours logged,
+  // optionally filtered by project ID and date range.
+  //
+  // This RPC supports the ReportAggregationService's role as defined in AAP
+  // Section 0.4.1, consuming event-sourced projections of task and timelog data
+  // published by the Project service.
+  //
+  // Parameters:
+  //   - project_id: Optional filter to scope report to a single project
+  //   - start_date: Beginning of the reporting period (inclusive)
+  //   - end_date: End of the reporting period (inclusive)
+  //
+  // Returns: GetTaskSummaryReportResponse with per-status task counts and
+  // total hours logged across the matching period and scope.
+  rpc GetTaskSummaryReport(GetTaskSummaryReportRequest) returns (GetTaskSummaryReportResponse);
+}
+
+// =============================================================================
+// Request Messages
+// =============================================================================
+
+// Request message for GetTimelogReport RPC.
+// Maps directly to the parameters of ReportService.GetTimelogData(int year, int month, Guid? accountId).
+//
+// The account_id field is optional: an empty string represents a null/unfiltered
+// query. When provided, it must be a valid GUID string referencing an account
+// in the CRM service.
+message GetTimelogReportRequest {
+  // The calendar year for the report period (must be > 0).
+  int32 year = 1;
+
+  // The calendar month for the report period (must be 1-12).
+  int32 month = 2;
+
+  // Optional account ID filter (GUID as string).
+  // Empty string means no account filter (equivalent to null Guid? in source).
+  // When set, only timelogs associated with tasks linked to projects
+  // belonging to this account are included.
+  string account_id = 3;
+}
+
+// Request message for GetTaskSummaryReport RPC.
+// Supports filtering by project and date range for task aggregation.
+//
+// All fields are optional:
+//   - Empty project_id means aggregate across all projects
+//   - Omitted start_date/end_date means no date boundary
+message GetTaskSummaryReportRequest {
+  // Optional project ID filter (GUID as string).
+  // Empty string means aggregate across all projects.
+  string project_id = 1;
+
+  // Start of the reporting period (inclusive).
+  // When omitted (default Timestamp), no lower bound is applied.
+  google.protobuf.Timestamp start_date = 2;
+
+  // End of the reporting period (inclusive).
+  // When omitted (default Timestamp), no upper bound is applied.
+  google.protobuf.Timestamp end_date = 3;
+}
+
+// =============================================================================
+// Response Messages
+// =============================================================================
+
+// Response message for GetTimelogReport RPC.
+// Follows the WebVella ERP BaseResponseModel envelope pattern:
+// { success, errors[], timestamp, message, object }.
+//
+// The entries field contains the aggregated timelog data, one entry per
+// timelog record matching the request criteria.
+message GetTimelogReportResponse {
+  // Indicates whether the report was generated successfully.
+  // False when validation errors occur (invalid month, year, or accountId).
+  bool success = 1;
+
+  // Aggregated timelog report entries.
+  // Each entry represents a single timelog record enriched with
+  // task, project, and user context information.
+  repeated TimelogReportEntry entries = 2;
+
+  // Validation or processing errors, if any.
+  // Mirrors the ErrorModel list from BaseResponseModel.Errors.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Response message for GetTaskSummaryReport RPC.
+// Returns task counts grouped by status and total hours logged.
+message GetTaskSummaryReportResponse {
+  // Indicates whether the report was generated successfully.
+  bool success = 1;
+
+  // Task counts grouped by status.
+  // Each entry represents one task status with its count of matching tasks.
+  repeated TaskStatusSummary status_summaries = 2;
+
+  // Total hours logged across all matching timelogs in the report period.
+  // Computed as sum(minutes) / 60 across all timelogs in scope.
+  int32 total_hours_logged = 3;
+
+  // Validation or processing errors, if any.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// =============================================================================
+// Data Messages
+// =============================================================================
+
+// A single entry in the timelog report, representing one timelog record
+// enriched with task and project metadata.
+//
+// This message maps the dynamic EntityRecord returned by
+// ReportService.GetTimelogData() to a strongly-typed proto message.
+// In the monolith, the result record contains:
+//   - task_id, project_id (from task/project join)
+//   - minutes, is_billable (from timelog record)
+//   - logged_on (from timelog date filter)
+//   - body (timelog description text)
+//   - user_id (timelog creator / created_by)
+//
+// Source field mapping from TimeLogService.Create():
+//   id            → timelog record ID
+//   created_by    → user_id (the user who logged time)
+//   logged_on     → logged_on timestamp
+//   minutes       → minutes logged
+//   is_billable   → billability flag
+//   body          → description text
+//   l_related_records → resolves to task_id (first related record)
+//   $project_nn_task  → resolves to project_id (via task-project relation)
+message TimelogReportEntry {
+  // Unique identifier of the timelog record (GUID as string).
+  string id = 1;
+
+  // The user who created this timelog entry (GUID as string).
+  // References a user in the Core service (cross-service: resolved via Core gRPC).
+  string user_id = 2;
+
+  // The task this timelog is associated with (GUID as string).
+  // Extracted from l_related_records JSON array (first element).
+  string task_id = 3;
+
+  // The project this timelog's task belongs to (GUID as string).
+  // Resolved via the $project_nn_task relation in the source monolith.
+  // In the microservice architecture, this is denormalized in the Project service DB.
+  string project_id = 4;
+
+  // Number of minutes logged in this timelog entry.
+  // Source: timelog["minutes"] field (integer in the monolith).
+  int32 minutes = 5;
+
+  // Whether this timelog entry is billable.
+  // Source: timelog["is_billable"] field.
+  // Used by ReportService to split into billable_minutes vs non_billable_minutes.
+  bool is_billable = 6;
+
+  // The date/time when this timelog was logged.
+  // Source: timelog["logged_on"] field, used as the primary date filter
+  // in ReportService.GetTimelogData() (WHERE logged_on >= from AND logged_on <= to).
+  google.protobuf.Timestamp logged_on = 7;
+
+  // Free-text description/body of the timelog entry.
+  // Source: timelog["body"] field from TimeLogService.Create().
+  string body = 8;
+}
+
+// Summary of tasks in a specific status, used in task summary reports.
+// Each instance represents one task_status record with a count of tasks
+// currently in that status within the requested report scope.
+message TaskStatusSummary {
+  // Unique identifier of the task status (GUID as string).
+  // References a task_status entity record.
+  string status_id = 1;
+
+  // Human-readable label for the task status (e.g., "Open", "In Progress", "Completed").
+  // Source: task_type/task_status entity "label" field.
+  string status_label = 2;
+
+  // Number of tasks in this status within the report scope.
+  int32 count = 3;
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel, the standard error representation
+// used across all WebVella ERP API responses in BaseResponseModel.Errors.

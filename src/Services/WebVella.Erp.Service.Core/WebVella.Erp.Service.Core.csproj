@@ -1,0 +1,125 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- =========================================================================
+       WebVella ERP - Core Platform Microservice Project File
+       ==========================================================================
+       SDK-style ASP.NET Core Web API project for the Core Platform microservice.
+       Combines dependencies from the monolith core engine (WebVella.Erp.csproj)
+       and site host (WebVella.Erp.Site.csproj) into a standalone deployable
+       service. Provides entity management, record CRUD, security/identity,
+       data sources, search, file storage, background jobs, and diagnostics.
+
+       All NuGet package versions are managed centrally via Directory.Packages.props
+       (Central Package Management). Only packages not in CPM use VersionOverride.
+       ========================================================================= -->
+
+  <PropertyGroup>
+    <!-- Override Directory.Build.props to match monolith explicit-using style -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Service identity and metadata -->
+    <AssemblyName>WebVella.Erp.Service.Core</AssemblyName>
+    <RootNamespace>WebVella.Erp.Service.Core</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <Version>1.7.7</Version>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Description>Core Platform microservice for WebVella ERP. Provides entity management, record CRUD, security/identity, data sources, search, file storage, and background jobs. Replaces the monolith WebVella.Erp core engine as an independently deployable service.</Description>
+    <!-- Docker container support -->
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <ContainerRepository>webvella-erp-core</ContainerRepository>
+    <!-- Development secrets support -->
+    <UserSecretsId>a1c2e3f4-5678-9abc-def0-core00000001</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- ==========================================================================
+       InternalsVisibleTo — Allow test project to access internal types (Cache, etc.)
+       ========================================================================== -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Core" />
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Mail" />
+    <InternalsVisibleTo Include="WebVella.Erp.Service.Mail" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Project References
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- SharedKernel: cross-cutting contracts (DTOs, events, EQL, DB helpers,
+         security context, utilities, exceptions, FTS) shared by all services -->
+    <ProjectReference Include="../../SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — Preserved from Monolith
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- From WebVella.Erp/WebVella.Erp.csproj — Core engine packages -->
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="CS-Script" />
+    <PackageReference Include="CsvHelper" />
+    <PackageReference Include="MimeMapping" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Npgsql: CPM pins 9.0.4, but Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
+         requires Npgsql >= 10.0.0. VersionOverride resolves the NU1605 downgrade. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+    <PackageReference Include="Storage.Net" />
+    <PackageReference Include="System.Drawing.Common" />
+    <!-- From WebVella.Erp.Site/WebVella.Erp.Site.csproj — Site host packages -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — New for Microservice Architecture
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- gRPC — Inter-service communication (AAP 0.6.1)
+         Core service exposes EntityGrpcService, RecordGrpcService, and
+         SecurityGrpcService endpoints for other microservices -->
+    <PackageReference Include="Grpc.AspNetCore" />
+    <!-- Google.Protobuf: CPM pins 3.29.3, but Grpc.AspNetCore 2.71.0 requires
+         Google.Protobuf >= 3.30.2. VersionOverride resolves the NU1605 downgrade. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+
+    <!-- Redis — Distributed cache replacing monolith IMemoryCache (AAP 0.4.1)
+         Used for entity metadata caching across Core service instances -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <PackageReference Include="StackExchange.Redis" />
+
+    <!-- MassTransit — Event bus replacing monolith hook system (AAP 0.6.1)
+         Publishes domain events (RecordCreated, RecordUpdated, etc.) to
+         other microservices via RabbitMQ (local/Docker) or SQS/SNS (LocalStack) -->
+    <PackageReference Include="MassTransit" />
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
+    <PackageReference Include="MassTransit.AmazonSQS" />
+
+    <!-- AWS S3 — File storage via LocalStack (AAP 0.6.1)
+         S3-compatible blob storage backend for DbFileRepository -->
+    <PackageReference Include="AWSSDK.S3" />
+
+    <!-- EF Core — Database-per-service migration strategy (AAP 0.5.1, 0.7.5)
+         Enables schema management via EF Core migrations for CoreDbContext -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="All" />
+
+    <!-- Health Checks — Containerized deployment liveness/readiness probes
+         Not in CPM; using VersionOverride for these packages -->
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" VersionOverride="9.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.Redis" VersionOverride="9.0.0" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       gRPC Protobuf Definitions — Server-side code generation
+       Generates C# server stubs and message types from core.proto.
+       Defines EntityGrpcService, RecordGrpcService, and SecurityGrpcService.
+       ========================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="../../../proto/core.proto" GrpcServices="Server" ProtoRoot="../../../proto" />
+    <Protobuf Include="../../../proto/common.proto" GrpcServices="None" ProtoRoot="../../../proto" />
+  </ItemGroup>
+
+</Project>

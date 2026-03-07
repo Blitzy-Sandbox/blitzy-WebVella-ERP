@@ -1,0 +1,738 @@
+// =============================================================================
+// proto/project.proto — Project/Task Service gRPC Protocol Buffer Definition
+// =============================================================================
+// Defines the gRPC service interface for the Project/Task microservice, which
+// manages projects, tasks, timelogs, comments, feed items, and task status
+// workflows. Replaces the monolith's WebVella.Erp.Plugins.Project in-process
+// method calls and ProjectController REST endpoints.
+//
+// Cross-service communication:
+//   - Core service: user resolution (created_by, owner_id)
+//   - CRM service: account/case-task relations (account_id)
+//   - Reporting service: timelog data aggregation
+//
+// Source mappings:
+//   - ProjectService.cs     → GetProject, GetProjectTimelogs RPCs
+//   - TaskService.cs         → Task CRUD, status, watcher, calculation RPCs
+//   - TimeLogService.cs      → Timelog create/delete/query RPCs
+//   - CommentService.cs      → Comment create/delete RPCs
+//   - FeedItemService.cs     → Feed item create RPC
+//   - ProjectController.cs   → REST-to-gRPC bridged operations
+//   - StartTasksOnStartDate  → GetTasksNeedingStart RPC
+// =============================================================================
+
+syntax = "proto3";
+
+package webvella.erp.project;
+
+option csharp_namespace = "WebVella.Erp.Service.Project.Grpc";
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// ProjectService provides all gRPC operations for the Project/Task microservice.
+// Each RPC maps directly to a method in the monolith's ProjectService, TaskService,
+// TimeLogService, CommentService, or FeedItemService, or to a ProjectController
+// REST endpoint.
+service ProjectService {
+
+  // ---------------------------------------------------------------------------
+  // Project Operations (source: ProjectService.cs)
+  // ---------------------------------------------------------------------------
+
+  // Retrieve a project by its unique identifier.
+  // Source: ProjectService.Get(Guid projectId) → EntityRecord
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+
+  // Retrieve all timelogs associated with a given project.
+  // Source: ProjectService.GetProjectTimelogs(Guid projectId) → EntityRecordList
+  rpc GetProjectTimelogs(GetProjectTimelogsRequest) returns (GetProjectTimelogsResponse);
+
+  // ---------------------------------------------------------------------------
+  // Task Operations (source: TaskService.cs + ProjectController.cs)
+  // ---------------------------------------------------------------------------
+
+  // Retrieve a single task by its unique identifier.
+  // Source: TaskService.GetTask(Guid taskId) → EntityRecord
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+
+  // Query the task queue with filtering by project, user, due type, and pagination.
+  // Source: TaskService.GetTaskQueue(Guid? projectId, Guid? userId, TasksDueType type, int? limit, bool includeProjectData)
+  rpc GetTaskQueue(GetTaskQueueRequest) returns (GetTaskQueueResponse);
+
+  // Retrieve all available task statuses.
+  // Source: TaskService.GetTaskStatuses() → EntityRecordList
+  rpc GetTaskStatuses(GetTaskStatusesRequest) returns (GetTaskStatusesResponse);
+
+  // Set the status of a task to a new status.
+  // Source: TaskService.SetStatus(Guid taskId, Guid statusId) + ProjectController.TaskSetStatus()
+  rpc SetTaskStatus(SetTaskStatusRequest) returns (SetTaskStatusResponse);
+
+  // Start or stop watching a task for a given user.
+  // Source: ProjectController.TaskSetWatch(Guid? taskId, Guid? userId, bool startWatch)
+  rpc SetTaskWatch(SetTaskWatchRequest) returns (SetTaskWatchResponse);
+
+  // Start the timelog timer for a task (sets timelog_started_on timestamp).
+  // Source: TaskService.StartTaskTimelog(Guid taskId)
+  rpc StartTaskTimelog(StartTaskTimelogRequest) returns (StartTaskTimelogResponse);
+
+  // Stop the timelog timer for a task (clears timelog_started_on to null).
+  // Source: TaskService.StopTaskTimelog(Guid taskId)
+  rpc StopTaskTimelog(StopTaskTimelogRequest) returns (StopTaskTimelogResponse);
+
+  // Retrieve tasks that need to be started based on their start_time.
+  // Used by the StartTasksOnStartDate background job.
+  // Source: TaskService.GetTasksThatNeedStarting()
+  rpc GetTasksNeedingStart(GetTasksNeedingStartRequest) returns (GetTasksNeedingStartResponse);
+
+  // Recalculate key, x_search, and project association fields for a task.
+  // Source: TaskService.SetCalculationFields(Guid taskId, out subject, out projectId, out projectOwnerId)
+  rpc SetCalculationFields(SetCalculationFieldsRequest) returns (SetCalculationFieldsResponse);
+
+  // ---------------------------------------------------------------------------
+  // Timelog Operations (source: TimeLogService.cs + ProjectController.cs)
+  // ---------------------------------------------------------------------------
+
+  // Create a new timelog entry for a task.
+  // Source: TimeLogService.Create(...) + ProjectController.CreateTimelog()
+  rpc CreateTimelog(CreateTimelogRequest) returns (CreateTimelogResponse);
+
+  // Delete a timelog entry by its unique identifier.
+  // Source: TimeLogService.Delete(Guid recordId) + ProjectController.DeleteTimelog()
+  rpc DeleteTimelog(DeleteTimelogRequest) returns (DeleteTimelogResponse);
+
+  // Query timelogs within a date range, optionally filtered by project and user.
+  // Source: TimeLogService.GetTimelogsForPeriod(Guid? projectId, Guid? userId, DateTime startDate, DateTime endDate)
+  rpc GetTimelogsForPeriod(GetTimelogsForPeriodRequest) returns (GetTimelogsForPeriodResponse);
+
+  // Start a timelog for a task (validates task exists and no timelog already started).
+  // Source: ProjectController.StartTimeLog(Guid taskId)
+  rpc StartTimelog(StartTimelogRequest) returns (StartTimelogResponse);
+
+  // ---------------------------------------------------------------------------
+  // Comment Operations (source: CommentService.cs + ProjectController.cs)
+  // ---------------------------------------------------------------------------
+
+  // Create a new comment, optionally threaded under a parent comment.
+  // Source: CommentService.Create(...) + ProjectController.CreateNewPcPostListItem()
+  rpc CreateComment(CreateCommentRequest) returns (CreateCommentResponse);
+
+  // Delete a comment and all its child comments.
+  // Source: CommentService.Delete(Guid recordId) + ProjectController.DeletePcPostListItem()
+  rpc DeleteComment(DeleteCommentRequest) returns (DeleteCommentResponse);
+
+  // ---------------------------------------------------------------------------
+  // Feed Operations (source: FeedItemService.cs)
+  // ---------------------------------------------------------------------------
+
+  // Create a feed item recording task activity (auto-generated for task events).
+  // Source: FeedItemService.Create(...)
+  rpc CreateFeedItem(CreateFeedItemRequest) returns (CreateFeedItemResponse);
+}
+
+// =============================================================================
+// Shared Enums
+// =============================================================================
+
+// TasksDueType defines the filter modes for querying the task queue.
+// Mirrors WebVella.Erp.Plugins.Project.Model.TasksDueType enum with
+// proto3-compatible UNSPECIFIED = 0 sentinel value.
+//
+// Source enum values:
+//   All = 0, EndTimeOverdue = 1, EndTimeDueToday = 2,
+//   EndTimeNotDue = 3, StartTimeDue = 4, StartTimeNotDue = 5
+enum TasksDueType {
+  // Default unspecified value (proto3 requirement for zero-value sentinel).
+  TASKS_DUE_TYPE_UNSPECIFIED = 0;
+
+  // Return all tasks regardless of due date.
+  // Maps to source: TasksDueType.All
+  TASKS_DUE_TYPE_ALL = 1;
+
+  // Return tasks where end_time is before the current date (overdue).
+  // Maps to source: TasksDueType.EndTimeOverdue
+  TASKS_DUE_TYPE_OVERDUE = 2;
+
+  // Return tasks where end_time is today.
+  // Maps to source: TasksDueType.EndTimeDueToday
+  TASKS_DUE_TYPE_TODAY = 3;
+
+  // Return tasks where end_time is not yet due.
+  // Maps to source: TasksDueType.EndTimeNotDue
+  TASKS_DUE_TYPE_THIS_WEEK = 4;
+
+  // Return tasks where start_time is due.
+  // Maps to source: TasksDueType.StartTimeDue
+  TASKS_DUE_TYPE_THIS_MONTH = 5;
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.Errors.
+
+// =============================================================================
+// Project Messages
+// =============================================================================
+
+// Request to retrieve a project by its unique identifier.
+message GetProjectRequest {
+  // The project's unique identifier (Guid serialized as string).
+  string project_id = 1;
+}
+
+// Response containing the project record or errors.
+message GetProjectResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The retrieved project record (null/empty if not found).
+  ProjectRecord project = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a project entity record.
+// Source: EQL "SELECT * from project WHERE id = @projectId"
+message ProjectRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Project name.
+  string name = 2;
+
+  // Project description.
+  string description = 3;
+
+  // Owner user identifier (cross-service: Core user reference).
+  string owner_id = 4;
+
+  // Associated CRM account identifier (cross-service: CRM account reference).
+  string account_id = 5;
+
+  // Timestamp when the project was created.
+  google.protobuf.Timestamp created_on = 6;
+
+  // User identifier of the creator (cross-service: Core user reference).
+  string created_by = 7;
+}
+
+// Request to retrieve all timelogs for a specific project.
+message GetProjectTimelogsRequest {
+  // The project's unique identifier (Guid as string).
+  string project_id = 1;
+}
+
+// Response containing the project's timelog records.
+message GetProjectTimelogsResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of timelog records associated with the project.
+  repeated TimelogRecord timelogs = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// =============================================================================
+// Task Messages
+// =============================================================================
+
+// Request to retrieve a task by its unique identifier.
+message GetTaskRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+}
+
+// Response containing the task record or errors.
+message GetTaskResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The retrieved task record (null/empty if not found).
+  TaskRecord task = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a task entity record with all domain fields.
+// Source: EQL "SELECT * from task WHERE id = @taskId"
+// Cross-service references: owner_id and created_by → Core user service,
+// project_id → may reference CRM account via project.
+message TaskRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Task subject/title.
+  string subject = 2;
+
+  // Task body/description (may contain HTML).
+  string body = 3;
+
+  // Priority level as string (enum value from the priority SelectField options).
+  string priority = 4;
+
+  // Current status identifier (Guid as string, FK to task_status entity).
+  string status_id = 5;
+
+  // Task type identifier (Guid as string, FK to task_type entity).
+  string type_id = 6;
+
+  // Associated project identifier (Guid as string, from $project_nn_task relation).
+  string project_id = 7;
+
+  // Owner user identifier (Guid as string, cross-service: Core user reference).
+  string owner_id = 8;
+
+  // Task start date/time.
+  google.protobuf.Timestamp start_date = 9;
+
+  // Task end/due date/time.
+  google.protobuf.Timestamp end_date = 10;
+
+  // Estimated effort (stored as string for flexible formatting).
+  string estimation = 11;
+
+  // Calculated total billable minutes logged against this task.
+  string x_billable_minutes = 12;
+
+  // Calculated total non-billable minutes logged against this task.
+  string x_nonbillable_minutes = 13;
+
+  // Timestamp when the task was created.
+  google.protobuf.Timestamp created_on = 14;
+
+  // User identifier of the creator (cross-service: Core user reference).
+  string created_by = 15;
+
+  // Concatenated search index field for full-text search.
+  string x_search = 16;
+
+  // List of watcher user identifiers (Guids as strings).
+  // Source: stored as List<Guid> in JSON array via $user_nn_task_watchers relation.
+  repeated string watcher_ids = 17;
+
+  // Recurrence plan identifier (Guid as string, nullable — empty if no recurrence).
+  string recurrence_id = 18;
+}
+
+// Request to query the task queue with filtering and pagination.
+message GetTaskQueueRequest {
+  // Optional project filter (Guid as string, empty = no filter).
+  string project_id = 1;
+
+  // Optional user/owner filter (Guid as string, empty = no filter).
+  string user_id = 2;
+
+  // Due type filter controlling which tasks are returned.
+  TasksDueType due_type = 3;
+
+  // Maximum number of results (0 = no limit).
+  int32 limit = 4;
+
+  // Whether to include related project data (e.g., is_billable) in the response.
+  bool include_project_data = 5;
+}
+
+// Response containing the filtered task queue.
+message GetTaskQueueResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of task records matching the query criteria.
+  repeated TaskRecord tasks = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to retrieve all available task statuses (empty message).
+message GetTaskStatusesRequest {
+}
+
+// Response containing all task status records.
+message GetTaskStatusesResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of all available task statuses.
+  repeated TaskStatusRecord statuses = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a task status entity record.
+// Source: EQL "SELECT * from task_status"
+message TaskStatusRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Human-readable status label.
+  string label = 2;
+
+  // CSS icon class for UI rendering.
+  string icon_class = 3;
+
+  // Color code for UI rendering.
+  string color = 4;
+
+  // Whether this status represents a closed/completed state.
+  // Used by GetTaskQueue to exclude closed tasks from filtered views.
+  bool is_closed = 5;
+}
+
+// Request to set a task's status to a new value.
+message SetTaskStatusRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+
+  // The new status identifier (Guid as string).
+  string status_id = 2;
+}
+
+// Response from setting a task's status.
+message SetTaskStatusResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to start or stop watching a task for a user.
+message SetTaskWatchRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+
+  // The user's identifier (Guid as string). If empty, uses the current user.
+  string user_id = 2;
+
+  // True to start watching, false to stop watching.
+  bool start_watch = 3;
+}
+
+// Response from modifying a task watch.
+message SetTaskWatchResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message (e.g., "Task watch started" or "Task watch stopped").
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to start the timelog timer for a task.
+message StartTaskTimelogRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+}
+
+// Response from starting a task timelog timer.
+message StartTaskTimelogResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to stop the timelog timer for a task.
+message StopTaskTimelogRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+}
+
+// Response from stopping a task timelog timer.
+message StopTaskTimelogResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to retrieve tasks needing to be started (empty message).
+// Used by the StartTasksOnStartDate background job to find tasks
+// where status is "not started" and start_time <= current date.
+message GetTasksNeedingStartRequest {
+}
+
+// Response containing tasks that need to be started.
+message GetTasksNeedingStartResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of task records needing to be started.
+  repeated TaskRecord tasks = 2;
+}
+
+// Request to recalculate a task's key, x_search, and project association fields.
+message SetCalculationFieldsRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+}
+
+// Response from recalculating a task's fields.
+// Returns computed values for the caller to use (e.g., for feed item generation).
+message SetCalculationFieldsResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The task's subject (extracted from the task record).
+  string subject = 2;
+
+  // The associated project's identifier (Guid as string).
+  string project_id = 3;
+
+  // The project owner's identifier (Guid as string, empty if no owner).
+  string project_owner_id = 4;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 5;
+}
+
+// =============================================================================
+// Timelog Messages
+// =============================================================================
+
+// Represents a timelog entity record.
+// Source: EQL "SELECT * from timelog ..."
+message TimelogRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Associated task identifier (Guid as string, from l_related_records).
+  string task_id = 2;
+
+  // User who created the timelog entry (Guid as string, cross-service: Core user).
+  string created_by = 3;
+
+  // Timestamp when the timelog was created.
+  google.protobuf.Timestamp created_on = 4;
+
+  // Date when the work was actually performed.
+  google.protobuf.Timestamp logged_on = 5;
+
+  // Number of minutes logged.
+  int32 minutes = 6;
+
+  // Whether the logged time is billable.
+  bool is_billable = 7;
+
+  // Optional description/notes for the timelog entry.
+  string body = 8;
+}
+
+// Request to create a new timelog entry.
+message CreateTimelogRequest {
+  // Optional unique identifier (Guid as string). If empty, server generates one.
+  string id = 1;
+
+  // User creating the timelog (Guid as string). Defaults to system user if empty.
+  string created_by = 2;
+
+  // Date when the work was performed.
+  google.protobuf.Timestamp logged_on = 3;
+
+  // Number of minutes to log. Zero-minute entries may be skipped.
+  int32 minutes = 4;
+
+  // Whether the logged time is billable.
+  bool is_billable = 5;
+
+  // Optional description/notes for the timelog entry.
+  string body = 6;
+
+  // The task identifier to associate the timelog with (Guid as string).
+  string task_id = 7;
+}
+
+// Response from creating a timelog entry.
+message CreateTimelogResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The identifier of the created timelog record (Guid as string).
+  string timelog_id = 2;
+
+  // Human-readable result message.
+  string message = 3;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to delete a timelog entry.
+message DeleteTimelogRequest {
+  // The timelog's unique identifier (Guid as string).
+  string id = 1;
+}
+
+// Response from deleting a timelog entry.
+message DeleteTimelogResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to query timelogs within a date range.
+message GetTimelogsForPeriodRequest {
+  // Optional project filter (Guid as string, empty = no filter).
+  string project_id = 1;
+
+  // Optional user filter (Guid as string, empty = no filter).
+  string user_id = 2;
+
+  // Start of the date range (inclusive).
+  google.protobuf.Timestamp start_date = 3;
+
+  // End of the date range (exclusive).
+  google.protobuf.Timestamp end_date = 4;
+}
+
+// Response containing timelogs within the requested period.
+message GetTimelogsForPeriodResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of timelog records matching the criteria.
+  repeated TimelogRecord timelogs = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Request to start a timelog for a task via the controller flow.
+// Validates task exists and no timelog is already started before proceeding.
+message StartTimelogRequest {
+  // The task's unique identifier (Guid as string).
+  string task_id = 1;
+}
+
+// Response from starting a timelog via the controller flow.
+message StartTimelogResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// =============================================================================
+// Comment Messages
+// =============================================================================
+
+// Request to create a new comment, optionally threaded under a parent.
+message CreateCommentRequest {
+  // Optional unique identifier (Guid as string). If empty, server generates one.
+  string id = 1;
+
+  // User creating the comment (Guid as string). Defaults to current user if empty.
+  string created_by = 2;
+
+  // Comment body content (may contain HTML).
+  string body = 3;
+
+  // Optional parent comment identifier for threading (Guid as string, empty = top-level).
+  string parent_id = 4;
+
+  // The task identifier to associate the comment with (Guid as string).
+  string task_id = 5;
+}
+
+// Response from creating a comment.
+message CreateCommentResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The identifier of the created comment record (Guid as string).
+  string comment_id = 2;
+
+  // Human-readable result message.
+  string message = 3;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to delete a comment and all its child comments.
+message DeleteCommentRequest {
+  // The comment's unique identifier (Guid as string).
+  string id = 1;
+}
+
+// Response from deleting a comment.
+message DeleteCommentResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// =============================================================================
+// Feed Messages
+// =============================================================================
+
+// Request to create a feed item recording task activity.
+// Feed items are auto-generated for task creation, status changes, comments, etc.
+message CreateFeedItemRequest {
+  // Unique identifier for the feed item (Guid as string).
+  string id = 1;
+
+  // User who triggered the activity (Guid as string).
+  string created_by = 2;
+
+  // Feed item body content (activity description).
+  string body = 3;
+
+  // Type of feed item (e.g., "task", "comment", "timelog", "system").
+  string type = 4;
+
+  // The task identifier this feed item relates to (Guid as string).
+  string task_id = 5;
+}
+
+// Response from creating a feed item.
+message CreateFeedItemResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The identifier of the created feed item (Guid as string).
+  string feed_item_id = 2;
+
+  // List of errors if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}

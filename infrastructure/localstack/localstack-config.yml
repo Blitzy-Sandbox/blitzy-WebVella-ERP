@@ -1,0 +1,193 @@
+# ==============================================================================
+# LocalStack Configuration for WebVella ERP Microservices
+# ==============================================================================
+#
+# Purpose:
+#   Defines the LocalStack container configuration for emulating AWS services
+#   in the WebVella ERP microservices architecture. This file specifies which
+#   AWS services to emulate, network port assignments, region settings,
+#   debug/logging options, and persistence settings for local development.
+#
+# Context:
+#   This configuration replaces the monolith's in-process communication patterns:
+#     - SQS replaces PostgreSQL LISTEN/NOTIFY on 'ERP_NOTIFICATIONS_CHANNNEL'
+#       (previously in WebVella.Erp/Notifications/NotificationContext.cs)
+#     - SNS replaces the 12 synchronous hook interfaces
+#       (previously in WebVella.Erp/Hooks/IErp*Hook.cs)
+#     - S3 replaces the DbFileRepository cloud storage backend via Storage.Net
+#       (previously in WebVella.Erp/Database/DbFileRepository.cs)
+#
+# Integration:
+#   - Referenced by docker-compose.localstack.yml at the repository root
+#   - The companion init-aws.sh script (in this same directory) provisions
+#     SNS topics, SQS queues, S3 buckets, and SNS->SQS subscriptions
+#   - The init script is mounted at /etc/localstack/init/ready.d/init-aws.sh
+#     inside the LocalStack container and executes automatically on startup
+#
+# Overrides:
+#   All settings in this file can be overridden via environment variables
+#   in docker-compose.localstack.yml or at container runtime. LocalStack
+#   supports the LOCALSTACK_ prefix for interoperability in Docker
+#   (e.g., LOCALSTACK_PERSISTENCE=1 is equivalent to PERSISTENCE=1).
+#   See: https://docs.localstack.cloud/references/configuration/
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Enabled AWS Services
+# ------------------------------------------------------------------------------
+# Specifies which AWS services LocalStack will emulate. Only the services
+# required by the WebVella ERP microservices architecture are enabled:
+#
+#   sqs - Amazon Simple Queue Service
+#         Inter-service asynchronous message queues. Each microservice
+#         (Core, CRM, Project, Mail, Reporting, Admin) has a dedicated
+#         event queue for consuming domain events from other services.
+#
+#   sns - Amazon Simple Notification Service
+#         Event topics for publish/subscribe patterns. Domain events
+#         (record-created, record-updated, record-deleted, entity lifecycle,
+#         CRM events, project events, mail events) are published to SNS
+#         topics and fan out to subscribed SQS queues.
+#
+#   s3  - Amazon Simple Storage Service
+#         File storage backend for the Core service's file management,
+#         replacing the monolith's unified DbFileRepository which supported
+#         large objects, filesystem, and cloud storage backends.
+#
+# Maps to docker-compose environment variable: SERVICES=sqs,sns,s3
+# ------------------------------------------------------------------------------
+services: sqs,sns,s3
+
+# ------------------------------------------------------------------------------
+# Gateway / Edge Port Configuration
+# ------------------------------------------------------------------------------
+# LocalStack exposes a single gateway endpoint that routes requests to the
+# appropriate emulated AWS service. All awslocal CLI commands and AWS SDK
+# calls target this endpoint.
+#
+# The gateway port 4566 is the LocalStack default and is mapped in
+# docker-compose.localstack.yml as: ports: ["4566:4566"]
+#
+# Individual service ports (4510-4559) are allocated internally by
+# LocalStack for service-specific routing. These are exposed in Docker
+# via the port range mapping: ports: ["4510-4559:4510-4559"]
+#
+# Maps to docker-compose environment variable: GATEWAY_LISTEN=0.0.0.0:4566
+# Maps to docker-compose port mapping: "4566:4566" and "4510-4559:4510-4559"
+# ------------------------------------------------------------------------------
+gateway:
+  port: 4566
+
+# Internal service port range used by LocalStack to assign individual ports
+# to each emulated AWS service. This range is exposed in the Docker container
+# so that direct service access is available if needed during debugging.
+service_port_range: 4510-4559
+
+# ------------------------------------------------------------------------------
+# AWS Region Configuration
+# ------------------------------------------------------------------------------
+# Default AWS region for all emulated services. All SNS topics, SQS queues,
+# and S3 buckets are provisioned in this region by the init-aws.sh script.
+#
+# This value must match the AWS_DEFAULT_REGION environment variable used
+# in the init-aws.sh provisioning script and in each microservice's
+# appsettings.json AWS configuration section.
+#
+# Maps to docker-compose environment variable: DEFAULT_REGION=us-east-1
+# Also available as: AWS_DEFAULT_REGION=us-east-1
+# ------------------------------------------------------------------------------
+region: us-east-1
+
+# ------------------------------------------------------------------------------
+# Debug and Logging Settings
+# ------------------------------------------------------------------------------
+# Enables verbose LocalStack logging for troubleshooting service emulation
+# issues during local development. When enabled, LocalStack outputs detailed
+# request/response logs for all AWS API calls.
+#
+# Maps to docker-compose environment variable: DEBUG=1
+#
+# NOTE: For CI/CD pipelines, consider setting debug to false (or DEBUG=0)
+# to reduce log noise and improve pipeline execution speed. The GitHub
+# Actions workflows in .github/workflows/ should use DEBUG=0 unless
+# actively troubleshooting LocalStack issues.
+#
+# For production-like testing environments, set LS_LOG=warn to suppress
+# informational messages while retaining error and warning output.
+# ------------------------------------------------------------------------------
+debug: true
+
+# Logging level controls the verbosity of LocalStack's internal logger.
+# Valid values: trace, debug, info, warn, error
+# Maps to docker-compose environment variable: LS_LOG=debug
+#
+# Recommended settings by environment:
+#   Development:  debug  (verbose output for troubleshooting)
+#   CI/Testing:   info   (balanced output for build logs)
+#   Production:   warn   (errors and warnings only)
+log_level: debug
+
+# ------------------------------------------------------------------------------
+# Data Persistence Settings
+# ------------------------------------------------------------------------------
+# When enabled, LocalStack persists provisioned AWS resources (SNS topics,
+# SQS queues, S3 buckets, and their contents) across container restarts.
+# This is useful for development workflows where the Docker Compose stack
+# is frequently stopped and restarted.
+#
+# Persistence behavior:
+#   - SNS topics and their subscriptions survive container restarts
+#   - SQS queues and their messages survive container restarts
+#   - S3 buckets and their objects survive container restarts
+#   - LocalStack stores persistent state in /var/lib/localstack/state
+#     inside the container (should be volume-mounted for durability)
+#
+# The init-aws.sh script is idempotent: it uses create-if-not-exists
+# semantics, so it is safe to re-run even when persistence is enabled
+# and resources already exist from a previous container session.
+#
+# Maps to docker-compose environment variable: PERSISTENCE=1
+# Maps to docker-compose volume: ./localstack-data:/var/lib/localstack
+#
+# NOTE: For CI/CD pipelines, persistence should be disabled (PERSISTENCE=0)
+# to ensure clean-state testing on every pipeline run.
+# ------------------------------------------------------------------------------
+persistence: true
+
+# Persistence data directory inside the LocalStack container.
+# When using Docker Compose, mount a host volume to this path to retain
+# state across container lifecycle events:
+#   volumes:
+#     - ./localstack-data:/var/lib/localstack
+persistence_directory: /var/lib/localstack
+
+# ==============================================================================
+# Docker Compose Integration Reference
+# ==============================================================================
+#
+# The following docker-compose.localstack.yml snippet shows how this
+# configuration maps to the LocalStack container definition:
+#
+#   localstack:
+#     image: localstack/localstack:latest
+#     container_name: localstack
+#     ports:
+#       - "4566:4566"            # Gateway port (gateway.port)
+#       - "4510-4559:4510-4559"  # Service port range (service_port_range)
+#     environment:
+#       - SERVICES=sqs,sns,s3    # Enabled services (services)
+#       - DEFAULT_REGION=us-east-1  # AWS region (region)
+#       - DEBUG=1                # Debug mode (debug)
+#       - LS_LOG=debug           # Log level (log_level)
+#       - PERSISTENCE=1          # Persistence (persistence)
+#     volumes:
+#       - "./infrastructure/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+#       - "./localstack-data:/var/lib/localstack"
+#       - "/var/run/docker.sock:/var/run/docker.sock"
+#
+# Environment variables always take precedence over this configuration
+# file, allowing per-environment overrides without modifying this file
+# (per AAP Section 0.8.3 injectable configuration requirement).
+#
+# ==============================================================================

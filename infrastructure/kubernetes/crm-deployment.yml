@@ -1,0 +1,309 @@
+# =============================================================================
+# WebVella ERP Microservices — CRM Service Deployment
+# =============================================================================
+# Kubernetes Deployment manifest for the CRM Service
+# (WebVella.Erp.Service.Crm). Extracted from WebVella.Erp.Plugins.Crm and
+# CRM-related entities from WebVella.Erp.Plugins.Next. This service owns the
+# CRM domain boundary within the WebVella ERP microservices architecture.
+#
+# Responsibilities:
+#   - Account entity management (CRUD, search, relations)
+#   - Contact entity management (CRUD, search, relations)
+#   - Case entity management (lifecycle, assignment, escalation)
+#   - Address entity management (linked to accounts and contacts)
+#   - Salutation entity management (contact honorifics/titles)
+#   - CRM search indexing — x_search field regeneration via SearchService
+#   - Domain event publishing (AccountCreated, ContactUpdated, CaseUpdated,
+#     etc.) for cross-service coordination with Project and Mail services
+#   - Event subscription for inbound events from Core service (user/role
+#     changes affecting CRM record ownership and permissions)
+#
+# Cross-Service Dependencies:
+#   - Core service (http://core-service:8080): User/role resolution via gRPC
+#     for audit fields (created_by, modified_by) and RecordPermissions
+#     validation. Per AAP Section 0.7.1 — cross-service relation resolution.
+#   - RabbitMQ (rabbitmq-service): Asynchronous event-driven communication
+#     replacing the monolith's in-process hook system (IErpPreCreateRecordHook,
+#     IErpPostCreateRecordHook, etc.) and PostgreSQL LISTEN/NOTIFY pub/sub.
+#   - Redis (redis-service): Distributed caching for entity metadata with
+#     event-driven invalidation across service replicas.
+#
+# Database:
+#   - Owns its own PostgreSQL database (erp_crm) per the database-per-service
+#     model (AAP Section 0.1.2). Contains rec_account, rec_contact, rec_case,
+#     rec_address, rec_salutation tables and related rel_* join tables.
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#   Apply services.yml to create ClusterIP service definitions:
+#     kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/crm-deployment.yml
+#
+# Per AAP Section 0.4.1 — Target Design / Refactored Structure Planning.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crm-service
+  namespace: webvella-erp
+  labels:
+    app: crm-service
+    app.kubernetes.io/name: crm-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: crm
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      CRM Service deployment — manages account, contact, case, address, and
+      salutation entities. Provides CRM search indexing (x_search regeneration)
+      and publishes domain events for cross-service coordination with Project
+      and Mail services. Extracted from WebVella.Erp.Plugins.Crm and CRM-related
+      entities from WebVella.Erp.Plugins.Next.
+spec:
+  # -------------------------------------------------------------------------
+  # Replica count: Default 1 for development. Scale horizontally in production
+  # based on CRM query load and event processing throughput requirements.
+  # CRM service is stateless — all state resides in the erp_crm PostgreSQL
+  # database and Redis distributed cache, enabling safe horizontal scaling.
+  # -------------------------------------------------------------------------
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: crm-service
+
+  # -------------------------------------------------------------------------
+  # Rolling update strategy ensures zero-downtime deployments.
+  # maxSurge: 1 — allows one additional pod during rollout
+  # maxUnavailable: 0 — never takes down the existing pod before the new
+  #   one is ready (ensures continuous CRM API availability)
+  # -------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: crm-service
+        app.kubernetes.io/name: crm-service
+        app.kubernetes.io/part-of: webvella-erp
+        app.kubernetes.io/component: crm
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
+      containers:
+        - name: crm-service
+          image: webvella-erp/crm-service:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+
+          # -----------------------------------------------------------------
+          # Port definitions
+          # -----------------------------------------------------------------
+          ports:
+            # REST API endpoint — CRM entity CRUD, search, and management
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # -----------------------------------------------------------------
+          # Resource allocation
+          # -----------------------------------------------------------------
+          # CRM service receives standard resource allocations appropriate
+          # for a domain service handling entity CRUD operations, search
+          # indexing (x_search regeneration), and event processing.
+          # -----------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # -----------------------------------------------------------------
+          # Environment Variables
+          # -----------------------------------------------------------------
+          env:
+            # ---------------------------------------------------------------
+            # Database Configuration (database-per-service model)
+            # ---------------------------------------------------------------
+            # CRM service owns its own PostgreSQL database (erp_crm) per
+            # AAP Section 0.1.2 and 0.7.4. Connection string follows Npgsql
+            # format with pooling configured per AAP 0.8.3:
+            #   MinPoolSize=1, MaxPoolSize=100, CommandTimeout=120
+            # Database contains: rec_account, rec_contact, rec_case,
+            #   rec_address, rec_salutation, and related rel_* join tables.
+            # Pattern: Server=postgres-crm;Port=5432;User Id=dev;Password=dev;
+            #   Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;
+            #   CommandTimeout=120;
+            # ---------------------------------------------------------------
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: crm-db-connection-string
+
+            # ---------------------------------------------------------------
+            # ASP.NET Core Runtime Configuration
+            # ---------------------------------------------------------------
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # ---------------------------------------------------------------
+            # Distributed Redis Cache
+            # ---------------------------------------------------------------
+            # Used for entity metadata caching with event-driven invalidation
+            # across service replicas. Replaces the monolith's IMemoryCache
+            # (1-hour TTL) with distributed cache coherence.
+            # Per AAP Section 0.1.2 and 0.5.1 (Cache.cs transformation).
+            # ---------------------------------------------------------------
+            - name: Redis__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: redis-connection-string
+
+            # ---------------------------------------------------------------
+            # RabbitMQ Message Broker
+            # ---------------------------------------------------------------
+            # Used for asynchronous inter-service event-driven communication
+            # via MassTransit. Replaces the monolith's in-process hook system
+            # (IErpPostCreateRecordHook, IErpPostUpdateRecordHook, etc.)
+            # for CRM entities and PostgreSQL LISTEN/NOTIFY pub/sub.
+            #
+            # CRM publishes events:
+            #   - AccountCreated, AccountUpdated, AccountDeleted
+            #   - ContactCreated, ContactUpdated, ContactDeleted
+            #   - CaseCreated, CaseUpdated, CaseDeleted
+            # CRM subscribes to events:
+            #   - UserUpdated (from Core) — update CRM record ownership
+            #   - RoleUpdated (from Core) — update CRM record permissions
+            # ---------------------------------------------------------------
+            - name: RabbitMq__Host
+              value: "rabbitmq-service"
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-password
+
+            # ---------------------------------------------------------------
+            # JWT Authentication Configuration
+            # ---------------------------------------------------------------
+            # CRM service validates JWT tokens issued by the Core service.
+            # All services share the same signing key, issuer, and audience
+            # to enable cross-service identity propagation without callback
+            # to the Core authentication service.
+            # Values sourced from WebVella.Erp.Site/Config.json Settings:Jwt.
+            # Per AAP Section 0.8.3 — JWT propagation across services.
+            # ---------------------------------------------------------------
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-key
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-audience
+
+            # ---------------------------------------------------------------
+            # Cross-Service Communication — Core Service URL
+            # ---------------------------------------------------------------
+            # CRM service communicates with the Core Platform Service for:
+            #   - User/role resolution (audit fields: created_by, modified_by)
+            #   - Entity metadata lookups (shared entity definitions)
+            #   - RecordPermissions validation via SecurityGrpcService
+            # Service name matches the ClusterIP service defined in
+            # services.yml (core-service:8080).
+            # Per AAP Section 0.7.1 — cross-service relation resolution.
+            # ---------------------------------------------------------------
+            - name: Services__Core__Url
+              value: "http://core-service:8080"
+
+            # ---------------------------------------------------------------
+            # EQL (Entity Query Language) Configuration
+            # ---------------------------------------------------------------
+            # Query timeout preserved from monolith at 600 seconds (10 min).
+            # The CRM service uses the EQL engine from SharedKernel for
+            # intra-service queries across account, contact, case, address,
+            # and salutation entities. Cross-service relation queries
+            # (e.g., account→task spanning CRM→Project) degrade gracefully
+            # to API composition via the Gateway.
+            # Per AAP Section 0.8.3 — EQL query timeout preservation.
+            # ---------------------------------------------------------------
+            - name: Eql__QueryTimeoutSeconds
+              value: "600"
+
+            # ---------------------------------------------------------------
+            # Entity Metadata Cache Configuration
+            # ---------------------------------------------------------------
+            # TTL for entity metadata cache preserved from monolith at
+            # 60 minutes (1 hour). CRM entity definitions, field types,
+            # and relation metadata are cached locally and in Redis.
+            # Per AAP Section 0.8.3 — cache TTL preservation.
+            # ---------------------------------------------------------------
+            - name: Cache__EntityMetadataTtlMinutes
+              value: "60"
+
+          # -----------------------------------------------------------------
+          # Health Probes
+          # -----------------------------------------------------------------
+          # CRM service startup is faster than the Core service since it
+          # does not perform system entity initialization. However, it must
+          # wait for:
+          #   1. Database connectivity to erp_crm PostgreSQL
+          #   2. EF Core migration execution (CRM schema)
+          #   3. RabbitMQ connection establishment for event bus
+          #   4. Redis cache connection for distributed metadata
+          #   5. Core service availability for gRPC user/role resolution
+          # -----------------------------------------------------------------
+
+          # Liveness probe — restart the container if it becomes unresponsive.
+          # CRM-specific health endpoint checks internal service health
+          # independent of downstream dependencies.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Readiness probe — stop routing traffic until the service is ready
+          # to accept requests (DB connected, cache warmed, migrations done,
+          # event bus connected, Core service reachable).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5

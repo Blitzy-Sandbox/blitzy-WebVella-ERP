@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>WebVella.Erp.SharedKernel</AssemblyName>
+		<RootNamespace>WebVella.Erp.SharedKernel</RootNamespace>
+		<OutputType>Library</OutputType>
+		<PackageId>WebVella.Erp.SharedKernel</PackageId>
+		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>disable</Nullable>
+		<Description>Shared Kernel library for WebVella ERP microservices. Contains cross-cutting contracts, DTOs, event definitions, EQL engine, database helpers, security context, utilities, and exceptions shared by all services.</Description>
+		<Version>1.7.7</Version>
+		<Authors>WebVella</Authors>
+		<Company>WebVella</Company>
+		<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+		<Copyright>Copyright 2025</Copyright>
+		<!-- Remove the language litter of code analysis on publish https://github.com/dotnet/roslyn/issues/39458 -->
+		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+	</PropertyGroup>
+
+	<!-- Expose internal members to test assembly for unit testing internal utilities (e.g., PasswordUtil) -->
+	<!-- Expose internal members to service assemblies for IDbContext implementations
+	     that need to create DbConnection instances via internal constructors -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="WebVella.Erp.Tests.SharedKernel" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Core" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Crm" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Project" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Mail" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Reporting" />
+		<InternalsVisibleTo Include="WebVella.Erp.Service.Admin" />
+		<InternalsVisibleTo Include="WebVella.Erp.Gateway" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Remove="Fts\BulStem\Rules\stem_rules_context_1_utf8.txt" />
+		<None Remove="Fts\BulStem\Rules\stem_rules_context_2_utf8.txt" />
+		<None Remove="Fts\BulStem\Rules\stem_rules_context_3_utf8.txt" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Fts\BulStem\Rules\stem_rules_context_1_utf8.txt" />
+		<EmbeddedResource Include="Fts\BulStem\Rules\stem_rules_context_2_utf8.txt" />
+		<EmbeddedResource Include="Fts\BulStem\Rules\stem_rules_context_3_utf8.txt" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Preserved from monolith (versions managed centrally via Directory.Packages.props) -->
+		<PackageReference Include="AutoMapper" />
+		<PackageReference Include="CsvHelper" />
+		<PackageReference Include="Ical.Net" />
+		<PackageReference Include="Irony.NetCore" />
+		<PackageReference Include="MimeMapping" />
+		<PackageReference Include="Newtonsoft.Json" />
+		<PackageReference Include="Npgsql" />
+		<PackageReference Include="Storage.Net" />
+		<PackageReference Include="System.Drawing.Common" />
+		<!-- JWT handling for SharedKernel Security module -->
+		<PackageReference Include="Microsoft.IdentityModel.Tokens" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+	</ItemGroup>
+
+</Project>

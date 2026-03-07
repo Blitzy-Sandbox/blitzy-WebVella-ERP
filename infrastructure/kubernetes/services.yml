@@ -1,0 +1,335 @@
+# =============================================================================
+# WebVella ERP Microservices — Kubernetes Service Definitions
+# =============================================================================
+# This file defines Kubernetes Service resources for internal networking between
+# all WebVella ERP microservices and external access for the API Gateway.
+#
+# Service topology:
+#   - 6 ClusterIP services for backend microservices (internal cluster access only)
+#   - 1 LoadBalancer service for the API Gateway (external access)
+#
+# All backend services listen on port 8080 internally (matching container ports
+# defined in each deployment manifest). The Core service additionally exposes
+# gRPC on port 8081 for inter-service communication (entity, record, and
+# security operations).
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Service discovery within the cluster uses Kubernetes DNS:
+#   http://core-service.webvella-erp.svc.cluster.local:8080
+#   http://crm-service.webvella-erp.svc.cluster.local:8080
+#   http://project-service.webvella-erp.svc.cluster.local:8080
+#   http://mail-service.webvella-erp.svc.cluster.local:8080
+#   http://reporting-service.webvella-erp.svc.cluster.local:8080
+#   http://admin-service.webvella-erp.svc.cluster.local:8080
+#
+# Within the same namespace, short names suffice:
+#   http://core-service:8080
+#   http://crm-service:8080
+#   etc.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Core Platform Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# The most critical backend service, extracted from WebVella.Erp core engine.
+# Handles entity management, record CRUD, security/identity, data sources,
+# search, import/export, file storage, and background jobs.
+#
+# Exposes two ports:
+#   - HTTP (8080): REST API for entity, record, security, file, datasource,
+#     and search operations
+#   - gRPC (8081): Inter-service RPC for EntityGrpcService, RecordGrpcService,
+#     and SecurityGrpcService (used by CRM, Project, Mail, Admin, and Gateway
+#     for cross-service entity/record resolution and auth validation)
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-service
+  namespace: webvella-erp
+  labels:
+    app: core-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: core
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Core Platform Service providing entity management, record CRUD,
+      security/identity, search, file storage, and background job processing.
+      Exposes both REST (HTTP) and gRPC endpoints for inter-service communication.
+spec:
+  type: ClusterIP
+  selector:
+    app: core-service
+  ports:
+    # REST API endpoint — entity, record, security, file, datasource, search
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    # gRPC endpoint — EntityGrpcService, RecordGrpcService, SecurityGrpcService
+    # Used by downstream services for cross-service entity resolution, record
+    # lookups, and security context propagation (user/role validation)
+    - name: grpc
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# CRM Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# Extracted from WebVella.Erp.Plugins.Crm and CRM-related entities from
+# WebVella.Erp.Plugins.Next. Handles account, contact, case, address,
+# salutation entities and CRM search indexing (x_search regeneration).
+#
+# Communicates with Core service via gRPC for user/role resolution and entity
+# metadata. Publishes domain events (AccountCreated, ContactUpdated, etc.)
+# via RabbitMQ for consumption by Project and Mail services.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: crm-service
+  namespace: webvella-erp
+  labels:
+    app: crm-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: crm
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      CRM Service managing account, contact, case, address, and salutation
+      entities. Provides CRM search indexing and publishes domain events for
+      cross-service coordination with Project and Mail services.
+spec:
+  type: ClusterIP
+  selector:
+    app: crm-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# Project/Task Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# Extracted from WebVella.Erp.Plugins.Project. Handles task, timelog, comment,
+# feed, and project management operations. Runs the StartTasksOnStartDateJob
+# background worker for scheduled task activation.
+#
+# Communicates with Core service for user/entity resolution and CRM service
+# for account-project and case-task cross-service relations (denormalized IDs
+# with eventual consistency via domain events).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-service
+  namespace: webvella-erp
+  labels:
+    app: project-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: project
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Project/Task Service managing tasks, timelogs, comments, feeds, and
+      project reporting. Runs scheduled background jobs for task lifecycle
+      management and integrates with CRM for account-project relations.
+spec:
+  type: ClusterIP
+  selector:
+    app: project-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# Mail/Notification Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# Extracted from WebVella.Erp.Plugins.Mail. Handles SMTP email sending,
+# email queue processing, email entity management, and SMTP service
+# configuration. Runs the ProcessMailQueueJob background worker for
+# scheduled queue processing via MailKit.
+#
+# Consumes domain events from other services to trigger notification emails.
+# Resolves contact information via CRM service gRPC when needed.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-service
+  namespace: webvella-erp
+  labels:
+    app: mail-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: mail
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Mail/Notification Service handling SMTP email delivery, queue processing,
+      and email entity management. Processes outbound email via MailKit and
+      consumes domain events for notification triggers.
+spec:
+  type: ClusterIP
+  selector:
+    app: mail-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# Reporting Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# An event-consuming aggregation service that reads event-sourced projections
+# for report generation. Implements a lightweight CQRS read model — subscribes
+# to domain events from Core, CRM, Project, and Mail services to build
+# denormalized reporting projections in its own database.
+#
+# Exposes REST endpoints for report queries and aggregation results.
+# Does not publish events; acts as an event consumer/materializer only.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting-service
+  namespace: webvella-erp
+  labels:
+    app: reporting-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: reporting
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Reporting Service providing aggregated report data via event-sourced
+      projections. Consumes domain events from all services to build
+      denormalized read models for efficient report generation.
+spec:
+  type: ClusterIP
+  selector:
+    app: reporting-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# Admin/SDK Service (ClusterIP — internal only)
+# -----------------------------------------------------------------------------
+# Extracted from WebVella.Erp.Plugins.SDK. Handles admin console operations,
+# code generation (CodeGenService), log management (LogService), entity
+# designer tools, and the ClearJobAndErrorLogsJob background worker.
+#
+# Communicates with Core service for entity operations and metadata management.
+# Provides the administrative API surface for platform configuration and
+# developer tooling.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+  namespace: webvella-erp
+  labels:
+    app: admin-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Admin/SDK Service providing administrative console, code generation,
+      log management, entity designer, and platform configuration tools.
+      Communicates with Core service for entity metadata operations.
+spec:
+  type: ClusterIP
+  selector:
+    app: admin-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# -----------------------------------------------------------------------------
+# API Gateway / BFF Service (LoadBalancer — EXTERNAL ACCESS)
+# -----------------------------------------------------------------------------
+# The ONLY externally accessible service in the cluster. This is the API
+# Gateway / Backend-for-Frontend (BFF) extracted from WebVella.Erp.Web.
+# It serves as the single entry point for all external traffic, routing
+# requests to the appropriate backend microservice.
+#
+# Key responsibilities:
+#   - Preserves the existing /api/v3/{locale}/... REST API contract for
+#     backward compatibility (routing is application-level in the Gateway)
+#   - JWT + Cookie authentication (dual-scheme per source Startup.cs)
+#   - Request routing to backend services based on domain/path
+#   - Serves Razor Pages UI (preserved from WebVella.Erp.Web)
+#   - Error handling and request transformation middleware
+#
+# External traffic arrives on port 80 and is forwarded to the Gateway
+# container's internal port 8080 (matching ASPNETCORE_URLS in the
+# gateway-deployment.yml).
+#
+# For local development / minikube, change spec.type to NodePort:
+#   spec:
+#     type: NodePort
+#     ports:
+#       - name: http
+#         port: 80
+#         targetPort: 8080
+#         nodePort: 30080    # Access via http://localhost:30080
+#         protocol: TCP
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-service
+  namespace: webvella-erp
+  labels:
+    app: gateway
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      API Gateway / BFF — the only externally accessible service. Routes all
+      incoming REST API requests to backend microservices while preserving the
+      /api/v3/{locale}/... backward-compatible API contract. Handles JWT and
+      cookie-based authentication, request routing, and serves the Razor Pages UI.
+spec:
+  # LoadBalancer exposes the service externally via a cloud provider load balancer.
+  # For local development (minikube/kind), use NodePort instead — see comment above.
+  type: LoadBalancer
+  selector:
+    app: gateway
+  ports:
+    # External traffic on port 80 is forwarded to the Gateway container's
+    # internal port 8080. This is the standard HTTP entry point for all
+    # API consumers and browser-based UI access.
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP

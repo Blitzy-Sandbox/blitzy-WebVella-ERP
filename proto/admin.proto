@@ -1,0 +1,496 @@
+// =============================================================================
+// proto/admin.proto — Admin/SDK Service gRPC Protocol Buffer Definition
+// =============================================================================
+// Defines the gRPC service interface for the Admin/SDK microservice, which
+// provides code generation (meta change evaluation), log management, datasource
+// listing, and sitemap administration capabilities.
+//
+// This replaces the monolith's WebVella.Erp.Plugins.SDK in-process method calls:
+//   - CodeGenService.EvaluateMetaChanges()
+//   - LogService.ClearJobAndErrorLogs / ClearJobLogs / ClearErrorLogs
+//   - AdminController sitemap area/node CRUD
+//   - AdminController datasource listing
+//
+// The Admin service is primarily consumed by the Gateway/BFF for admin UI
+// functionality under the original route prefix api/v3.0/p/sdk/*.
+// =============================================================================
+
+syntax = "proto3";
+
+package webvella.erp.admin;
+
+option csharp_namespace = "WebVella.Erp.Service.Admin.Grpc";
+
+import "google/protobuf/struct.proto";
+import "common.proto";
+
+// =============================================================================
+// AdminService — Primary gRPC service for the Admin/SDK microservice.
+//
+// Exposes code generation, log management, datasource listing, and sitemap
+// CRUD operations. All RPCs map directly to the monolith's SDK plugin
+// controllers and services.
+//
+// NOTE: This proto defines the gRPC service contract for client-side code
+// generation and potential future server-side implementation. The Admin/SDK
+// microservice currently exposes REST endpoints only (via AdminController)
+// and does not host a gRPC server. The Gateway communicates with the Admin
+// service via HTTP/REST proxying. This service definition serves as the
+// canonical contract for inter-service communication and may be activated
+// as a server-side gRPC endpoint in a future iteration.
+// =============================================================================
+service AdminService {
+
+  // ---------------------------------------------------------------------------
+  // Code Generation (source: CodeGenService.EvaluateMetaChanges)
+  // ---------------------------------------------------------------------------
+  // Compares the current PostgreSQL ERP state against in-memory state to
+  // generate C# migration code across entities, relations, roles, apps,
+  // pages, and records. Returns a MetaChangeResponseModel with generated
+  // code and a detailed list of detected changes.
+  rpc EvaluateMetaChanges(EvaluateMetaChangesRequest) returns (EvaluateMetaChangesResponse);
+
+  // ---------------------------------------------------------------------------
+  // Log Management (source: LogService)
+  // ---------------------------------------------------------------------------
+  // Clears both job logs (from the 'jobs' table — Canceled, Failed, Finished,
+  // Aborted entries) and error logs (from the 'system_log' table). Preserves
+  // up to 1000 most recent entries when records are older than 30 days.
+  rpc ClearJobAndErrorLogs(ClearLogsRequest) returns (ClearLogsResponse);
+
+  // Clears job logs only. Removes all Canceled, Failed, Finished, and Aborted
+  // job entries from the 'jobs' table regardless of age.
+  rpc ClearJobLogs(ClearLogsRequest) returns (ClearLogsResponse);
+
+  // Clears error logs only. Removes all entries from the 'system_log' table.
+  rpc ClearErrorLogs(ClearLogsRequest) returns (ClearLogsResponse);
+
+  // ---------------------------------------------------------------------------
+  // DataSource Management (source: AdminController.DataSourceAction)
+  // ---------------------------------------------------------------------------
+  // Lists all registered datasources (both database-backed and code-backed),
+  // ordered alphabetically by name. Originally exposed at
+  // api/v3.0/p/sdk/datasource/list.
+  rpc ListDataSources(ListDataSourcesRequest) returns (ListDataSourcesResponse);
+
+  // ---------------------------------------------------------------------------
+  // Sitemap Area Management (source: AdminController)
+  // ---------------------------------------------------------------------------
+  // Creates a new sitemap area within the specified application. Areas are
+  // top-level navigation groupings in the ERP UI. Originally exposed at
+  // POST api/v3.0/p/sdk/sitemap/area.
+  rpc CreateSitemapArea(CreateSitemapAreaRequest) returns (SitemapAreaResponse);
+
+  // Updates an existing sitemap area. Originally exposed at
+  // POST api/v3.0/p/sdk/sitemap/area/{areaId}.
+  rpc UpdateSitemapArea(UpdateSitemapAreaRequest) returns (SitemapAreaResponse);
+
+  // Deletes a sitemap area by ID. Originally exposed at
+  // POST api/v3.0/p/sdk/sitemap/area/{areaId}/delete.
+  rpc DeleteSitemapArea(DeleteSitemapAreaRequest) returns (SitemapAreaResponse);
+
+  // ---------------------------------------------------------------------------
+  // Sitemap Node Management (source: AdminController)
+  // ---------------------------------------------------------------------------
+  // Creates a new sitemap node within the specified area and application.
+  // Nodes are individual navigation items (pages, entity views, etc.).
+  // Originally exposed at POST api/v3.0/p/sdk/sitemap/node.
+  rpc CreateSitemapNode(CreateSitemapNodeRequest) returns (SitemapNodeResponse);
+
+  // Updates an existing sitemap node. Originally exposed at
+  // POST api/v3.0/p/sdk/sitemap/node/{nodeId}.
+  rpc UpdateSitemapNode(UpdateSitemapNodeRequest) returns (SitemapNodeResponse);
+
+  // Deletes a sitemap node by ID. Originally exposed at
+  // POST api/v3.0/p/sdk/sitemap/node/{nodeId}/delete.
+  rpc DeleteSitemapNode(DeleteSitemapNodeRequest) returns (SitemapNodeResponse);
+
+  // Retrieves auxiliary data for sitemap node management, including available
+  // entities, node types, application pages, and entity pages. Originally
+  // exposed at GET api/v3.0/p/sdk/sitemap/node/get-aux-info.
+  rpc GetNodeAuxData(GetNodeAuxDataRequest) returns (GetNodeAuxDataResponse);
+}
+
+// =============================================================================
+// Code Generation Messages
+// =============================================================================
+
+// Request for evaluating meta changes between two database states.
+// Maps to CodeGenService.EvaluateMetaChanges(string connectionString,
+//   List<string> entityRecordsToCompare, bool includeEntityMeta,
+//   bool includeEntityRelations, bool includeRoles, bool includeApplications,
+//   List<string> NNRelationsRecordsToCompare).
+message EvaluateMetaChangesRequest {
+  // Connection string to the reference (old) PostgreSQL database for comparison.
+  string connection_string = 1;
+
+  // List of entity names whose records should be compared between old and
+  // current databases. Used to detect record-level create/update/delete changes.
+  repeated string entity_records_to_compare = 2;
+
+  // Whether to include entity metadata changes (entity and field CRUD).
+  bool include_entity_meta = 3;
+
+  // Whether to include entity relation changes (relation CRUD).
+  bool include_entity_relations = 4;
+
+  // Whether to include role changes (role CRUD).
+  bool include_roles = 5;
+
+  // Whether to include application changes (app, sitemap, page, datasource CRUD).
+  bool include_applications = 6;
+
+  // List of N:N relation names whose join-table records should be compared.
+  repeated string nn_relations_records_to_compare = 7;
+}
+
+// Response containing the generated migration code and detected changes.
+// Maps to MetaChangeResponseModel (Code, Changes, Success, Message).
+message EvaluateMetaChangesResponse {
+  // Indicates whether the evaluation completed successfully.
+  bool success = 1;
+
+  // The generated C# migration code string. Contains complete EntityManager,
+  // RecordManager, and AppService calls to replay all detected changes.
+  string generated_code = 2;
+
+  // Detailed list of individual meta changes detected during comparison.
+  repeated MetaChangeEntry changes = 3;
+
+  // Error details if the evaluation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+
+  // Human-readable status message.
+  string message = 5;
+}
+
+// Represents a single meta change detected during code generation evaluation.
+// Maps to MetaChangeModel (Element, Type, Name, ChangeList).
+message MetaChangeEntry {
+  // The type of change: "created", "updated", or "deleted".
+  string change_type = 1;
+
+  // The type of ERP object affected: "entity", "relation", "role", "app",
+  // "page", "record", "sitemap_area", "sitemap_node", "datasource", etc.
+  string object_type = 2;
+
+  // The name or identifier of the changed object.
+  string object_name = 3;
+
+  // The generated code snippet specific to this individual change.
+  string code_snippet = 4;
+
+  // Detailed list of specific property changes within the object (e.g.,
+  // "Label changed from 'X' to 'Y'"). Maps to MetaChangeModel.ChangeList.
+  repeated string change_list = 5;
+}
+
+// =============================================================================
+// Log Management Messages
+// =============================================================================
+
+// Request for clearing logs. No parameters are needed — the specific log
+// clearing behavior is determined by the RPC method called:
+//   - ClearJobAndErrorLogs: Clears both system_log and jobs tables
+//   - ClearJobLogs: Clears completed/failed/aborted entries from jobs table
+//   - ClearErrorLogs: Clears all entries from system_log table
+message ClearLogsRequest {
+  // Intentionally empty — log clearing requires no parameters.
+}
+
+// Response for log clearing operations.
+message ClearLogsResponse {
+  // Whether the log clearing operation completed successfully.
+  bool success = 1;
+
+  // Human-readable result message (e.g., "Logs cleared successfully").
+  string message = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// =============================================================================
+// DataSource Messages
+// =============================================================================
+
+// Request for listing all registered datasources. No parameters required.
+message ListDataSourcesRequest {
+  // Intentionally empty — returns all datasources ordered by name.
+}
+
+// Response containing the list of all registered datasources.
+message ListDataSourcesResponse {
+  // Whether the listing operation completed successfully.
+  bool success = 1;
+
+  // Ordered list of datasource entries (alphabetical by name).
+  repeated DataSourceEntry data_sources = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a single datasource registration in the ERP system.
+// Maps to DataSourceManager.GetAll() result items.
+message DataSourceEntry {
+  // Unique identifier of the datasource (Guid as string).
+  string id = 1;
+
+  // Display name of the datasource.
+  string name = 2;
+
+  // Human-readable description of the datasource purpose.
+  string description = 3;
+
+  // Sort weight for ordering datasources in UI listings.
+  int32 weight = 4;
+
+  // Datasource type: "database" for SQL-backed datasources or "code" for
+  // programmatically defined datasources.
+  string type = 5;
+}
+
+// =============================================================================
+// Sitemap Area Messages
+// =============================================================================
+
+// Request to create a new sitemap area within an application.
+// Maps to AdminController.CreateSitemapArea(SitemapArea area, Guid? appId).
+message CreateSitemapAreaRequest {
+  // The area data to create.
+  SitemapAreaData area = 1;
+
+  // The application ID to attach the area to (Guid as string, required).
+  string app_id = 2;
+}
+
+// Request to update an existing sitemap area.
+// Maps to AdminController.UpdateSitemapArea(SitemapArea area, Guid? appId).
+message UpdateSitemapAreaRequest {
+  // The updated area data (must include the area ID).
+  SitemapAreaData area = 1;
+
+  // The application ID the area belongs to (Guid as string, required).
+  string app_id = 2;
+}
+
+// Request to delete a sitemap area.
+// Maps to AdminController.DeleteSitemapArea(Guid areaId, Guid? appId).
+message DeleteSitemapAreaRequest {
+  // The ID of the area to delete (Guid as string).
+  string area_id = 1;
+
+  // The application ID the area belongs to (Guid as string, required).
+  string app_id = 2;
+}
+
+// Response for sitemap area create/update/delete operations. On success,
+// the response includes the updated sitemap tree and node-page dictionary
+// in the object field (originally via ResponseModel.Object).
+message SitemapAreaResponse {
+  // Whether the operation completed successfully.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+
+  // The updated sitemap data after the operation, represented as a
+  // dynamic structure containing the ordered sitemap and node_page_dict.
+  google.protobuf.Struct sitemap_data = 4;
+}
+
+// Represents the data for a sitemap area. Maps to the SitemapArea model
+// with fields used in CreateArea/UpdateArea calls.
+message SitemapAreaData {
+  // Unique identifier (Guid as string). Empty for new areas (auto-generated).
+  string id = 1;
+
+  // Internal machine-readable name of the area.
+  string name = 2;
+
+  // Display label shown in the navigation UI.
+  string label = 3;
+
+  // CSS icon class for the area icon (e.g., "fas fa-cog").
+  string icon_class = 4;
+
+  // Color code for the area in the navigation UI (e.g., "#2196F3").
+  string color = 5;
+
+  // Sort weight for ordering areas in the navigation.
+  int32 weight = 6;
+
+  // List of role IDs (Guids as strings) that have access to this area.
+  repeated string access_roles = 7;
+
+  // Human-readable description of the area.
+  string description = 8;
+
+  // Whether to show group names in the area navigation.
+  bool show_group_names = 9;
+
+  // Label translations as JSON string (key: locale, value: translated label).
+  string label_translations = 10;
+
+  // Description translations as JSON string.
+  string description_translations = 11;
+}
+
+// =============================================================================
+// Sitemap Node Messages
+// =============================================================================
+
+// Request to create a new sitemap node within an area and application.
+// Maps to AdminController.CreateSitemapNode(SitemapNodeSubmit node,
+//   Guid? appId, Guid? areaId).
+message CreateSitemapNodeRequest {
+  // The node data to create.
+  SitemapNodeData node = 1;
+
+  // The application ID (Guid as string, required).
+  string app_id = 2;
+
+  // The parent area ID (Guid as string, required).
+  string area_id = 3;
+}
+
+// Request to update an existing sitemap node.
+// Maps to AdminController.UpdateSitemapNode(SitemapNodeSubmit node,
+//   Guid? appId, Guid? areaId).
+message UpdateSitemapNodeRequest {
+  // The updated node data (must include the node ID).
+  SitemapNodeData node = 1;
+
+  // The application ID (Guid as string, required).
+  string app_id = 2;
+
+  // The parent area ID (Guid as string, required).
+  string area_id = 3;
+}
+
+// Request to delete a sitemap node.
+// Maps to AdminController.DeleteSitemapNode(Guid nodeId, Guid? appId).
+message DeleteSitemapNodeRequest {
+  // The ID of the node to delete (Guid as string).
+  string node_id = 1;
+
+  // The application ID (Guid as string, required).
+  string app_id = 2;
+}
+
+// Response for sitemap node create/update/delete operations. On success,
+// includes the updated sitemap tree and node-page dictionary.
+message SitemapNodeResponse {
+  // Whether the operation completed successfully.
+  bool success = 1;
+
+  // Human-readable result message.
+  string message = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+
+  // The updated sitemap data after the operation, represented as a
+  // dynamic structure containing the ordered sitemap and node_page_dict.
+  google.protobuf.Struct sitemap_data = 4;
+}
+
+// Represents the data for a sitemap node. Maps to the SitemapNodeSubmit model
+// with fields used in CreateAreaNode/UpdateAreaNode calls.
+message SitemapNodeData {
+  // Unique identifier (Guid as string). Empty for new nodes (auto-generated).
+  string id = 1;
+
+  // Internal machine-readable name of the node.
+  string name = 2;
+
+  // Display label shown in the navigation UI.
+  string label = 3;
+
+  // CSS icon class for the node icon (e.g., "fas fa-file").
+  string icon_class = 4;
+
+  // The URL path for the node (for URL-based node types).
+  string url = 5;
+
+  // Sort weight for ordering nodes within the area.
+  int32 weight = 6;
+
+  // Node type as integer. Maps to SitemapNodeType enum:
+  //   0 = ApplicationPage, 1 = EntityList, 2 = EntityDetails, etc.
+  int32 type = 7;
+
+  // The entity ID associated with this node (Guid as string, optional).
+  // Used for entity-based node types to link to entity list/details pages.
+  string entity_id = 8;
+
+  // Label translations as JSON string (key: locale, value: translated label).
+  string label_translations = 9;
+
+  // List of role IDs (Guids as strings) that have access to this node.
+  repeated string access_roles = 10;
+
+  // List of page IDs to attach to this node (Guids as strings).
+  repeated string pages = 11;
+
+  // Entity list page configurations as JSON string.
+  string entity_list_pages = 12;
+
+  // Entity create page configurations as JSON string.
+  string entity_create_pages = 13;
+
+  // Entity details page configurations as JSON string.
+  string entity_details_pages = 14;
+
+  // Entity manage page configurations as JSON string.
+  string entity_manage_pages = 15;
+
+  // Parent node ID for nested node hierarchies (Guid as string, optional).
+  string parent_id = 16;
+}
+
+// =============================================================================
+// Node Auxiliary Data Messages
+// =============================================================================
+
+// Request to retrieve auxiliary data needed for node management UI.
+// Maps to AdminController.GetNodeAuxData(Guid? appId).
+message GetNodeAuxDataRequest {
+  // The application ID to scope the auxiliary data to (Guid as string, required).
+  string app_id = 1;
+}
+
+// Response containing auxiliary data for the node management UI. Includes
+// available entities, node types, application pages, and entity pages.
+// The aux_data Struct preserves the dynamic EntityRecord shape from the
+// monolith, including:
+//   - "all_entities": list of {Value, Label} select options
+//   - "node_types": list of {Value, Label} select options
+//   - "app_pages": list of {page_id, page_name, node_id} records
+//   - "all_entity_pages": list of {page_id, page_name, entity_id, type, node_id}
+message GetNodeAuxDataResponse {
+  // Whether the operation completed successfully.
+  bool success = 1;
+
+  // Dynamic auxiliary data structure. Uses google.protobuf.Struct to preserve
+  // the flexible EntityRecord-based response shape from the monolith.
+  google.protobuf.Struct aux_data = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+
+  // Human-readable status message.
+  string message = 4;
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel used throughout the BaseResponseModel
+// envelope pattern (success, errors, timestamp, message, object).

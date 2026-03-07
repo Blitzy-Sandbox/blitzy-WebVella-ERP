@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>WebVella.Erp.Tests.Gateway</RootNamespace>
+    <AssemblyName>WebVella.Erp.Tests.Gateway</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework — provides Configuration, Binder, HttpContext, etc. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Testing packages (versions centrally managed via Directory.Packages.props) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Project references -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Gateway/WebVella.Erp.Gateway/WebVella.Erp.Gateway.csproj" />
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

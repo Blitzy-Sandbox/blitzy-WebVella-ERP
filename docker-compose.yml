@@ -1,0 +1,483 @@
+##############################################################################
+# WebVella ERP Microservices — Docker Compose Orchestration
+#
+# Primary Docker Compose file orchestrating ALL microservices plus
+# infrastructure (PostgreSQL per service, Redis, RabbitMQ).
+#
+# Per AAP Sections 0.4.1, 0.5.1, and 0.7.4.
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose down            # Stop all services
+#   docker compose logs -f gateway # Follow gateway logs
+#   docker compose ps              # List running services
+#
+# The API Gateway is the single entry point on port 5000, preserving
+# backward compatibility with the /api/v3/ REST contract (AAP 0.8.1).
+##############################################################################
+
+services:
+
+  # ===========================================================================
+  # INFRASTRUCTURE SERVICES
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Database-per-service model (AAP 0.1.2)
+  # ---------------------------------------------------------------------------
+
+  postgres-core:
+    image: postgres:16-alpine
+    container_name: erp-postgres-core
+    environment:
+      POSTGRES_DB: erp_core
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      # Allow creation of additional databases (reporting, admin) on the same
+      # instance via application-level EF Core migrations.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-core-data:/var/lib/postgresql/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-crm:
+    image: postgres:16-alpine
+    container_name: erp-postgres-crm
+    environment:
+      POSTGRES_DB: erp_crm
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-crm-data:/var/lib/postgresql/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-project:
+    image: postgres:16-alpine
+    container_name: erp-postgres-project
+    environment:
+      POSTGRES_DB: erp_project
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-project-data:/var/lib/postgresql/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_project"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres-mail:
+    image: postgres:16-alpine
+    container_name: erp-postgres-mail
+    environment:
+      POSTGRES_DB: erp_mail
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres-mail-data:/var/lib/postgresql/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d erp_mail"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis — Distributed caching (AAP 0.1.2, replacing IMemoryCache)
+  # ---------------------------------------------------------------------------
+
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Message broker for inter-service events (AAP 0.1.2)
+  # ---------------------------------------------------------------------------
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: erp-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ===========================================================================
+  # APPLICATION SERVICES (7 services per AAP 0.4.1)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Core Platform Service — Entity, Record, Security, File, Search, DataSource
+  # ---------------------------------------------------------------------------
+
+  core-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Core/Dockerfile
+    container_name: erp-core-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_core_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - Jobs__Enabled=true
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # CRM Service — Account, Contact, Case, Address, Salutation
+  # ---------------------------------------------------------------------------
+
+  crm-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Crm/Dockerfile
+    container_name: erp-crm-service
+    depends_on:
+      postgres-crm:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-crm;Port=5432;User Id=dev;Password=dev;Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_crm_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Project/Task Service — Task, Timelog, Comment, Feed, Reporting
+  # ---------------------------------------------------------------------------
+
+  project-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Project/Dockerfile
+    container_name: erp-project-service
+    depends_on:
+      postgres-project:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-project;Port=5432;User Id=dev;Password=dev;Database=erp_project;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_project_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - ServiceUrls__CrmService=http://crm-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Mail/Notification Service — Email, SMTP, Queue Processing
+  # ---------------------------------------------------------------------------
+
+  mail-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Mail/Dockerfile
+    container_name: erp-mail-service
+    depends_on:
+      postgres-mail:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-mail;Port=5432;User Id=dev;Password=dev;Database=erp_mail;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_mail_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Smtp__Enabled=false
+      - Smtp__Host=
+      - Smtp__Port=25
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Reporting Service — Aggregation and event-sourced projections (CQRS light)
+  # Shares the postgres-core instance with a separate database (erp_reporting).
+  # ---------------------------------------------------------------------------
+
+  reporting-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Reporting/Dockerfile
+    container_name: erp-reporting-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_reporting;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_reporting_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - ServiceUrls__CoreService=http://core-service:8080
+      - ServiceUrls__CrmService=http://crm-service:8080
+      - ServiceUrls__ProjectService=http://project-service:8080
+      - ServiceUrls__MailService=http://mail-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Admin/SDK Service — Code generation, log management, entity designer
+  # Shares the postgres-core instance with a separate database (erp_admin).
+  # ---------------------------------------------------------------------------
+
+  admin-service:
+    build:
+      context: .
+      dockerfile: src/Services/WebVella.Erp.Service.Admin/Dockerfile
+    container_name: erp-admin-service
+    depends_on:
+      postgres-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_admin;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - Redis__InstanceName=erp_admin_
+      - Messaging__Transport=RabbitMQ
+      - Messaging__RabbitMQ__Host=rabbitmq
+      - Messaging__RabbitMQ__Username=guest
+      - Messaging__RabbitMQ__Password=guest
+      - Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+      - Jobs__Enabled=true
+      - ServiceUrls__CoreService=http://core-service:8080
+      - Settings__EncryptionKey=${ENCRYPTION_KEY:-BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658}
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API Gateway / BFF — Single entry point, routes to backend microservices
+  # Exposes port 5000 preserving backward compatibility with /api/v3/ (AAP 0.8.1)
+  # ---------------------------------------------------------------------------
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/WebVella.Erp.Gateway/Dockerfile
+    container_name: erp-gateway
+    ports:
+      - "5000:8080"
+    depends_on:
+      core-service:
+        condition: service_started
+      crm-service:
+        condition: service_started
+      project-service:
+        condition: service_started
+      mail-service:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+      admin-service:
+        condition: service_started
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Services__Core=http://core-service:8080
+      - Services__Crm=http://crm-service:8080
+      - Services__Project=http://project-service:8080
+      - Services__Mail=http://mail-service:8080
+      - Services__Reporting=http://reporting-service:8080
+      - Services__Admin=http://admin-service:8080
+      - ServiceRoutes__CoreServiceUrl=http://core-service:8080
+      - ServiceRoutes__CrmServiceUrl=http://crm-service:8080
+      - ServiceRoutes__ProjectServiceUrl=http://project-service:8080
+      - ServiceRoutes__MailServiceUrl=http://mail-service:8080
+      - ServiceRoutes__ReportingServiceUrl=http://reporting-service:8080
+      - ServiceRoutes__AdminServiceUrl=http://admin-service:8080
+      - Settings__Jwt__Key=${JWT_KEY:-ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey}
+      - Settings__Jwt__Issuer=webvella-erp
+      - Settings__Jwt__Audience=webvella-erp
+      - Settings__Lang=en
+      - Settings__Locale=en-US
+      - Settings__TimeZoneName=FLE Standard Time
+      - Settings__DevelopmentMode=true
+      - Settings__AppName=WebVella Next
+    networks:
+      - erp-network
+    restart: unless-stopped
+
+# =============================================================================
+# NAMED VOLUMES — Persistent data storage
+# =============================================================================
+
+volumes:
+  postgres-core-data:
+    driver: local
+  postgres-crm-data:
+    driver: local
+  postgres-project-data:
+    driver: local
+  postgres-mail-data:
+    driver: local
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+# =============================================================================
+# NETWORKS — Service communication
+# =============================================================================
+
+networks:
+  erp-network:
+    driver: bridge

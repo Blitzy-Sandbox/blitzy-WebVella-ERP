@@ -1,0 +1,90 @@
+# ==============================================================================
+# .dockerignore — WebVella ERP Microservices
+# ==============================================================================
+# Excludes unnecessary files from the Docker build context to reduce image size
+# and build time. This file is critical for services using 'COPY . .' in their
+# Dockerfiles, preventing .git, build artifacts, tests, and documentation from
+# being copied into intermediate build stages.
+#
+# Per AAP Section 0.4.1 and Docker best practices.
+# ==============================================================================
+
+# --- Version Control ---
+.git
+.gitattributes
+.gitignore
+.github
+
+# --- IDE / Editor Files ---
+.vs
+.vscode
+.idea
+*.suo
+*.user
+*.userosscache
+*.sln.docuser
+
+# --- Build Artifacts ---
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# --- NuGet ---
+**/packages/
+*.nupkg
+*.snupkg
+
+# --- Test Projects ---
+tests/
+
+# --- Documentation ---
+docs/
+*.md
+!README.md
+
+# --- Docker (prevent recursive context) ---
+**/Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# --- Infrastructure Scripts (not needed in app images) ---
+infrastructure/
+
+# --- LocalStack Data (persistent state volume) ---
+localstack-data/
+
+# --- NuGet Packaging ---
+create-nuget-pkgs.bat
+*.nuspec
+
+# --- License and Legal ---
+LICENSE.txt
+LIBRARIES.md
+
+# --- Legacy Monolith Site Hosts (not part of microservices) ---
+WebVella.Erp.Site/
+WebVella.Erp.Site.Sdk/
+WebVella.Erp.Site.Next/
+WebVella.Erp.Site.Project/
+WebVella.Erp.Site.Mail/
+WebVella.Erp.Site.Crm/
+WebVella.Erp.Site.MicrosoftCDM/
+
+# --- Legacy Console App ---
+WebVella.Erp.ConsoleApp/
+
+# --- WebAssembly (out of scope per AAP 0.3.2) ---
+WebVella.Erp.WebAssembly/
+
+# --- Temporary Files ---
+*.tmp
+*.temp
+*.log
+*.swp
+*~
+blitzy_adhoc_test_*
+
+# --- OS Files ---
+Thumbs.db
+.DS_Store

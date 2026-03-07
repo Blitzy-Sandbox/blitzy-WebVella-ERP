@@ -1,0 +1,803 @@
+// CRM Service gRPC Protocol Buffer Definition
+//
+// Defines the gRPC service interface for the CRM microservice, which manages
+// accounts, contacts, cases, addresses, and salutations with search indexing.
+// This replaces the monolith's WebVella.Erp.Plugins.Crm + CRM-related entities
+// from WebVella.Erp.Plugins.Next in-process method calls.
+//
+// Consumers:
+//   - Gateway/BFF: all CRM CRUD operations
+//   - Project service: account-project relation resolution, case-task linking
+//   - Mail service: contact resolution for email recipients
+//
+// Source entities derived from:
+//   - NextPlugin.20190203.cs (case, task)
+//   - NextPlugin.20190204.cs (account fields, contact, address, language, currency)
+//   - NextPlugin.20190206.cs (salutation)
+//   - SearchService.RegenSearchField() for x_search index maintenance
+//   - AccountHook, ContactHook, CaseHook for post-create/update event triggers
+
+syntax = "proto3";
+
+package webvella.erp.crm;
+
+option csharp_namespace = "WebVella.Erp.Service.Crm.Grpc";
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+// =============================================================================
+// CRM Service Definition
+// =============================================================================
+// Single gRPC service encapsulating all CRM domain operations. Each entity
+// (account, contact, case, address) has full CRUD RPCs. A dedicated search
+// index regeneration RPC replaces the monolith's hook-based x_search updates.
+
+service CrmService {
+
+  // ---------------------------------------------------------------------------
+  // Account Operations
+  // ---------------------------------------------------------------------------
+  // Entity: account (defined in NextPlugin.20190204.cs)
+  // Fields: name, type, website, street, street_2, region, post_code, city,
+  //         country_id, fixed_phone, mobile_phone, fax_phone, notes, last_name,
+  //         first_name, x_search, email, tax_id, solutation_id, language_id,
+  //         currency_id, logo_url (patch 20211012)
+  // Cross-service: Account → Project (account_id denormalized in Project DB,
+  //   eventual consistency via CRM events per AAP 0.7.1)
+
+  // Retrieve a single account by ID.
+  // Used by Project service for account-project relation resolution.
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+
+  // List/search accounts with pagination and sorting.
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+
+  // Create a new account record.
+  // Triggers search index regeneration (AccountHook → SearchService).
+  rpc CreateAccount(CreateAccountRequest) returns (CrmRecordResponse);
+
+  // Update an existing account record.
+  // Triggers search index regeneration (AccountHook → SearchService).
+  rpc UpdateAccount(UpdateAccountRequest) returns (CrmRecordResponse);
+
+  // Delete an account record by ID.
+  rpc DeleteAccount(DeleteAccountRequest) returns (CrmRecordResponse);
+
+  // ---------------------------------------------------------------------------
+  // Contact Operations
+  // ---------------------------------------------------------------------------
+  // Entity: contact (defined in NextPlugin.20190204.cs, updated in 20190206)
+  // Fields: first_name, last_name, email, phone, salutation_id, account_id,
+  //         x_search, job_title, city, street, street_2, region, post_code,
+  //         country_id, fixed_phone, mobile_phone, fax_phone, notes,
+  //         created_on, created_by, photo
+  // Cross-service: Contact → Email (Mail service stores contact UUID, resolves
+  //   via CRM gRPC on read per AAP 0.7.1)
+
+  // Retrieve a single contact by ID.
+  // Used by Mail service for contact resolution.
+  rpc GetContact(GetContactRequest) returns (GetContactResponse);
+
+  // List/search contacts with pagination, optional account filter.
+  rpc ListContacts(ListContactsRequest) returns (ListContactsResponse);
+
+  // Create a new contact record.
+  // Triggers search index regeneration (ContactHook → SearchService).
+  rpc CreateContact(CreateContactRequest) returns (CrmRecordResponse);
+
+  // Update an existing contact record.
+  // Triggers search index regeneration (ContactHook → SearchService).
+  rpc UpdateContact(UpdateContactRequest) returns (CrmRecordResponse);
+
+  // Delete a contact record by ID.
+  rpc DeleteContact(DeleteContactRequest) returns (CrmRecordResponse);
+
+  // ---------------------------------------------------------------------------
+  // Case Operations
+  // ---------------------------------------------------------------------------
+  // Entity: case (defined in NextPlugin.20190203.cs)
+  // Fields: subject, description, status, priority, account_id, contact_id,
+  //         x_search, number (auto-number), case_status_id, case_type_id
+  // Cross-service: Case → Task (case_id denormalized in Project DB, CRM
+  //   publishes CaseUpdated events per AAP 0.7.1)
+
+  // Retrieve a single case by ID.
+  // Used by Project service for case-task linking.
+  rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
+
+  // List/search cases with pagination, optional account and status filters.
+  rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
+
+  // Create a new case record.
+  // Triggers search index regeneration (CaseHook → SearchService).
+  rpc CreateCase(CreateCaseRequest) returns (CrmRecordResponse);
+
+  // Update an existing case record.
+  // Triggers search index regeneration (CaseHook → SearchService).
+  rpc UpdateCase(UpdateCaseRequest) returns (CrmRecordResponse);
+
+  // Delete a case record by ID.
+  rpc DeleteCase(DeleteCaseRequest) returns (CrmRecordResponse);
+
+  // ---------------------------------------------------------------------------
+  // Address Operations
+  // ---------------------------------------------------------------------------
+  // Entity: address (defined in NextPlugin.20190204.cs)
+  // Fields: street, city, state, postal_code, country_id, account_id
+
+  // Retrieve a single address by ID.
+  rpc GetAddress(GetAddressRequest) returns (GetAddressResponse);
+
+  // List addresses with pagination, optional account filter.
+  rpc ListAddresses(ListAddressesRequest) returns (ListAddressesResponse);
+
+  // Create a new address record.
+  rpc CreateAddress(CreateAddressRequest) returns (CrmRecordResponse);
+
+  // Update an existing address record.
+  rpc UpdateAddress(UpdateAddressRequest) returns (CrmRecordResponse);
+
+  // Delete an address record by ID.
+  rpc DeleteAddress(DeleteAddressRequest) returns (CrmRecordResponse);
+
+  // ---------------------------------------------------------------------------
+  // Search Index Operations
+  // ---------------------------------------------------------------------------
+  // Source: SearchService.RegenSearchField(string entityName,
+  //         EntityRecord record, List<string> indexedFields)
+  // Regenerates the x_search concatenated text field for a CRM entity record.
+  // Called after create/update via hooks: AccountHook, ContactHook, CaseHook.
+  // Configuration.cs defines indexed fields per entity:
+  //   Account: city, $country_1n_account.label, email, fax_phone, first_name,
+  //            fixed_phone, last_name, mobile_phone, name, notes, post_code,
+  //            region, street, street_2, tax_id, type, website
+  //   Contact: city, $country_1n_contact.label, $account_nn_contact.name,
+  //            email, fax_phone, first_name, fixed_phone, job_title,
+  //            last_name, mobile_phone, notes, post_code, region, street,
+  //            street_2
+  //   Case:    $account_nn_case.name, description, number, priority,
+  //            $case_status_1n_case.label, $case_type_1n_case.label, subject
+
+  // Regenerate the x_search field for a specific CRM entity record.
+  rpc RegenerateSearchIndex(RegenerateSearchIndexRequest) returns (RegenerateSearchIndexResponse);
+}
+
+// =============================================================================
+// Account Messages
+// =============================================================================
+
+// Request to retrieve a single account by its unique identifier.
+message GetAccountRequest {
+  // Account identifier (Guid serialized as string).
+  string id = 1;
+}
+
+// Response containing a single account record.
+message GetAccountResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The requested account record (null/empty if not found).
+  AccountRecord account = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a CRM account record with all fields from the monolith's
+// account entity (NextPlugin.20190204.cs + subsequent patches).
+// Account search index fields from Configuration.AccountSearchIndexFields:
+//   city, $country_1n_account.label, email, fax_phone, first_name,
+//   fixed_phone, last_name, mobile_phone, name, notes, post_code,
+//   region, street, street_2, tax_id, type, website
+message AccountRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Account/company name.
+  string name = 2;
+
+  // Concatenated search index text (maintained by SearchService).
+  string x_search = 3;
+
+  // Logo image URL (image field added in patch 20211012).
+  string logo_url = 4;
+
+  // Reference to Core currency entity (cross-service, Guid as string).
+  string currency_id = 5;
+
+  // Reference to Core country entity (cross-service, Guid as string).
+  string country_id = 6;
+
+  // Industry/sector classification.
+  string industry = 7;
+
+  // Company website URL.
+  string website = 8;
+
+  // Primary phone number (fixed_phone in monolith).
+  string phone = 9;
+
+  // Primary email address.
+  string email = 10;
+
+  // Record creation timestamp.
+  google.protobuf.Timestamp created_on = 11;
+
+  // Reference to Core user entity who created the record (Guid as string).
+  string created_by = 12;
+
+  // Last modification timestamp.
+  google.protobuf.Timestamp last_modified_on = 13;
+
+  // Reference to Core user entity who last modified the record (Guid as string).
+  string last_modified_by = 14;
+
+  // Account type: "1" = Company, "2" = Person (SelectField from monolith).
+  string type = 15;
+
+  // Street address line 1.
+  string street = 16;
+
+  // Street address line 2.
+  string street_2 = 17;
+
+  // City.
+  string city = 18;
+
+  // Region/state/province.
+  string region = 19;
+
+  // Postal/ZIP code.
+  string post_code = 20;
+
+  // Fixed/landline phone number.
+  string fixed_phone = 21;
+
+  // Mobile phone number.
+  string mobile_phone = 22;
+
+  // Fax phone number.
+  string fax_phone = 23;
+
+  // Free-text notes (MultiLineTextField).
+  string notes = 24;
+
+  // First name (for person-type accounts).
+  string first_name = 25;
+
+  // Last name (for person-type accounts).
+  string last_name = 26;
+
+  // Tax identification number.
+  string tax_id = 27;
+
+  // Reference to salutation entity (Guid as string).
+  // Note: Originally "solutation_id" (typo) in monolith, renamed to
+  // "salutation_id" in patch 20190206.
+  string salutation_id = 28;
+
+  // Reference to Core language entity (Guid as string).
+  string language_id = 29;
+}
+
+// Request for paginated account listing with search and sort.
+message ListAccountsRequest {
+  // Page number (1-based).
+  int32 page = 1;
+
+  // Number of records per page.
+  int32 page_size = 2;
+
+  // Optional search query string (matches against x_search).
+  string search_query = 3;
+
+  // Field name to sort by (e.g., "name", "created_on").
+  string sort_by = 4;
+
+  // Sort direction: "asc" or "desc".
+  string sort_order = 5;
+}
+
+// Response for paginated account listing.
+message ListAccountsResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of account records for the requested page.
+  repeated AccountRecord accounts = 2;
+
+  // Total number of matching records across all pages.
+  int32 total_count = 3;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to create a new account record.
+message CreateAccountRequest {
+  // Account data to create.
+  AccountRecord account = 1;
+}
+
+// Request to update an existing account record.
+message UpdateAccountRequest {
+  // Account data with updated fields. The id field must be set.
+  AccountRecord account = 1;
+}
+
+// Request to delete an account record by ID.
+message DeleteAccountRequest {
+  // Account identifier to delete (Guid as string).
+  string id = 1;
+}
+
+// =============================================================================
+// Contact Messages
+// =============================================================================
+
+// Request to retrieve a single contact by its unique identifier.
+message GetContactRequest {
+  // Contact identifier (Guid as string).
+  string id = 1;
+}
+
+// Response containing a single contact record.
+message GetContactResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The requested contact record (null/empty if not found).
+  ContactRecord contact = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a CRM contact record with all fields from the monolith's
+// contact entity (NextPlugin.20190204.cs, updated in 20190206).
+// Contact search index fields from Configuration.ContactSearchIndexFields:
+//   city, $country_1n_contact.label, $account_nn_contact.name, email,
+//   fax_phone, first_name, fixed_phone, job_title, last_name,
+//   mobile_phone, notes, post_code, region, street, street_2
+message ContactRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Contact's first name.
+  string first_name = 2;
+
+  // Contact's last name.
+  string last_name = 3;
+
+  // Contact's email address.
+  string email = 4;
+
+  // Primary phone number.
+  string phone = 5;
+
+  // Reference to salutation entity (Guid as string).
+  string salutation_id = 6;
+
+  // Reference to associated account (Guid as string, many-to-many relation).
+  string account_id = 7;
+
+  // Concatenated search index text (maintained by SearchService).
+  string x_search = 8;
+
+  // Record creation timestamp.
+  google.protobuf.Timestamp created_on = 9;
+
+  // Reference to Core user entity who created the record (Guid as string).
+  string created_by = 10;
+
+  // Last modification timestamp.
+  google.protobuf.Timestamp last_modified_on = 11;
+
+  // Reference to Core user entity who last modified the record (Guid as string).
+  string last_modified_by = 12;
+
+  // Contact's job title.
+  string job_title = 13;
+
+  // Street address line 1.
+  string street = 14;
+
+  // Street address line 2.
+  string street_2 = 15;
+
+  // City.
+  string city = 16;
+
+  // Region/state/province.
+  string region = 17;
+
+  // Postal/ZIP code.
+  string post_code = 18;
+
+  // Reference to Core country entity (Guid as string).
+  string country_id = 19;
+
+  // Fixed/landline phone number.
+  string fixed_phone = 20;
+
+  // Mobile phone number.
+  string mobile_phone = 21;
+
+  // Fax phone number.
+  string fax_phone = 22;
+
+  // Free-text notes.
+  string notes = 23;
+
+  // Contact photo URL (added in patch 20190206).
+  string photo = 24;
+}
+
+// Request for paginated contact listing with search and optional account filter.
+message ListContactsRequest {
+  // Page number (1-based).
+  int32 page = 1;
+
+  // Number of records per page.
+  int32 page_size = 2;
+
+  // Optional search query string (matches against x_search).
+  string search_query = 3;
+
+  // Optional filter: only return contacts associated with this account
+  // (Guid as string, empty = no filter).
+  string account_id = 4;
+
+  // Field name to sort by.
+  string sort_by = 5;
+
+  // Sort direction: "asc" or "desc".
+  string sort_order = 6;
+}
+
+// Response for paginated contact listing.
+message ListContactsResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of contact records for the requested page.
+  repeated ContactRecord contacts = 2;
+
+  // Total number of matching records across all pages.
+  int32 total_count = 3;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to create a new contact record.
+message CreateContactRequest {
+  // Contact data to create.
+  ContactRecord contact = 1;
+}
+
+// Request to update an existing contact record.
+message UpdateContactRequest {
+  // Contact data with updated fields. The id field must be set.
+  ContactRecord contact = 1;
+}
+
+// Request to delete a contact record by ID.
+message DeleteContactRequest {
+  // Contact identifier to delete (Guid as string).
+  string id = 1;
+}
+
+// =============================================================================
+// Case Messages
+// =============================================================================
+
+// Request to retrieve a single case by its unique identifier.
+message GetCaseRequest {
+  // Case identifier (Guid as string).
+  string id = 1;
+}
+
+// Response containing a single case record.
+message GetCaseResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The requested case record (null/empty if not found).
+  // Field name is case_record to avoid collision with protobuf reserved keyword.
+  CaseRecord case_record = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a CRM case record with all fields from the monolith's
+// case entity (NextPlugin.20190203.cs).
+// Case search index fields from Configuration.CaseSearchIndexFields:
+//   $account_nn_case.name, description, number, priority,
+//   $case_status_1n_case.label, $case_type_1n_case.label, subject
+message CaseRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Case subject line.
+  string subject = 2;
+
+  // Detailed case description (MultiLineTextField).
+  string description = 3;
+
+  // Case status identifier (references case_status lookup, Guid as string).
+  string status = 4;
+
+  // Case priority level (e.g., "1" = Low, "2" = Medium, "3" = High).
+  string priority = 5;
+
+  // Reference to associated account (Guid as string, many-to-many relation).
+  string account_id = 6;
+
+  // Reference to associated contact (Guid as string).
+  string contact_id = 7;
+
+  // Concatenated search index text (maintained by SearchService).
+  string x_search = 8;
+
+  // Record creation timestamp.
+  google.protobuf.Timestamp created_on = 9;
+
+  // Reference to Core user entity who created the record (Guid as string).
+  string created_by = 10;
+
+  // Last modification timestamp.
+  google.protobuf.Timestamp last_modified_on = 11;
+
+  // Reference to Core user entity who last modified the record (Guid as string).
+  string last_modified_by = 12;
+
+  // Auto-number field (formatted display number for the case).
+  string number = 13;
+
+  // Reference to case_type lookup entity (Guid as string).
+  string case_type_id = 14;
+
+  // Reference to case_status lookup entity (Guid as string).
+  string case_status_id = 15;
+}
+
+// Request for paginated case listing with search and optional filters.
+message ListCasesRequest {
+  // Page number (1-based).
+  int32 page = 1;
+
+  // Number of records per page.
+  int32 page_size = 2;
+
+  // Optional search query string (matches against x_search).
+  string search_query = 3;
+
+  // Optional filter: only return cases associated with this account
+  // (Guid as string, empty = no filter).
+  string account_id = 4;
+
+  // Optional filter: only return cases with this status
+  // (status identifier, empty = no filter).
+  string status_filter = 5;
+
+  // Field name to sort by.
+  string sort_by = 6;
+
+  // Sort direction: "asc" or "desc".
+  string sort_order = 7;
+}
+
+// Response for paginated case listing.
+message ListCasesResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of case records for the requested page.
+  repeated CaseRecord cases = 2;
+
+  // Total number of matching records across all pages.
+  int32 total_count = 3;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to create a new case record.
+message CreateCaseRequest {
+  // Case data to create.
+  CaseRecord case_record = 1;
+}
+
+// Request to update an existing case record.
+message UpdateCaseRequest {
+  // Case data with updated fields. The id field must be set.
+  CaseRecord case_record = 1;
+}
+
+// Request to delete a case record by ID.
+message DeleteCaseRequest {
+  // Case identifier to delete (Guid as string).
+  string id = 1;
+}
+
+// =============================================================================
+// Address Messages
+// =============================================================================
+
+// Request to retrieve a single address by its unique identifier.
+message GetAddressRequest {
+  // Address identifier (Guid as string).
+  string id = 1;
+}
+
+// Response containing a single address record.
+message GetAddressResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // The requested address record (null/empty if not found).
+  AddressRecord address = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// Represents a CRM address record (NextPlugin.20190204.cs).
+// Addresses are associated with accounts for multi-address support.
+message AddressRecord {
+  // Unique identifier (Guid as string).
+  string id = 1;
+
+  // Street address line 1.
+  string street = 2;
+
+  // City.
+  string city = 3;
+
+  // State/region/province.
+  string state = 4;
+
+  // Postal/ZIP code.
+  string postal_code = 5;
+
+  // Reference to Core country entity (Guid as string).
+  string country_id = 6;
+
+  // Reference to associated account (Guid as string).
+  string account_id = 7;
+
+  // Record creation timestamp.
+  google.protobuf.Timestamp created_on = 8;
+
+  // Reference to Core user entity who created the record (Guid as string).
+  string created_by = 9;
+
+  // Last modification timestamp.
+  google.protobuf.Timestamp last_modified_on = 10;
+
+  // Reference to Core user entity who last modified the record (Guid as string).
+  string last_modified_by = 11;
+
+  // Street address line 2 (additional address info).
+  string street_2 = 12;
+}
+
+// Request for paginated address listing with optional account filter.
+message ListAddressesRequest {
+  // Page number (1-based).
+  int32 page = 1;
+
+  // Number of records per page.
+  int32 page_size = 2;
+
+  // Optional filter: only return addresses for this account
+  // (Guid as string, empty = no filter).
+  string account_id = 3;
+}
+
+// Response for paginated address listing.
+message ListAddressesResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // List of address records for the requested page.
+  repeated AddressRecord addresses = 2;
+
+  // Total number of matching records across all pages.
+  int32 total_count = 3;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+}
+
+// Request to create a new address record.
+message CreateAddressRequest {
+  // Address data to create.
+  AddressRecord address = 1;
+}
+
+// Request to update an existing address record.
+message UpdateAddressRequest {
+  // Address data with updated fields. The id field must be set.
+  AddressRecord address = 1;
+}
+
+// Request to delete an address record by ID.
+message DeleteAddressRequest {
+  // Address identifier to delete (Guid as string).
+  string id = 1;
+}
+
+// =============================================================================
+// Shared CRM Record Response
+// =============================================================================
+
+// Generic response for CRM record mutation operations (create, update, delete).
+// Mirrors the BaseResponseModel envelope pattern from the monolith:
+//   success, errors (List<ErrorModel>), timestamp, message, object
+message CrmRecordResponse {
+  // Indicates whether the operation succeeded.
+  bool success = 1;
+
+  // Identifier of the affected record (Guid as string).
+  // For create: the ID of the newly created record.
+  // For update/delete: the ID of the affected record.
+  string record_id = 2;
+
+  // Human-readable status or result message.
+  string message = 3;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 4;
+
+  // ISO 8601 timestamp of when the response was generated.
+  string timestamp = 5;
+}
+
+// =============================================================================
+// Search Index Messages
+// =============================================================================
+
+// Request to regenerate the x_search concatenated text field for a CRM entity.
+// Source: SearchService.RegenSearchField(string entityName,
+//         EntityRecord record, List<string> indexedFields)
+// The search service iterates the specified fields (including relation-traversal
+// tokens like $relation.field), executes an EQL query, concatenates field values
+// using type-aware formatting, and updates the record's x_search field.
+message RegenerateSearchIndexRequest {
+  // Name of the CRM entity (e.g., "account", "contact", "case").
+  string entity_name = 1;
+
+  // Identifier of the record to regenerate search index for (Guid as string).
+  string record_id = 2;
+
+  // List of field names to include in the search index.
+  // Supports both entity fields (e.g., "name", "email") and relation tokens
+  // (e.g., "$country_1n_account.label", "$account_nn_contact.name").
+  // See Configuration.cs for default field lists per entity.
+  repeated string indexed_fields = 3;
+}
+
+// Response from search index regeneration.
+message RegenerateSearchIndexResponse {
+  // Indicates whether the regeneration succeeded.
+  bool success = 1;
+
+  // Human-readable status message.
+  string message = 2;
+
+  // Error details if the operation failed.
+  repeated webvella.erp.common.ErrorModel errors = 3;
+}
+
+// =============================================================================
+// Shared Types
+// =============================================================================
+
+// ErrorModel is imported from common.proto (webvella.erp.common.ErrorModel).
+// Mirrors WebVella.Erp.Api.Models.ErrorModel used in the monolith's
+// BaseResponseModel.Errors list.

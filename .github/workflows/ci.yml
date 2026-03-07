@@ -1,0 +1,258 @@
+# =============================================================================
+# CI - Build & Test
+# =============================================================================
+# Continuous Integration pipeline for the WebVella ERP microservices architecture.
+# Builds the entire solution (shared kernel, all services, gateway, and tests)
+# and executes unit/integration tests with code coverage collection.
+#
+# Triggered on:
+#   - Push to main branch
+#   - Pull request targeting main branch
+#
+# The workflow is structured as two jobs:
+#   1. build-and-test: Restores, builds, runs unit tests, and uploads artifacts
+#   2. integration-tests: Runs Testcontainers-based integration tests (requires Docker)
+# =============================================================================
+
+name: CI - Build & Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel in-progress CI runs for the same branch/PR to conserve runner minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  NUGET_XMLDOC_MODE: skip
+  SOLUTION_FILE: WebVella.ERP3.sln
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  # ===========================================================================
+  # Job 1: Build & Unit Test
+  # ===========================================================================
+  # Restores NuGet packages, compiles the full solution in Release mode, and
+  # runs all unit test projects. Integration tests (Testcontainers) are
+  # excluded here and run in a dedicated job that has Docker access.
+  # ===========================================================================
+  build-and-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ----- Checkout --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----- .NET SDK Setup --------------------------------------------------
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # ----- NuGet Cache -----------------------------------------------------
+      # Caches the NuGet global packages folder to speed up restores on
+      # subsequent runs when the lock file / csproj files have not changed.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # ----- Restore ---------------------------------------------------------
+      - name: Restore NuGet packages
+        run: dotnet restore ${{ env.SOLUTION_FILE }}
+
+      # ----- Build -----------------------------------------------------------
+      # Builds the entire solution in Release configuration. The solution
+      # includes all microservice projects, the shared kernel, the gateway,
+      # and all test projects:
+      #
+      #   SharedKernel:
+      #     src/SharedKernel/WebVella.Erp.SharedKernel/
+      #
+      #   Services:
+      #     src/Services/WebVella.Erp.Service.Core/
+      #     src/Services/WebVella.Erp.Service.Crm/
+      #     src/Services/WebVella.Erp.Service.Project/
+      #     src/Services/WebVella.Erp.Service.Mail/
+      #     src/Services/WebVella.Erp.Service.Reporting/
+      #     src/Services/WebVella.Erp.Service.Admin/
+      #
+      #   Gateway:
+      #     src/Gateway/WebVella.Erp.Gateway/
+      #
+      #   Tests:
+      #     tests/WebVella.Erp.Tests.SharedKernel/
+      #     tests/WebVella.Erp.Tests.Core/
+      #     tests/WebVella.Erp.Tests.Crm/
+      #     tests/WebVella.Erp.Tests.Project/
+      #     tests/WebVella.Erp.Tests.Mail/
+      #     tests/WebVella.Erp.Tests.Reporting/
+      #     tests/WebVella.Erp.Tests.Admin/
+      #     tests/WebVella.Erp.Tests.Gateway/
+      #     tests/WebVella.Erp.Tests.Integration/
+      - name: Build solution
+        run: dotnet build ${{ env.SOLUTION_FILE }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      # ----- Unit Tests ------------------------------------------------------
+      # Runs all test projects discovered in the solution EXCEPT the
+      # integration test project which requires Docker and Testcontainers.
+      # Integration tests are handled in a separate job below.
+      #
+      # Flags:
+      #   --no-build           : Reuses the build output from the prior step
+      #   --verbosity normal   : Provides detailed test output
+      #   --logger trx         : Generates TRX result files for artifact upload
+      #   --collect            : Collects XPlat Code Coverage via coverlet
+      #   --results-directory  : Consolidates all results under a single directory
+      #   --filter             : Excludes integration tests (Category!=Integration)
+      - name: Run unit tests
+        run: |
+          dotnet test ${{ env.SOLUTION_FILE }} \
+            --configuration ${{ env.BUILD_CONFIGURATION }} \
+            --no-build \
+            --verbosity normal \
+            --logger "trx;LogFileName=test-results.trx" \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./test-results \
+            --filter "Category!=Integration&FullyQualifiedName!~Tests.Integration"
+
+      # ----- Upload Test Results ---------------------------------------------
+      # Uploads TRX test result files as workflow artifacts so they can be
+      # downloaded or consumed by reporting tools and PR check annotations.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./test-results/**/*.trx
+          retention-days: 30
+
+      # ----- Upload Code Coverage --------------------------------------------
+      # Uploads Cobertura XML coverage reports generated by the XPlat Code
+      # Coverage collector. These can be consumed by coverage reporting
+      # integrations (Codecov, Coveralls, etc.) or viewed directly.
+      - name: Upload code coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: ./test-results/**/coverage.cobertura.xml
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 2: Integration Tests
+  # ===========================================================================
+  # Runs the integration test project (WebVella.Erp.Tests.Integration) which
+  # uses Testcontainers to spin up LocalStack, PostgreSQL, Redis, and RabbitMQ
+  # containers. This job requires Docker, which is available on ubuntu-latest.
+  #
+  # This job depends on the build-and-test job passing first to avoid wasting
+  # runner time on expensive container-based tests if the basic build fails.
+  # ===========================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    timeout-minutes: 45
+
+    steps:
+      # ----- Checkout --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----- .NET SDK Setup --------------------------------------------------
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # ----- NuGet Cache -----------------------------------------------------
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # ----- Restore & Build -------------------------------------------------
+      # Restores and builds the integration test project and its dependencies.
+      # We rebuild here because this is a separate job with its own workspace.
+      - name: Restore NuGet packages
+        run: dotnet restore ${{ env.SOLUTION_FILE }}
+
+      - name: Build solution
+        run: dotnet build ${{ env.SOLUTION_FILE }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      # ----- Verify Docker ---------------------------------------------------
+      # Confirms Docker is available and running. Testcontainers requires the
+      # Docker daemon to manage test infrastructure containers.
+      - name: Verify Docker availability
+        run: |
+          docker version
+          docker compose version
+
+      # ----- Run Integration Tests -------------------------------------------
+      # Executes only the integration test project. Testcontainers manages
+      # all required infrastructure containers (LocalStack, PostgreSQL, Redis,
+      # RabbitMQ) programmatically within the test lifecycle.
+      #
+      # Environment variables configure the AWS SDK to point to LocalStack
+      # and disable real AWS credential resolution.
+      - name: Run integration tests
+        env:
+          AWS__ServiceURL: http://localhost:4566
+          AWS__AuthenticationRegion: us-east-1
+          AWS__UseHttp: "true"
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+        run: |
+          dotnet test tests/WebVella.Erp.Tests.Integration/ \
+            --configuration ${{ env.BUILD_CONFIGURATION }} \
+            --no-build \
+            --verbosity normal \
+            --logger "trx;LogFileName=integration-results.trx" \
+            --results-directory ./integration-test-results
+
+      # ----- Upload Integration Test Results ---------------------------------
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: ./integration-test-results/**/*.trx
+          retention-days: 30
+
+      # ----- Docker Diagnostics on Failure -----------------------------------
+      # Captures running container logs on failure to help diagnose
+      # Testcontainers or infrastructure issues.
+      - name: Collect Docker container logs on failure
+        if: failure()
+        run: |
+          echo "=== Running containers ==="
+          docker ps -a
+          echo ""
+          echo "=== Container logs ==="
+          for container in $(docker ps -aq); do
+            echo "--- Logs for container $container ---"
+            docker logs "$container" 2>&1 | tail -100
+            echo ""
+          done

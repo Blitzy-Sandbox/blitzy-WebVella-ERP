@@ -1,0 +1,122 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Reporting Microservice Project
+    ==============================
+    Standalone independently-deployable ASP.NET Core Web API service for report
+    aggregation, event-sourced projections, and analytics using CQRS light pattern.
+
+    Consumes domain events (RecordCreated, RecordUpdated, RecordDeleted) from
+    Core, CRM, Project, and Mail services to build materialized report projections
+    (timelog, task, project) and exposes aggregated reporting data via REST API.
+
+    Replaces:
+      - Reporting logic previously embedded in WebVella.Erp.Plugins.Project services
+      - Report aggregation previously coupled to monolith in-process method calls
+
+    Key Changes from Monolith:
+      1. SDK: Microsoft.NET.Sdk.Web (standalone web API, NOT Razor SDK)
+      2. ProjectReferences to WebVella.Erp, WebVella.Erp.Web removed
+      3. SharedKernel ProjectReference replaces old monolith core references
+      4. FrameworkReference to Microsoft.AspNetCore.App is implicit in Web SDK
+      5. Added microservice infrastructure: MassTransit, Redis, EF Core, JWT
+      6. Versions managed centrally via root Directory.Packages.props (CPM)
+      7. No gRPC endpoints — Reporting exposes REST only and consumes events
+      8. No embedded resources — no UI components, themes, or static assets
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>WebVella.Erp.Service.Reporting</RootNamespace>
+    <AssemblyName>WebVella.Erp.Service.Reporting</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <Version>1.7.7</Version>
+    <Authors>WebVella</Authors>
+    <Company>WebVella</Company>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <Copyright>Copyright 2025</Copyright>
+    <Description>Reporting microservice for WebVella ERP. Provides report aggregation, event-sourced projections, and analytics via REST and event-driven interfaces using CQRS light pattern.</Description>
+    <!-- Remove the language litter of code analysis on publish https://github.com/dotnet/roslyn/issues/39458 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <ContainerRepository>webvella-erp-reporting</ContainerRepository>
+  </PropertyGroup>
+
+  <!-- =================================================================== -->
+  <!-- PRESERVED PACKAGES — Carried forward from monolith plugin/core      -->
+  <!-- Versions are managed centrally via root Directory.Packages.props    -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- ASP.NET Core Newtonsoft.Json integration (from WebVella.Erp.Plugins.Project.csproj line 52)
+         Enables AddNewtonsoftJson() on MVC builder for [JsonProperty] annotation consistency
+         with monolith REST API v3 response shapes (BaseResponseModel envelope) -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <!-- Object-to-object mapping for DTO transformations between report domain models
+         and API response models (from WebVella.Erp.csproj) -->
+    <PackageReference Include="AutoMapper" />
+    <!-- JSON serialization for all Reporting service API contracts — preserves
+         [JsonProperty] annotations for backward-compatible REST API v3 response envelope -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!--
+      NOTE: Npgsql ADO.NET driver is NOT referenced directly to avoid NU1605
+      package downgrade conflict. Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
+      requires Npgsql >= 10.0.0, while root CPM pins Npgsql at 9.0.4 for monolith
+      compatibility. The driver is available transitively via:
+        - Npgsql.EntityFrameworkCore.PostgreSQL (provides Npgsql 10.0.x)
+        - SharedKernel ProjectReference (provides Npgsql for EQL/DB helpers)
+    -->
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- NEW PACKAGES — Required for microservice architecture (AAP 0.6.1)   -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Message bus abstraction — core to Reporting service's CQRS light pattern.
+         Provides AddMassTransit(), consumer registration, and publish/subscribe
+         patterns for consuming domain events from Core, CRM, Project, and Mail
+         services to build event-sourced report projections -->
+    <PackageReference Include="MassTransit" />
+    <!-- RabbitMQ transport for local/Docker messaging environments,
+         replacing the monolith's PostgreSQL LISTEN/NOTIFY pub/sub -->
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
+    <!-- Amazon SQS/SNS transport for LocalStack deployment validation
+         with AWS-compatible event routing -->
+    <PackageReference Include="MassTransit.AmazonSQS" />
+    <!-- Distributed Redis caching replacing monolith IMemoryCache with 1-hour TTL.
+         Enables AddStackExchangeRedisCache() for report projection caching -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Redis client library for direct cache operations, cache invalidation
+         subscriptions, and advanced report projection caching patterns -->
+    <PackageReference Include="StackExchange.Redis" />
+    <!-- JWT Bearer authentication for cross-service token propagation,
+         replacing the monolith's hybrid cookie+JWT scheme with JWT-only -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <!-- EF Core PostgreSQL provider for database-per-service model.
+         Enables UseNpgsql() for ReportingDbContext connecting to
+         the dedicated erp_reporting PostgreSQL database -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- EF Core design-time migration tooling for converting the monolith's
+         date-based plugin patch system to EF Core migrations (build-time only) -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- =================================================================== -->
+  <!-- PROJECT REFERENCES                                                  -->
+  <!-- =================================================================== -->
+  <ItemGroup>
+    <!-- Shared Kernel: cross-cutting contracts (DTOs, domain event definitions,
+         command/query contracts), EQL engine, database helpers (DbRepository,
+         DbConnection, DBTypeConverter), security context with JWT propagation,
+         utility classes, exception types, and FTS support.
+         Replaces monolith references to WebVella.Erp and WebVella.Erp.Web -->
+    <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

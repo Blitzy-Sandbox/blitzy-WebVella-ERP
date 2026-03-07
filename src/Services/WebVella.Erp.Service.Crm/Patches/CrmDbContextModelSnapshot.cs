@@ -1,0 +1,630 @@
+// =============================================================================
+// CrmDbContextModelSnapshot.cs — EF Core Model Snapshot for CRM Service
+// =============================================================================
+// Represents the CURRENT database model state for the CRM microservice's
+// CrmDbContext. EF Core uses this snapshot to compare against new model changes
+// when generating subsequent migrations.
+//
+// Since the initial migration (20190101_InitialCrmSchema) is the only migration,
+// this snapshot exactly mirrors the schema described in that migration.
+//
+// Tables managed: rec_case_status, rec_case_type, rec_industry, rec_salutation,
+//                 rec_account, rec_contact, rec_case, rec_address
+// Join tables:    rel_account_nn_contact, rel_account_nn_case, rel_address_nn_account
+//
+// Seed data:      9 case_status + 5 case_type + 32 industry + 5 salutation = 51 records
+//
+// Source references:
+//   - WebVella.Erp.Plugins.Crm/CrmPlugin._.cs
+//   - WebVella.Erp.Plugins.Next/NextPlugin.20190203.cs
+//   - WebVella.Erp.Plugins.Next/NextPlugin.20190204.cs
+//   - WebVella.Erp.Plugins.Next/NextPlugin.20190206.cs
+// =============================================================================
+
+using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using WebVella.Erp.Service.Crm.Database;
+
+namespace WebVella.Erp.Service.Crm.Patches
+{
+    [DbContext(typeof(CrmDbContext))]
+    partial class CrmDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.1")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63)
+                .HasAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn);
+
+            // =================================================================
+            // Lookup tables
+            // =================================================================
+
+            #region rec_case_status — Entity ID: 960afdc1-cd78-41ab-8135-816f7f7b8a27
+
+            modelBuilder.Entity("rec_case_status", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<bool>("is_default")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<string>("label")
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                b.Property<decimal>("sort_index")
+                    .HasColumnType("numeric")
+                    .HasDefaultValue(1.0m);
+
+                b.Property<bool>("is_closed")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<bool>("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<bool>("is_enabled")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true);
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.Property<string>("icon_class")
+                    .HasColumnType("text");
+
+                b.Property<string>("color")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_case_status");
+
+                b.ToTable("rec_case_status");
+
+                b.HasData(
+                    new { id = new Guid("4f17785b-c430-4fea-9fa9-8cfef931c60e"), is_default = true, label = "Open", sort_index = 1.0m, is_closed = false, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("c04d2a73-9fd3-4d00-b32e-9887e517f3bf"), is_default = false, label = "Closed - Duplicate", sort_index = 103.0m, is_closed = true, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("b7368bd9-ea1c-4091-8c57-26e5c8360c29"), is_default = false, label = "Closed - No Response", sort_index = 102.0m, is_closed = true, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("2aac0c08-5e84-477d-add0-5bc60057eba4"), is_default = false, label = "Closed - Resolved", sort_index = 100.0m, is_closed = true, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("61cba6d4-b175-4a89-94b6-6b700ce9adb9"), is_default = false, label = "Closed - Rejected", sort_index = 101.0m, is_closed = true, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("fe9d8d44-996a-4e8a-8448-3d7731d4f278"), is_default = false, label = "Re-Open", sort_index = 10.0m, is_closed = false, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("508d9e1b-8896-46ed-a6fd-734197bdb1c8"), is_default = false, label = "Wait for Customer", sort_index = 50.0m, is_closed = false, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("95170be2-dcd9-4399-9ac4-7ecefb67ad2d"), is_default = false, label = "Escalated", sort_index = 52.0m, is_closed = false, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("ef18bf1e-314e-472f-887b-e348daef9676"), is_default = false, label = "On Hold", sort_index = 40.0m, is_closed = false, is_system = true, is_enabled = true, l_scope = "" }
+                );
+            });
+
+            #endregion
+
+            #region rec_case_type — Entity ID: 0dfeba58-40bb-4205-a539-c16d5c0885ad
+
+            modelBuilder.Entity("rec_case_type", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<bool>("is_default")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<string>("label")
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                b.Property<decimal>("sort_index")
+                    .HasColumnType("numeric")
+                    .HasDefaultValue(1.0m);
+
+                b.Property<bool>("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<bool>("is_enabled")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true);
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.Property<string>("icon_class")
+                    .HasColumnType("text");
+
+                b.Property<string>("color")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_case_type");
+
+                b.ToTable("rec_case_type");
+
+                b.HasData(
+                    new { id = new Guid("3298c9b3-560b-48b2-b148-997f9cbb3bec"), is_default = true, label = "General", sort_index = 1.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("f228d073-bd09-48ed-85c7-54c6231c9182"), is_default = false, label = "Problem", sort_index = 2.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("92b35547-f91b-492d-9c83-c29c3a4d132d"), is_default = false, label = "Question", sort_index = 3.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("15e7adc5-a3e7-47c5-ae54-252cffe82923"), is_default = false, label = "Feature Request", sort_index = 4.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("dc4b7e9f-0790-47b5-a89c-268740aded38"), is_default = false, label = "Duplicate", sort_index = 5.0m, is_system = true, is_enabled = true, l_scope = "" }
+                );
+            });
+
+            #endregion
+
+            #region rec_industry — Entity ID: 2c60e662-367e-475d-9fcb-3ead55178a56
+
+            modelBuilder.Entity("rec_industry", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<bool>("is_default")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<string>("label")
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                b.Property<decimal>("sort_index")
+                    .HasColumnType("numeric")
+                    .HasDefaultValue(1.0m);
+
+                b.Property<bool>("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<bool>("is_enabled")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true);
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.Property<string>("icon_class")
+                    .HasColumnType("text");
+
+                b.Property<string>("color")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_industry");
+
+                b.ToTable("rec_industry");
+
+                b.HasData(
+                    new { id = new Guid("991ac1a3-1488-4721-ba1d-e31602d2259c"), is_default = false, label = "Agriculture", sort_index = 1.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("2dedd5cf-f7ba-4c60-a8a0-24b877254f6d"), is_default = false, label = "Apparel", sort_index = 2.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("57387434-69f1-4412-81d5-cfc78accb136"), is_default = false, label = "Banking", sort_index = 3.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("b3f98678-054a-42c3-8417-461a36432cbb"), is_default = false, label = "Biotechnology", sort_index = 4.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("5fdf025f-3f0f-422b-8c01-0e836a244cb1"), is_default = false, label = "Chemicals", sort_index = 5.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("ef119a92-0aee-455c-aca0-6dd511f94311"), is_default = false, label = "Communications", sort_index = 6.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("7651b55b-acd6-48c1-8cb4-a23f1abf5aca"), is_default = false, label = "Construction", sort_index = 7.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("86db7d49-31e7-4a25-a1c5-f738c02c603b"), is_default = false, label = "Consulting", sort_index = 8.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("ea52bba9-8215-4103-a7b0-a6eb0c5e99ff"), is_default = false, label = "Education", sort_index = 9.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("86b7d188-9595-4e38-bf00-c2c6754657f6"), is_default = false, label = "Electronics", sort_index = 10.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("cf54ccbc-1334-49d4-a51d-159b33dbc6b4"), is_default = false, label = "Energy", sort_index = 11.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("532204c0-ed8b-44b2-80fa-c582d38e3218"), is_default = false, label = "Engineering", sort_index = 12.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("37714bd5-2f00-4211-a13d-bb78f5d71263"), is_default = false, label = "Entertainment", sort_index = 13.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("c0f0ae79-5ec2-436f-ab80-07986ca7a7e0"), is_default = false, label = "Environmental", sort_index = 14.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("30cd82e0-7392-45ba-8cf5-7346eb7af733"), is_default = false, label = "Finance", sort_index = 15.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("068b7b08-de54-4628-bc54-b2fe614a42ba"), is_default = false, label = "Food & Beverage", sort_index = 16.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("e91a880a-ee18-4a3d-b23c-8ea29a02b3f7"), is_default = false, label = "Government", sort_index = 17.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("d4373f58-0427-4d6d-90dc-ceb62a11fef8"), is_default = false, label = "Healthcare", sort_index = 18.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("9c3e18f9-e95e-4af5-b1db-60a610b3c64e"), is_default = false, label = "Hospitality", sort_index = 19.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("b1756fdc-055e-4df3-909a-594c586495c5"), is_default = false, label = "Insurance", sort_index = 20.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("2890c7f0-b213-41f1-9bf4-a3d93df9d727"), is_default = false, label = "Machinery", sort_index = 21.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("a557bb08-e5f6-46aa-a848-b5faa6d3e644"), is_default = false, label = "Manufacturing", sort_index = 22.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("b22f8247-15e7-4e4b-bbd2-8c2c62dfee09"), is_default = false, label = "Media", sort_index = 23.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("904b50d2-ef93-442e-a5e8-92a690d0b8bd"), is_default = false, label = "Not for Profit", sort_index = 24.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("ad4991cd-a3a1-4e4e-9046-71700e2a5bfb"), is_default = false, label = "Recreation", sort_index = 25.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("cc7549f8-a583-4da9-875b-c81617ea6c41"), is_default = false, label = "Retail", sort_index = 26.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("ef55d4fe-0979-49be-be8e-27c57c9cde31"), is_default = false, label = "Shipping", sort_index = 27.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("b5b8af14-c500-40d9-9bb8-76a03e34425c"), is_default = false, label = "Technology", sort_index = 28.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("23488f45-0108-445d-ad4b-91d2cd516298"), is_default = false, label = "Telecommunications", sort_index = 29.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("9caa3931-75e0-43d8-b98e-674e11afae21"), is_default = false, label = "Transportation", sort_index = 30.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("12686d8f-0a19-4721-a7f2-0ab946afc746"), is_default = false, label = "Utilities", sort_index = 31.0m, is_system = true, is_enabled = true, l_scope = "" },
+                    new { id = new Guid("667251fa-9bcf-4d3f-b538-6b6b3926ca53"), is_default = false, label = "Other", sort_index = 32.0m, is_system = true, is_enabled = true, l_scope = "" }
+                );
+            });
+
+            #endregion
+
+            #region rec_salutation — Entity ID: 690dc799-e732-4d17-80d8-0f761bc33def
+
+            modelBuilder.Entity("rec_salutation", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<bool>("is_default")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<bool>("is_enabled")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(true);
+
+                b.Property<bool>("is_system")
+                    .HasColumnType("boolean")
+                    .HasDefaultValue(false);
+
+                b.Property<string>("label")
+                    .IsRequired()
+                    .HasColumnType("text");
+
+                b.Property<decimal>("sort_index")
+                    .HasColumnType("numeric")
+                    .HasDefaultValue(1.0m);
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_salutation");
+
+                b.ToTable("rec_salutation");
+
+                b.HasData(
+                    new { id = new Guid("87c08ee1-8d4d-4c89-9b37-4e3cc3f98698"), is_default = true, is_enabled = true, is_system = true, label = "Mr.", sort_index = 1.0m, l_scope = "" },
+                    new { id = new Guid("0ede7d96-2d85-45fa-818b-01327d4c47a9"), is_default = false, is_enabled = true, is_system = true, label = "Ms.", sort_index = 2.0m, l_scope = "" },
+                    new { id = new Guid("ab073457-ddc8-4d36-84a5-38619528b578"), is_default = false, is_enabled = true, is_system = true, label = "Mrs.", sort_index = 3.0m, l_scope = "" },
+                    new { id = new Guid("5b8d0137-9ec5-4b1c-a9b0-e982ef8698c1"), is_default = false, is_enabled = true, is_system = true, label = "Dr.", sort_index = 4.0m, l_scope = "" },
+                    new { id = new Guid("a74cd934-b425-4061-8f4e-a6d6b9d7adb1"), is_default = false, is_enabled = true, is_system = true, label = "Prof.", sort_index = 5.0m, l_scope = "" }
+                );
+            });
+
+            #endregion
+
+            // =================================================================
+            // Main entity tables
+            // =================================================================
+
+            #region rec_account — Entity ID: 2e22b50f-e444-4b62-a171-076e51246939
+
+            modelBuilder.Entity("rec_account", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("name")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasDefaultValue("name");
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.Property<string>("type")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasDefaultValue("1");
+
+                b.Property<string>("website")
+                    .HasColumnType("text");
+
+                b.Property<string>("street")
+                    .HasColumnType("text");
+
+                b.Property<string>("region")
+                    .HasColumnType("text");
+
+                b.Property<string>("post_code")
+                    .HasColumnType("text");
+
+                b.Property<string>("fixed_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("mobile_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("fax_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("notes")
+                    .HasColumnType("text");
+
+                b.Property<string>("last_name")
+                    .HasColumnType("text");
+
+                b.Property<string>("first_name")
+                    .HasColumnType("text");
+
+                b.Property<string>("x_search")
+                    .HasColumnType("text");
+
+                b.Property<string>("email")
+                    .HasColumnType("text");
+
+                b.Property<string>("city")
+                    .HasColumnType("text");
+
+                b.Property<Guid?>("country_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("tax_id")
+                    .HasColumnType("text");
+
+                b.Property<string>("street_2")
+                    .HasColumnType("text");
+
+                b.Property<Guid?>("language_id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid?>("currency_id")
+                    .HasColumnType("uuid");
+
+                b.Property<DateTime>("created_on")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<Guid?>("salutation_id")
+                    .HasColumnType("uuid");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_account");
+
+                b.HasIndex("salutation_id");
+
+                b.HasIndex("type");
+
+                b.HasIndex("x_search");
+
+                b.ToTable("rec_account");
+            });
+
+            #endregion
+
+            #region rec_contact — Entity ID: 39e1dd9b-827f-464d-95ea-507ade81cbd0
+
+            modelBuilder.Entity("rec_contact", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("email")
+                    .HasColumnType("text");
+
+                b.Property<string>("job_title")
+                    .HasColumnType("text");
+
+                b.Property<string>("first_name")
+                    .HasColumnType("text");
+
+                b.Property<string>("last_name")
+                    .HasColumnType("text");
+
+                b.Property<string>("notes")
+                    .HasColumnType("text");
+
+                b.Property<string>("fixed_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("mobile_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("fax_phone")
+                    .HasColumnType("text");
+
+                b.Property<string>("city")
+                    .HasColumnType("text");
+
+                b.Property<Guid?>("country_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("region")
+                    .HasColumnType("text");
+
+                b.Property<string>("street")
+                    .HasColumnType("text");
+
+                b.Property<string>("street_2")
+                    .HasColumnType("text");
+
+                b.Property<string>("post_code")
+                    .HasColumnType("text");
+
+                b.Property<DateTime>("created_on")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<string>("photo")
+                    .HasColumnType("text");
+
+                b.Property<string>("x_search")
+                    .HasColumnType("text");
+
+                b.Property<Guid?>("salutation_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_contact");
+
+                b.HasIndex("salutation_id");
+
+                b.HasIndex("x_search");
+
+                b.ToTable("rec_contact");
+            });
+
+            #endregion
+
+            #region rec_case — Entity ID: 0ebb3981-7443-45c8-ab38-db0709daf58c
+
+            modelBuilder.Entity("rec_case", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid?>("account_id")
+                    .HasColumnType("uuid");
+
+                b.Property<DateTime>("created_on")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<Guid>("created_by")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid?>("owner_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("description")
+                    .HasColumnType("text");
+
+                b.Property<string>("subject")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasDefaultValue("subject");
+
+                b.Property<string>("number")
+                    .HasColumnType("text");
+
+                b.Property<DateTime?>("closed_on")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.Property<string>("priority")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasDefaultValue("low");
+
+                b.Property<Guid?>("status_id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid?>("type_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("x_search")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_case");
+
+                b.HasIndex("status_id");
+
+                b.HasIndex("type_id");
+
+                b.HasIndex("account_id");
+
+                b.HasIndex("x_search");
+
+                b.ToTable("rec_case");
+            });
+
+            #endregion
+
+            #region rec_address — Entity ID: 34a126ba-1dee-4099-a1c1-a24e70eb10f0
+
+            modelBuilder.Entity("rec_address", b =>
+            {
+                b.Property<Guid>("id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("street")
+                    .HasColumnType("text");
+
+                b.Property<string>("street_2")
+                    .HasColumnType("text");
+
+                b.Property<string>("city")
+                    .HasColumnType("text");
+
+                b.Property<string>("region")
+                    .HasColumnType("text");
+
+                b.Property<Guid?>("country_id")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("notes")
+                    .HasColumnType("text");
+
+                b.Property<string>("name")
+                    .HasColumnType("text");
+
+                b.Property<string>("post_code")
+                    .HasColumnType("text");
+
+                b.Property<string>("l_scope")
+                    .HasColumnType("text");
+
+                b.HasKey("id")
+                    .HasName("PK_rec_address");
+
+                b.ToTable("rec_address");
+            });
+
+            #endregion
+
+            // =================================================================
+            // ManyToMany join/relation tables
+            // =================================================================
+
+            #region rel_account_nn_contact — Relation ID: dd211c99-5415-4195-923a-cb5a56e5d544
+
+            modelBuilder.Entity("rel_account_nn_contact", b =>
+            {
+                b.Property<Guid>("origin_id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid>("target_id")
+                    .HasColumnType("uuid");
+
+                b.HasKey("origin_id", "target_id");
+
+                b.HasIndex("target_id");
+
+                b.ToTable("rel_account_nn_contact");
+            });
+
+            #endregion
+
+            #region rel_account_nn_case — Relation ID: 3690c12e-40e1-4e8f-a0a8-27221c686b43
+
+            modelBuilder.Entity("rel_account_nn_case", b =>
+            {
+                b.Property<Guid>("origin_id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid>("target_id")
+                    .HasColumnType("uuid");
+
+                b.HasKey("origin_id", "target_id");
+
+                b.HasIndex("target_id");
+
+                b.ToTable("rel_account_nn_case");
+            });
+
+            #endregion
+
+            #region rel_address_nn_account — Relation ID: dcf76eb5-16cf-466d-b760-c0d8ae57da94
+
+            modelBuilder.Entity("rel_address_nn_account", b =>
+            {
+                b.Property<Guid>("origin_id")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid>("target_id")
+                    .HasColumnType("uuid");
+
+                b.HasKey("origin_id", "target_id");
+
+                b.HasIndex("target_id");
+
+                b.ToTable("rel_address_nn_account");
+            });
+
+            #endregion
+
+#pragma warning restore 612, 618
+        }
+    }
+}

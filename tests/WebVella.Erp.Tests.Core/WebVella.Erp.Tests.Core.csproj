@@ -1,0 +1,157 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- =========================================================================
+       WebVella ERP - Core Platform Service Test Project
+       ==========================================================================
+       SDK-style xUnit test project for the Core Platform microservice.
+       References the Core service (WebVella.Erp.Service.Core) and the
+       SharedKernel (WebVella.Erp.SharedKernel), containing unit tests for
+       API managers, integration tests for controllers and gRPC services,
+       database repository tests, event publisher tests, and job system tests.
+
+       All NuGet package versions are managed centrally via Directory.Packages.props
+       (Central Package Management). Only packages requiring VersionOverride to
+       resolve transitive dependency conflicts include explicit version attributes.
+       ========================================================================= -->
+
+  <PropertyGroup>
+    <!-- Override Directory.Build.props to match monolith explicit-using style -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Test project identity and metadata -->
+    <AssemblyName>WebVella.Erp.Tests.Core</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Core</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Remove the language litter of code analysis on publish
+         Preserved from monolith: https://github.com/dotnet/roslyn/issues/39458 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- ==========================================================================
+       Framework Reference — ASP.NET Core Shared Framework
+       Required for WebApplicationFactory, HttpClient test infrastructure,
+       controller test hosting, middleware pipeline testing, and gRPC test
+       server hosting.
+       ========================================================================== -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Project References
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Core Platform Service under test — provides access to all Core service
+         classes (EntityManager, RecordManager, SecurityManager, Cache,
+         Controllers, Grpc services, Jobs, Database repositories, Events) -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj" />
+    <!-- SharedKernel contracts and utilities — provides shared DTOs, event
+         types, EQL engine, database helpers, security context, utilities,
+         and exceptions used in test assertions, mock setups, and fixtures -->
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Test Framework Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Test platform SDK required by dotnet test for test host initialization,
+         test execution, and results reporting — mandatory for xUnit discovery -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- xUnit test framework providing [Fact], [Theory], and [InlineData]
+         attributes for unit and integration test discovery and execution -->
+    <PackageReference Include="xunit" />
+    <!-- Runtime test skipping support for integration tests requiring database infrastructure -->
+    <PackageReference Include="Xunit.SkippableFact" />
+    <!-- VS/CLI test runner adapter for xUnit — enables test discovery and
+         execution via dotnet test and VS Test Explorer -->
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Testing Utility Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Fluent assertion library providing .Should().Be(), .BeEquivalentTo(),
+         .Throw<T>() for expressive test validation of Core service logic -->
+    <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library for creating mock/stub implementations of Core service
+         dependencies (repositories, managers, cache, event publishers) -->
+    <PackageReference Include="Moq" />
+    <!-- WebApplicationFactory<TEntryPoint> for in-memory hosting of the Core
+         service during controller and REST endpoint integration tests -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Testcontainers Package References — Docker container management
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Base Testcontainers library for programmatic Docker container lifecycle
+         management — provides container builder, wait strategies, and network -->
+    <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL-specific module providing PostgreSqlContainer for spinning up
+         isolated PostgreSQL 16 instances during database repository tests -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       gRPC Client Package References — for gRPC integration tests
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- gRPC client library for creating GrpcChannel instances to connect to
+         the Core service's gRPC endpoints during integration tests -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- Protocol Buffers runtime — serialization of gRPC request/response types.
+         VersionOverride required: Core service transitively brings Google.Protobuf
+         3.30.2 via Grpc.AspNetCore 2.71.0, which causes NU1605 downgrade error
+         if CPM pin (3.29.3) is used directly. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <!-- Build-time protobuf/gRPC code generation tooling that compiles
+         core.proto into C# client stub classes for gRPC integration tests -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Database, JSON, and Cache Testing Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- PostgreSQL ADO.NET driver for direct database access in repository tests.
+         VersionOverride required: Core service transitively brings Npgsql 10.0.0
+         via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0, which causes NU1605
+         downgrade error if CPM pin (9.0.4) is used directly. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+    <!-- JSON serialization matching monolith version — used in test assertions
+         to verify API response JSON shapes and EntityRecord serialization -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Redis distributed cache integration for testing the Core service Cache.cs
+         replacement — provides AddStackExchangeRedisCache() DI registration -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Redis client for direct Redis operations in cache integration tests —
+         verify cache key creation, TTL enforcement, and invalidation -->
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Protobuf Client Stub Generation
+       Generates C# client stubs from core.proto for EntityGrpcServiceClient,
+       RecordGrpcServiceClient, and SecurityGrpcServiceClient used in gRPC
+       integration tests. GrpcServices="Client" (NOT Server) — tests consume
+       gRPC services as clients.
+       common.proto is included for shared ErrorModel type resolution.
+       ========================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="../../proto/core.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <Protobuf Include="../../proto/common.proto" GrpcServices="None" ProtoRoot="../../proto" />
+  </ItemGroup>
+
+</Project>

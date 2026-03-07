@@ -1,0 +1,135 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- ===================================================================== -->
+  <!-- WebVella ERP — Admin/SDK Microservice                                 -->
+  <!-- Standalone Web API project extracted from the monolith's SDK plugin   -->
+  <!-- (WebVella.Erp.Plugins.SDK) and Site host (WebVella.Erp.Site).         -->
+  <!-- Provides admin console, code generation, log management, and entity   -->
+  <!-- designer REST/gRPC endpoints as an independently deployable service.  -->
+  <!-- ===================================================================== -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Service.Admin</AssemblyName>
+    <RootNamespace>WebVella.Erp.Service.Admin</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Version>1.7.7</Version>
+    <!-- Remove the language litter of code analysis on publish -->
+    <!-- https://github.com/dotnet/roslyn/issues/39458 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <!-- ===================================================================== -->
+  <!-- InternalsVisibleTo — Expose internal types (JsonUtility, Extensions)  -->
+  <!-- to the Admin test project for comprehensive unit test coverage of     -->
+  <!-- private/internal utility classes per AAP 0.8.2 ≥80% coverage target. -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebVella.Erp.Tests.Admin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ================================================================= -->
+    <!-- PRESERVED FROM MONOLITH — Packages with versions from source      -->
+    <!-- .csproj files. Versions managed centrally via                      -->
+    <!-- Directory.Packages.props (Central Package Management).            -->
+    <!-- ================================================================= -->
+
+    <!-- Newtonsoft.Json integration for ASP.NET Core MVC controllers,
+         ensuring API contract stability with existing [JsonProperty]
+         annotations per AAP 0.8.2 code quality standards -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+
+    <!-- JSON serialization for all API contracts. Used extensively in
+         CodeGenService for entity/field model serialization and
+         AdminController for request/response handling -->
+    <PackageReference Include="Newtonsoft.Json" />
+
+    <!-- JWT Bearer authentication for securing Admin service REST API
+         endpoints with token-based auth replacing monolith cookie auth -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+
+    <!-- MIME type inference for file operations within the Admin service -->
+    <PackageReference Include="MimeMapping" />
+
+    <!-- PostgreSQL ADO.NET driver for direct SQL operations in LogService
+         (system_log/jobs table queries) and CodeGenService (entity
+         metadata queries). VersionOverride required because
+         Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 transitively
+         requires Npgsql >= 10.0.0, which is newer than the
+         centrally-pinned 9.0.4. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+
+    <!-- ================================================================= -->
+    <!-- NEW PACKAGES — Required for microservice architecture (AAP 0.6.1) -->
+    <!-- ================================================================= -->
+
+    <!-- gRPC server hosting for inter-service communication, enabling
+         other microservices to call Admin service operations via gRPC -->
+    <PackageReference Include="Grpc.AspNetCore" />
+
+    <!-- gRPC client for service-to-service calls from Admin to Core
+         service (entity metadata, security operations) -->
+    <PackageReference Include="Grpc.Net.Client" />
+
+    <!-- Protocol Buffers serialization for gRPC inter-service
+         communication message types. VersionOverride required because
+         Grpc.AspNetCore 2.71.0 transitively requires >= 3.30.2, which
+         is newer than the centrally-pinned 3.29.3. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+
+    <!-- Message bus abstraction for asynchronous event-driven
+         communication between microservices, replacing monolith
+         hook-based system -->
+    <PackageReference Include="MassTransit" />
+
+    <!-- RabbitMQ transport for MassTransit message bus, used in
+         local/Docker development environments -->
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MassTransit.Newtonsoft" />
+
+    <!-- Amazon SQS/SNS transport for MassTransit, enabling LocalStack
+         deployment validation and production AWS messaging -->
+    <PackageReference Include="MassTransit.AmazonSQS" />
+
+    <!-- Distributed Redis caching replacing monolith IMemoryCache, used
+         for entity metadata and configuration caching across Admin
+         service instances -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+
+    <!-- Redis client library providing ConnectionMultiplexer for
+         distributed cache and event-driven cache invalidation -->
+    <PackageReference Include="StackExchange.Redis" />
+
+    <!-- EF Core PostgreSQL provider for AdminDbContext, enabling
+         database-per-service pattern with Admin-owned schema
+         (system_log, jobs, schedule_plans, plugin_data tables) -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+
+    <!-- EF Core design-time tools for generating and executing database
+         migrations (converting monolith plugin patch system to EF Core
+         migrations). PrivateAssets=all ensures it is a dev-only
+         dependency and not published with the service. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- OpenAPI/Swagger documentation generation and UI for the Admin
+         service REST API endpoints, enabling API exploration and testing -->
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SharedKernel provides cross-cutting contracts (DTOs, domain events,
+         commands, queries), EQL engine, database helpers, security context
+         with JWT propagation, utilities, and exception types. All shared
+         type references come through this single project dependency —
+         no direct references to old monolith projects (WebVella.Erp or
+         WebVella.Erp.Web). -->
+    <ProjectReference Include="..\..\SharedKernel\WebVella.Erp.SharedKernel\WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

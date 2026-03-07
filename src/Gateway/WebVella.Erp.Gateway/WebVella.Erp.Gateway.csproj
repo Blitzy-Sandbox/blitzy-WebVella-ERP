@@ -1,0 +1,176 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- =========================================================================
+       WebVella ERP - API Gateway / Backend-for-Frontend (BFF) Service
+       ==========================================================================
+       SDK-style ASP.NET Core Web project for the API Gateway microservice.
+       Combines the hosting model from WebVella.Erp.Site.csproj with Razor/MVC
+       support from WebVella.Erp.Web.csproj into a standalone entry point that:
+         - Routes REST API v3 requests to backend microservices via gRPC clients
+         - Handles JWT + Cookie dual-mode authentication
+         - Hosts preserved Razor Pages UI as a BFF
+         - Serves static assets (wwwroot)
+
+       All NuGet package versions are managed centrally via Directory.Packages.props
+       (Central Package Management). Only packages with transitive version conflicts
+       use VersionOverride to resolve NU1605 downgrades.
+
+       References:
+         - SharedKernel: cross-cutting contracts (DTOs, events, security, utilities)
+         - proto/*.proto: gRPC client stubs for all backend microservices
+       ========================================================================= -->
+
+  <PropertyGroup>
+    <!-- Service identity and metadata -->
+    <AssemblyName>WebVella.Erp.Gateway</AssemblyName>
+    <RootNamespace>WebVella.Erp.Gateway</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <PackageId>WebVella.Erp.Gateway</PackageId>
+    <Version>1.7.7</Version>
+    <Description>API Gateway and Backend-for-Frontend service for WebVella ERP microservices architecture. Routes requests to domain microservices, handles authentication, and hosts Razor Pages UI.</Description>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+
+    <!-- Razor/MVC support — needed for hosting Razor Pages from the monolith web layer -->
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <!-- Enable Razor build-time compilation so Razor Pages are compiled and available at runtime.
+         Without this, page routes return 404 because ASP.NET Core has no compiled page models. -->
+    <RazorCompileOnBuild>true</RazorCompileOnBuild>
+    <RazorCompileOnPublish>true</RazorCompileOnPublish>
+
+    <!-- TypeScript build blocking — preserved from WebVella.Erp.Site.csproj -->
+    <TypeScriptCompileBlocked>true</TypeScriptCompileBlocked>
+    <!-- Allow duplicate output files during publish — preserved from WebVella.Erp.Site.csproj -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+
+    <!-- Docker container support -->
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <ContainerRepository>webvella-erp-gateway</ContainerRepository>
+  </PropertyGroup>
+
+  <!-- ==========================================================================
+       Framework Reference
+       ==========================================================================
+       ASP.NET Core shared framework — provides MVC, Razor Pages, authentication
+       middleware, routing, hosting, and all built-in middleware. Explicitly
+       declared for documentation clarity (also implied by Microsoft.NET.Sdk.Web).
+       ========================================================================== -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Project References
+       ==========================================================================
+       The Gateway references ONLY the SharedKernel — no direct references to
+       WebVella.Erp or WebVella.Erp.Web per AAP Section 0.4.1.
+       ========================================================================== -->
+  <ItemGroup>
+    <ProjectReference Include="../../SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — Preserved from Monolith
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- From WebVella.Erp.Site.csproj — ASP.NET Core Newtonsoft.Json integration
+         Preserves BaseResponseModel envelope format and [JsonProperty] annotations
+         for backward-compatible REST API v3 contract (AAP Section 0.8.1) -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" />
+    <!-- From WebVella.Erp.Site.csproj — JSON.NET serialization for API responses -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- From WebVella.Erp.Site.csproj — JWT Bearer authentication middleware
+         Implements dual-mode JWT+Cookie auth (AAP Section 0.8.1) -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <!-- From WebVella.Erp.Site.csproj — MIME type inference for static file serving -->
+    <PackageReference Include="MimeMapping" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Package References — New for Microservice Gateway
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- gRPC client library for inter-service calls from the Gateway to all
+         backend microservices (Core, CRM, Project, Mail, Reporting, Admin)
+         via generated client stubs (AAP Section 0.6.1) -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- Google.Protobuf: CPM pins 3.29.3, but Grpc.Net.Client 2.71.0 transitively
+         requires Google.Protobuf >= 3.30.2 (via Grpc.Core.Api). VersionOverride
+         resolves the NU1605 downgrade warning. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <!-- Protobuf/gRPC code generation — compiles .proto files into C# client stubs
+         at build time. PrivateAssets=All: build-tool only, not a runtime dependency -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       gRPC Protobuf Definitions — Client-side code generation
+       ==========================================================================
+       Generates C# gRPC client stubs for all backend microservices. The Gateway
+       is a CLIENT only (GrpcServices="Client") — it calls backend services,
+       never exposes gRPC endpoints itself.
+
+       ProtoRoot enables the proto compiler to resolve cross-file imports
+       (e.g., import "common.proto" in each service proto). All proto files
+       are located at the solution root under proto/.
+
+       Paths are relative from this csproj location:
+         src/Gateway/WebVella.Erp.Gateway/ → ../../../proto/
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Core Platform service — EntityGrpcService, RecordGrpcService, SecurityGrpcService -->
+    <Protobuf Include="../../../proto/core.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- CRM service — CrmService (accounts, contacts, cases, addresses, search) -->
+    <Protobuf Include="../../../proto/crm.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- Project/Task service — ProjectService (projects, tasks, timelogs, comments, feed) -->
+    <Protobuf Include="../../../proto/project.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- Mail/Notification service — MailService (email send, queue, SMTP config) -->
+    <Protobuf Include="../../../proto/mail.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- Reporting service — ReportingService (timelog reports, task summaries) -->
+    <Protobuf Include="../../../proto/reporting.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- Admin/SDK service — AdminService (code gen, logs, datasources, sitemap) -->
+    <Protobuf Include="../../../proto/admin.proto" GrpcServices="Client" ProtoRoot="../../../proto" />
+    <!-- Shared common definitions (ErrorModel) — imported by all service protos.
+         GrpcServices="None": generates only message types, no service stubs -->
+    <Protobuf Include="../../../proto/common.proto" GrpcServices="None" ProtoRoot="../../../proto" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Razor Page Exclusions — Complex ERP Framework Pages
+       ==========================================================================
+       These pages reference the full ERP monolith web framework types
+       (ErpPage.Body, ErpPage.Layout, PageComponentContext, ComponentMode)
+       that are not available in the Gateway project. They are preserved as
+       source files for future integration when the Gateway BFF layer is
+       completed, but excluded from build-time Razor compilation.
+       Simple pages (login, logout, error, layouts) compile successfully.
+       ========================================================================== -->
+  <ItemGroup>
+    <Content Remove="Pages\ApplicationHome.cshtml" />
+    <Content Remove="Pages\ApplicationNode.cshtml" />
+    <Content Remove="Pages\Index.cshtml" />
+    <Content Remove="Pages\RecordCreate.cshtml" />
+    <Content Remove="Pages\RecordDetails.cshtml" />
+    <Content Remove="Pages\RecordList.cshtml" />
+    <Content Remove="Pages\RecordManage.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordCreate.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordDetails.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordManage.cshtml" />
+    <Content Remove="Pages\RecordRelatedRecordsList.cshtml" />
+    <Content Remove="Pages\Site.cshtml" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Static Assets — wwwroot
+       ==========================================================================
+       Preserved from monolith WebVella.Erp.Site.csproj pattern. Ensures static
+       assets (CSS, JS, images) are included in publish output.
+       ========================================================================== -->
+  <ItemGroup>
+    <None Update="wwwroot\**\*">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,189 @@
+##############################################################################
+# WebVella ERP Microservices — Docker Compose Development Overrides
+#
+# Development environment overrides for Docker Compose. This file is
+# automatically loaded by `docker compose up` alongside docker-compose.yml
+# and provides developer-friendly configuration.
+#
+# Per AAP Sections 0.4.1, 0.5.1, and 0.5.2.
+#
+# Key development features:
+#   - ASPNETCORE_ENVIRONMENT=Development for all application services
+#   - Direct port access to each microservice (bypassing the gateway)
+#   - Source code volume mounts for development workflows
+#   - Hardcoded JWT keys for simplified local authentication
+#   - PostgreSQL verbose SQL logging for debugging
+#
+# Usage:
+#   docker compose up -d                    # Starts with base + override
+#   docker compose up -d core-service       # Start individual service
+#   docker compose logs -f core-service     # Follow service logs
+#
+# Service port map (direct access for development):
+#   gateway:           5000:8080 (inherited from docker-compose.yml)
+#   core-service:      5001:8080
+#   crm-service:       5002:8080
+#   project-service:   5003:8080
+#   mail-service:      5004:8080
+#   reporting-service: 5005:8080
+#   admin-service:     5006:8080
+#
+# Infrastructure port map (inherited from docker-compose.yml):
+#   postgres-core:     5432:5432
+#   postgres-crm:      5433:5432
+#   postgres-project:  5434:5432
+#   postgres-mail:     5435:5432
+#   redis:             6379:6379
+#   rabbitmq:          5672:5672 (AMQP), 15672:15672 (Management UI)
+##############################################################################
+
+services:
+
+  # ===========================================================================
+  # APPLICATION SERVICES — Development Environment Overrides
+  #
+  # Overrides applied:
+  #   - ASPNETCORE_ENVIRONMENT switched from Production to Development
+  #   - ASPNETCORE_URLS explicitly set for each service
+  #   - Connection strings with full pooling parameters (matching Config.json)
+  #   - Individual host ports exposed for direct service access
+  #   - Source code volume mounts for development
+  #   - Hardcoded JWT keys (no env var substitution needed in dev)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Core Platform Service — Entity, Record, Security, File, Search, DataSource
+  # Direct access: http://localhost:5001
+  # ---------------------------------------------------------------------------
+  core-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-core;Port=5432;User Id=dev;Password=dev;Database=erp_core;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - RabbitMQ__Host=rabbitmq
+      - Jwt__Key=ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey
+      - Jwt__Issuer=webvella-erp
+      - Jwt__Audience=webvella-erp
+    ports:
+      - "5001:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Core:/app/src
+
+  # ---------------------------------------------------------------------------
+  # CRM Service — Account, Contact, Case, Address, Salutation
+  # Direct access: http://localhost:5002
+  # ---------------------------------------------------------------------------
+  crm-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-crm;Port=5432;User Id=dev;Password=dev;Database=erp_crm;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5002:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Crm:/app/src
+
+  # ---------------------------------------------------------------------------
+  # Project/Task Service — Task, Timelog, Comment, Feed, Reporting
+  # Direct access: http://localhost:5003
+  # ---------------------------------------------------------------------------
+  project-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-project;Port=5432;User Id=dev;Password=dev;Database=erp_project;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5003:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Project:/app/src
+
+  # ---------------------------------------------------------------------------
+  # Mail/Notification Service — Email, SMTP, Queue Processing
+  # Direct access: http://localhost:5004
+  # ---------------------------------------------------------------------------
+  mail-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Default=Server=postgres-mail;Port=5432;User Id=dev;Password=dev;Database=erp_mail;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;
+      - Redis__ConnectionString=redis:6379
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5004:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Mail:/app/src
+
+  # ---------------------------------------------------------------------------
+  # Reporting Service — Aggregation and event-sourced projections (CQRS light)
+  # Direct access: http://localhost:5005
+  # Note: Uses postgres-core instance with separate erp_reporting database
+  # ---------------------------------------------------------------------------
+  reporting-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    ports:
+      - "5005:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Reporting:/app/src
+
+  # ---------------------------------------------------------------------------
+  # Admin/SDK Service — Code generation, log management, entity designer
+  # Direct access: http://localhost:5006
+  # Note: Uses postgres-core instance with separate erp_admin database
+  # ---------------------------------------------------------------------------
+  admin-service:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    ports:
+      - "5006:8080"
+    volumes:
+      - ./src/Services/WebVella.Erp.Service.Admin:/app/src
+
+  # ---------------------------------------------------------------------------
+  # API Gateway / BFF — Single entry point, routes to backend microservices
+  # Direct access: http://localhost:5000 (port inherited from docker-compose.yml)
+  # ---------------------------------------------------------------------------
+  gateway:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+    volumes:
+      - ./src/Gateway/WebVella.Erp.Gateway:/app/src
+
+  # ===========================================================================
+  # INFRASTRUCTURE SERVICES — Development Overrides
+  #
+  # Port mappings are inherited from docker-compose.yml base and are NOT
+  # re-specified here to avoid duplicate port binding conflicts during merge:
+  #   postgres-core:    5432:5432
+  #   postgres-crm:     5433:5432
+  #   postgres-project: 5434:5432
+  #   postgres-mail:    5435:5432
+  #   redis:            6379:6379
+  #   rabbitmq:         5672:5672 (AMQP), 15672:15672 (Management UI)
+  #
+  # Development additions: verbose SQL logging for all PostgreSQL instances
+  # to assist with query debugging and performance analysis.
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL instances — Enable full SQL statement logging for development
+  # ---------------------------------------------------------------------------
+  postgres-core:
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0"]
+
+  postgres-crm:
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0"]
+
+  postgres-project:
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0"]
+
+  postgres-mail:
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0"]

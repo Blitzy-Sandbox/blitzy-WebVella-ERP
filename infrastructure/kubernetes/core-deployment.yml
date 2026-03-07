@@ -1,0 +1,395 @@
+# =============================================================================
+# WebVella ERP Microservices — Core Platform Service Deployment
+# =============================================================================
+# Kubernetes Deployment manifest for the Core Platform Service
+# (WebVella.Erp.Service.Core). This is the most critical and highest-traffic
+# service in the WebVella ERP microservices architecture, extracted from the
+# monolith's WebVella.Erp core engine.
+#
+# Responsibilities:
+#   - Entity management (EntityManager, EntityRelationManager)
+#   - Record CRUD operations (RecordManager)
+#   - Security and identity (SecurityManager, JWT token issuance)
+#   - Data source runtime (DataSourceManager)
+#   - Full-text and ILIKE search (SearchManager)
+#   - CSV import/export (ImportExportManager)
+#   - File storage lifecycle (DbFileRepository — LO/FS/S3-compatible)
+#   - Background job processing (JobManager, JobPool, ScheduleManager)
+#   - Entity metadata caching (distributed via Redis)
+#   - EQL (Entity Query Language) engine for dynamic queries
+#
+# Exposes two network endpoints:
+#   - REST API on port 8080 (HTTP/1.1) for external and gateway consumption
+#   - gRPC on port 8081 (HTTP/2) for inter-service calls:
+#       * EntityGrpcService  — entity/field metadata resolution
+#       * RecordGrpcService  — cross-service record lookups
+#       * SecurityGrpcService — user/role validation and token exchange
+#
+# Prerequisites:
+#   Apply namespace.yml first to create the webvella-erp namespace and secrets:
+#     kubectl apply -f infrastructure/kubernetes/namespace.yml
+#   Apply services.yml to create ClusterIP/LoadBalancer service definitions:
+#     kubectl apply -f infrastructure/kubernetes/services.yml
+#
+# Usage:
+#   kubectl apply -f infrastructure/kubernetes/core-deployment.yml
+#
+# Per AAP Section 0.4.1 — Target Design / Refactored Structure Planning.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-service
+  namespace: webvella-erp
+  labels:
+    app: core-service
+    app.kubernetes.io/name: core-service
+    app.kubernetes.io/part-of: webvella-erp
+    app.kubernetes.io/component: core
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: >-
+      Core Platform Service deployment — the central microservice handling
+      entity management, record CRUD, security/identity, search, file storage,
+      data sources, background jobs, and the EQL query engine. This is the
+      highest-traffic service and the primary dependency for all other services.
+spec:
+  # -------------------------------------------------------------------------
+  # Replica count: Default 1 for development. Scale horizontally in production
+  # as the Core service is the highest-traffic service in the platform.
+  # Note: Background jobs (JobManager, ScheduleManager) use distributed
+  # coordination via Redis advisory locks to prevent duplicate execution
+  # when running multiple replicas.
+  # -------------------------------------------------------------------------
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: core-service
+
+  # -------------------------------------------------------------------------
+  # Rolling update strategy ensures zero-downtime deployments.
+  # maxSurge: 1 — allows one additional pod during rollout
+  # maxUnavailable: 0 — never takes down the existing pod before the new
+  #   one is ready (critical for the core service which all others depend on)
+  # -------------------------------------------------------------------------
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: core-service
+        app.kubernetes.io/name: core-service
+        app.kubernetes.io/part-of: webvella-erp
+        app.kubernetes.io/component: core
+    spec:
+      # Pod-level security context — enforces non-root execution for all
+      # containers in this pod. Defense-in-depth alongside Dockerfile's
+      # USER $APP_UID directive.
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1654
+      containers:
+        - name: core-service
+          image: webvella-erp/core-service:latest
+          imagePullPolicy: IfNotPresent
+          # Container-level security context — restricts container capabilities
+          # to the minimum required for the Core service.
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+
+          # -----------------------------------------------------------------
+          # Port definitions
+          # -----------------------------------------------------------------
+          ports:
+            # REST API endpoint — entity, record, security, file, datasource,
+            # search, import/export operations
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            # gRPC endpoint — EntityGrpcService, RecordGrpcService,
+            # SecurityGrpcService for inter-service communication
+            # (used by CRM, Project, Mail, Admin, and Gateway services)
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
+
+          # -----------------------------------------------------------------
+          # Resource allocation
+          # -----------------------------------------------------------------
+          # Core service receives HIGHER resource allocations than other
+          # services because it is the most loaded service in the platform:
+          #   - Handles all entity metadata operations
+          #   - Processes record CRUD for core entities (user, role, user_file)
+          #   - Runs the EQL query engine with up to 600s timeout
+          #   - Manages background job execution (bounded thread pool)
+          #   - Serves gRPC requests from all downstream services
+          # -----------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+          # -----------------------------------------------------------------
+          # Environment Variables
+          # -----------------------------------------------------------------
+          env:
+            # ---------------------------------------------------------------
+            # Database Configuration (database-per-service model)
+            # ---------------------------------------------------------------
+            # Core service owns its own PostgreSQL database (erp_core) per
+            # AAP Section 0.1.2 and 0.7.4. Connection string follows Npgsql
+            # format with pooling configured per AAP 0.8.3:
+            #   MinPoolSize=1, MaxPoolSize=100, CommandTimeout=120
+            # ---------------------------------------------------------------
+            - name: ConnectionStrings__Default
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: core-db-connection-string
+
+            # ---------------------------------------------------------------
+            # ASP.NET Core Runtime Configuration
+            # ---------------------------------------------------------------
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # ---------------------------------------------------------------
+            # Kestrel gRPC Endpoint Configuration
+            # ---------------------------------------------------------------
+            # gRPC requires HTTP/2 protocol. Kestrel is configured to listen
+            # on a separate port (8081) with HTTP/2 only for gRPC traffic,
+            # keeping the REST API on port 8080 with HTTP/1.1.
+            # ---------------------------------------------------------------
+            - name: Kestrel__Endpoints__Grpc__Url
+              value: "http://+:8081"
+            - name: Kestrel__Endpoints__Grpc__Protocols
+              value: "Http2"
+
+            # ---------------------------------------------------------------
+            # Distributed Redis Cache
+            # ---------------------------------------------------------------
+            # Replaces the monolith's IMemoryCache (1-hour TTL) with a
+            # distributed Redis cache for entity metadata, ensuring cache
+            # coherence across multiple service replicas.
+            # Per AAP Section 0.1.2 and 0.5.1 (Cache.cs transformation).
+            # ---------------------------------------------------------------
+            - name: Redis__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: redis-connection-string
+
+            # ---------------------------------------------------------------
+            # RabbitMQ Message Broker
+            # ---------------------------------------------------------------
+            # Used for asynchronous inter-service event-driven communication
+            # via MassTransit. Replaces the monolith's PostgreSQL
+            # LISTEN/NOTIFY on ERP_NOTIFICATIONS_CHANNNEL and the in-process
+            # hook-based event system.
+            # ---------------------------------------------------------------
+            - name: RabbitMq__Host
+              value: "rabbitmq-service"
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: rabbitmq-password
+
+            # ---------------------------------------------------------------
+            # JWT Authentication Configuration
+            # ---------------------------------------------------------------
+            # Core service is the JWT token issuer. All downstream services
+            # validate tokens using the same shared key/issuer/audience.
+            # Enables cross-service identity propagation without callback
+            # to the Core authentication service.
+            # Values sourced from WebVella.Erp.Site/Config.json Settings:Jwt.
+            # Per AAP Section 0.8.3 — JWT propagation across services.
+            # ---------------------------------------------------------------
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-key
+            - name: Jwt__Issuer
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-issuer
+            - name: Jwt__Audience
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: jwt-audience
+
+            # ---------------------------------------------------------------
+            # Background Jobs Configuration
+            # ---------------------------------------------------------------
+            # Core service runs JobManager, JobPool (bounded thread pool),
+            # and ScheduleManager for background task execution.
+            # Per AAP Section 0.5.1 — service-scoped job system.
+            # ---------------------------------------------------------------
+            - name: Jobs__Enabled
+              value: "true"
+
+            # ---------------------------------------------------------------
+            # File Storage Configuration
+            # ---------------------------------------------------------------
+            # Default: S3-compatible storage via LocalStack (AAP 0.7.4).
+            # Set to "true" to enable local filesystem storage with a
+            # PersistentVolumeClaim (see volume mount section below).
+            # ---------------------------------------------------------------
+            - name: Storage__EnableFileSystemStorage
+              value: "false"
+
+            # ---------------------------------------------------------------
+            # Application Encryption Key
+            # ---------------------------------------------------------------
+            # Symmetric encryption key for sensitive data at rest. Shared
+            # across services that encrypt/decrypt field values.
+            # Sourced from Config.json Settings:EncryptionKey.
+            # ---------------------------------------------------------------
+            - name: Settings__EncryptionKey
+              valueFrom:
+                secretKeyRef:
+                  name: webvella-erp-secrets
+                  key: encryption-key
+
+            # ---------------------------------------------------------------
+            # Development Mode Flag
+            # ---------------------------------------------------------------
+            # Disabled in production. When enabled, provides additional
+            # debug information and relaxed validation.
+            # Sourced from Config.json Settings:DevelopmentMode.
+            # ---------------------------------------------------------------
+            - name: Settings__DevelopmentMode
+              value: "false"
+
+            # ---------------------------------------------------------------
+            # EQL (Entity Query Language) Configuration
+            # ---------------------------------------------------------------
+            # Query timeout preserved from monolith at 600 seconds (10 min).
+            # The EQL engine generates PostgreSQL SQL with JSON-shaped results
+            # and correlated subqueries for relation traversal.
+            # Per AAP Section 0.8.3 — EQL query timeout preservation.
+            # ---------------------------------------------------------------
+            - name: Eql__QueryTimeoutSeconds
+              value: "600"
+
+            # ---------------------------------------------------------------
+            # Entity Metadata Cache Configuration
+            # ---------------------------------------------------------------
+            # TTL for entity metadata cache preserved from monolith at
+            # 60 minutes (1 hour). Entity definitions, field types, and
+            # relation metadata are cached locally and in Redis.
+            # Per AAP Section 0.8.3 — cache TTL preservation.
+            # ---------------------------------------------------------------
+            - name: Cache__EntityMetadataTtlMinutes
+              value: "60"
+
+          # -----------------------------------------------------------------
+          # Health Probes
+          # -----------------------------------------------------------------
+          # Core service has longer initialization times compared to other
+          # services due to:
+          #   1. System entity initialization (user, role, user_file entities
+          #      created on first boot — ERPService.cs bootstrap)
+          #   2. Database schema migration execution (EF Core migrations)
+          #   3. Entity metadata cache warm-up from PostgreSQL
+          #   4. Background job manager initialization and crash recovery
+          #      (marks interrupted Running jobs as Aborted)
+          # -----------------------------------------------------------------
+
+          # Liveness probe — restart the container if it becomes unresponsive.
+          # Slightly longer initialDelaySeconds (20s) accounts for core
+          # service entity initialization overhead.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Readiness probe — stop routing traffic until the service is ready
+          # to accept requests (DB connected, cache warmed, migrations done).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Startup probe — gives the core service extended time to complete
+          # initial bootstrap before liveness/readiness probes kick in.
+          # failureThreshold * periodSeconds = 100 seconds maximum startup.
+          # This accommodates:
+          #   - System entity initialization on first deployment
+          #   - Large schema migrations across the erp_core database
+          #   - Entity metadata cache population from PostgreSQL
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
+            timeoutSeconds: 5
+
+      # ---------------------------------------------------------------------
+      # Volume Mounts (optional — for local file system storage)
+      # ---------------------------------------------------------------------
+      # By default, the Core service uses S3-compatible object storage
+      # (via LocalStack in development, AWS S3 in production) for file
+      # operations (DbFileRepository). No volume mounts are required.
+      #
+      # If Storage__EnableFileSystemStorage is set to "true", uncomment
+      # the following volume mount and volume claim to provide persistent
+      # local file storage:
+      #
+      # containers:
+      #   - name: core-service
+      #     volumeMounts:
+      #       - name: file-storage
+      #         mountPath: /app/files
+      #
+      # volumes:
+      #   - name: file-storage
+      #     persistentVolumeClaim:
+      #       claimName: core-file-storage-pvc
+      #
+      # The corresponding PersistentVolumeClaim should be defined separately:
+      #
+      # apiVersion: v1
+      # kind: PersistentVolumeClaim
+      # metadata:
+      #   name: core-file-storage-pvc
+      #   namespace: webvella-erp
+      # spec:
+      #   accessModes:
+      #     - ReadWriteOnce
+      #   resources:
+      #     requests:
+      #       storage: 10Gi
+      #   storageClassName: standard
+      # ---------------------------------------------------------------------

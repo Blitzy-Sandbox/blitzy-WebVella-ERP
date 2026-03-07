@@ -1,0 +1,164 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Project</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Project</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Override Directory.Build.props defaults to match monolith explicit using style -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Suppress satellite resource assembly generation for non-English locales -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework — required for WebApplicationFactory<TEntryPoint>,
+       HttpClient test infrastructure, controller test hosting, middleware pipeline testing,
+       and gRPC test server hosting -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Project References                                                       -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- Project/Task Service under test — provides access to all Project service classes
+         (TaskService, TimelogService, CommentService, FeedService, ReportingService,
+         ProjectController, ProjectGrpcService, ProjectDbContext, StartTasksOnStartDateJob,
+         Event publishers/subscribers, Patches) for unit and integration testing.
+         Also provides transitive access to Npgsql.EntityFrameworkCore.PostgreSQL, MassTransit,
+         Grpc.AspNetCore, and other service-level dependencies. -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Project/WebVella.Erp.Service.Project.csproj" />
+    <!-- Core Platform Service — required because FeedService (and other Project services)
+         depend on RecordManager from Core. Without this explicit reference, CS0012 errors
+         occur when tests instantiate or assert on Project service types that reference Core types. -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj" />
+    <!-- SharedKernel contracts and utilities — provides shared DTOs (EntityRecord, EntityRecordList,
+         BaseResponseModel, ErpUser, ErpRole, SystemIds, ErrorModel), event types (RecordCreatedEvent,
+         RecordUpdatedEvent, RecordDeletedEvent), EQL engine (EqlCommand, EqlBuilder), database helpers
+         (DbRepository, DbConnection), security context (SecurityContext, JwtTokenHandler), utilities
+         (Helpers), and exception types (StorageException, ValidationException) used in test assertions,
+         mock setups, and test fixtures for Project service testing. -->
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Test Framework — xUnit test discovery and execution                      -->
+  <!-- Versions managed centrally via Directory.Packages.props                  -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- Test platform SDK required by dotnet test for host initialization and results reporting -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- xUnit test framework providing [Fact], [Theory], and [InlineData] attributes -->
+    <PackageReference Include="xunit" />
+    <!-- Visual Studio and CLI test runner adapter for xUnit — enables dotnet test discovery -->
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Testing Utilities — assertion, mocking, and integration test hosting     -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- Fluent assertion library for readable test validation
+         (.Should().Be(), .Should().BeEquivalentTo(), .Should().Throw<T>(), etc.) -->
+    <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library for creating mock/stub implementations of Project service dependencies
+         (repositories, managers, cache, event publishers) to isolate business logic under test -->
+    <PackageReference Include="Moq" />
+    <!-- WebApplicationFactory<TEntryPoint> for in-memory hosting of the Project service during
+         controller and REST endpoint integration tests without real network calls -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Testcontainers — Docker container management for isolated DB testing     -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- Base Testcontainers library for container lifecycle management, wait strategies,
+         and network setup for test isolation -->
+    <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL-specific Testcontainers module for spinning up isolated PostgreSQL 16
+         instances during database repository integration tests and migration validation -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- gRPC — client libraries for ProjectGrpcService integration tests         -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- gRPC client library for creating GrpcChannel instances to connect to
+         the Project service's gRPC endpoints (ProjectGrpcService) -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- NOTE: Google.Protobuf is resolved transitively from Service.Project ->
+         Grpc.AspNetCore -> Google.Protobuf (>= 3.30.2). Explicit reference would
+         cause NU1605 downgrade error since CPM pins older version 3.29.3. -->
+    <!-- Build-time protobuf/gRPC code generation tooling that compiles project.proto into
+         C# client stub classes (ProjectService.ProjectServiceClient) for gRPC integration tests -->
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Additional packages — JSON assertions and cache testing                  -->
+  <!-- NOTE: Npgsql and Google.Protobuf are NOT listed here because they are    -->
+  <!-- resolved transitively from Service.Project at compatible versions:       -->
+  <!--   Service.Project -> Npgsql.EntityFrameworkCore.PostgreSQL -> Npgsql     -->
+  <!--   Service.Project -> Grpc.AspNetCore -> Google.Protobuf                  -->
+  <!-- Explicit references would cause NU1605 downgrade errors since the CPM    -->
+  <!-- pins older versions than what these transitive dependencies require.     -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- JSON serialization matching monolith version — used in test assertions to verify
+         API response JSON shapes (BaseResponseModel envelope), EntityRecord serialization,
+         and [JsonProperty] annotated contract compatibility -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Redis distributed cache integration for testing Project service cache behavior —
+         provides AddStackExchangeRedisCache() DI registration used in WebApplicationFactory config -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Redis client for direct cache operations in integration tests — verifies cache key
+         creation, TTL enforcement, entity metadata caching, and cache invalidation -->
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- EF Core — resolves transitive dependency gap from Service.Project        -->
+  <!-- Service.Project's Microsoft.EntityFrameworkCore.Design uses              -->
+  <!-- PrivateAssets=all so its transitive EF Core packages don't flow here.    -->
+  <!-- InMemory provider brings in the matching EF Core assemblies.             -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Authentication — JWT token generation for test fixtures                  -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+  </ItemGroup>
+
+  <!-- ======================================================================= -->
+  <!-- Protobuf gRPC service definitions — generates Client stubs               -->
+  <!-- GrpcServices="Client" generates client-side code only (tests consume,    -->
+  <!-- not host, gRPC services). ProtoRoot enables import resolution for        -->
+  <!-- common.proto which provides shared ErrorModel message type.              -->
+  <!-- ======================================================================= -->
+  <ItemGroup>
+    <!-- Shared message types (ErrorModel) — imported by project.proto -->
+    <Protobuf Include="../../proto/common.proto" GrpcServices="None" ProtoRoot="../../proto" />
+    <!-- Project service gRPC definition — generates ProjectService.ProjectServiceClient,
+         GetTaskRequest, GetTaskResponse, GetTaskQueueRequest, GetTaskQueueResponse,
+         CreateTimelogRequest, CreateTimelogResponse, CreateCommentRequest, CreateCommentResponse,
+         TasksDueType, and other project RPC message types -->
+    <Protobuf Include="../../proto/project.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+  </ItemGroup>
+
+</Project>

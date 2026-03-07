@@ -1,0 +1,304 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- =========================================================================
+       WebVella ERP - Cross-Service Integration Test Project
+       ==========================================================================
+       SDK-style xUnit test project for cross-service integration testing across
+       the entire microservice suite. This is the ONLY test project that validates
+       interactions BETWEEN services. Per-service unit/integration tests live in
+       their respective Tests.* projects (Tests.Core, Tests.Crm, Tests.Project,
+       Tests.Mail, Tests.Reporting, Tests.Admin, Tests.Gateway).
+
+       This project references ALL service projects plus the SharedKernel and
+       validates:
+         - Business rules spanning 2+ services (CRM↔Project, Core↔CRM, Mail↔CRM)
+         - End-to-end event flows through SNS/SQS via LocalStack
+         - File operations through S3 via LocalStack
+         - Schema migration integrity and zero data loss
+         - JWT token propagation across service boundaries
+         - BaseResponseModel envelope backward compatibility
+         - gRPC inter-service communication contracts
+         - Idempotent event consumer behavior
+         - Distributed cache invalidation across services
+
+       Per AAP 0.8.1: Zero business rules may be marked as "preserved" without a
+       corresponding passing test — this project is where cross-service rules live.
+       Per AAP 0.8.2: Every business rule spanning 2+ services must have an
+       integration test using Testcontainers.
+
+       All NuGet package versions are managed centrally via Directory.Packages.props
+       (Central Package Management). Only packages requiring VersionOverride to
+       resolve transitive dependency conflicts include explicit version attributes.
+       ========================================================================= -->
+
+  <PropertyGroup>
+    <!-- Override Directory.Build.props to match monolith explicit-using style -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Test project identity and metadata -->
+    <AssemblyName>WebVella.Erp.Tests.Integration</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Integration</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Remove the language litter of code analysis on publish
+         Preserved from monolith: https://github.com/dotnet/roslyn/issues/39458 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- ==========================================================================
+       Framework Reference — ASP.NET Core Shared Framework
+       Required for WebApplicationFactory, HttpClient test infrastructure,
+       controller test hosting, middleware pipeline testing, gRPC test server
+       hosting, and JWT authentication/authorization types needed for cross-
+       service integration test bootstrapping.
+       ========================================================================== -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Project References — ALL Service Projects + SharedKernel
+       This integration test project must reference EVERY service to test
+       cross-service interactions. Each ProjectReference provides access to
+       the service's controllers, gRPC services, domain services, database
+       contexts, event publishers/subscribers, and Program entry points for
+       WebApplicationFactory<TEntryPoint> hosting.
+       Relative paths: tests/WebVella.Erp.Tests.Integration/ → ../../src/...
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- SharedKernel: cross-cutting contracts (DTOs, domain events, EQL engine,
+         database helpers, security context, JWT handler, utilities, exceptions,
+         FTS) shared across all services and consumed in cross-service assertions,
+         mock setups, and test fixtures -->
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+    <!-- Core Platform Service: entity/record/security managers, REST controllers,
+         gRPC services (EntityGrpcService, RecordGrpcService, SecurityGrpcService),
+         jobs, and database repositories — tested for cross-service interactions
+         with CRM, Project, Mail, Admin, and Reporting services -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Core/WebVella.Erp.Service.Core.csproj" />
+    <!-- CRM Service: account/contact/case management, search indexing, event
+         publishing — tested for cross-service interactions with Project
+         (account-task linking, case-task relations) and Mail (contact resolution) -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Crm/WebVella.Erp.Service.Crm.csproj" />
+    <!-- Project/Task Service: task/timelog/comment/feed management — tested for
+         cross-service interactions with CRM (account-project, case-task relations),
+         Core (user resolution), and Reporting (timelog data aggregation) -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Project/WebVella.Erp.Service.Project.csproj" />
+    <!-- Mail/Notification Service: SMTP engine, email queue processing, email
+         CRUD — tested for cross-service interactions with CRM (contact resolution
+         for recipients) and Core (user identity for sender) -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Mail/WebVella.Erp.Service.Mail.csproj" />
+    <!-- Reporting Service: timelog/task report aggregation via event-sourced
+         projections — tested for cross-service event consumption from Project
+         service and data aggregation accuracy -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Reporting/WebVella.Erp.Service.Reporting.csproj" />
+    <!-- Admin/SDK Service: code generation, log management, sitemap admin —
+         tested for cross-service interactions with Core (entity metadata) and
+         Gateway (admin UI routing) -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Admin/WebVella.Erp.Service.Admin.csproj" />
+    <!-- API Gateway/BFF: request routing, JWT authentication middleware, Razor
+         Pages — tested for end-to-end request routing to backend services, auth
+         token propagation, and legacy API v3 endpoint backward compatibility -->
+    <ProjectReference Include="../../src/Gateway/WebVella.Erp.Gateway/WebVella.Erp.Gateway.csproj" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Test Framework Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Test platform SDK required by dotnet test for test host initialization,
+         test execution, and results reporting — mandatory for xUnit discovery -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- xUnit test framework providing [Fact], [Theory], [InlineData], Assert,
+         IClassFixture, and IAsyncLifetime for cross-service integration tests -->
+    <PackageReference Include="xunit" />
+    <!-- VS/CLI test runner adapter for xUnit — enables test discovery and
+         execution via dotnet test and VS Test Explorer -->
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Testing Utility Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Fluent assertion library providing .Should().Be(), .BeEquivalentTo(),
+         .BeTrue(), .BeFalse(), .NotBeNull(), .HaveCount(), .ContainSingle()
+         for expressive cross-service integration test assertions -->
+    <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library for creating test doubles of service interfaces, gRPC
+         clients, message bus consumers, and event publishers in cross-service
+         integration tests -->
+    <PackageReference Include="Moq" />
+    <!-- WebApplicationFactory<TEntryPoint> for bootstrapping each service
+         (Core, CRM, Project, Mail, Reporting, Admin, Gateway) as in-memory
+         test servers for HTTP/REST cross-service integration testing -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Testcontainers Package References — Docker container management
+       CRITICAL for cross-service integration testing infrastructure.
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Base Testcontainers library for programmatic Docker container lifecycle
+         management — provides container builder, wait strategies, network config,
+         and foundation for PostgreSQL, LocalStack, Redis, and RabbitMQ containers -->
+    <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL-specific module providing PostgreSqlContainer for spinning up
+         isolated per-service PostgreSQL 16 databases during database-per-service
+         schema migration tests and zero data loss validation (AAP 0.8.1) -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <!-- LocalStack Testcontainers module — THE key differentiator for this
+         integration test project — spins up LocalStack containers emulating
+         AWS SQS/SNS/S3 for end-to-end validation of cross-service event flows
+         and file storage operations (per AAP 0.7.4 and 0.8.2) -->
+    <PackageReference Include="Testcontainers.LocalStack" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       AWS SDK Package References — LocalStack Validation
+       Per AAP 0.7.4, LocalStack E2E tests must validate message flow through
+       SNS/SQS and file operations through S3. These SDK clients connect to
+       LocalStack endpoints to provision and interact with emulated AWS services.
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- AWS SQS client for LocalStack integration — validates message queue
+         operations, cross-service async communication, and event delivery
+         through SQS queues (CreateQueue, SendMessage, ReceiveMessage).
+         VersionOverride required: MassTransit.AmazonSQS 8.4.0 transitively
+         requires AWSSDK.SQS >= 3.7.400.98, which causes NU1605 downgrade
+         error if CPM pin (3.7.400) is used directly. -->
+    <PackageReference Include="AWSSDK.SQS" VersionOverride="3.7.400.98" />
+    <!-- AWS SNS client for LocalStack integration — validates event topic
+         publishing, cross-service domain event fan-out through SNS topics
+         (CreateTopic, Subscribe, Publish).
+         VersionOverride required: MassTransit.AmazonSQS 8.4.0 transitively
+         requires AWSSDK.SimpleNotificationService >= 3.7.400.98, which causes
+         NU1605 downgrade error if CPM pin (3.7.400) is used directly. -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" VersionOverride="3.7.400.98" />
+    <!-- AWS S3 client for LocalStack integration — validates file storage
+         operations (PutObject, GetObject, DeleteObject) through S3-compatible
+         storage replacing Storage.Net cloud blobs -->
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       gRPC Client Package References — Inter-service gRPC integration tests
+       Cross-service tests validate gRPC calls between all service pairs:
+       Core↔CRM, Core↔Project, CRM↔Project, Gateway↔all services.
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- gRPC client library for creating GrpcChannel instances to connect to
+         each service's gRPC endpoints during cross-service integration tests -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- Protocol Buffers runtime — serialization of gRPC request/response types.
+         VersionOverride required: service projects transitively bring Google.Protobuf
+         3.30.2 via Grpc.AspNetCore 2.71.0, which causes NU1605 downgrade error
+         if CPM pin (3.29.3) is used directly. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <!-- Build-time protobuf/gRPC code generation tooling that compiles all 6
+         service .proto files into C# client stub classes for cross-service
+         gRPC integration tests -->
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       MassTransit Messaging Package References — Event Flow Testing
+       Cross-service event flow tests validate domain event publishing and
+       consumption patterns between services via MassTransit message bus.
+       Supports both RabbitMQ (local Docker) and Amazon SQS/SNS (LocalStack).
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- MassTransit message bus abstraction — configures test bus instances to
+         validate domain event publishing/consumption patterns between services.
+         Provides IBus, IBusControl, IPublishEndpoint, InMemoryTestHarness -->
+    <PackageReference Include="MassTransit" />
+    <!-- RabbitMQ transport for MassTransit — validates message flow through
+         RabbitMQ in Docker Compose local development environment (AAP 0.7.4) -->
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <!-- Amazon SQS/SNS transport for MassTransit — validates cross-service event
+         flows through LocalStack SNS topics and SQS queues for AWS-compatible
+         deployment validation (AAP 0.7.4) -->
+    <PackageReference Include="MassTransit.AmazonSQS" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Database, JSON, and Cache Testing Package References
+       Versions managed centrally via Directory.Packages.props (CPM)
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- EF Core base package — required as a direct reference to ensure version
+         alignment with service projects (Crm, Project, Mail, Admin) that compile
+         against EF Core 10.0.1. Without this explicit reference, the transitive
+         resolution via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 resolves
+         Microsoft.EntityFrameworkCore 10.0.0, causing CS1705 version mismatch
+         errors at compile time. CPM pin in Directory.Packages.props = 10.0.1. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <!-- EF Core Relational for migration infrastructure types used in
+         PatchSystemMigrationTests and schema verification helpers -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <!-- PostgreSQL ADO.NET driver for direct database access in schema migration
+         validation tests — verifies record counts, checksums, and zero data loss
+         per AAP 0.8.1 during database-per-service migration.
+         VersionOverride required: service projects transitively bring Npgsql 10.0.0
+         via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0, which causes NU1605
+         downgrade error if CPM pin (9.0.4) is used directly. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+    <!-- JSON serialization matching monolith version — used in test assertions to
+         verify BaseResponseModel envelope format (success, errors, timestamp,
+         message, object) per AAP 0.8.1 backward compatibility requirement -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Redis distributed cache integration testing — validates cross-service
+         cache invalidation events and shared entity metadata cache TTL (1-hour)
+         per AAP 0.8.3 -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- Redis client for low-level Redis operations in cache invalidation event
+         testing — verifies distributed cache consistency across service boundaries
+         via ConnectionMultiplexer, IDatabase, and ISubscriber -->
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+  <!-- ==========================================================================
+       Protobuf Client Stub Generation — ALL Service Protos
+       Generates C# client stubs from all 6 service .proto files for cross-service
+       gRPC integration tests. Each proto generates a *ServiceClient class used to
+       invoke service gRPC endpoints during testing.
+       GrpcServices="Client" (NOT Server) — tests consume gRPC services as clients.
+       common.proto is included for shared ErrorModel type resolution.
+       ProtoRoot="../../proto" sets the proto import root for cross-proto imports.
+       ========================================================================== -->
+  <ItemGroup>
+    <!-- Core Platform: EntityGrpcService.EntityGrpcServiceClient,
+         RecordGrpcService.RecordGrpcServiceClient,
+         SecurityGrpcService.SecurityGrpcServiceClient -->
+    <Protobuf Include="../../proto/core.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- CRM: CrmService.CrmServiceClient — account/contact/case CRUD and
+         search index regeneration -->
+    <Protobuf Include="../../proto/crm.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- Project/Task: ProjectService.ProjectServiceClient — task/timelog/comment
+         operations and cross-service relations with CRM -->
+    <Protobuf Include="../../proto/project.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- Mail/Notification: MailService.MailServiceClient — email send/queue
+         operations and cross-service contact resolution with CRM -->
+    <Protobuf Include="../../proto/mail.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- Reporting: ReportingService.ReportingServiceClient — timelog/task report
+         aggregation from event-sourced projections -->
+    <Protobuf Include="../../proto/reporting.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- Admin/SDK: AdminService.AdminServiceClient — code generation, log
+         management, and sitemap administration -->
+    <Protobuf Include="../../proto/admin.proto" GrpcServices="Client" ProtoRoot="../../proto" />
+    <!-- Common shared types: ErrorModel and other shared gRPC message types
+         imported by all service protos — GrpcServices="None" (no service stubs) -->
+    <Protobuf Include="../../proto/common.proto" GrpcServices="None" ProtoRoot="../../proto" />
+  </ItemGroup>
+
+</Project>

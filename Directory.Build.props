@@ -1,0 +1,26 @@
+<Project>
+
+  <!-- Core Build Properties — shared across ALL projects in the solution -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Remove the language litter of code analysis on publish
+         Preserved from original: https://github.com/dotnet/roslyn/issues/39458 -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Shared Package Metadata — extracted from existing .csproj common values -->
+  <PropertyGroup>
+    <Authors>WebVella</Authors>
+    <Company>WebVella</Company>
+    <Copyright>Copyright 2025</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://webvella.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/WebVella/WebVella-ERP.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+</Project>

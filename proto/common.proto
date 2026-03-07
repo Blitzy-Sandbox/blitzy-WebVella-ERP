@@ -1,0 +1,42 @@
+// =============================================================================
+// WebVella ERP - Common Shared Protocol Buffer Definitions
+// =============================================================================
+// Contains shared message types used across all WebVella ERP microservices.
+// Import this file in each service-specific proto to avoid duplicating
+// common definitions like ErrorModel.
+//
+// Per AAP Section 0.8.1 — API Contract Backward Compatibility:
+//   Response shapes (BaseResponseModel envelope: success, errors, timestamp,
+//   message, object) must not change across services.
+//
+// Usage:
+//   import "common.proto";
+//   // Then reference ErrorModel in your service-specific messages.
+// =============================================================================
+
+syntax = "proto3";
+
+package webvella.erp.common;
+
+option csharp_namespace = "WebVella.Erp.SharedKernel.Grpc";
+
+// ErrorModel mirrors WebVella.Erp.Api.Models.ErrorModel used in BaseResponseModel.
+// This is the standard error representation across all WebVella ERP services,
+// preserving backward compatibility with the monolith's REST API v3 error envelope.
+//
+// Source: WebVella.Erp/Api/Models/BaseModels.cs — ErrorModel class
+//
+// Each error contains:
+//   - key: Machine-readable error key (e.g., field name or error category)
+//   - value: The value that caused the error (e.g., invalid field value)
+//   - message: Human-readable error description
+message ErrorModel {
+  // Machine-readable error key identifying the error category or field.
+  string key = 1;
+
+  // The value that caused the error (e.g., invalid field value).
+  string value = 2;
+
+  // Human-readable error message describing the issue.
+  string message = 3;
+}

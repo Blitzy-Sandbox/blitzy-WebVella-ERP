@@ -1,0 +1,182 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ===================================================================== -->
+  <!-- WebVella ERP — Admin/SDK Service Test Project                         -->
+  <!-- xUnit test project for the Admin/SDK microservice extracted from the  -->
+  <!-- monolith's SDK plugin (WebVella.Erp.Plugins.SDK).                     -->
+  <!-- Contains unit tests for CodeGenService, LogService; integration tests -->
+  <!-- for AdminController REST endpoints; ClearJobAndErrorLogsJob tests;    -->
+  <!-- AdminDbContext migration tests with Testcontainers.PostgreSql.        -->
+  <!-- ===================================================================== -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>WebVella.Erp.Tests.Admin</AssemblyName>
+    <RootNamespace>WebVella.Erp.Tests.Admin</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Override Directory.Build.props defaults to match monolith explicit using style -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- ===================================================================== -->
+  <!-- ASP.NET Core Shared Framework Reference                               -->
+  <!-- Required for WebApplicationFactory<T>, HttpClient test infrastructure,-->
+  <!-- Kestrel test server, and ASP.NET Core DI/middleware pipeline used in  -->
+  <!-- AdminController REST endpoint and Admin gRPC service integration tests-->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Test Framework Packages (versions managed by Directory.Packages.props)-->
+  <!-- AAP 0.6.1: xunit 2.9.3, xunit.runner.visualstudio 2.9.3,            -->
+  <!--            Microsoft.NET.Test.Sdk 17.12.0                             -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Testing Utility Packages                                              -->
+  <!-- AAP 0.6.1: FluentAssertions 7.2.0, Moq 4.20.72,                      -->
+  <!--            Microsoft.AspNetCore.Mvc.Testing 10.0.1                    -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <!-- Fluent assertion library for readable test validation of Admin
+         service business logic (CodeGenService, LogService) -->
+    <PackageReference Include="FluentAssertions" />
+    <!-- Mocking library for creating mock/stub implementations of Admin
+         service dependencies in unit tests to isolate business logic -->
+    <PackageReference Include="Moq" />
+    <!-- Provides WebApplicationFactory<TEntryPoint> for in-memory hosting
+         of the Admin service during AdminController REST endpoint tests -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Testcontainers — Docker container management for integration tests    -->
+  <!-- AAP 0.6.1: Testcontainers 4.10.0, Testcontainers.PostgreSql 4.10.0   -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <!-- Base Testcontainers library for programmatic Docker container
+         lifecycle management, wait strategies, and network management -->
+    <PackageReference Include="Testcontainers" />
+    <!-- PostgreSQL-specific module for spinning up isolated PostgreSQL 16
+         instances during AdminDbContext migration validation and LogService
+         database integration tests -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Additional Required Packages                                          -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <!-- PostgreSQL ADO.NET driver for direct database access in Admin
+         service migration tests — verifies LogService SQL queries,
+         AdminDbContext schema migrations, and connection verification
+         against test PostgreSQL containers.
+         VersionOverride required because the Admin service uses
+         Npgsql 10.0.0 (via Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0
+         transitive dependency), which is newer than the centrally-pinned
+         9.0.4. Without this, NuGet reports NU1605 package downgrade. -->
+    <PackageReference Include="Npgsql" VersionOverride="10.0.0" />
+    <!-- JSON serialization matching monolith version — needed for
+         AdminController response deserialization in integration tests
+         and [JsonProperty] annotated contract compatibility validation
+         (AAP 0.6.1: Newtonsoft.Json 13.0.4) -->
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- Code coverage collector for xUnit test runs — collects coverage
+         data during dotnet test execution to ensure >=80% code coverage
+         target per AAP 0.8.2 (AAP 0.6.1: coverlet.collector 6.0.4) -->
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!-- EF Core In-Memory database provider for AdminDbContextTests.cs
+         UseInMemoryDatabase() — enables fast unit test execution for
+         DbContext configuration, table/column mapping, primary key,
+         nullable property, and cross-service isolation verification
+         without real PostgreSQL (AAP 0.6.1: 10.0.1) -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- gRPC Client Packages — For Admin gRPC Integration Tests               -->
+  <!-- Generates client-side stubs from admin.proto for testing              -->
+  <!-- EvaluateMetaChanges, ClearLogs, ListDataSources, Sitemap CRUD RPCs   -->
+  <!-- AAP 0.6.1: Grpc.Net.Client 2.71.0, Google.Protobuf 3.29.3,           -->
+  <!--            Grpc.Tools 2.71.0                                          -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <!-- gRPC client library for creating GrpcChannel instances to connect
+         to Admin service gRPC endpoints during integration tests -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- Protocol Buffers serialization runtime — required by generated
+         gRPC client stubs from admin.proto for serializing/deserializing
+         request and response messages.
+         VersionOverride required because the Admin service uses
+         Google.Protobuf 3.30.2 (via Grpc.AspNetCore 2.71.0 transitive
+         dependency), which is newer than the centrally-pinned 3.29.3.
+         Without this, NuGet reports NU1605 package downgrade. -->
+    <PackageReference Include="Google.Protobuf" VersionOverride="3.30.2" />
+    <!-- Protobuf/gRPC code generation tool — compiles admin.proto into
+         C# client stub classes (AdminService.AdminServiceClient) at build
+         time for gRPC integration tests -->
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- EF Core Version Conflict Resolution                                   -->
+  <!-- The Admin service transitively resolves                               -->
+  <!-- Microsoft.EntityFrameworkCore.Relational 10.0.1 (via EF Core Design  -->
+  <!-- 10.0.1) while Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0 pulls in  -->
+  <!-- 10.0.0. Without this override, the test project picks 10.0.0 as      -->
+  <!-- "primary" causing CS1705 assembly version mismatch with the Admin    -->
+  <!-- service DLL.                                                          -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" VersionOverride="10.0.1" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Protobuf / gRPC Service Definitions (Client stubs for tests)          -->
+  <!-- GrpcServices="Client" generates AdminService.AdminServiceClient for   -->
+  <!-- gRPC integration tests. The admin.proto imports common.proto which    -->
+  <!-- must also be compiled to generate ErrorModel and other shared types   -->
+  <!-- in the WebVella.Erp.SharedKernel.Grpc namespace.                     -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <Protobuf Include="../../proto/admin.proto" GrpcServices="Client" />
+    <!-- common.proto defines shared ErrorModel used by admin.proto.
+         GrpcServices="None" as it contains only message definitions,
+         no service RPCs. -->
+    <Protobuf Include="../../proto/common.proto" GrpcServices="None" />
+  </ItemGroup>
+
+  <!-- ===================================================================== -->
+  <!-- Project References                                                    -->
+  <!-- ===================================================================== -->
+  <ItemGroup>
+    <!-- Admin/SDK service under test — provides access to all Admin service
+         classes (AdminController, CodeGenService, LogService, AdminDbContext,
+         ClearJobAndErrorLogsJob, Patches) for unit and integration testing -->
+    <ProjectReference Include="../../src/Services/WebVella.Erp.Service.Admin/WebVella.Erp.Service.Admin.csproj" />
+    <!-- SharedKernel class library — provides shared contracts (DTOs, event
+         types, database helpers, security context, utilities, exceptions)
+         used in test assertions, mock setups, and test fixtures -->
+    <ProjectReference Include="../../src/SharedKernel/WebVella.Erp.SharedKernel/WebVella.Erp.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>
