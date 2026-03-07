@@ -680,10 +680,13 @@ namespace WebVella.Erp.Service.Crm
 					}
 				}
 
+				sql += " ORDER BY id";
+
+				if (query.Skip.HasValue && query.Skip.Value > 0)
+					sql += $" OFFSET {query.Skip.Value}";
+
 				if (query.Limit.HasValue && query.Limit.Value > 0)
 					sql += $" LIMIT {query.Limit.Value}";
-
-				sql += " ORDER BY id";
 
 				using var cmd = new NpgsqlCommand(sql, conn);
 				foreach (var p in parameters)

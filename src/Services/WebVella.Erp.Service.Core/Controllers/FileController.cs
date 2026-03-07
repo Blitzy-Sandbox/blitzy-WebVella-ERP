@@ -255,20 +255,38 @@ namespace WebVella.Erp.Service.Core.Controllers
 		[ResponseCache(NoStore = true, Duration = 0)]
 		public IActionResult MoveFile([FromBody] JObject submitObj)
 		{
-			string source = submitObj["source"].Value<string>();
-			string target = submitObj["target"].Value<string>();
-			bool overwrite = false;
-			if (submitObj["overwrite"] != null)
-				overwrite = submitObj["overwrite"].Value<bool>();
+			try
+			{
+				string source = submitObj["source"].Value<string>();
+				string target = submitObj["target"].Value<string>();
+				bool overwrite = false;
+				if (submitObj["overwrite"] != null)
+					overwrite = submitObj["overwrite"].Value<bool>();
 
-			source = source.ToLowerInvariant();
-			target = target.ToLowerInvariant();
+				source = source.ToLowerInvariant();
+				target = target.ToLowerInvariant();
 
-			var fileName = target.Split(new char[] { '/' }).LastOrDefault();
+				var fileName = target.Split(new char[] { '/' }).LastOrDefault();
 
-			var sourceFile = _fileRepository.Find(source);
-			var movedFile = _fileRepository.Move(source, target, overwrite);
-			return DoResponse(new FSResponse(new FSResult { Url = movedFile.FilePath, Filename = fileName }));
+				var sourceFile = _fileRepository.Find(source);
+				if (sourceFile == null)
+				{
+					var errorResponse = new FSResponse();
+					errorResponse.Success = false;
+					errorResponse.Message = "Source file cannot be found.";
+					return DoResponse(errorResponse);
+				}
+
+				var movedFile = _fileRepository.Move(source, target, overwrite);
+				return DoResponse(new FSResponse(new FSResult { Url = movedFile.FilePath, Filename = fileName }));
+			}
+			catch (Exception ex)
+			{
+				var errorResponse = new FSResponse();
+				errorResponse.Success = false;
+				errorResponse.Message = ex.Message;
+				return DoResponse(errorResponse);
+			}
 		}
 
 		/// <summary>

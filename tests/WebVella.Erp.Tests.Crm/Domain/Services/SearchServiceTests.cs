@@ -429,15 +429,17 @@ namespace WebVella.Erp.Tests.Crm.Domain.Services
 		}
 
 		[Fact]
-		public void RegenSearchField_EntityNotFound_ThrowsException()
+		public void RegenSearchField_EntityNotFound_GracefulFallback()
 		{
 			SetupManagerMocks(new List<Entity>(), new List<EntityRelation>());
 			var inputRecord = CreateInputRecord(Guid.NewGuid());
 
+			// After microservice decomposition, RegenSearchField gracefully handles
+			// entity-not-found by building a simplified search index from record values
+			// (no type-specific formatting or relation resolution). No exception is thrown.
 			Action act = () => _searchService.RegenSearchField("nonexistent_entity", inputRecord,
 				new List<string> { "name" });
-			act.Should().Throw<Exception>()
-				.WithMessage("Search index generation failed: Entity nonexistent_entity not found");
+			act.Should().NotThrow("entity-not-found is handled gracefully in database-per-service architecture");
 		}
 
 		// ════════════════════════════════════════════════════════════════

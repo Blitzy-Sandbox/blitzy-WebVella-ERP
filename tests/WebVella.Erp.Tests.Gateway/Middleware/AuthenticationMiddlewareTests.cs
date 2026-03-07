@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Net.Http.Headers;
 using Moq;
 using WebVella.Erp.SharedKernel.Models;
@@ -54,7 +55,7 @@ namespace WebVella.Erp.Tests.Gateway.Middleware
         {
             // JwtTokenHandler requires JwtTokenOptions in its constructor;
             // Moq passes constructor args to create the proxy instance.
-            _mockJwtTokenHandler = new Mock<JwtTokenHandler>(new JwtTokenOptions());
+            _mockJwtTokenHandler = new Mock<JwtTokenHandler>(new JwtTokenOptions(), (IDistributedCache)null) { CallBase = true };
             _mockLogger = new Mock<ILogger<AuthenticationMiddleware>>();
             _mockAuthService = new Mock<IAuthenticationService>();
 

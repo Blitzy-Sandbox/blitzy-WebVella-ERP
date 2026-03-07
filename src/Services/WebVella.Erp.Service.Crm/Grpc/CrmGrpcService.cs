@@ -462,7 +462,11 @@ namespace WebVella.Erp.Service.Crm.Grpc
 			if (!string.IsNullOrEmpty(proto.Id)) record["id"] = Guid.Parse(proto.Id);
 			if (!string.IsNullOrEmpty(proto.Subject)) record["subject"] = proto.Subject;
 			if (!string.IsNullOrEmpty(proto.Description)) record["description"] = proto.Description;
-			if (!string.IsNullOrEmpty(proto.Status)) record["status"] = proto.Status;
+			// Map Status to status_id column (UUID) if it's a valid GUID; text status values
+			// like "open" are display labels — skip them for DB insertion since the rec_case
+			// table uses status_id (uuid FK to rec_case_status), not a text "status" column.
+			if (!string.IsNullOrEmpty(proto.Status) && Guid.TryParse(proto.Status, out var statusGuid))
+				record["status_id"] = statusGuid;
 			if (!string.IsNullOrEmpty(proto.Priority)) record["priority"] = proto.Priority;
 			if (!string.IsNullOrEmpty(proto.AccountId)) record["account_id"] = Guid.Parse(proto.AccountId);
 			if (!string.IsNullOrEmpty(proto.ContactId)) record["contact_id"] = Guid.Parse(proto.ContactId);

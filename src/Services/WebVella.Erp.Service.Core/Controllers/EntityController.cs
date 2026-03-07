@@ -450,10 +450,12 @@ namespace WebVella.Erp.Service.Core.Controllers
 
 			foreach (var prop in submitObj.Properties())
 			{
-				if (prop.Name.ToLower() == "entityname")
+				var propLower = prop.Name.ToLower();
+				// Skip meta-properties that are handled separately or are static on the model
+				if (propLower == "entityname" || propLower == "fieldtype")
 					continue;
 
-				int count = inputFieldType.GetProperties().Where(n => n.Name.ToLower() == prop.Name.ToLower()).Count();
+				int count = inputFieldType.GetProperties().Where(n => n.Name.ToLower() == propLower).Count();
 				if (count < 1)
 					response.Errors.Add(new ErrorModel(prop.Name, prop.Value.ToString(), "Input object contains property that is not part of the object model."));
 			}
@@ -546,10 +548,12 @@ namespace WebVella.Erp.Service.Core.Controllers
 				Type inputFieldType = InputField.GetFieldType(fieldType);
 				foreach (var prop in submitObj.Properties())
 				{
-					if (prop.Name.ToLower() == "entityname")
+					var propLower = prop.Name.ToLower();
+					// Skip meta-properties that are handled separately or are static on the model
+					if (propLower == "entityname" || propLower == "fieldtype")
 						continue;
 
-					int count = inputFieldType.GetProperties().Where(n => n.Name.ToLower() == prop.Name.ToLower()).Count();
+					int count = inputFieldType.GetProperties().Where(n => n.Name.ToLower() == propLower).Count();
 					if (count < 1)
 						response.Errors.Add(new ErrorModel(prop.Name, prop.Value.ToString(), "Input object contains property that is not part of the object model."));
 				}

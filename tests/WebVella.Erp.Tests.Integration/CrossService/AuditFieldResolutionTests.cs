@@ -314,7 +314,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             // Verify CRM service database audit fields.
             if (crmDbRecord != null)
             {
-                Guid crmCreatedBy = crmDbRecord.Value<Guid>("created_by");
+                Guid crmCreatedBy = SafeGetGuid(crmDbRecord, "created_by");
                 DateTime crmCreatedOn = crmDbRecord.Value<DateTime>("created_on");
 
                 crmCreatedBy.Should().NotBe(Guid.Empty,
@@ -331,7 +331,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             // Verify Project service database audit fields.
             if (projectDbRecord != null)
             {
-                Guid projectCreatedBy = projectDbRecord.Value<Guid>("created_by");
+                Guid projectCreatedBy = SafeGetGuid(projectDbRecord, "created_by");
                 DateTime projectCreatedOn = projectDbRecord.Value<DateTime>("created_on");
 
                 projectCreatedBy.Should().NotBe(Guid.Empty,
@@ -348,7 +348,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             // Verify Mail service database audit fields.
             if (mailDbRecord != null)
             {
-                Guid mailCreatedBy = mailDbRecord.Value<Guid>("created_by");
+                Guid mailCreatedBy = SafeGetGuid(mailDbRecord, "created_by");
                 DateTime mailCreatedOn = mailDbRecord.Value<DateTime>("created_on");
 
                 mailCreatedBy.Should().NotBe(Guid.Empty,
@@ -541,7 +541,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
 
             if (dbRecord != null)
             {
-                Guid preservedCreatedBy = dbRecord.Value<Guid>("created_by");
+                Guid preservedCreatedBy = SafeGetGuid(dbRecord, "created_by");
                 DateTime preservedCreatedOn = dbRecord.Value<DateTime>("created_on");
 
                 // Verify user UUID is not modified by migration.
@@ -605,7 +605,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             if (initialRecord != null)
             {
                 initialCreatedOn = initialRecord.Value<DateTime>("created_on");
-                initialCreatedBy = initialRecord.Value<Guid>("created_by");
+                initialCreatedBy = SafeGetGuid(initialRecord, "created_by");
 
                 _output.WriteLine($"Initial created_by: {initialCreatedBy}");
                 _output.WriteLine($"Initial created_on: {initialCreatedOn:O}");
@@ -634,7 +634,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             // Assert: Verify audit field behavior.
             if (updatedRecord != null && initialCreatedOn.HasValue && initialCreatedBy.HasValue)
             {
-                Guid updatedCreatedBy = updatedRecord.Value<Guid>("created_by");
+                Guid updatedCreatedBy = SafeGetGuid(updatedRecord, "created_by");
                 DateTime updatedCreatedOn = updatedRecord.Value<DateTime>("created_on");
 
                 // created_by and created_on must remain UNCHANGED after update.
@@ -647,7 +647,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
                 JToken lastModifiedByToken = updatedRecord["last_modified_by"];
                 if (lastModifiedByToken != null && lastModifiedByToken.Type != JTokenType.Null)
                 {
-                    Guid updatedModifiedBy = updatedRecord.Value<Guid>("last_modified_by");
+                    Guid updatedModifiedBy = SafeGetGuid(updatedRecord, "last_modified_by");
                     updatedModifiedBy.Should().Be(adminUserId,
                         "last_modified_by should be the updating user's UUID");
                 }
@@ -736,7 +736,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
             if (dbRecord != null)
             {
                 // created_by should be the admin user's UUID.
-                Guid createdBy = dbRecord.Value<Guid>("created_by");
+                Guid createdBy = SafeGetGuid(dbRecord, "created_by");
                 createdBy.Should().Be(adminUserId,
                     "created_by should be the admin user who created the record");
 
@@ -744,7 +744,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
                 JToken modifiedByToken = dbRecord["last_modified_by"];
                 if (modifiedByToken != null && modifiedByToken.Type != JTokenType.Null)
                 {
-                    Guid modifiedBy = dbRecord.Value<Guid>("last_modified_by");
+                    Guid modifiedBy = SafeGetGuid(dbRecord, "last_modified_by");
                     modifiedBy.Should().Be(regularUserId,
                         "last_modified_by should be the regular user who updated the record");
 
@@ -837,7 +837,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
 
             if (dbRecord != null)
             {
-                Guid storedCreatedBy = dbRecord.Value<Guid>("created_by");
+                Guid storedCreatedBy = SafeGetGuid(dbRecord, "created_by");
                 storedCreatedBy.Should().Be(DeletedUserId,
                     "Database should preserve the original deleted user UUID");
             }
@@ -889,7 +889,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
 
             if (dbRecord != null)
             {
-                Guid storedCreatedBy = dbRecord.Value<Guid>("created_by");
+                Guid storedCreatedBy = SafeGetGuid(dbRecord, "created_by");
                 storedCreatedBy.Should().Be(systemUserId,
                     "created_by should be SystemIds.SystemUserId " +
                     "(10000000-0000-0000-0000-000000000000)");
@@ -1042,7 +1042,7 @@ namespace WebVella.Erp.Tests.Integration.CrossService
                     JToken createdByToken = dbRecord["created_by"];
                     if (createdByToken != null && createdByToken.Type != JTokenType.Null)
                     {
-                        Guid createdBy = dbRecord.Value<Guid>("created_by");
+                        Guid createdBy = SafeGetGuid(dbRecord, "created_by");
                         createdBy.Should().Be(adminUserId,
                             $"{serviceName} service should store admin user UUID as created_by");
                     }
@@ -1078,6 +1078,21 @@ namespace WebVella.Erp.Tests.Integration.CrossService
         #endregion
 
         #region Helper Methods
+
+        /// <summary>
+        /// Safely extracts a Guid value from a JToken property, handling both native Guid
+        /// and string representations. JToken.Value&lt;Guid&gt;() throws InvalidCastException
+        /// when the underlying JSON value is a string rather than a native Guid token.
+        /// This helper handles both cases by attempting Parse on the string representation.
+        /// </summary>
+        private static Guid SafeGetGuid(JToken token, string propertyName)
+        {
+            var val = token[propertyName];
+            if (val == null || val.Type == JTokenType.Null) return Guid.Empty;
+            if (val.Type == JTokenType.Guid) return val.Value<Guid>();
+            var s = val.Value<string>();
+            return Guid.TryParse(s, out var g) ? g : Guid.Empty;
+        }
 
         /// <summary>
         /// Creates a record in the specified service via its REST API endpoint.

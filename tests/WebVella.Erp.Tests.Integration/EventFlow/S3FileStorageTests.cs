@@ -408,9 +408,14 @@ namespace WebVella.Erp.Tests.Integration.EventFlow
             presignedUrl.Should().NotBeNullOrEmpty("a presigned URL should be generated");
 
             // Act: Download the file via the presigned URL using HttpClient
-            // This simulates cross-service file access without S3 credentials
-            using (var httpClient = new HttpClient())
+            // This simulates cross-service file access without S3 credentials.
+            // LocalStack presigned URLs may use HTTPS with a self-signed cert,
+            // so we disable certificate validation for test purposes.
+            using (var handler = new HttpClientHandler())
             {
+                handler.ServerCertificateCustomValidationCallback =
+                    HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                using var httpClient = new HttpClient(handler);
                 var downloadedContent = await httpClient.GetByteArrayAsync(presignedUrl).ConfigureAwait(false);
 
                 // Assert: Content downloaded via presigned URL matches the original

@@ -104,7 +104,7 @@ namespace WebVella.Erp.Tests.Core.Api
 
 			// 2. Create CoreDbContext with a test-only connection string (no DB required for evaluate tests)
 			_dbContext = CoreDbContext.CreateContext(
-				"Host=localhost;Database=test_import_export;Username=test;Password=test");
+				"Host=localhost;Port=5432;Database=erp_core;Username=dev;Password=dev");
 
 			// 3. Initialize configuration mock (DevelopmentMode=false by default)
 			_mockConfiguration = new Mock<IConfiguration>();
@@ -375,42 +375,46 @@ namespace WebVella.Erp.Tests.Core.Api
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_EntityNotFound_ReturnsFailure()
 		{
-			// ImportEntityRecordsFromCsv calls CreateConnection which throws
-			// when there is no real DB. The exception is NOT caught at the outer level.
-			// Verify the propagation pattern: non-null path → path normalization OK → DB failure.
-			Action act = () => _sut.ImportEntityRecordsFromCsv("nonexistent_entity", "/test/file.csv");
+			// ImportEntityRecordsFromCsv looks up the entity by name.
+			// When the entity does not exist, the method returns a failure response.
+			var response = _sut.ImportEntityRecordsFromCsv("nonexistent_entity", "/test/file.csv");
 
-			act.Should().Throw<Exception>("because CreateConnection attempts a real DB connection");
+			response.Success.Should().BeFalse("because the entity does not exist");
+			response.Message.Should().Contain("Entity", "error should mention entity lookup failure");
 		}
 
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_FileNotFound_ReturnsFailure()
 		{
-			// File lookup requires DB connection, which fails without real DB.
-			Action act = () => _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/nonexistent.csv");
+			// File lookup queries the database for the specified path.
+			// When the file does not exist, the method returns a failure response.
+			var response = _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/nonexistent.csv");
 
-			act.Should().Throw<Exception>("because CreateConnection attempts a real DB connection");
+			response.Success.Should().BeFalse("because the file does not exist in the database");
+			response.Message.Should().Contain("File", "error should mention file lookup failure");
 		}
 
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_FsPathPrefix_StripsLeadingFs()
 		{
-			// Path normalization (lines 134-136): strips "/fs" prefix BEFORE DB call.
+			// Path normalization (lines 134-136): strips "/fs" prefix BEFORE file lookup.
 			// Verify the path validation does not reject /fs paths.
-			// The DB failure confirms the code got past path normalization.
-			Action act = () => _sut.ImportEntityRecordsFromCsv(_testEntityName, "/fs/test/file.csv");
+			// After stripping /fs prefix, the file lookup proceeds normally.
+			var response = _sut.ImportEntityRecordsFromCsv(_testEntityName, "/fs/test/file.csv");
 
-			act.Should().Throw<Exception>("because path normalization succeeds, then CreateConnection fails");
+			response.Success.Should().BeFalse("because the file does not exist after path normalization");
+			response.Message.Should().Contain("File", "path was normalized and file lookup was attempted");
 		}
 
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_PathNormalization_AddsLeadingSlash()
 		{
 			// Path normalization (lines 137-138): adds "/" if missing.
-			// DB failure confirms the code got past normalization.
-			Action act = () => _sut.ImportEntityRecordsFromCsv(_testEntityName, "test/file.csv");
+			// After normalization the file lookup proceeds normally.
+			var response = _sut.ImportEntityRecordsFromCsv(_testEntityName, "test/file.csv");
 
-			act.Should().Throw<Exception>("because normalization succeeds, then CreateConnection fails");
+			response.Success.Should().BeFalse("because the file does not exist after path normalization");
+			response.Message.Should().Contain("File", "path was normalized and file lookup was attempted");
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
@@ -590,35 +594,33 @@ namespace WebVella.Erp.Tests.Core.Api
 		{
 			// The ImportEntityRecordsFromCsv method wraps the import loop in a transaction.
 			// When CreateRecord fails, the catch block calls RollbackTransaction.
-			// Since CreateConnection fails without real DB, verify exception propagation.
+			// With a real DB, the file lookup returns null and the method returns failure.
 			// The transaction behavior is architecturally preserved in the SUT code.
-			Action act = () => _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
+			var response = _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
 
-			act.Should().Throw<Exception>("because the import path requires a real DB connection");
+			response.Success.Should().BeFalse("because the file does not exist in the database");
 		}
 
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_ErrorInDevelopmentMode_ShowsStackTrace()
 		{
 			// The inner try/catch (line 255) shows stack trace when IsDevelopmentMode=true.
-			// Since the outer using(CreateConnection) throws first, verify that propagation.
+			// With a real DB, the file lookup returns null and failure response is returned.
 			var devSut = CreateDevModeSut();
 
-			Action act = () => devSut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
+			var response = devSut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
 
-			// DB connection exception propagates (no outer try/catch in the SUT)
-			act.Should().Throw<Exception>();
+			response.Success.Should().BeFalse("because the file does not exist");
 		}
 
 		[Fact]
 		public void Test_ImportEntityRecordsFromCsv_ErrorInProductionMode_ShowsGenericMessage()
 		{
 			// Production mode: the inner catch returns "Import failed! An internal error occurred!"
-			// But the outer CreateConnection failure propagates before reaching the inner catch.
-			// Verify that the SUT propagates DB exceptions.
-			Action act = () => _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
+			// With a real DB, the file lookup returns null and failure response is returned.
+			var response = _sut.ImportEntityRecordsFromCsv(_testEntityName, "/test/file.csv");
 
-			act.Should().Throw<Exception>();
+			response.Success.Should().BeFalse("because the file does not exist");
 		}
 
 		// ═══════════════════════════════════════════════════════════════════════
@@ -784,12 +786,14 @@ namespace WebVella.Erp.Tests.Core.Api
 		[Fact]
 		public void Test_EvaluateImport_FileNotFound_ReturnsFailure()
 		{
-			// File path lookup requires DB; the exception propagates.
+			// File path lookup queries the database for the specified file.
+			// When the file does not exist, the method returns a failure response.
 			var post = CreateEvaluatePostObject(fileTempPath: "/test/nonexistent.csv");
 
-			Action act = () => _sut.EvaluateImportEntityRecordsFromCsv(_testEntityName, post);
+			var response = _sut.EvaluateImportEntityRecordsFromCsv(_testEntityName, post);
 
-			act.Should().Throw<Exception>("because file lookup requires a real DB connection");
+			response.Success.Should().BeFalse("because the file does not exist in the database");
+			response.Message.Should().Contain("File", "error should mention file lookup failure");
 		}
 
 		[Fact]

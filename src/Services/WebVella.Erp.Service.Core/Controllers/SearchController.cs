@@ -653,6 +653,13 @@ namespace WebVella.Erp.Service.Core.Controllers
 					throw new Exception("Field not found by the provided fieldName: " + fieldName + " in entity " + entityName);
 				}
 
+				// Validate that the field is a SelectField or MultiSelectField
+				if (fieldMeta.GetFieldType() != FieldType.SelectField &&
+					fieldMeta.GetFieldType() != FieldType.MultiSelectField)
+				{
+					throw new Exception("Field '" + fieldName + "' is not a SelectField or MultiSelectField. Cannot add option to field type: " + fieldMeta.GetFieldType());
+				}
+
 				var optionExists = false;
 				if (fieldMeta.GetFieldType() == FieldType.SelectField)
 				{

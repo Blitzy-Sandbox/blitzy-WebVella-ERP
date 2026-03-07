@@ -228,9 +228,10 @@ namespace WebVella.Erp.Service.Core.Grpc
                 {
                     if (string.IsNullOrWhiteSpace(request.Email))
                     {
-                        throw new RpcException(new Status(
-                            StatusCode.InvalidArgument,
-                            "Email is required for credential validation."));
+                        // Source: SecurityManager.GetUser(email, password) line 79:
+                        // "if (string.IsNullOrWhiteSpace(email)) return null;"
+                        // Preserving original monolith behavior — return success with null user
+                        return Task.FromResult(new GetUserResponse { Success = true });
                     }
 
                     // Do NOT log the password — security requirement per AAP 0.8.3

@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using MassTransit;
 using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using FluentAssertions;
@@ -78,7 +80,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>());
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null);
             var logger = NullLogger<AccountEventPublisher>.Instance;
             var publisher = new AccountEventPublisher(publishMock.Object, searchServiceMock.Object, logger);
             return (publisher, searchServiceMock, publishMock);
@@ -580,7 +583,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>());
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null);
 
             var services = new ServiceCollection();
             services.AddSingleton<SearchService>(searchServiceMock.Object);
@@ -633,7 +637,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>());
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null);
 
             var services = new ServiceCollection();
             services.AddSingleton<SearchService>(searchServiceMock.Object);

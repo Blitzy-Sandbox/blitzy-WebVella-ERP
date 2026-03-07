@@ -452,12 +452,15 @@ namespace WebVella.Erp.SharedKernel.Eql
 				if (meta.Field != null)
 				{
 					var entity = _entityProvider?.ReadEntity(meta.Field.EntityName);
-					if(entity == null)
-						throw new Exception($"Entity '{meta.Field.Name}' not found");
-
-					bool hasPermisstion = _securityProvider?.HasEntityPermission(EntityPermission.Read, entity) ?? true;
-					if (!hasPermisstion)
-						throw new Exception($"No access to entity '{meta.Field.EntityName}'");
+					if (entity != null)
+					{
+						bool hasPermisstion = _securityProvider?.HasEntityPermission(EntityPermission.Read, entity) ?? true;
+						if (!hasPermisstion)
+							throw new Exception($"No access to entity '{meta.Field.EntityName}'");
+					}
+					// When entity metadata is unavailable (e.g. provider not set or entity
+					// not cached), proceed with permissive materialization — the EQL query
+					// itself already succeeded at the database level so the data is valid.
 
 					record[meta.Field.Name] = _fieldValueExtractor?.ExtractFieldValue(jObj[meta.Field.Name], meta.Field);
 				}

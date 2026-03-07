@@ -102,7 +102,7 @@ namespace WebVella.Erp.Tests.Core.Api
 			_adminUser.Roles.Add(_adminRole);
 
 			_dbContext = CoreDbContext.CreateContext(
-				"Host=localhost;Database=test_security_mgr;Username=test;Password=test");
+				"Host=localhost;Port=5432;Database=erp_core;Username=dev;Password=dev");
 			_securityScope = SecurityContext.OpenSystemScope();
 			_mockPublishEndpoint = new Mock<IPublishEndpoint>();
 			_mockConfiguration = new Mock<IConfiguration>();

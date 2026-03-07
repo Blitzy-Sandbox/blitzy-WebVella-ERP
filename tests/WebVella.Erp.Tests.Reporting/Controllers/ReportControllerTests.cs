@@ -103,7 +103,7 @@ namespace WebVella.Erp.Tests.Reporting.Controllers
                         ["Jwt:Issuer"] = TestJwtIssuer,
                         ["Jwt:Audience"] = TestJwtAudience,
                         // Override connection strings to prevent real DB connections
-                        ["ConnectionStrings:Default"] = "Host=localhost;Port=5432;Database=test_erp_reporting;Username=test;Password=test",
+                        ["ConnectionStrings:Default"] = "Host=localhost;Port=5432;Database=erp_core;Username=dev;Password=dev",
                         // Override Redis to prevent connection attempts
                         ["Redis:ConnectionString"] = "localhost:59999",
                         ["Redis:InstanceName"] = "Test_",
@@ -128,13 +128,20 @@ namespace WebVella.Erp.Tests.Reporting.Controllers
                     }
 
                     // Replace PostgreSQL DbContext with InMemory provider for test isolation.
-                    // This prevents real database connection attempts during test execution.
-                    var dbContextDescriptor = services.SingleOrDefault(
-                        d => d.ServiceType == typeof(DbContextOptions<ReportingDbContext>));
-                    if (dbContextDescriptor != null)
-                    {
-                        services.Remove(dbContextDescriptor);
-                    }
+                    // Must remove ALL EF Core registrations related to ReportingDbContext
+                    // to prevent dual-provider (Npgsql + InMemory) conflict at startup.
+                    // AddDbContext registers internal provider services beyond just DbContextOptions<T>,
+                    // so we must remove the context registration and its options comprehensively.
+                    services.RemoveAll<ReportingDbContext>();
+                    services.RemoveAll<DbContextOptions<ReportingDbContext>>();
+                    // Remove any IDbContextOptionsConfiguration<ReportingDbContext> registrations
+                    // that carry the original UseNpgsql() configuration action from Program.cs
+                    var efConfigDescriptors = services.Where(d =>
+                        d.ServiceType.IsGenericType &&
+                        d.ServiceType.GenericTypeArguments.Length > 0 &&
+                        d.ServiceType.GenericTypeArguments[0] == typeof(ReportingDbContext)).ToList();
+                    foreach (var d in efConfigDescriptors)
+                        services.Remove(d);
                     services.AddDbContext<ReportingDbContext>(options =>
                         options.UseInMemoryDatabase("TestReportingDb_" + Guid.NewGuid().ToString("N")));
 

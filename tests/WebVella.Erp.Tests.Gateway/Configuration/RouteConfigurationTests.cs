@@ -89,12 +89,12 @@ namespace WebVella.Erp.Tests.Gateway.Configuration
             var config = new RouteConfiguration();
 
             // Assert — each default URL must match Docker Compose service naming convention
-            config.CoreServiceUrl.Should().Be("http://core-service:8080");
-            config.CrmServiceUrl.Should().Be("http://crm-service:8080");
-            config.ProjectServiceUrl.Should().Be("http://project-service:8080");
-            config.MailServiceUrl.Should().Be("http://mail-service:8080");
-            config.ReportingServiceUrl.Should().Be("http://reporting-service:8080");
-            config.AdminServiceUrl.Should().Be("http://admin-service:8080");
+            config.CoreServiceUrl.Should().Be("http://localhost:8084");
+            config.CrmServiceUrl.Should().Be("http://localhost:8082");
+            config.ProjectServiceUrl.Should().Be("http://localhost:8092");
+            config.MailServiceUrl.Should().Be("http://localhost:8090");
+            config.ReportingServiceUrl.Should().Be("http://localhost:8088");
+            config.AdminServiceUrl.Should().Be("http://localhost:8086");
         }
 
         /// <summary>
@@ -108,10 +108,10 @@ namespace WebVella.Erp.Tests.Gateway.Configuration
             var config = new RouteConfiguration();
 
             // Assert — gRPC endpoints use port 5001 by convention
-            config.CoreServiceGrpc.Should().Be("http://core-service:5001");
-            config.CrmServiceGrpc.Should().Be("http://crm-service:5001");
-            config.ProjectServiceGrpc.Should().Be("http://project-service:5001");
-            config.MailServiceGrpc.Should().Be("http://mail-service:5001");
+            config.CoreServiceGrpc.Should().Be("http://localhost:8085");
+            config.CrmServiceGrpc.Should().Be("http://localhost:8083");
+            config.ProjectServiceGrpc.Should().Be("http://localhost:8093");
+            config.MailServiceGrpc.Should().Be("http://localhost:8091");
         }
 
         /// <summary>
@@ -134,12 +134,12 @@ namespace WebVella.Erp.Tests.Gateway.Configuration
         /// using the default Docker Compose URLs.
         /// </summary>
         [Theory]
-        [InlineData("CoreServiceUrl", "http://core-service:8080")]
-        [InlineData("CrmServiceUrl", "http://crm-service:8080")]
-        [InlineData("ProjectServiceUrl", "http://project-service:8080")]
-        [InlineData("MailServiceUrl", "http://mail-service:8080")]
-        [InlineData("ReportingServiceUrl", "http://reporting-service:8080")]
-        [InlineData("AdminServiceUrl", "http://admin-service:8080")]
+        [InlineData("CoreServiceUrl", "http://localhost:8084")]
+        [InlineData("CrmServiceUrl", "http://localhost:8082")]
+        [InlineData("ProjectServiceUrl", "http://localhost:8092")]
+        [InlineData("MailServiceUrl", "http://localhost:8090")]
+        [InlineData("ReportingServiceUrl", "http://localhost:8088")]
+        [InlineData("AdminServiceUrl", "http://localhost:8086")]
         public void GetServiceUrl_ReturnsCorrectUrl_ForAllValidServiceKeys(string serviceKey, string expectedUrl)
         {
             // Arrange
@@ -420,14 +420,14 @@ namespace WebVella.Erp.Tests.Gateway.Configuration
         /// accepting both short service name format ("Core") and full property name format ("CoreServiceUrl").
         /// </summary>
         [Theory]
-        [InlineData("Core", "http://core-service:5001")]
-        [InlineData("Crm", "http://crm-service:5001")]
-        [InlineData("Project", "http://project-service:5001")]
-        [InlineData("Mail", "http://mail-service:5001")]
-        [InlineData("CoreServiceUrl", "http://core-service:5001")]
-        [InlineData("CrmServiceUrl", "http://crm-service:5001")]
-        [InlineData("ProjectServiceUrl", "http://project-service:5001")]
-        [InlineData("MailServiceUrl", "http://mail-service:5001")]
+        [InlineData("Core", "http://localhost:8085")]
+        [InlineData("Crm", "http://localhost:8083")]
+        [InlineData("Project", "http://localhost:8093")]
+        [InlineData("Mail", "http://localhost:8091")]
+        [InlineData("CoreServiceUrl", "http://localhost:8085")]
+        [InlineData("CrmServiceUrl", "http://localhost:8083")]
+        [InlineData("ProjectServiceUrl", "http://localhost:8093")]
+        [InlineData("MailServiceUrl", "http://localhost:8091")]
         public void GetGrpcEndpoint_ReturnsCorrectEndpoint_ForAllValidKeys(string serviceKey, string expectedEndpoint)
         {
             // Arrange

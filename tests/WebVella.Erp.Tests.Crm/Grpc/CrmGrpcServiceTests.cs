@@ -675,11 +675,13 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 			var accountId1 = await CreateTestAccountAsync("BatchAccount_1");
 			var accountId2 = await CreateTestAccountAsync("BatchAccount_2");
 
-			// Act: Use ListAccounts to retrieve multiple accounts
+			// Act: Use ListAccounts with large page size to include all records.
+			// The CRM database has seed data (80+ accounts) so newly created accounts
+			// with random UUIDs may sort after position 50 — use 500 to capture all.
 			try
 			{
 				var response = await _client.ListAccountsAsync(
-					new ListAccountsRequest { Page = 1, PageSize = 50 },
+					new ListAccountsRequest { Page = 1, PageSize = 500 },
 					headers: _authMetadata);
 
 				// Assert
@@ -715,7 +717,7 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 			try
 			{
 				var response = await _client.ListContactsAsync(
-					new ListContactsRequest { Page = 1, PageSize = 50 },
+					new ListContactsRequest { Page = 1, PageSize = 500 },
 					headers: _authMetadata);
 
 				// Assert
@@ -751,7 +753,7 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 			try
 			{
 				var response = await _client.ListAccountsAsync(
-					new ListAccountsRequest { Page = 1, PageSize = 100 },
+					new ListAccountsRequest { Page = 1, PageSize = 500 },
 					headers: _authMetadata);
 
 				// Assert
@@ -1429,7 +1431,9 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 		[Fact]
 		public async Task CreateCase_WithValidData_ReturnsCreatedCase()
 		{
-			// Arrange
+			// Arrange — use the "Open" case_status UUID from CRM migration seed data
+			// (rec_case_status.id for "Open" = 4f17785b-7a50-4e56-8526-98a47bcf187c)
+			// The DB column is status_id (uuid FK), not a text "status" field.
 			var request = new CreateCaseRequest
 			{
 				CaseRecord = new CaseRecord
@@ -1437,8 +1441,8 @@ namespace WebVella.Erp.Tests.Crm.Grpc
 					Id = Guid.NewGuid().ToString(),
 					Subject = $"CRUDCase_{Guid.NewGuid():N}",
 					Description = "Test case for CRUD validation",
-					Priority = "2",
-					Status = "open"
+					Priority = "medium",
+					Status = "4f17785b-7a50-4e56-8526-98a47bcf187c"
 				}
 			};
 

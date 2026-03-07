@@ -308,10 +308,7 @@ namespace WebVella.Erp.Service.Core.Api
 		/// </summary>
 		public virtual List<ErpUser> GetUsers(params Guid[] roleIds)
 		{
-			if (roleIds == null || roleIds.Length == 0)
-				return new List<ErpUser>();
-
-			// Use direct SQL via CoreDbContext.ConnectionString for role-filtered user queries
+			// Use direct SQL via CoreDbContext.ConnectionString for user queries
 			// since EQL cross-entity relation resolution ($user_role) requires full
 			// monolith infrastructure that is not available in the microservice.
 			using (NpgsqlConnection connection = new NpgsqlConnection(CoreDbContext.ConnectionString))
@@ -319,20 +316,29 @@ namespace WebVella.Erp.Service.Core.Api
 				connection.Open();
 				try
 				{
-					// Build parameterized IN clause for role IDs
-					var paramNames = new List<string>();
 					var cmd = new NpgsqlCommand();
-					for (int i = 0; i < roleIds.Length; i++)
-					{
-						var paramName = $"@role_{i}";
-						paramNames.Add(paramName);
-						cmd.Parameters.Add(new NpgsqlParameter(paramName, roleIds[i]));
-					}
-
 					cmd.Connection = connection;
-					cmd.CommandText = $@"SELECT DISTINCT u.* FROM rec_user u
-						INNER JOIN rel_user_role ur ON ur.target_id = u.id
-						WHERE ur.origin_id IN ({string.Join(", ", paramNames)})";
+
+					if (roleIds == null || roleIds.Length == 0)
+					{
+						// No role filter — return all users
+						cmd.CommandText = "SELECT * FROM rec_user";
+					}
+					else
+					{
+						// Build parameterized IN clause for role IDs
+						var paramNames = new List<string>();
+						for (int i = 0; i < roleIds.Length; i++)
+						{
+							var paramName = $"@role_{i}";
+							paramNames.Add(paramName);
+							cmd.Parameters.Add(new NpgsqlParameter(paramName, roleIds[i]));
+						}
+
+						cmd.CommandText = $@"SELECT DISTINCT u.* FROM rec_user u
+							INNER JOIN rel_user_role ur ON ur.target_id = u.id
+							WHERE ur.origin_id IN ({string.Join(", ", paramNames)})";
+					}
 
 					var dataAdapter = new NpgsqlDataAdapter(cmd);
 					var dt = new DataTable();

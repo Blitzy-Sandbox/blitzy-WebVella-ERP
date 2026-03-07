@@ -352,10 +352,31 @@ namespace WebVella.Erp.Service.Core.Controllers
 				}
 			}
 
-			var originEntity = _entityManager.ReadEntity(relation.OriginEntityId).Object;
-			var targetEntity = _entityManager.ReadEntity(relation.TargetEntityId).Object;
-			var originField = originEntity.Fields.Single(x => x.Id == relation.OriginFieldId);
-			var targetField = targetEntity.Fields.Single(x => x.Id == relation.TargetFieldId);
+			var originEntityResponse = _entityManager.ReadEntity(relation.OriginEntityId);
+			var targetEntityResponse = _entityManager.ReadEntity(relation.TargetEntityId);
+			var originEntity = originEntityResponse?.Object;
+			var targetEntity = targetEntityResponse?.Object;
+
+			if (originEntity == null || targetEntity == null)
+			{
+				response.Errors.Add(new ErrorModel { Message = "Origin or target entity not found for relation.", Key = "relationName" });
+				response.Success = false;
+				return DoResponse(response);
+			}
+
+			var originField = originEntity.Fields.SingleOrDefault(x => x.Id == relation.OriginFieldId);
+			var targetField = targetEntity.Fields.SingleOrDefault(x => x.Id == relation.TargetFieldId);
+
+			if (originField == null || targetField == null)
+			{
+				response.Errors.Add(new ErrorModel { Message = "Origin or target field not found for relation.", Key = "relationName" });
+				response.Success = false;
+				return DoResponse(response);
+			}
+
+			// Defensive null-coalescing: ensure lists are never null even if client omits them
+			model.AttachTargetFieldRecordIds ??= new List<Guid>();
+			model.DetachTargetFieldRecordIds ??= new List<Guid>();
 
 			if (model.DetachTargetFieldRecordIds != null && model.DetachTargetFieldRecordIds.Any()
 				&& targetField.Required && relation.RelationType != EntityRelationType.ManyToMany)
@@ -368,7 +389,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 			EntityQuery query = new EntityQuery(originEntity.Name, "id," + originField.Name,
 				EntityQuery.QueryEQ("id", model.OriginFieldRecordId), null, null, null);
 			QueryResponse result = _recordManager.Find(query);
-			if (result.Object.Data.Count == 0)
+			if ((result.Object?.Data?.Count ?? 0) == 0)
 			{
 				response.Errors.Add(new ErrorModel
 				{
@@ -390,7 +411,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 				query = new EntityQuery(targetEntity.Name, "id," + targetField.Name,
 					EntityQuery.QueryEQ("id", targetId), null, null, null);
 				result = _recordManager.Find(query);
-				if (result.Object.Data.Count == 0)
+				if ((result.Object?.Data?.Count ?? 0) == 0)
 				{
 					response.Errors.Add(new ErrorModel
 					{
@@ -418,7 +439,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 				query = new EntityQuery(targetEntity.Name, "id," + targetField.Name,
 					EntityQuery.QueryEQ("id", targetId), null, null, null);
 				result = _recordManager.Find(query);
-				if (result.Object.Data.Count == 0)
+				if ((result.Object?.Data?.Count ?? 0) == 0)
 				{
 					response.Errors.Add(new ErrorModel
 					{
@@ -578,10 +599,31 @@ namespace WebVella.Erp.Service.Core.Controllers
 				}
 			}
 
-			var originEntity = _entityManager.ReadEntity(relation.OriginEntityId).Object;
-			var targetEntity = _entityManager.ReadEntity(relation.TargetEntityId).Object;
-			var originField = originEntity.Fields.Single(x => x.Id == relation.OriginFieldId);
-			var targetField = targetEntity.Fields.Single(x => x.Id == relation.TargetFieldId);
+			var originEntityResp = _entityManager.ReadEntity(relation.OriginEntityId);
+			var targetEntityResp = _entityManager.ReadEntity(relation.TargetEntityId);
+			var originEntity = originEntityResp?.Object;
+			var targetEntity = targetEntityResp?.Object;
+
+			if (originEntity == null || targetEntity == null)
+			{
+				response.Errors.Add(new ErrorModel { Message = "Origin or target entity not found for relation.", Key = "relationName" });
+				response.Success = false;
+				return DoResponse(response);
+			}
+
+			var originField = originEntity.Fields.SingleOrDefault(x => x.Id == relation.OriginFieldId);
+			var targetField = targetEntity.Fields.SingleOrDefault(x => x.Id == relation.TargetFieldId);
+
+			if (originField == null || targetField == null)
+			{
+				response.Errors.Add(new ErrorModel { Message = "Origin or target field not found for relation.", Key = "relationName" });
+				response.Success = false;
+				return DoResponse(response);
+			}
+
+			// Defensive null-coalescing: ensure lists are never null even if client omits them
+			model.AttachOriginFieldRecordIds ??= new List<Guid>();
+			model.DetachOriginFieldRecordIds ??= new List<Guid>();
 
 			if (model.DetachOriginFieldRecordIds != null && model.DetachOriginFieldRecordIds.Any()
 				&& originField.Required && relation.RelationType != EntityRelationType.ManyToMany)
@@ -594,7 +636,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 			EntityQuery query = new EntityQuery(targetEntity.Name, "id," + targetField.Name,
 				EntityQuery.QueryEQ("id", model.TargetFieldRecordId), null, null, null);
 			QueryResponse result = _recordManager.Find(query);
-			if (result.Object.Data.Count == 0)
+			if ((result.Object?.Data?.Count ?? 0) == 0)
 			{
 				response.Errors.Add(new ErrorModel
 				{
@@ -616,7 +658,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 				query = new EntityQuery(originEntity.Name, "id," + originField.Name,
 					EntityQuery.QueryEQ("id", originId), null, null, null);
 				result = _recordManager.Find(query);
-				if (result.Object.Data.Count == 0)
+				if ((result.Object?.Data?.Count ?? 0) == 0)
 				{
 					response.Errors.Add(new ErrorModel
 					{
@@ -644,7 +686,7 @@ namespace WebVella.Erp.Service.Core.Controllers
 				query = new EntityQuery(originEntity.Name, "id," + originField.Name,
 					EntityQuery.QueryEQ("id", originId), null, null, null);
 				result = _recordManager.Find(query);
-				if (result.Object.Data.Count == 0)
+				if ((result.Object?.Data?.Count ?? 0) == 0)
 				{
 					response.Errors.Add(new ErrorModel
 					{

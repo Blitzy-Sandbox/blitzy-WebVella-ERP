@@ -659,13 +659,14 @@ namespace WebVella.Erp.Service.Crm.Database
 			});
 
 			// ================================================================
-			// rec_solutation — Salutation entity (typo preserved from source!)
+			// rec_salutation — Salutation entity
 			// Entity ID: f0b64034-e0f6-452e-b82b-88186af6df88
-			// Note: entity name "solutation" is a typo from NextPlugin.20190203.cs
+			// Note: Corrected from original "solutation" typo in NextPlugin.20190203.cs
+			// Migration creates table as rec_salutation (correct spelling)
 			// ================================================================
 			modelBuilder.Entity<SalutationRecord>(e =>
 			{
-				e.ToTable("rec_solutation");
+				e.ToTable("rec_salutation");
 				e.HasKey(x => x.Id);
 				e.Property(x => x.Id).HasColumnName("id");
 				e.Property(x => x.Label).HasColumnName("label");

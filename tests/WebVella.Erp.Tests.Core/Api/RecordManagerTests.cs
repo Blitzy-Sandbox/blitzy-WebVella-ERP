@@ -35,7 +35,7 @@ namespace WebVella.Erp.Tests.Core.Api
 	{
 		#region <=== Test Fields and Fixtures ===>
 
-		private const string TEST_CONNECTION_STRING = "Host=localhost;Port=5432;Database=test_erp_core;Username=test_erp;Password=test_erp";
+		private const string TEST_CONNECTION_STRING = "Host=localhost;Port=5432;Database=erp_core;Username=dev;Password=dev";
 
 		private readonly Mock<IDistributedCache> _mockCache;
 		private readonly Mock<IPublishEndpoint> _mockPublishEndpoint;

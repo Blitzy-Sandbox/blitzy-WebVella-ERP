@@ -400,6 +400,7 @@ namespace WebVella.Erp.Service.Core.Api
 				{
 					response.Object = null;
 					response.Success = false;
+					response.Message = "Relation does not exists.";
 					response.Timestamp = DateTime.UtcNow;
 					return response;
 				}
@@ -496,6 +497,7 @@ namespace WebVella.Erp.Service.Core.Api
 				{
 					response.Object = null;
 					response.Success = false;
+					response.Message = "Relation does not exists.";
 					response.Timestamp = DateTime.UtcNow;
 					return response;
 				}

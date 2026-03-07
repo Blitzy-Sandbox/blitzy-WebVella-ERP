@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using MassTransit;
 using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -86,7 +87,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>()
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null
             );
             var logger = NullLogger<CaseEventPublisher>.Instance;
             var publisher = new CaseEventPublisher(publishMock.Object, searchServiceMock.Object, logger);
@@ -598,7 +600,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>()
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null
             );
             searchServiceMock
                 .Setup(s => s.RegenSearchField(It.IsAny<string>(), It.IsAny<EntityRecord>(), It.IsAny<List<string>>()));
@@ -687,7 +690,8 @@ namespace WebVella.Erp.Tests.Crm.Events
             var searchServiceMock = new Mock<SearchService>(
                 Mock.Of<ICrmEntityRelationManager>(),
                 Mock.Of<ICrmEntityManager>(),
-                Mock.Of<ICrmRecordManager>()
+                Mock.Of<ICrmRecordManager>(),
+                (IConfiguration)null
             );
             searchServiceMock
                 .Setup(s => s.RegenSearchField(It.IsAny<string>(), It.IsAny<EntityRecord>(), It.IsAny<List<string>>()));

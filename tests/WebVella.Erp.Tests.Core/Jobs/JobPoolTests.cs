@@ -123,7 +123,7 @@ namespace WebVella.Erp.Tests.Core.Jobs
 			var configData = new Dictionary<string, string>
 			{
 				{ "Jobs:MaxThreadPoolSize", maxThreads.ToString() },
-				{ "ConnectionStrings:Default", "Host=localhost;Port=5432;Database=test_db;Username=test;Password=test;" }
+				{ "ConnectionStrings:Default", "Host=localhost;Port=5432;Database=erp_core;Username=dev;Password=dev;" }
 			};
 			var config = new ConfigurationBuilder()
 				.AddInMemoryCollection(configData)

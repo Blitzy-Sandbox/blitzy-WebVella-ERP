@@ -58,7 +58,7 @@ namespace WebVella.Erp.Tests.Core.Controllers
         // Constants matching the Core Platform Service JWT configuration
         // from JwtTokenOptions.DefaultDevelopmentKey and Program.cs defaults.
         // =====================================================================
-        private const string JwtSigningKey = "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKe";
+        private const string JwtSigningKey = "DEVELOPMENT_ONLY_KEY__OVERRIDE_VIA_Settings__Jwt__Key_ENV_VAR";
         private const string JwtIssuer = "webvella-erp";
         private const string JwtAudience = "webvella-erp";
         private const double JwtExpiryMinutes = 1440;
