@@ -4,6 +4,7 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<AssemblyName>WebVella.Erp.Service.Project</AssemblyName>
 		<RootNamespace>WebVella.Erp.Service.Project</RootNamespace>
+		<Version>1.7.7</Version>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 		<DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
 		<Nullable>disable</Nullable>

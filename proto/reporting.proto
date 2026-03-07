@@ -48,6 +48,14 @@ import "common.proto";
 // The service operates in an event-driven model: it receives domain events from
 // the Project and Core services, maintains materialized views of aggregated data,
 // and exposes query RPCs for the Gateway/BFF to consume.
+//
+// NOTE: This proto defines the gRPC service contract for client-side code
+// generation and potential future server-side implementation. The Reporting
+// microservice currently exposes REST endpoints only (via ReportController)
+// and does not host a gRPC server. The Gateway communicates with the
+// Reporting service via HTTP/REST proxying. This service definition serves
+// as the canonical contract for inter-service communication and may be
+// activated as a server-side gRPC endpoint in a future iteration.
 service ReportingService {
 
   // ---------------------------------------------------------------------------

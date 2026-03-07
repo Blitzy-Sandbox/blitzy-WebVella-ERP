@@ -5,11 +5,11 @@
 ---
 
 [![Project Homepage](https://img.shields.io/badge/Homepage-blue?style=for-the-badge)](https://webvella.com)
-[![Dotnet](https://img.shields.io/badge/platform-.NET-blue?style=for-the-badge)](https://www.nuget.org/packages/WebVella.ERP)
+[![Dotnet](https://img.shields.io/badge/platform-.NET%2010-blue?style=for-the-badge)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![GitHub Repo stars](https://img.shields.io/github/stars/WebVella/WebVella-ERP?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/stargazers)
-[![Nuget version](https://img.shields.io/nuget/v/WebVella.ERP?style=for-the-badge)](https://www.nuget.org/packages/WebVella.ERP)
-[![Nuget download](https://img.shields.io/nuget/dt/WebVella.ERP?style=for-the-badge)](https://www.nuget.org/packages/WebVella.ERP)
-[![WebVella Document Templates License](https://img.shields.io/badge/MIT-green?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt)
+[![GitHub release](https://img.shields.io/github/v/release/WebVella/WebVella-ERP?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/releases)
+[![GitHub downloads](https://img.shields.io/github/downloads/WebVella/WebVella-ERP/total?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/releases)
+[![License](https://img.shields.io/badge/Apache--2.0-green?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt)
 
 ---
 
@@ -59,7 +59,7 @@ The **Shared Kernel** library (`src/SharedKernel/WebVella.Erp.SharedKernel/`) co
 - **Exceptions/** — `StorageException`, `ValidationException`, and other shared error types
 - **Fts/** — Bulgarian full-text search rules and configuration
 
-The Shared Kernel contains only pure contracts, interfaces, and stateless utilities — no service logic or database access.
+The Shared Kernel contains contracts, interfaces, shared database helpers, and stateless utilities — no service-specific business logic.
 
 ## Repository Structure
 
@@ -116,7 +116,7 @@ git clone https://github.com/WebVella/WebVella-ERP.git
 cd WebVella-ERP
 
 # Start all services with Docker Compose (includes PostgreSQL, Redis, RabbitMQ)
-docker-compose up
+docker compose up
 ```
 
 The API Gateway will be available at `http://localhost:5000`. All existing REST API v3 endpoints (`/api/v3/{locale}/...`) are routed through the gateway to the appropriate backend microservice.
@@ -138,7 +138,7 @@ dotnet run
 To validate cloud-native features (SNS, SQS, S3) against LocalStack:
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.localstack.yml up
+docker compose -f docker-compose.yml -f docker-compose.localstack.yml up
 ```
 
 This brings up a fully functional stack with all services, infrastructure, and LocalStack emulating AWS services on port 4566.

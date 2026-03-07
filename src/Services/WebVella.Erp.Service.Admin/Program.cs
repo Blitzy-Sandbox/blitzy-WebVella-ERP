@@ -207,15 +207,15 @@ namespace WebVella.Erp.Service.Admin
 			// MassTransit + RabbitMQ (event-driven inter-service messaging)
 			// Replaces the monolith's PostgreSQL LISTEN/NOTIFY pub/sub
 			// (WebVella.Erp/Notifications/) with asynchronous domain events.
-			// Configuration from appsettings.json → Messaging:RabbitMq section.
+			// Configuration from appsettings.json → Messaging:RabbitMQ section.
 			// ================================================================
 			builder.Services.AddMassTransit(x =>
 			{
 				x.UsingRabbitMq((context, cfg) =>
 				{
-					var rabbitHost = configuration["Messaging:RabbitMq:Host"] ?? "localhost";
-					var rabbitUser = configuration["Messaging:RabbitMq:Username"] ?? "guest";
-					var rabbitPass = configuration["Messaging:RabbitMq:Password"] ?? "guest";
+					var rabbitHost = configuration["Messaging:RabbitMQ:Host"] ?? "localhost";
+					var rabbitUser = configuration["Messaging:RabbitMQ:Username"] ?? "guest";
+					var rabbitPass = configuration["Messaging:RabbitMQ:Password"] ?? "guest";
 
 					cfg.Host(rabbitHost, "/", h =>
 					{

@@ -22,6 +22,7 @@
     <!-- Service identity and metadata -->
     <AssemblyName>WebVella.Erp.Service.Crm</AssemblyName>
     <RootNamespace>WebVella.Erp.Service.Crm</RootNamespace>
+    <Version>1.7.7</Version>
     <!-- TargetFramework (net10.0), LangVersion (latest), Nullable (enable),
          ImplicitUsings (enable), and SatelliteResourceLanguages (en) are
          inherited from Directory.Build.props -->
