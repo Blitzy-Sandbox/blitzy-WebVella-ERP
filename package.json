@@ -57,7 +57,7 @@
     "nx": "^20.0.0",
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
-    "vitest": "^2.1.0"
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.995.0",
