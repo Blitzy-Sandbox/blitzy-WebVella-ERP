@@ -46,7 +46,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Assembly identity -->
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <AssemblyName>WebVellaErp.Crm</AssemblyName>
     <RootNamespace>WebVellaErp.Crm</RootNamespace>
 
@@ -56,9 +56,10 @@
 
     <!-- Native AOT configuration for Lambda cold start optimization (target < 1 second)
          and Lambda package size optimization (target < 250MB unzipped per AAP §0.8.2) -->
-    <PublishAot>true</PublishAot>
+    <PublishAot>false</PublishAot>
     <StripSymbols>true</StripSymbols>
     <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <EnableTrimming>true</EnableTrimming>
 
@@ -85,6 +86,7 @@
     <!-- Lambda runtime interface: ILambdaContext, ILambdaLogger, LambdaSerializerAttribute.
          Required for all .NET Lambda function handlers in this service. -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
 
     <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
          DefaultLambdaJsonSerializer preferred over Newtonsoft.Json for new code paths

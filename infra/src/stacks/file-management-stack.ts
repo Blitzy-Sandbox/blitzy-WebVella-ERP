@@ -309,6 +309,17 @@ export class FileManagementStack extends cdk.Stack {
           type: dynamodb.AttributeType.STRING,
         },
       },
+      /* filepath-index: enables exact match and begins_with queries by
+         normalized file path.  Used by FileMetadataRepository.FindByFilePathAsync
+         and FindAllAsync(startsWithPath) to replace monolith's
+         DbFileRepository.Find(filepath) and FindAll(startsWithPath). */
+      {
+        indexName: 'filepath-index',
+        partitionKey: {
+          name: 'filepath',
+          type: dynamodb.AttributeType.STRING,
+        },
+      },
     ];
 
     const fileMetadataTable = new WebVellaDynamoDBTable(this, 'FileMetadataTable', {
@@ -430,21 +441,22 @@ export class FileManagementStack extends cdk.Stack {
 
     const uploadHandlerEnv: Record<string, string> = {
       TABLE_NAME: fileMetadataTable.tableName,
+      FILE_MANAGEMENT_TABLE_NAME: fileMetadataTable.tableName,
       BUCKET_NAME: fileBucket.bucketName,
       EVENT_TOPIC_ARN: eventBus.topicArn,
     };
 
     // Inject AWS_ENDPOINT_URL for LocalStack SDK redirect
     if (isLocalStack) {
-      uploadHandlerEnv['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+      uploadHandlerEnv['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     const uploadHandler = new WebVellaLambdaService(this, 'UploadHandler', {
       serviceName: 'file-management',
       functionName: 'upload',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/file-management/src',
-      handler: 'bootstrap',
+      codePath: '../services/file-management/publish',
+      handler: 'WebVellaErp.FileManagement::WebVellaErp.FileManagement.Functions.UploadHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 60,
@@ -469,20 +481,21 @@ export class FileManagementStack extends cdk.Stack {
 
     const downloadHandlerEnv: Record<string, string> = {
       TABLE_NAME: fileMetadataTable.tableName,
+      FILE_MANAGEMENT_TABLE_NAME: fileMetadataTable.tableName,
       BUCKET_NAME: fileBucket.bucketName,
     };
 
     // Inject AWS_ENDPOINT_URL for LocalStack SDK redirect
     if (isLocalStack) {
-      downloadHandlerEnv['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+      downloadHandlerEnv['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     const downloadHandler = new WebVellaLambdaService(this, 'DownloadHandler', {
       serviceName: 'file-management',
       functionName: 'download',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/file-management/src',
-      handler: 'bootstrap',
+      codePath: '../services/file-management/publish',
+      handler: 'WebVellaErp.FileManagement::WebVellaErp.FileManagement.Functions.DownloadHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,

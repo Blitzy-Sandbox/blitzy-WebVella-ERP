@@ -12,9 +12,9 @@ namespace WebVellaErp.Invoicing.Migrations
     /// CreateRelation) with a versioned, auditable migration script.
     ///
     /// Tables created:
-    ///   - invoicing.invoices        — Invoice headers with status, amounts, audit columns
-    ///   - invoicing.invoice_line_items — Individual line items belonging to an invoice
-    ///   - invoicing.payments        — Payment records associated with invoices
+    ///   - invoicing.invoices    — Invoice headers with status, amounts, audit columns
+    ///   - invoicing.line_items — Individual line items belonging to an invoice
+    ///   - invoicing.payments   — Payment records associated with invoices
     ///
     /// Design decisions derived from source monolith:
     ///   - UUID primary keys with uuid_generate_v4() default (DbRepository.cs line 233, updated from v1 to v4)
@@ -63,15 +63,15 @@ namespace WebVellaErp.Invoicing.Migrations
             // ──────────────────────────────────────────────────────────────
             Create.Table("invoices").InSchema("invoicing")
                 .WithColumn("id").AsGuid().NotNullable().PrimaryKey("pk_invoices")
-                .WithColumn("number").AsString(200).NotNullable()
+                .WithColumn("invoice_number").AsString(200).NotNullable()
                 .WithColumn("customer_id").AsGuid().NotNullable()
                 .WithColumn("status").AsString(50).NotNullable().WithDefaultValue("draft")
-                .WithColumn("issue_date").AsDate().Nullable()
-                .WithColumn("due_date").AsDate().Nullable()
-                .WithColumn("subtotal").AsDecimal().NotNullable().WithDefaultValue(0m)
+                .WithColumn("issue_date").AsCustom("timestamptz").Nullable()
+                .WithColumn("due_date").AsCustom("timestamptz").Nullable()
+                .WithColumn("sub_total").AsDecimal().NotNullable().WithDefaultValue(0m)
                 .WithColumn("tax_amount").AsDecimal().NotNullable().WithDefaultValue(0m)
                 .WithColumn("total_amount").AsDecimal().NotNullable().WithDefaultValue(0m)
-                .WithColumn("currency").AsString(10).NotNullable().WithDefaultValue("USD")
+                .WithColumn("currency").AsCustom("jsonb").Nullable()
                 .WithColumn("notes").AsCustom("text").Nullable()
                 .WithColumn("created_by").AsGuid().NotNullable()
                 .WithColumn("created_on").AsCustom("timestamptz").NotNullable()
@@ -117,9 +117,9 @@ namespace WebVellaErp.Invoicing.Migrations
 
             // UNIQUE constraint on invoice number for human-readable identifier uniqueness.
             // Pattern from DbRepository.CreateUniqueConstraint() (lines 310-332).
-            Create.Index("uq_invoices_number")
+            Create.Index("uq_invoices_invoice_number")
                 .OnTable("invoices").InSchema("invoicing")
-                .OnColumn("number").Ascending()
+                .OnColumn("invoice_number").Ascending()
                 .WithOptions().Unique();
 
             // Composite index on (status, due_date) for the common "overdue invoices" query:
@@ -130,12 +130,12 @@ namespace WebVellaErp.Invoicing.Migrations
                 .OnColumn("due_date").Ascending();
 
             // ──────────────────────────────────────────────────────────────
-            // Step 5: Create "invoice_line_items" Table
+            // Step 5: Create "line_items" Table
             // Individual line items belonging to an invoice. Each line item records
             // a description, quantity, unit price, tax rate, and computed line total.
             // ──────────────────────────────────────────────────────────────
-            Create.Table("invoice_line_items").InSchema("invoicing")
-                .WithColumn("id").AsGuid().NotNullable().PrimaryKey("pk_invoice_line_items")
+            Create.Table("line_items").InSchema("invoicing")
+                .WithColumn("id").AsGuid().NotNullable().PrimaryKey("pk_line_items")
                 .WithColumn("invoice_id").AsGuid().NotNullable()
                 .WithColumn("description").AsCustom("text").NotNullable()
                 .WithColumn("quantity").AsDecimal().NotNullable().WithDefaultValue(1m)
@@ -145,7 +145,7 @@ namespace WebVellaErp.Invoicing.Migrations
                 .WithColumn("sort_order").AsInt32().NotNullable().WithDefaultValue(0);
 
             // UUID default for line item primary keys.
-            Execute.Sql("ALTER TABLE invoicing.invoice_line_items ALTER COLUMN id SET DEFAULT uuid_generate_v4();");
+            Execute.Sql("ALTER TABLE invoicing.line_items ALTER COLUMN id SET DEFAULT uuid_generate_v4();");
 
             // Foreign key from invoice_line_items.invoice_id → invoices.id with CASCADE delete.
             // When an invoice is deleted, all associated line items are removed automatically.
@@ -153,22 +153,22 @@ namespace WebVellaErp.Invoicing.Migrations
             //   ALTER TABLE "{targetTable}" ADD CONSTRAINT "{relName}" FOREIGN KEY ("{targetField}")
             //   REFERENCES "{originTable}" ("{originField}");
             Create.ForeignKey("fk_line_items_invoice")
-                .FromTable("invoice_line_items").InSchema("invoicing").ForeignColumn("invoice_id")
+                .FromTable("line_items").InSchema("invoicing").ForeignColumn("invoice_id")
                 .ToTable("invoices").InSchema("invoicing").PrimaryColumn("id")
                 .OnDelete(Rule.Cascade);
 
             // ──────────────────────────────────────────────────────────────
-            // Step 6: Indexes for "invoice_line_items" Table
+            // Step 6: Indexes for "line_items" Table
             // ──────────────────────────────────────────────────────────────
 
             // Index on invoice_id for efficient join/lookup of line items by invoice.
             Create.Index("idx_line_items_invoice_id")
-                .OnTable("invoice_line_items").InSchema("invoicing")
+                .OnTable("line_items").InSchema("invoicing")
                 .OnColumn("invoice_id").Ascending();
 
             // Index on sort_order for ordered retrieval of line items within an invoice.
             Create.Index("idx_line_items_sort_order")
-                .OnTable("invoice_line_items").InSchema("invoicing")
+                .OnTable("line_items").InSchema("invoicing")
                 .OnColumn("sort_order").Ascending();
 
             // ──────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ namespace WebVellaErp.Invoicing.Migrations
                 .WithColumn("id").AsGuid().NotNullable().PrimaryKey("pk_payments")
                 .WithColumn("invoice_id").AsGuid().NotNullable()
                 .WithColumn("amount").AsDecimal().NotNullable()
-                .WithColumn("payment_date").AsDate().NotNullable()
+                .WithColumn("payment_date").AsCustom("timestamptz").NotNullable()
                 .WithColumn("payment_method").AsString(100).NotNullable()
                 .WithColumn("reference_number").AsString(200).Nullable()
                 .WithColumn("notes").AsCustom("text").Nullable()
@@ -236,8 +236,8 @@ namespace WebVellaErp.Invoicing.Migrations
             // 1. Drop payments table first (references invoices via fk_payments_invoice).
             Delete.Table("payments").InSchema("invoicing");
 
-            // 2. Drop invoice_line_items (references invoices via fk_line_items_invoice).
-            Delete.Table("invoice_line_items").InSchema("invoicing");
+            // 2. Drop line_items (references invoices via fk_line_items_invoice).
+            Delete.Table("line_items").InSchema("invoicing");
 
             // 3. Drop invoices table last (referenced by both payments and line items).
             Delete.Table("invoices").InSchema("invoicing");

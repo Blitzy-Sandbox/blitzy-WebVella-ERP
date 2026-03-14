@@ -218,6 +218,17 @@ export class InventoryStack extends cdk.Stack {
           type: dynamodb.AttributeType.STRING,
         },
       },
+      {
+        indexName: 'GSI3',
+        partitionKey: {
+          name: 'GSI3PK',
+          type: dynamodb.AttributeType.STRING,
+        },
+        sortKey: {
+          name: 'GSI3SK',
+          type: dynamodb.AttributeType.STRING,
+        },
+      },
     ];
 
     const inventoryTable = new WebVellaDynamoDBTable(this, 'InventoryTable', {
@@ -303,8 +314,8 @@ export class InventoryStack extends cdk.Stack {
       serviceName: 'erp-inventory',
       functionName: 'task',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/inventory/src',
-      handler: 'bootstrap',
+      codePath: '../services/inventory/publish',
+      handler: 'WebVellaErp.Inventory::WebVellaErp.Inventory.Functions.TaskHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -314,6 +325,7 @@ export class InventoryStack extends cdk.Stack {
         'Publishes inventory.task.{created,updated,deleted} events.',
       environment: {
         TABLE_NAME: inventoryTable.tableName,
+        DYNAMODB_TABLE_NAME: inventoryTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
@@ -343,8 +355,8 @@ export class InventoryStack extends cdk.Stack {
       serviceName: 'erp-inventory',
       functionName: 'timelog',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/inventory/src',
-      handler: 'bootstrap',
+      codePath: '../services/inventory/publish',
+      handler: 'WebVellaErp.Inventory::WebVellaErp.Inventory.Functions.TimelogHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -354,6 +366,7 @@ export class InventoryStack extends cdk.Stack {
         'Publishes inventory.timelog.{created,updated} domain events.',
       environment: {
         TABLE_NAME: inventoryTable.tableName,
+        DYNAMODB_TABLE_NAME: inventoryTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],

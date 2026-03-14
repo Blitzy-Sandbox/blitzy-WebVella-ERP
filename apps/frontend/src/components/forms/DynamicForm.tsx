@@ -174,6 +174,14 @@ interface DynamicFormProps {
   /** Custom submit handler. Receives the native form event. */
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 
+  /**
+   * When true (default), HTML5 constraint validation is suppressed via
+   * the `noValidate` form attribute.  Set to false to re-enable native
+   * browser validation (`:invalid` pseudo-class, tooltips, submission
+   * prevention) for forms that rely on `required` / `pattern` attributes.
+   */
+  disableNativeValidation?: boolean;
+
   /* ── Composition ───────────────────────────────────────── */
 
   /** Child elements (FormSection, FormRow, FieldComponents). */
@@ -263,6 +271,7 @@ function DynamicForm({
   isVisible = true,
   className,
   onSubmit,
+  disableNativeValidation = true,
   children,
 }: DynamicFormProps): ReactNode {
   /* ── 1. Auto-generate form ID (source: lines 92-95) ────── */
@@ -343,7 +352,7 @@ function DynamicForm({
           action={computedAction}
           className={className}
           onSubmit={handleSubmit}
-          noValidate
+          noValidate={disableNativeValidation}
         >
           {children}
         </form>

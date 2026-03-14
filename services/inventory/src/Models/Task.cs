@@ -64,7 +64,7 @@ namespace WebVellaErp.Inventory.Models
         /// Used to construct the <see cref="Key"/> as <c>{project_abbr}-{number:N0}</c>.
         /// </summary>
         [JsonPropertyName("number")]
-        public decimal Number { get; set; }
+        public decimal? Number { get; set; }
 
         /// <summary>
         /// Computed task key combining project abbreviation and task number.
@@ -138,7 +138,7 @@ namespace WebVellaErp.Inventory.Models
         /// Used for project planning and capacity calculations.
         /// </summary>
         [JsonPropertyName("estimated_minutes")]
-        public decimal EstimatedMinutes { get; set; }
+        public decimal? EstimatedMinutes { get; set; }
 
         /// <summary>
         /// Timestamp when the active timelog tracking was started for this task.
@@ -200,7 +200,7 @@ namespace WebVellaErp.Inventory.Models
         /// Initialized to 0 in recurrence template code (line 622).
         /// </summary>
         [JsonPropertyName("x_billable_minutes")]
-        public decimal XBillableMinutes { get; set; }
+        public decimal? XBillableMinutes { get; set; }
 
         /// <summary>
         /// Accumulated non-billable minutes from all associated timelogs.
@@ -210,7 +210,7 @@ namespace WebVellaErp.Inventory.Models
         /// Initialized to 0 in recurrence template code (line 623).
         /// </summary>
         [JsonPropertyName("x_nonbillable_minutes")]
-        public decimal XNonBillableMinutes { get; set; }
+        public decimal? XNonBillableMinutes { get; set; }
 
         /// <summary>
         /// Groups recurring task instances together. All tasks generated from the same

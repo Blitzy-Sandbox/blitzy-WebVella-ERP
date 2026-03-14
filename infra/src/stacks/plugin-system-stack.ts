@@ -235,8 +235,8 @@ export class PluginSystemStack extends cdk.Stack {
       serviceName: 'plugin-system',
       functionName: 'handler',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/plugin-system/src',
-      handler: 'bootstrap',
+      codePath: '../services/plugin-system/publish',
+      handler: 'WebVellaErp.PluginSystem::WebVellaErp.PluginSystem.Functions.PluginHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -246,6 +246,7 @@ export class PluginSystemStack extends cdk.Stack {
         'discovery and plugin_data PostgreSQL persistence.',
       environment: {
         TABLE_NAME: pluginTable.tableName,
+        PLUGIN_SYSTEM_TABLE_NAME: pluginTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],

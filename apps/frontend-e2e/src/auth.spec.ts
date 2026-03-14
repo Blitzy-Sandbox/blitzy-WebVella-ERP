@@ -10,7 +10,7 @@
  *   AuthService.cs                   — cookie + JWT authentication
  *   JwtMiddleware.cs                 — Bearer token extraction/validation
  *
- * Test user: erp@webvella.com / erp (default system user seeded via
+ * Test user: erp@webvella.com / erpadmin (default system user seeded via
  *            tools/scripts/seed-test-data.sh per AAP §0.7.5)
  *
  * Critical rules (AAP §0.8.1, §0.8.4):
@@ -41,7 +41,7 @@ const TEST_EMAIL: string =
  * Original monolith used MD5-hashed password for erp@webvella.com.
  */
 const TEST_PASSWORD: string =
-  process.env.TEST_PASSWORD ?? 'erp';
+  process.env.TEST_PASSWORD ?? 'erpadmin';
 
 /** Login page route — replaces login.cshtml Razor Page. */
 const LOGIN_URL = '/login';
@@ -240,10 +240,11 @@ test.describe('Authentication', () => {
       // should not be empty.
       await expect(page.locator('body')).not.toBeEmpty();
 
-      // The user menu or user indicator should show the authenticated user's
-      // email or display name (replaces UserMenu ViewComponent).
+      // The user menu button's aria-label contains the authenticated
+      // user's email (e.g. "User menu for erp@webvella.com").
       const userIndicator = page
-        .getByText(TEST_EMAIL)
+        .getByRole('button', { name: new RegExp(TEST_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })
+        .or(page.getByText(TEST_EMAIL))
         .or(page.getByText(/erp/i));
       await expect(userIndicator.first()).toBeVisible({ timeout: AUTH_TIMEOUT });
     });
@@ -680,9 +681,11 @@ test.describe('Authentication', () => {
         expect(page.url()).not.toContain('/login');
       }
 
-      // Verify the user is still shown as authenticated
+      // Verify the user is still shown as authenticated.
+      // The user menu button's aria-label includes the email address.
       const userIndicator = page
-        .getByText(TEST_EMAIL)
+        .getByRole('button', { name: new RegExp(TEST_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })
+        .or(page.getByText(TEST_EMAIL))
         .or(page.getByText(/erp/i));
       await expect(userIndicator.first()).toBeVisible({
         timeout: AUTH_TIMEOUT,
@@ -717,9 +720,11 @@ test.describe('Authentication', () => {
       await page.waitForTimeout(2_000);
       expect(page.url()).not.toContain('/login');
 
-      // Verify user identity is still reflected in the UI
+      // Verify user identity is still reflected in the UI.
+      // The user menu button's aria-label includes the email address.
       const userIndicator = page
-        .getByText(TEST_EMAIL)
+        .getByRole('button', { name: new RegExp(TEST_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })
+        .or(page.getByText(TEST_EMAIL))
         .or(page.getByText(/erp/i));
       await expect(userIndicator.first()).toBeVisible({
         timeout: AUTH_TIMEOUT,

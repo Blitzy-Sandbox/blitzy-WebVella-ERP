@@ -354,6 +354,16 @@ namespace WebVellaErp.EntityManagement.Models
         public string EntityName { get; set; } = string.Empty;
 
         /// <summary>
+        /// Serializable field-type discriminator.
+        /// Returns the <see cref="FieldType"/> enum value that identifies this field's
+        /// concrete subclass. Required by the React SPA to select the correct renderer
+        /// (e.g. GuidField = 16, TextField = 18). The value is computed dynamically via
+        /// <see cref="GetFieldType"/> so it always reflects the runtime type.
+        /// </summary>
+        [JsonPropertyName("fieldType")]
+        public FieldType FieldTypeValue => GetFieldType();
+
+        /// <summary>
         /// Default constructor initializes all boolean properties to false and creates
         /// empty permissions. Follows source pattern of setting Permissions = null first,
         /// then immediately assigning a new FieldPermissions instance.

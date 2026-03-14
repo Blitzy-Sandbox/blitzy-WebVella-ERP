@@ -18,8 +18,8 @@
  */
 
 import { useEffect, useCallback, Component, type ReactNode } from 'react';
-import { BrowserRouter } from 'react-router-dom';
-import { AppRouter } from './router';
+import { RouterProvider } from 'react-router-dom';
+import { browserRouter } from './router';
 import { useAuthStore, type AuthUser } from './stores/authStore';
 import * as auth from './api/auth';
 
@@ -255,11 +255,9 @@ function AuthProvider({
 function App(): React.JSX.Element {
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <AuthProvider>
-          <AppRouter />
-        </AuthProvider>
-      </BrowserRouter>
+      <AuthProvider>
+        <RouterProvider router={browserRouter} />
+      </AuthProvider>
     </ErrorBoundary>
   );
 }

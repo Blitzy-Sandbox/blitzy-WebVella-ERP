@@ -185,6 +185,15 @@ namespace WebVellaErp.Crm.Functions
         private readonly IConfiguration _configuration;
         private readonly string? _snsTopicArn;
 
+        /// <summary>
+        /// Lazily-initialised ContactHandler for delegating contact-specific routes.
+        /// All CRM routes arrive via a single API Gateway {proxy+} route targeting
+        /// this AccountHandler Lambda. Contact-path requests (/contacts/*) are
+        /// forwarded to the ContactHandler, which shares the same DynamoDB table
+        /// and DI setup but uses its own model/validation logic.
+        /// </summary>
+        private ContactHandler? _contactHandler;
+
         #endregion
 
         #region Constructors
@@ -285,13 +294,28 @@ namespace WebVellaErp.Crm.Functions
             ILambdaContext context)
         {
             var correlationId = GetCorrelationId(request);
+            var rawPath = request.RequestContext?.Http?.Path ?? request.RawPath ?? string.Empty;
 
             _logger.LogInformation(
                 "AccountHandler invoked. Method: {Method}, Path: {Path}, CorrelationId: {CorrelationId}, RequestId: {RequestId}",
                 request.RequestContext?.Http?.Method ?? "UNKNOWN",
-                request.RequestContext?.Http?.Path ?? "UNKNOWN",
+                rawPath,
                 correlationId,
                 context.AwsRequestId);
+
+            // ── Contact-path delegation ────────────────────────────────────
+            // All CRM routes arrive at this Lambda via a single API Gateway
+            // {proxy+} catch-all route.  Contact-specific paths (/contacts/*)
+            // are forwarded to the ContactHandler which owns its own model,
+            // validation, and domain-event logic.
+            if (rawPath.Contains("/contacts", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation(
+                    "AccountHandler: delegating to ContactHandler for path {Path}. CorrelationId: {CorrelationId}",
+                    rawPath, correlationId);
+                _contactHandler ??= new ContactHandler();
+                return await _contactHandler.HandleAsync(request, context).ConfigureAwait(false);
+            }
 
             try
             {
@@ -1049,10 +1073,25 @@ namespace WebVellaErp.Crm.Functions
         /// </summary>
         private static string? ExtractPathParameter(APIGatewayHttpApiV2ProxyRequest request, string paramName)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(paramName, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                // 1. Try named parameter first (works when API GW uses named path vars)
+                if (request.PathParameters.TryGetValue(paramName, out var value) &&
+                    !string.IsNullOrEmpty(value))
+                    return value;
+                // 2. Fall back to {proxy+} path parameter used by HTTP API v2 catch-all routes.
+                // Proxy path is "accounts/{id}" or "contacts/{id}" — ID is the last GUID segment.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    // Walk segments looking for a GUID (skip resource names like "accounts")
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out _))
+                            return segments[i];
+                    }
+                }
             }
             return null;
         }

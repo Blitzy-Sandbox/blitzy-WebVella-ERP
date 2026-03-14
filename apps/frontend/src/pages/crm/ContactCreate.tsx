@@ -128,13 +128,13 @@ export default function ContactCreate() {
   const { data: salutationsResponse, isLoading: isSalutationsLoading } =
     useQuery({
       queryKey: ['crm', 'salutations'],
-      queryFn: () => apiClient.get('/v1/crm/salutations'),
+      queryFn: () => apiClient.get('/crm/salutations'),
       staleTime: REFERENCE_DATA_STALE_TIME,
     });
 
   const { data: countriesResponse, isLoading: isCountriesLoading } = useQuery({
     queryKey: ['crm', 'countries'],
-    queryFn: () => apiClient.get('/v1/crm/countries'),
+    queryFn: () => apiClient.get('/crm/countries'),
     staleTime: REFERENCE_DATA_STALE_TIME,
   });
 
@@ -143,9 +143,11 @@ export default function ContactCreate() {
   /* ---------------------------------------------------------------- */
   const createContact = useMutation({
     mutationFn: (data: EntityRecord) =>
-      apiClient.post('/v1/crm/contacts', data),
+      apiClient.post('/crm/contacts', data),
     onSuccess: (response) => {
-      const record = response?.data?.object as EntityRecord | undefined;
+      // Handle both envelope (.data.object) and raw Lambda (.data directly)
+      const envelope = response?.data as Record<string, unknown> | undefined;
+      const record = (envelope?.object ?? envelope) as EntityRecord | undefined;
       if (record?.id) {
         navigate(`/crm/contacts/${String(record.id)}`);
       } else {
@@ -158,9 +160,14 @@ export default function ContactCreate() {
   /*  Memoised dropdown option lists                                   */
   /* ---------------------------------------------------------------- */
   const salutationOptions = useMemo<SelectOption[]>(() => {
-    const list = salutationsResponse?.data?.object;
+    const envelope = salutationsResponse?.data as Record<string, unknown> | undefined;
+    const raw = envelope?.object ?? envelope;
+    if (!raw) return [];
+    const list = Array.isArray(raw)
+      ? raw
+      : ((raw as Record<string, unknown>)?.records ?? (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.items);
     if (!Array.isArray(list)) return [];
-    return list.map((s: EntityRecord) => ({
+    return (list as EntityRecord[]).map((s: EntityRecord) => ({
       value: String(s.id ?? ''),
       label: String(
         (s as EntityRecord).label ?? (s as EntityRecord).name ?? '',
@@ -169,9 +176,14 @@ export default function ContactCreate() {
   }, [salutationsResponse]);
 
   const countryOptions = useMemo<SelectOption[]>(() => {
-    const list = countriesResponse?.data?.object;
+    const envelope = countriesResponse?.data as Record<string, unknown> | undefined;
+    const raw = envelope?.object ?? envelope;
+    if (!raw) return [];
+    const list = Array.isArray(raw)
+      ? raw
+      : ((raw as Record<string, unknown>)?.records ?? (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.items);
     if (!Array.isArray(list)) return [];
-    return list.map((c: EntityRecord) => ({
+    return (list as EntityRecord[]).map((c: EntityRecord) => ({
       value: String(c.id ?? ''),
       label: String(
         (c as EntityRecord).label ?? (c as EntityRecord).name ?? '',
@@ -274,7 +286,8 @@ export default function ContactCreate() {
 
       try {
         const result = await upload({ file });
-        const fileUrl = result?.object?.url ?? '';
+        const raw = (result as Record<string, unknown>)?.object ?? result;
+        const fileUrl = (raw as Record<string, unknown>)?.url ?? '';
         setFormState((prev) => ({ ...prev, photo: String(fileUrl) }));
       } catch {
         setErrors((prev) => ({

@@ -402,8 +402,8 @@ seed_identity_table() {
       "SK": {"S": "META"},
       "id": {"S": "'"${ADMINISTRATOR_ROLE_ID}"'"},
       "name": {"S": "administrator"},
-      "description": {"S": ""},
-      "entityType": {"S": "role"},
+      "description": {"S": "Administrator role with full system access"},
+      "EntityType": {"S": "ROLE_META"},
       "createdAt": {"S": "2010-10-10T00:00:00Z"},
       "system": {"BOOL": true}
     }' > /dev/null 2>&1 || true
@@ -417,8 +417,8 @@ seed_identity_table() {
       "SK": {"S": "META"},
       "id": {"S": "'"${REGULAR_ROLE_ID}"'"},
       "name": {"S": "regular"},
-      "description": {"S": ""},
-      "entityType": {"S": "role"},
+      "description": {"S": "Regular user role with standard access"},
+      "EntityType": {"S": "ROLE_META"},
       "createdAt": {"S": "2010-10-10T00:00:00Z"},
       "system": {"BOOL": true}
     }' > /dev/null 2>&1 || true
@@ -432,8 +432,8 @@ seed_identity_table() {
       "SK": {"S": "META"},
       "id": {"S": "'"${GUEST_ROLE_ID}"'"},
       "name": {"S": "guest"},
-      "description": {"S": ""},
-      "entityType": {"S": "role"},
+      "description": {"S": "Guest role with limited access"},
+      "EntityType": {"S": "ROLE_META"},
       "createdAt": {"S": "2010-10-10T00:00:00Z"},
       "system": {"BOOL": true}
     }' > /dev/null 2>&1 || true

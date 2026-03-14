@@ -103,10 +103,10 @@ function AccountList(): React.ReactElement {
     ) || DEFAULT_PAGE_SIZE,
   );
 
-  const sortBy = searchParams.get('sortBy') ?? 'name';
+  const sortBy = searchParams.get('sortBy') ?? 'created_on';
 
   const sortOrder: 'asc' | 'desc' =
-    searchParams.get('sortOrder') === 'desc' ? 'desc' : 'asc';
+    searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc';
 
   // ── Local search input state with debounce ──────────────────────────
   // The input field is controlled by local state to avoid hitting the API
@@ -169,19 +169,30 @@ function AccountList(): React.ReactElement {
         page,
         pageSize,
         sortBy,
-        sortOrder,
+        sortDir: sortOrder,
       }),
     // Keep previous page data visible while the next page loads.
     // Replaces TanStack Query v4's keepPreviousData boolean.
     placeholderData: (previousData) => previousData,
-    // Cache data for 30 seconds before marking stale
-    staleTime: 30_000,
+    // Cache data for 5 seconds before marking stale — ensures freshness after mutations
+    staleTime: 5_000,
   });
 
   // Extract records and total count from the API response envelope.
-  // ApiResponse<EntityRecordList>.object contains { records, totalCount }.
-  const records: EntityRecord[] = response?.object?.records ?? [];
-  const totalCount: number = response?.object?.totalCount ?? 0;
+  // The CRM Lambda returns either the ApiResponse envelope
+  // ({ success, object: { records, totalCount } }) or a flat shape
+  // ({ data: [...], meta: { total } }).  Handle both gracefully.
+  const rawObject = (response?.object ?? response) as Record<string, unknown> | undefined;
+  const rawRecords = (
+    rawObject?.records ?? rawObject?.data ?? rawObject?.items
+  );
+  const records: EntityRecord[] = Array.isArray(rawRecords)
+    ? (rawRecords as EntityRecord[])
+    : [];
+  const metaObj = rawObject?.meta as Record<string, number> | undefined;
+  const totalCount: number = Number(
+    rawObject?.totalCount ?? metaObj?.total ?? rawObject?.total ?? records.length,
+  );
 
   // ── Event handlers ───────────────────────────────────────────────────
 

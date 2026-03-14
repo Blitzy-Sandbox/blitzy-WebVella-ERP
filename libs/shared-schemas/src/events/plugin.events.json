@@ -10,7 +10,7 @@
       "properties": {
         "eventType": {
           "type": "string",
-          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP §0.8.5."
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP \u00a70.8.5."
         },
         "correlationId": {
           "type": "string",
@@ -31,7 +31,9 @@
           "type": "string",
           "pattern": "^\\d+\\.\\d+$",
           "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
-          "examples": ["1.0"]
+          "examples": [
+            "1.0"
+          ]
         },
         "data": {
           "type": "object",
@@ -47,6 +49,111 @@
         "data"
       ],
       "additionalProperties": false
+    },
+    "pluginRegisteredEvent": {
+      "description": "Published when a plugin is registered.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "plugin.plugin.registered"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for plugin.plugin.registered events.",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Entity record identifier."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Entity name or label."
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "pluginActivatedEvent": {
+      "description": "Published when a plugin is activated.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "plugin.plugin.activated"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for plugin.plugin.activated events.",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "pluginDeactivatedEvent": {
+      "description": "Published when a plugin is deactivated.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "plugin.plugin.deactivated"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for plugin.plugin.deactivated events.",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -54,7 +161,9 @@
       "title": "Plugin Registered Event",
       "description": "Published when a plugin is registered with the Plugin System service. Captures the core metadata properties from the ErpPlugin abstract base class that are decorated with [JsonProperty] attributes. In the monolith, plugin registration occurs during IErpService.InitializePlugins() which discovers ErpPlugin subclasses via reflection and calls Initialize(IServiceProvider). In the target architecture, registration is an explicit API operation that persists plugin metadata to DynamoDB and publishes this event.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "properties": {
         "eventType": {
@@ -102,15 +211,25 @@
             },
             "url": {
               "oneOf": [
-                { "type": "string", "format": "uri" },
-                { "type": "null" }
+                {
+                  "type": "string",
+                  "format": "uri"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "Plugin homepage or documentation URL. Maps to ErpPlugin.Url ([JsonProperty('url')]). Nullable when no URL is available."
             },
             "repository": {
               "oneOf": [
-                { "type": "string", "format": "uri" },
-                { "type": "null" }
+                {
+                  "type": "string",
+                  "format": "uri"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "Source code repository URL. Maps to ErpPlugin.Repository ([JsonProperty('repository')]). Nullable when no public repository exists."
             },
@@ -136,9 +255,11 @@
     },
     {
       "title": "Plugin Deregistered Event",
-      "description": "Published when a plugin is deregistered (removed) from the Plugin System service. In the monolith, plugin removal was not an explicit operation — plugins were discovered via reflection at startup. In the target architecture, deregistration is an explicit API operation that removes the plugin metadata from DynamoDB and publishes this event to notify downstream consumers (e.g., Reporting service for read-model cleanup, Workflow service for scheduled job removal).",
+      "description": "Published when a plugin is deregistered (removed) from the Plugin System service. In the monolith, plugin removal was not an explicit operation \u2014 plugins were discovered via reflection at startup. In the target architecture, deregistration is an explicit API operation that removes the plugin metadata from DynamoDB and publishes this event to notify downstream consumers (e.g., Reporting service for read-model cleanup, Workflow service for scheduled job removal).",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "properties": {
         "eventType": {
@@ -174,7 +295,7 @@
             },
             "reason": {
               "type": "string",
-              "description": "Human-readable reason for the deregistration. Supports audit compliance and operational diagnostics (e.g., 'Deprecated — replaced by v2.0', 'Security vulnerability', 'License expired')."
+              "description": "Human-readable reason for the deregistration. Supports audit compliance and operational diagnostics (e.g., 'Deprecated \u2014 replaced by v2.0', 'Security vulnerability', 'License expired')."
             }
           },
           "required": [
@@ -185,6 +306,15 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "$ref": "#/$defs/pluginRegisteredEvent"
+    },
+    {
+      "$ref": "#/$defs/pluginActivatedEvent"
+    },
+    {
+      "$ref": "#/$defs/pluginDeactivatedEvent"
     }
   ]
 }

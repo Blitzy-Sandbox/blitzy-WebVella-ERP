@@ -97,23 +97,47 @@ async function authenticateTestUser(page: Page): Promise<void> {
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
     timeout: EXTENDED_TIMEOUT,
   });
+
+  // Ensure auth tokens are stored in localStorage before proceeding.
+  // The Zustand/localStorage hydration can lag behind the URL redirect.
+  await page.waitForFunction(
+    () => !!localStorage.getItem('wv_id_token'),
+    { timeout: EXTENDED_TIMEOUT },
+  );
 }
 
 /**
  * Navigate to the Notifications section and wait for the page to settle.
+ * After page.goto, we wait for both networkidle AND the absence of the
+ * loading spinner to ensure the React SPA has fully hydrated and rendered.
  */
 async function navigateToNotifications(page: Page): Promise<void> {
-  await page.goto('/notifications');
+  await page.goto('/notifications/emails');
   await page.waitForLoadState('networkidle');
+  // Wait for the loading spinner to disappear and real content to appear.
+  // The SPA shows "Loading…" status while React hydration + auth check runs.
+  await page.waitForFunction(
+    () => !document.querySelector('[role="status"]')?.textContent?.includes('Loading'),
+    { timeout: 15_000 },
+  ).catch(() => {});
+  // Fallback: wait for any heading or main content area
+  await page.locator('h1, main, [data-testid="page-title"]').first()
+    .waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
 }
 
 /**
  * Navigate to the SMTP Services settings page.
  */
 async function navigateToSmtpServices(page: Page): Promise<void> {
-  // Primary route, fall back to clicking settings nav if redirect needed
-  await page.goto('/notifications/smtp-services');
+  await page.goto('/notifications/smtp');
   await page.waitForLoadState('networkidle');
+  // Wait for loading state to clear
+  await page.waitForFunction(
+    () => !document.querySelector('[role="status"]')?.textContent?.includes('Loading'),
+    { timeout: 15_000 },
+  ).catch(() => {});
+  await page.locator('h1, main, [data-testid="smtp-services-title"]').first()
+    .waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
 }
 
 /**
@@ -359,10 +383,11 @@ test.describe('Notifications', () => {
 
       const rowVisible = await emailRow.isVisible().catch(() => false);
       if (!rowVisible) {
-        // No emails exist — verify empty state and skip detail test
-        const emptyState = page.locator(
-          '[data-testid="empty-state"], text=/no (email|notification)/i',
-        );
+        // No emails exist — verify empty state and skip detail test.
+        // Use Playwright's native text matching (not CSS text= pseudo-selector).
+        const emptyState = page
+          .locator('[data-testid="empty-state"]')
+          .or(page.getByText(/no (email|notification)/i));
         await expect(emptyState.first()).toBeVisible({ timeout: EXTENDED_TIMEOUT });
         return;
       }
@@ -421,9 +446,10 @@ test.describe('Notifications', () => {
     test('should display email content (text or html) in details', async ({
       page,
     }) => {
+      // Look for real email data rows only — skip the "No emails found" empty row
       const emailRow = page
         .locator('[data-testid="email-row"]')
-        .or(page.locator('table tbody tr'))
+        .or(page.locator('table tbody tr:not(:has([role="status"]))').filter({ hasNot: page.locator('text=/no emails/i') }))
         .first();
 
       if (!(await emailRow.isVisible().catch(() => false))) return;
@@ -442,9 +468,10 @@ test.describe('Notifications', () => {
     test('should display priority and status in email details', async ({
       page,
     }) => {
+      // Look for real email data rows — skip the empty-state row
       const emailRow = page
         .locator('[data-testid="email-row"]')
-        .or(page.locator('table tbody tr'))
+        .or(page.locator('table tbody tr:not(:has([role="status"]))').filter({ hasNot: page.locator('text=/no emails/i') }))
         .first();
 
       if (!(await emailRow.isVisible().catch(() => false))) return;
@@ -774,11 +801,18 @@ test.describe('Notifications', () => {
       await composeButton.first().click();
       await page.waitForLoadState('networkidle');
 
+      // Wait for compose form to render fully
+      await page.locator('h1:has-text("Compose"), h2:has-text("Compose")').first()
+        .waitFor({ state: 'visible', timeout: EXTENDED_TIMEOUT }).catch(() => {});
+
       // Priority selector should be present in the compose form
       const prioritySelect = page
         .locator('[data-testid="priority-select"]')
         .or(page.locator('select[name="priority"]'))
         .or(page.locator('[aria-label*="priority" i]'));
+
+      // Wait a beat for lazy-rendered form sections
+      await prioritySelect.first().waitFor({ state: 'attached', timeout: 5000 }).catch(() => {});
 
       if ((await prioritySelect.count()) > 0) {
         // Try selecting high priority
@@ -861,39 +895,40 @@ test.describe('Notifications', () => {
       await composeButton.first().click();
       await page.waitForLoadState('networkidle');
 
+      // React Router client-side navigation does not trigger a full page
+      // load, so `networkidle` resolves while the old email-list DOM is
+      // still mounted.  Wait for the compose form's subject input (the most
+      // reliable compose-specific element) before proceeding — Playwright's
+      // `waitFor` auto-retries until the element appears in the new DOM.
+      const subjectInput = page
+        .locator('[data-testid="subject-input"]')
+        .or(page.locator('input[name="subject"]'));
+      await subjectInput.first().waitFor({ state: 'visible', timeout: 15000 });
+
       const suffix = uniqueSuffix();
       const testSubject = `E2E Verify List ${suffix}`;
 
-      // Fill required fields
+      // Fill required fields — the compose form is now rendered
       const recipientInput = page
         .locator('[data-testid="recipient-input"]')
         .or(page.locator('input[name="recipient"]'))
         .or(page.locator('input[name="to"]'));
-      if ((await recipientInput.count()) > 0) {
-        await recipientInput.first().fill(`list-verify-${suffix}@example.com`);
-      }
+      await recipientInput.first().fill(`list-verify-${suffix}@example.com`);
 
-      const subjectInput = page
-        .locator('[data-testid="subject-input"]')
-        .or(page.locator('input[name="subject"]'));
-      if ((await subjectInput.count()) > 0) {
-        await subjectInput.first().fill(testSubject);
-      }
+      await subjectInput.first().fill(testSubject);
 
       const bodyInput = page
         .locator('[data-testid="body-input"]')
         .or(page.locator('textarea[name="content"]'))
         .or(page.locator('textarea[name="content_text"]'))
         .or(page.locator('textarea[name="body"]'));
-      if ((await bodyInput.count()) > 0) {
-        await bodyInput.first().fill('E2E test body content');
-      }
+      await bodyInput.first().fill('E2E test body content');
 
       // Submit
       const submitButton = page
         .locator('[data-testid="send-email"]')
-        .or(page.locator('button[type="submit"]'))
-        .or(page.locator('button:has-text("Send")'))
+        .or(page.locator('button[type="submit"]:has-text("Send")')
+          .or(page.locator('button:has-text("Send Now")')))
         .or(page.locator('button:has-text("Queue")'));
       await submitButton.first().click();
       await page.waitForLoadState('networkidle');
@@ -967,9 +1002,10 @@ test.describe('Notifications', () => {
         const itemCount = await serviceItems.count();
         // Either items exist or an empty-state message is shown
         if (itemCount === 0) {
-          const emptyState = page.locator(
-            '[data-testid="empty-state"], text=/no.*service/i, text=/no.*smtp/i',
-          );
+          const emptyState = page
+            .locator('[data-testid="empty-state"]')
+            .or(page.getByText(/no.*service/i))
+            .or(page.getByText(/no.*smtp/i));
           await expect(emptyState.first()).toBeVisible({ timeout: EXTENDED_TIMEOUT });
         }
       }
@@ -1265,6 +1301,11 @@ test.describe('Notifications', () => {
       // The monolith's ProcessSmtpQueueJob checked the email queue and processed
       // pending emails. In the new architecture, SQS-triggered Lambda processes
       // the queue. The UI should show a status indicator or pending count.
+
+      // Wait for the email list page to fully render (status filter tabs + table)
+      await page.locator('nav[aria-label="Filter emails by status"], [role="tablist"]')
+        .first().waitFor({ state: 'visible', timeout: EXTENDED_TIMEOUT }).catch(() => {});
+
       const queueStatus = page
         .locator('[data-testid="queue-status"]')
         .or(page.locator('[data-testid="pending-count"]'))
@@ -1319,9 +1360,9 @@ test.describe('Notifications', () => {
 
         // Either a count indicator or "pending" text should be present
         // (or the page has no emails at all — acceptable state)
-        const emptyState = page.locator(
-          '[data-testid="empty-state"], text=/no (email|notification)/i',
-        );
+        const emptyState = page
+          .locator('[data-testid="empty-state"]')
+          .or(page.getByText(/no (email|notification)/i));
         const isEmpty = await emptyState
           .first()
           .isVisible()

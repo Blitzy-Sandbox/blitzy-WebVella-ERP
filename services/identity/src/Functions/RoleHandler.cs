@@ -157,6 +157,28 @@ public class RoleHandler
     }
 
     /// <summary>
+    /// Single entry point for managed .NET Lambda runtime (dotnet9).
+    /// Routes API Gateway HTTP API v2 requests to the appropriate handler method.
+    /// </summary>
+    public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+        APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+    {
+        var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+        var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+        if (method == "DELETE")
+            return await HandleDeleteRole(request, context);
+        if (method == "POST" || method == "PUT")
+            return await HandleSaveRole(request, context);
+        if (method == "GET" && path.TrimEnd('/').EndsWith("/roles"))
+            return await HandleGetAllRoles(request, context);
+
+        // Default: get single role
+        return await HandleGetRole(request, context);
+    }
+
+
+    /// <summary>
     /// GET /v1/roles — Retrieves all roles.
     /// Replaces SecurityManager.GetAllRoles() which executed EQL: "SELECT * FROM role".
     /// </summary>
@@ -214,9 +236,7 @@ public class RoleHandler
                 "GetRole invoked. CorrelationId={CorrelationId}, RequestId={RequestId}",
                 correlationId, context.AwsRequestId);
 
-            if (request.PathParameters == null ||
-                !request.PathParameters.TryGetValue("roleId", out var roleIdStr) ||
-                !Guid.TryParse(roleIdStr, out var roleId))
+            if (!TryGetPathParameterGuid(request, "roleId", out var roleId))
             {
                 _logger.LogWarning(
                     "GetRole — invalid or missing roleId. CorrelationId={CorrelationId}",
@@ -357,9 +377,7 @@ public class RoleHandler
 
             // Step 4: Resolve role ID — path parameter takes precedence for PUT requests
             Guid roleId;
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue("roleId", out var pathRoleIdStr) &&
-                Guid.TryParse(pathRoleIdStr, out var pathRoleId))
+            if (TryGetPathParameterGuid(request, "roleId", out var pathRoleId))
             {
                 roleId = pathRoleId;
             }
@@ -607,11 +625,8 @@ public class RoleHandler
                 });
             }
 
-            // ── Validate roleId path parameter ──────────────────────────
-            string? roleIdStr = null;
-            request.PathParameters?.TryGetValue("roleId", out roleIdStr);
-
-            if (string.IsNullOrWhiteSpace(roleIdStr) || !Guid.TryParse(roleIdStr, out var roleId))
+            // ── Validate roleId path parameter (named or {proxy+} fallback) ──
+            if (!TryGetPathParameterGuid(request, "roleId", out var roleId))
             {
                 return BuildResponse(400, new
                 {
@@ -695,6 +710,29 @@ public class RoleHandler
     /// <summary>
     /// Builds a consistent API Gateway v2 HTTP response with JSON body and CORS headers.
     /// </summary>
+    /// <summary>
+    /// Extracts a GUID path parameter by named key, falling back to the {proxy+} catch-all parameter.
+    /// </summary>
+    private static bool TryGetPathParameterGuid(APIGatewayHttpApiV2ProxyRequest request, string paramName, out Guid value)
+    {
+        value = Guid.Empty;
+        if (request.PathParameters == null) return false;
+        if (request.PathParameters.TryGetValue(paramName, out var paramValue) &&
+            Guid.TryParse(paramValue, out value) && value != Guid.Empty)
+            return true;
+        // Fallback: extract from {proxy+} catch-all — scan segments right-to-left for GUID
+        if (request.PathParameters.TryGetValue("proxy", out var proxy) && !string.IsNullOrEmpty(proxy))
+        {
+            var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            for (var i = segments.Length - 1; i >= 0; i--)
+            {
+                if (Guid.TryParse(segments[i], out value) && value != Guid.Empty)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private static APIGatewayHttpApiV2ProxyResponse BuildResponse(int statusCode, object body)
     {
         return new APIGatewayHttpApiV2ProxyResponse
@@ -753,12 +791,64 @@ public class RoleHandler
     /// </summary>
     private User? ExtractCallerFromContext(APIGatewayHttpApiV2ProxyRequest request)
     {
-        var claims = request.RequestContext?.Authorizer?.Jwt?.Claims;
-        if (claims == null || claims.Count == 0)
+        // HTTP API v2 supports two authorizer types:
+        //   1. Native JWT authorizer  → claims in Authorizer.Jwt.Claims (IDictionary<string,string>)
+        //   2. Custom Lambda authorizer → claims in Authorizer.Lambda (IDictionary<string,object>)
+        // LocalStack uses a custom Lambda authorizer, so we must check Lambda first.
+
+        var lambdaCtx = request.RequestContext?.Authorizer?.Lambda;
+        if (lambdaCtx != null && lambdaCtx.Count > 0)
+        {
+            return ExtractCallerFromLambdaAuthorizer(lambdaCtx);
+        }
+
+        var jwtClaims = request.RequestContext?.Authorizer?.Jwt?.Claims;
+        if (jwtClaims != null && jwtClaims.Count > 0)
+        {
+            return ExtractCallerFromJwtClaims(jwtClaims);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts caller from custom Lambda authorizer context.
+    /// The authorizer sets: userId (Cognito sub), email, roles (comma-separated), isAdmin.
+    /// </summary>
+    private User? ExtractCallerFromLambdaAuthorizer(IDictionary<string, object> lambdaCtx)
+    {
+        // userId is the Cognito 'sub' claim set by our custom authorizer
+        var userIdStr = lambdaCtx.TryGetValue("userId", out var uid) ? uid?.ToString() : null;
+        if (string.IsNullOrEmpty(userIdStr) || !Guid.TryParse(userIdStr, out var userId))
         {
             return null;
         }
 
+        var email = lambdaCtx.TryGetValue("email", out var e) ? e?.ToString() ?? string.Empty : string.Empty;
+        var rolesStr = lambdaCtx.TryGetValue("roles", out var r) ? r?.ToString() ?? string.Empty : string.Empty;
+
+        var user = new User
+        {
+            Id = userId,
+            Email = email,
+            Username = email, // Best available from authorizer context
+            CognitoSub = userIdStr
+        };
+
+        // Map roles from comma-separated string to Role objects
+        if (!string.IsNullOrWhiteSpace(rolesStr))
+        {
+            user.Roles = MapGroupsToRoles(ParseCognitoGroups(rolesStr));
+        }
+
+        return user;
+    }
+
+    /// <summary>
+    /// Extracts caller from native JWT authorizer claims (production AWS mode).
+    /// </summary>
+    private User? ExtractCallerFromJwtClaims(IDictionary<string, string> claims)
+    {
         // Extract user ID from Cognito 'sub' claim (UUID format)
         if (!claims.TryGetValue("sub", out var subClaim) ||
             !Guid.TryParse(subClaim, out var userId))

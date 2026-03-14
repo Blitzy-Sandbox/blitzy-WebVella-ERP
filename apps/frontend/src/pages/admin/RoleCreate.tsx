@@ -58,6 +58,7 @@ function RoleCreate(): React.ReactNode {
   /* ── Controlled form field state (create.cshtml.cs lines 15-19) ── */
   const [name, setName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [showSuccess, setShowSuccess] = useState(false);
 
   /* ── Validation state (create.cshtml.cs lines 53-58) ─────────── */
   const [validation, setValidation] = useState<FormValidation>({
@@ -113,8 +114,9 @@ function RoleCreate(): React.ReactNode {
 
       createRole.mutate(payload, {
         onSuccess: () => {
-          /* Redirect to role list (create.cshtml.cs line 51) */
-          navigate(ROLE_LIST_PATH);
+          /* Show success briefly then redirect to role list (create.cshtml.cs line 51) */
+          setShowSuccess(true);
+          setTimeout(() => navigate(ROLE_LIST_PATH), 1500);
         },
         onError: (apiError) => {
           /*
@@ -138,6 +140,11 @@ function RoleCreate(): React.ReactNode {
 
   return (
     <div className="mx-auto w-full max-w-4xl">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Role created successfully. Redirecting…</p>
+        </div>
+      )}
       {/* ── Page Header (create.cshtml lines 11-17) ────────────────
        *  Red themed header with plus icon, matching the source's
        *  color="#dc3545" and icon-class="fa fa-plus".
@@ -229,8 +236,9 @@ function RoleCreate(): React.ReactNode {
             </label>
             <input
               id="role-name"
-              type="text"
-              name="Name"
+                type="text"
+              name="name"
+              data-testid="role-name-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -282,7 +290,8 @@ function RoleCreate(): React.ReactNode {
             </label>
             <textarea
               id="role-description"
-              name="Description"
+              name="description"
+              data-testid="role-description-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               required

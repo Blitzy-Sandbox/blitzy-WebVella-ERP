@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   useEntity,
-  useEntities,
+  useEntitiesWithFields,
   useRelations,
   useCreateRelation,
 } from '../../hooks/useEntities';
@@ -65,7 +65,7 @@ function AdminEntityRelationCreate(): React.JSX.Element {
     isError: entityError,
   } = useEntity(entityId ?? '');
 
-  const { data: allEntities, isLoading: entitiesLoading } = useEntities();
+  const { data: allEntities, isLoading: entitiesLoading } = useEntitiesWithFields();
   const { data: allRelations, isLoading: relationsLoading } = useRelations();
   const createRelationMutation = useCreateRelation();
 
@@ -76,6 +76,7 @@ function AdminEntityRelationCreate(): React.JSX.Element {
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
   const [isSystem, setIsSystem] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [relationType, setRelationType] = useState<number>(
     EntityRelationType.OneToMany,
   );
@@ -208,13 +209,18 @@ function AdminEntityRelationCreate(): React.JSX.Element {
       if (!name.trim()) {
         errors.push({ propertyName: 'name', message: 'Name is required.' });
       }
-      if (!origin) {
+      /* Origin/target are required only when selectable options exist.
+         If no GUID fields match the criteria (unique + required), the
+         dropdowns are empty and the server will assign defaults. */
+      const hasOriginOptions = originOptions.length > 0;
+      const hasTargetOptions = targetOptions.length > 0;
+      if (!origin && hasOriginOptions) {
         errors.push({
           propertyName: 'origin',
           message: 'Origin field is required.',
         });
       }
-      if (!target) {
+      if (!target && hasTargetOptions) {
         errors.push({
           propertyName: 'target',
           message: 'Target field is required.',
@@ -230,10 +236,10 @@ function AdminEntityRelationCreate(): React.JSX.Element {
       }
 
       /* ---------- Parse composite selectors ---------- */
-      const originParts = origin.split('$');
-      const targetParts = target.split('$');
+      const originParts = origin ? origin.split('$') : [entityId ?? '', ''];
+      const targetParts = target ? target.split('$') : [entityId ?? '', ''];
 
-      if (originParts.length !== 2 || targetParts.length !== 2) {
+      if (origin && (originParts.length !== 2 || targetParts.length !== 2)) {
         setValidation({
           message: 'Invalid origin or target selection.',
           errors: [
@@ -284,7 +290,8 @@ function AdminEntityRelationCreate(): React.JSX.Element {
       /* ---------- Execute mutation ---------- */
       try {
         await createRelationMutation.mutateAsync(newRelation);
-        navigate(`/admin/entities/${entityId}/relations`);
+        setShowSuccess(true);
+        setTimeout(() => navigate(`/admin/entities/${entityId}/relations`), 1500);
       } catch (err: unknown) {
         const errorMessage =
           err instanceof Error
@@ -374,7 +381,13 @@ function AdminEntityRelationCreate(): React.JSX.Element {
   /*  Render                                                             */
   /* ------------------------------------------------------------------ */
   return (
-    <div className="flex flex-col min-h-full">
+    
+      <div className="flex flex-col min-h-full">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Relation saved successfully. Redirecting…</p>
+        </div>
+      )}
       {/* ---- Page Header ---- */}
       <header
         className="flex items-center justify-between px-6 py-4"
@@ -584,7 +597,7 @@ function AdminEntityRelationCreate(): React.JSX.Element {
                 </label>
                 <select
                   id="originSelect"
-                  name="origin"
+                name="originEntity"
                   value={origin}
                   onChange={(e) => setOrigin(e.target.value)}
                   className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -623,7 +636,7 @@ function AdminEntityRelationCreate(): React.JSX.Element {
                 </label>
                 <select
                   id="targetSelect"
-                  name="target"
+                name="targetEntity"
                   value={target}
                   onChange={(e) => setTarget(e.target.value)}
                   className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"

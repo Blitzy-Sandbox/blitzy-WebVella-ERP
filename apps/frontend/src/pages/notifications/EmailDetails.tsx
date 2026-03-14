@@ -72,8 +72,8 @@ interface SmtpServiceRecord {
  * Constants
  * ───────────────────────────────────────────── */
 
-const EMAILS_BASE = '/v1/notifications/emails';
-const SMTP_BASE = '/v1/notifications/smtp-services';
+const EMAILS_BASE = '/notifications/emails';
+const SMTP_BASE = '/notifications/smtp-configs';
 
 const STATUS_LABELS: Record<EmailStatus, string> = {
   pending: 'Pending',
@@ -761,6 +761,7 @@ function EmailDetails(): React.JSX.Element {
 
       {/* ── Content Section (HTML / Plain Text toggle) ── */}
       <section
+        data-testid="email-content"
         className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"
         aria-label="Email content"
       >

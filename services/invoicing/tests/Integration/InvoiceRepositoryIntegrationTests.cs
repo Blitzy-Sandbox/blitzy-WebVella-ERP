@@ -26,7 +26,8 @@ namespace WebVellaErp.Invoicing.Tests.Integration
     ///   - WebVella.Erp/Api/RecordManager.cs             → Record CRUD orchestration with hooks
     ///   - WebVella.Erp/Api/Definitions.cs               → SystemIds, EntityPermission enums
     /// </summary>
-    public class InvoiceRepositoryIntegrationTests : IClassFixture<LocalStackFixture>, IAsyncLifetime
+    [Collection("InvoicingIntegration")]
+    public class InvoiceRepositoryIntegrationTests : IAsyncLifetime
     {
         private readonly LocalStackFixture _fixture;
         private readonly IInvoiceRepository _repository;
@@ -47,7 +48,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
 
         /// <summary>
         /// Resets the database state before each test by truncating all invoicing tables
-        /// (invoicing.payments, invoicing.invoice_line_items, invoicing.invoices CASCADE).
+        /// (invoicing.payments, invoicing.line_items, invoicing.invoices CASCADE).
         /// Ensures complete test isolation — no residual data from prior test runs.
         /// </summary>
         public async Task InitializeAsync()

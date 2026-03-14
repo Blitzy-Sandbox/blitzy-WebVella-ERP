@@ -28,14 +28,14 @@
     <Nullable>enable</Nullable>
 
     <!-- Lambda handler is a library consumed by the Lambda runtime, not a standalone executable -->
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
 
     <!-- Assembly identity for the Reporting bounded context -->
     <AssemblyName>WebVellaErp.Reporting</AssemblyName>
     <RootNamespace>WebVellaErp.Reporting</RootNamespace>
 
     <!-- Native AOT configuration for Lambda cold start < 1 second (AAP §0.8.2) -->
-    <PublishAot>true</PublishAot>
+    <PublishAot>false</PublishAot>
     <StripSymbols>true</StripSymbols>
 
     <!-- Required for Lambda runtime configuration discovery -->
@@ -61,6 +61,7 @@
 
     <!-- Lambda runtime interface: ILambdaContext, ILambdaLogger, LambdaSerializer attribute -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
 
     <!-- AOT-compatible System.Text.Json Lambda serializer for sub-second cold start target -->
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />

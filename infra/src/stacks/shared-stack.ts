@@ -212,6 +212,20 @@ export class SharedStack extends cdk.Stack {
           minLen: 0,
           maxLen: 2048,
         }),
+        // Per AAP §0.7.5: ERP user ID mapping used by CognitoService to
+        // correlate Cognito users with the ERP domain user records.
+        erp_user_id: new cognito.StringAttribute({
+          mutable: true,
+          minLen: 0,
+          maxLen: 256,
+        }),
+        // Legacy user ID from monolith migration (SecurityManager user IDs).
+        // Used during User Migration Lambda trigger for identity continuity.
+        legacy_id: new cognito.StringAttribute({
+          mutable: true,
+          minLen: 0,
+          maxLen: 256,
+        }),
       },
 
       // Removal policy based on deployment target

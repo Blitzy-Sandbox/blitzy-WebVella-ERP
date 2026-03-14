@@ -21,8 +21,9 @@ namespace WebVellaErp.Reporting.Tests.Integration
     /// per AAP Section 0.8.4 testing requirements.
     /// </summary>
     [Trait("Category", "Integration")]
+    [Collection("ReportingIntegration")]
     public class ReportRepositoryIntegrationTests
-        : IClassFixture<LocalStackFixture>, IClassFixture<DatabaseFixture>, IAsyncLifetime
+        : IAsyncLifetime
     {
         private readonly DatabaseFixture _databaseFixture;
         private readonly ReportRepository _repository;

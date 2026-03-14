@@ -2,13 +2,35 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://webvella-erp.com/schemas/events/invoicing.events.json",
   "title": "Invoicing - Invoice and Payment Events",
-  "description": "JSON Schema definitions for Invoicing / Billing domain events published via SNS. Covers invoice lifecycle (create, update, delete) and payment lifecycle (create, update). The Invoicing service uses RDS PostgreSQL for ACID-critical transactional integrity. Invoice status transitions are consumed by Reporting, Notifications, and Workflow services. Cross-domain workflows (invoice creation → inventory update → notification) are orchestrated via Step Functions Saga Pattern.",
+  "description": "JSON Schema definitions for Invoicing / Billing domain events published via SNS. Covers invoice lifecycle (create, update, delete) and payment lifecycle (create, update). The Invoicing service uses RDS PostgreSQL for ACID-critical transactional integrity. Invoice status transitions are consumed by Reporting, Notifications, and Workflow services. Cross-domain workflows (invoice creation \u2192 inventory update \u2192 notification) are orchestrated via Step Functions Saga Pattern.",
   "oneOf": [
-    { "$ref": "#/$defs/invoiceCreatedEvent" },
-    { "$ref": "#/$defs/invoiceUpdatedEvent" },
-    { "$ref": "#/$defs/invoiceDeletedEvent" },
-    { "$ref": "#/$defs/paymentCreatedEvent" },
-    { "$ref": "#/$defs/paymentUpdatedEvent" }
+    {
+      "$ref": "#/$defs/invoiceCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/invoiceUpdatedEvent"
+    },
+    {
+      "$ref": "#/$defs/invoiceDeletedEvent"
+    },
+    {
+      "$ref": "#/$defs/paymentCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/paymentUpdatedEvent"
+    },
+    {
+      "$ref": "#/$defs/invoiceIssuedEvent"
+    },
+    {
+      "$ref": "#/$defs/invoicePaidEvent"
+    },
+    {
+      "$ref": "#/$defs/invoiceVoidedEvent"
+    },
+    {
+      "$ref": "#/$defs/paymentProcessedEvent"
+    }
   ],
   "$defs": {
     "eventEnvelope": {
@@ -38,25 +60,42 @@
           "type": "string",
           "pattern": "^\\d+\\.\\d+$",
           "description": "Schema version for forward-compatible evolution (e.g., '1.0').",
-          "examples": ["1.0"]
+          "examples": [
+            "1.0"
+          ]
         },
         "data": {
           "type": "object",
           "description": "Domain-specific event payload. Structure varies per event type."
         }
       },
-      "required": ["eventType", "correlationId", "timestamp", "source", "version", "data"]
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
     },
     "invoiceStatusEnum": {
       "type": "string",
-      "enum": ["draft", "sent", "paid", "overdue", "cancelled"],
-      "description": "Invoice lifecycle status. Transitions: draft → sent → paid/overdue → cancelled. Status changes are critical business events."
+      "enum": [
+        "draft",
+        "sent",
+        "paid",
+        "overdue",
+        "cancelled"
+      ],
+      "description": "Invoice lifecycle status. Transitions: draft \u2192 sent \u2192 paid/overdue \u2192 cancelled. Status changes are critical business events."
     },
     "invoiceCreatedEvent": {
       "title": "Invoice Created Event",
-      "description": "Published when a new invoice is created in the Invoicing service. Triggers Saga Pattern orchestration: invoice creation → inventory reservation → customer notification via Step Functions.",
+      "description": "Published when a new invoice is created in the Invoicing service. Triggers Saga Pattern orchestration: invoice creation \u2192 inventory reservation \u2192 customer notification via Step Functions.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
         {
           "type": "object",
           "properties": {
@@ -113,7 +152,13 @@
                   "description": "User ID of the person who created the invoice. Extracted from JWT claims in the Lambda handler."
                 }
               },
-              "required": ["invoiceId", "invoiceNumber", "status", "totalAmount", "currency"],
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "status",
+                "totalAmount",
+                "currency"
+              ],
               "additionalProperties": false
             }
           }
@@ -122,9 +167,11 @@
     },
     "invoiceUpdatedEvent": {
       "title": "Invoice Updated Event",
-      "description": "Published when an existing invoice is updated. Status transitions (e.g., draft → sent, sent → paid) are critical events consumed by Reporting for read-model projections and Notifications for customer alerts.",
+      "description": "Published when an existing invoice is updated. Status transitions (e.g., draft \u2192 sent, sent \u2192 paid) are critical events consumed by Reporting for read-model projections and Notifications for customer alerts.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
         {
           "type": "object",
           "properties": {
@@ -151,7 +198,7 @@
                 },
                 "previousStatus": {
                   "type": "string",
-                  "description": "Previous invoice status before the update. Enables consumers to react to specific status transitions (e.g., 'sent' → 'paid' triggers payment confirmation notification)."
+                  "description": "Previous invoice status before the update. Enables consumers to react to specific status transitions (e.g., 'sent' \u2192 'paid' triggers payment confirmation notification)."
                 },
                 "totalAmount": {
                   "type": "number",
@@ -172,7 +219,10 @@
                   "description": "User ID of the person who performed the update."
                 }
               },
-              "required": ["invoiceId", "status"],
+              "required": [
+                "invoiceId",
+                "status"
+              ],
               "additionalProperties": false
             }
           }
@@ -183,7 +233,9 @@
       "title": "Invoice Deleted Event",
       "description": "Published when an invoice is deleted. Typically restricted to 'draft' status invoices. Consumed by Reporting to remove read-model projections and by Workflow to cancel any pending Saga orchestrations.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
         {
           "type": "object",
           "properties": {
@@ -210,7 +262,9 @@
                   "description": "User ID of the person who deleted the invoice."
                 }
               },
-              "required": ["invoiceId"],
+              "required": [
+                "invoiceId"
+              ],
               "additionalProperties": false
             }
           }
@@ -221,7 +275,9 @@
       "title": "Payment Created Event",
       "description": "Published when a payment is recorded against an invoice. Triggers downstream processing: invoice status may transition to 'paid' if fully settled, Reporting updates payment aggregations, and Notifications sends payment confirmation.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
         {
           "type": "object",
           "properties": {
@@ -268,7 +324,12 @@
                   "description": "User ID of the person who recorded the payment."
                 }
               },
-              "required": ["paymentId", "invoiceId", "amount", "currency"],
+              "required": [
+                "paymentId",
+                "invoiceId",
+                "amount",
+                "currency"
+              ],
               "additionalProperties": false
             }
           }
@@ -279,7 +340,9 @@
       "title": "Payment Updated Event",
       "description": "Published when a payment record is updated (e.g., status correction, amount adjustment, method change). Consumed by Reporting to update payment aggregations and by Notifications if status changes warrant customer communication.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
         {
           "type": "object",
           "properties": {
@@ -323,10 +386,158 @@
                   "description": "User ID of the person who performed the update."
                 }
               },
-              "required": ["paymentId", "invoiceId"],
+              "required": [
+                "paymentId",
+                "invoiceId"
+              ],
               "additionalProperties": false
             }
           }
+        }
+      ]
+    },
+    "invoiceIssuedEvent": {
+      "description": "Published when an invoice is issued/sent to a customer.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "invoicing.invoice.issued"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for invoicing.invoice.issued events.",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Invoice identifier."
+                }
+              },
+              "required": [
+                "invoiceId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "invoicePaidEvent": {
+      "description": "Published when an invoice is marked as paid.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "invoicing.invoice.paid"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for invoicing.invoice.paid events.",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Invoice identifier."
+                },
+                "paymentId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "paymentId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "invoiceVoidedEvent": {
+      "description": "Published when an invoice is voided/cancelled.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "invoicing.invoice.voided"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for invoicing.invoice.voided events.",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Invoice identifier."
+                }
+              },
+              "required": [
+                "invoiceId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "paymentProcessedEvent": {
+      "description": "Published when a payment is successfully processed.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "invoicing.payment.processed"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for invoicing.payment.processed events.",
+              "properties": {
+                "paymentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "paymentId",
+                "invoiceId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
         }
       ]
     }

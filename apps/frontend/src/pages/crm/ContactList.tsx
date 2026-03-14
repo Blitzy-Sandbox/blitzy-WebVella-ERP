@@ -65,13 +65,13 @@ const DEFAULT_PAGE_SIZE = 10;
  * conventional alphabetical directory ordering. This replaces the
  * monolith's EQL `ORDER BY last_name ASC` default from RecordList.cshtml.
  */
-const DEFAULT_SORT_FIELD = 'last_name';
+const DEFAULT_SORT_FIELD = 'created_on';
 
 /**
  * TanStack Query stale time for the contact list query (30 seconds).
  * Matches the CRM_DEFAULT_STALE_TIME_MS used by useContacts in useCrm.ts.
  */
-const CONTACTS_STALE_TIME_MS = 30_000;
+const CONTACTS_STALE_TIME_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -196,7 +196,7 @@ function ContactList(): React.ReactElement {
   const sortBy = searchParams.get('sortBy') ?? DEFAULT_SORT_FIELD;
 
   const sortOrder: 'asc' | 'desc' =
-    searchParams.get('sortOrder') === 'desc' ? 'desc' : 'asc';
+    searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc';
 
   // ── Local search input state with debounce ─────────────────────────
   // The input field is controlled by local state to avoid hitting the API
@@ -293,7 +293,7 @@ function ContactList(): React.ReactElement {
             page,
             pageSize,
             sortBy,
-            sortOrder,
+            sortDir: sortOrder,
           },
         },
       );
@@ -307,9 +307,19 @@ function ContactList(): React.ReactElement {
   });
 
   // Extract records and total count from the API response envelope.
-  // ApiResponse<EntityRecordList>.object contains { records, totalCount }.
-  const records: EntityRecord[] = response?.object?.records ?? [];
-  const totalCount: number = response?.object?.totalCount ?? 0;
+  // The CRM Lambda returns either envelope ({ success, object: { records, totalCount } })
+  // or a flat shape ({ data: [...], meta: { total } }).  Handle both.
+  const rawObject = (response?.object ?? response) as Record<string, unknown> | undefined;
+  const rawRecords = (
+    rawObject?.records ?? rawObject?.data ?? rawObject?.items
+  );
+  const records: EntityRecord[] = Array.isArray(rawRecords)
+    ? (rawRecords as EntityRecord[])
+    : [];
+  const metaObj = rawObject?.meta as Record<string, number> | undefined;
+  const totalCount: number = Number(
+    rawObject?.totalCount ?? metaObj?.total ?? rawObject?.total ?? records.length,
+  );
 
   // ── Event handlers ─────────────────────────────────────────────────
 

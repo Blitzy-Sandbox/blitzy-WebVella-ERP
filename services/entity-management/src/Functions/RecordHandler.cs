@@ -10,6 +10,7 @@ using Amazon.Lambda.Core;
 using Amazon.S3;
 using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WebVellaErp.EntityManagement.Models;
@@ -100,6 +101,14 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <summary>S3 prefix for temporary file uploads. From FILES_TEMP_PREFIX env var.</summary>
         private readonly string _filesTempPrefix;
 
+        /// <summary>Lazy-initialized EntityHandler for delegating entity metadata requests
+        /// when this handler receives /entities/{name} paths via {proxy+} routing.</summary>
+        private EntityHandler? _entityHandler;
+
+        /// <summary>Lazy-initialized FieldHandler for delegating field requests
+        /// when this handler receives /entities/{id}/fields paths via {proxy+} routing.</summary>
+        private FieldHandler? _fieldHandler;
+
         // =====================================================================
         // Shared JSON serializer options (AOT-safe via System.Text.Json)
         // =====================================================================
@@ -158,6 +167,226 @@ namespace WebVellaErp.EntityManagement.Functions
         /// record persistence via IRecordService, and SNS domain event publishing.
         /// Replaces: WebApiController.CreateRecord + RecordManager.CreateRecord.
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            _logger.LogInformation(
+                "RecordHandler.FunctionHandler — Method={Method}, Path={Path}, RequestId={RequestId}",
+                method, path, context.AwsRequestId);
+
+            // ── Delegation check: non-record requests via /v1/entities/{proxy+} ──
+            // When the API Gateway routes ALL /v1/entities/{proxy+} traffic here,
+            // requests for entity metadata or fields don't contain "/records".
+            // Delegate those to EntityHandler or FieldHandler respectively.
+            //
+            // CRITICAL: Requests arriving on /v1/record/{proxy+} are ALWAYS record
+            // operations and must NEVER be delegated. The delegation logic only
+            // applies when this handler receives traffic via /v1/entities/{proxy+}.
+            var pathLowerForDelegation = path.ToLowerInvariant();
+            bool isDirectRecordRoute = pathLowerForDelegation.Contains("/v1/record/")
+                                       || pathLowerForDelegation.StartsWith("/v1/record");
+
+            var proxyValue = request.PathParameters != null && request.PathParameters.TryGetValue("proxy", out var pv)
+                ? pv : string.Empty;
+            var proxyLower = proxyValue.ToLowerInvariant();
+
+            bool isRecordPath = isDirectRecordRoute
+                                || proxyLower.Contains("/records")
+                                || proxyLower.Contains("records")
+                                || proxyLower.Contains("/count")
+                                || proxyLower.Contains("/query")
+                                || proxyLower.Contains("/import")
+                                || proxyLower.Contains("/export");
+
+            if (!isRecordPath && !string.IsNullOrEmpty(proxyValue))
+            {
+                // This is an entity metadata or field request — delegate
+                if (proxyLower.Contains("/fields"))
+                {
+                    var fieldHandler = GetOrCreateFieldHandler();
+                    return await fieldHandler.FunctionHandler(request, context);
+                }
+                else
+                {
+                    var entityHandler = GetOrCreateEntityHandler();
+                    return await entityHandler.FunctionHandler(request, context);
+                }
+            }
+
+            // ── Route resolution ───────────────────────────────────────────
+            // Paths follow the pattern:
+            //   /v1/entities/{entityName}/records            — list / create
+            //   /v1/entities/{entityName}/records/{id}       — read / update / delete
+            //   /v1/entities/{entityName}/records/count      — count
+            //   /v1/entities/{entityName}/records/query      — query / find
+            //   /v1/record/{proxy+}                          — legacy routes
+            //   /v1/entity-management/relations/{id}/records — relation bridge
+            //
+            // Also accept: /v1/record/{entityName}/records/...
+            var pathLower = path.ToLowerInvariant();
+
+            // Relation bridge operations
+            if (pathLower.Contains("/relations/") && method == "POST")
+                return await CreateRelationManyToManyRecord(request, context);
+            if (pathLower.Contains("/relations/") && method == "DELETE")
+                return await RemoveRelationManyToManyRecord(request, context);
+
+            // Count endpoint
+            if (pathLower.EndsWith("/count") || pathLower.EndsWith("/count/"))
+            {
+                if (method == "GET" || method == "POST")
+                    return await Count(request, context);
+            }
+
+            // Query / find endpoint
+            if (pathLower.EndsWith("/query") || pathLower.EndsWith("/query/"))
+            {
+                if (method == "POST")
+                    return await FindRecords(request, context);
+            }
+
+            // CRUD routing by HTTP method
+            switch (method)
+            {
+                case "POST":
+                    return await CreateRecord(request, context);
+
+                case "GET":
+                    // Determine list vs single read from the {proxy+} segments.
+                    // After Vite rewrites, the path is /v1/record/{entityName}[/{id}].
+                    // Proxy value is "{entityName}" (list) or "{entityName}/{guid}" (read).
+                    // We also support the legacy /v1/.../records/{guid} format.
+                    var proxySegs = proxyValue.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    // Check proxy segments for a GUID (record ID) to decide single-read
+                    bool hasSingleRecordId = false;
+                    if (proxySegs.Length >= 2)
+                    {
+                        // Skip the first segment (entity name) and check for GUID
+                        for (int i = 1; i < proxySegs.Length; i++)
+                        {
+                            if (Guid.TryParse(proxySegs[i], out _))
+                            {
+                                hasSingleRecordId = true;
+                                break;
+                            }
+                        }
+                    }
+                    // Also fallback to the legacy /records/{guid} pattern in RawPath
+                    if (!hasSingleRecordId)
+                    {
+                        var afterRecords = ExtractSegmentAfterRecords(path);
+                        if (!string.IsNullOrEmpty(afterRecords) && afterRecords != "/")
+                        {
+                            if (Guid.TryParse(afterRecords.Trim('/'), out _))
+                                hasSingleRecordId = true;
+                        }
+                    }
+                    return hasSingleRecordId
+                        ? await ReadRecord(request, context)
+                        : await FindRecords(request, context);
+
+                case "PUT":
+                    return await UpdateRecord(request, context);
+
+                case "DELETE":
+                    return await DeleteRecord(request, context);
+
+                default:
+                    return new APIGatewayHttpApiV2ProxyResponse
+                    {
+                        StatusCode = (int)HttpStatusCode.MethodNotAllowed,
+                        Body = System.Text.Json.JsonSerializer.Serialize(
+                            new { success = false, message = $"Method {method} not allowed" }),
+                        Headers = new Dictionary<string, string>
+                        {
+                            { "Content-Type", "application/json" }
+                        }
+                    };
+            }
+        }
+
+        /// <summary>
+        /// Extracts the path segment that follows '/records/' in the raw path.
+        /// Returns empty string if the path ends with /records or /records/.
+        /// </summary>
+        /// <summary>
+        /// Lazily creates (or returns cached) EntityHandler for delegating entity
+        /// metadata requests that arrive via the shared /v1/entities/{proxy+} route.
+        /// </summary>
+        private EntityHandler GetOrCreateEntityHandler()
+        {
+            if (_entityHandler == null)
+            {
+                var cache = new MemoryCache(new MemoryCacheOptions());
+                var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
+                _entityHandler = new EntityHandler(
+                    _entityService,
+                    _snsClient,
+                    cache,
+                    loggerFactory.CreateLogger<EntityHandler>(),
+                    loggerFactory);
+            }
+            return _entityHandler;
+        }
+
+        /// <summary>
+        /// Lazily creates (or returns cached) FieldHandler for delegating field
+        /// requests that arrive via the shared /v1/entities/{proxy+} route.
+        /// </summary>
+        private FieldHandler GetOrCreateFieldHandler()
+        {
+            if (_fieldHandler == null)
+            {
+                var cache = new MemoryCache(new MemoryCacheOptions());
+                var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
+                _fieldHandler = new FieldHandler(
+                    _entityService,
+                    _snsClient,
+                    cache,
+                    loggerFactory.CreateLogger<FieldHandler>());
+            }
+            return _fieldHandler;
+        }
+
+        /// <summary>
+        /// Resolves an entity by name or by GUID id. The frontend may pass either
+        /// the entity name (e.g. "test_entity") or the entity UUID (e.g. "a1b2c3d4-...")
+        /// as the proxy path segment. This helper tries by GUID first if the value
+        /// looks like a GUID, then falls back to name lookup.
+        /// </summary>
+        private async Task<Entity?> ResolveEntity(string nameOrId)
+        {
+            if (Guid.TryParse(nameOrId, out var entityGuid))
+            {
+                var byId = await _entityService.GetEntity(entityGuid);
+                if (byId != null) return byId;
+            }
+            return await _entityService.GetEntity(nameOrId);
+        }
+
+        private static string ExtractSegmentAfterRecords(string path)
+        {
+            const string marker = "/records/";
+            var idx = path.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+            {
+                // Path ends with /records (no trailing slash)
+                if (path.EndsWith("/records", StringComparison.OrdinalIgnoreCase))
+                    return string.Empty;
+                return string.Empty;
+            }
+            return path.Substring(idx + marker.Length);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateRecord(
             APIGatewayHttpApiV2ProxyRequest request,
             ILambdaContext context)
@@ -176,12 +405,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanCreate against JWT roles
                 if (!HasPermission(request, entity, EntityPermission.Create))
@@ -273,8 +503,38 @@ namespace WebVellaErp.EntityManagement.Functions
                     "[{CorrelationId}] Record created successfully: entity={EntityName}, id={RecordId}",
                     correlationId, entityName, recordId);
 
-                response.StatusCode = HttpStatusCode.OK;
-                return BuildResponse(HttpStatusCode.OK, response, correlationId);
+                // Return the single created record directly in the response envelope
+                // (not wrapped in QueryResult). The frontend useCreateRecord hook
+                // expects response.object to be a plain EntityRecord.
+                EntityRecord? createdEntityRecord = null;
+                if (response.Object?.Data != null && response.Object.Data.Count > 0)
+                {
+                    createdEntityRecord = response.Object.Data[0];
+                }
+                var singleResponse = new
+                {
+                    timestamp = response.Timestamp,
+                    success = true,
+                    message = response.Message ?? "Record was created successfully.",
+                    errors = response.Errors ?? new List<ErrorModel>(),
+                    accessWarnings = response.AccessWarnings ?? new List<AccessWarningModel>(),
+                    @object = createdEntityRecord
+                };
+                return new APIGatewayHttpApiV2ProxyResponse
+                {
+                    StatusCode = (int)HttpStatusCode.OK,
+                    Body = System.Text.Json.JsonSerializer.Serialize(singleResponse,
+                        new System.Text.Json.JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                        }),
+                    Headers = new Dictionary<string, string>
+                    {
+                        { "Content-Type", "application/json" },
+                        { "X-Correlation-Id", correlationId }
+                    }
+                };
             }
             catch (Exception ex)
             {
@@ -319,12 +579,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanRead
                 if (!HasPermission(request, entity, EntityPermission.Read))
@@ -365,7 +626,34 @@ namespace WebVellaErp.EntityManagement.Functions
                     "[{CorrelationId}] ReadRecord success: entity={EntityName}, id={RecordId}",
                     correlationId, entityName, recordId);
 
-                return BuildResponse(HttpStatusCode.OK, response, correlationId);
+                // Return the single record directly in the response envelope
+                // (not wrapped in QueryResult). The frontend useRecord hook
+                // expects response.object to be a plain EntityRecord.
+                var singleRecord = response.Object.Data[0];
+                var singleResponse = new
+                {
+                    timestamp = response.Timestamp,
+                    success = true,
+                    message = "The record was successfully returned.",
+                    errors = response.Errors ?? new List<ErrorModel>(),
+                    accessWarnings = response.AccessWarnings ?? new List<AccessWarningModel>(),
+                    @object = singleRecord
+                };
+                return new APIGatewayHttpApiV2ProxyResponse
+                {
+                    StatusCode = (int)HttpStatusCode.OK,
+                    Body = System.Text.Json.JsonSerializer.Serialize(singleResponse,
+                        new System.Text.Json.JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                        }),
+                    Headers = new Dictionary<string, string>
+                    {
+                        { "Content-Type", "application/json" },
+                        { "X-Correlation-Id", correlationId }
+                    }
+                };
             }
             catch (Exception ex)
             {
@@ -402,12 +690,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanRead
                 if (!HasPermission(request, entity, EntityPermission.Read))
@@ -502,12 +791,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanUpdate
                 if (!HasPermission(request, entity, EntityPermission.Update))
@@ -593,8 +883,38 @@ namespace WebVellaErp.EntityManagement.Functions
                     "[{CorrelationId}] Record updated successfully: entity={EntityName}, id={RecordId}",
                     correlationId, entityName, recordId);
 
-                response.StatusCode = HttpStatusCode.OK;
-                return BuildResponse(HttpStatusCode.OK, response, correlationId);
+                // Return the single updated record directly in the response envelope
+                // (not wrapped in QueryResult). The frontend useUpdateRecord hook
+                // expects response.object to be a plain EntityRecord.
+                EntityRecord? updatedEntityRecord = null;
+                if (response.Object?.Data != null && response.Object.Data.Count > 0)
+                {
+                    updatedEntityRecord = response.Object.Data[0];
+                }
+                var singleResponse = new
+                {
+                    timestamp = response.Timestamp,
+                    success = true,
+                    message = response.Message ?? "Record was updated successfully.",
+                    errors = response.Errors ?? new List<ErrorModel>(),
+                    accessWarnings = response.AccessWarnings ?? new List<AccessWarningModel>(),
+                    @object = updatedEntityRecord
+                };
+                return new APIGatewayHttpApiV2ProxyResponse
+                {
+                    StatusCode = (int)HttpStatusCode.OK,
+                    Body = System.Text.Json.JsonSerializer.Serialize(singleResponse,
+                        new System.Text.Json.JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                        }),
+                    Headers = new Dictionary<string, string>
+                    {
+                        { "Content-Type", "application/json" },
+                        { "X-Correlation-Id", correlationId }
+                    }
+                };
             }
             catch (Exception ex)
             {
@@ -640,12 +960,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanDelete
                 if (!HasPermission(request, entity, EntityPermission.Delete))
@@ -1007,12 +1328,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // 2. Resolve entity metadata
-                var entity = await _entityService.GetEntity(entityName);
+                var entity = await ResolveEntity(entityName);
                 if (entity == null)
                 {
                     return BuildErrorResponse(HttpStatusCode.NotFound,
                         $"Entity '{entityName}' not found.", correlationId);
                 }
+                entityName = entity.Name; // Normalize to actual name for DynamoDB PK lookups
 
                 // 3. Permission check — RecordPermissions.CanRead (count is a read operation)
                 if (!HasPermission(request, entity, EntityPermission.Read))
@@ -1076,7 +1398,52 @@ namespace WebVellaErp.EntityManagement.Functions
         private static string GetParam(IDictionary<string, string>? parameters, string key)
         {
             if (parameters == null) return string.Empty;
-            return parameters.TryGetValue(key, out var value) ? value ?? string.Empty : string.Empty;
+            if (parameters.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
+                return value;
+            // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+            // Proxy path pattern: "{entityName}" or "{entityName}/{recordId}" or
+            // "relations/{entityName}/{recordId}" or "regex/{entityName}/{fieldName}".
+            if (!parameters.TryGetValue("proxy", out var proxy) || string.IsNullOrEmpty(proxy))
+                return string.Empty;
+            var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            // Map key to segment index based on proxy structure
+            if (key == "entityName")
+            {
+                // First non-keyword segment is the entity name
+                foreach (var seg in segments)
+                {
+                    if (seg != "relations" && seg != "reverse" && seg != "regex" && seg != "import" && seg != "export")
+                        return seg;
+                }
+            }
+            else if (key == "recordId")
+            {
+                // GUID segment after entityName
+                for (var i = 1; i < segments.Length; i++)
+                {
+                    if (Guid.TryParse(segments[i], out _))
+                        return segments[i];
+                }
+            }
+            else if (key == "relationId")
+            {
+                // Last GUID segment
+                for (var i = segments.Length - 1; i >= 0; i--)
+                {
+                    if (Guid.TryParse(segments[i], out _))
+                        return segments[i];
+                }
+            }
+            else if (key == "fieldName")
+            {
+                // Segment after "regex/{entityName}/"
+                for (var i = 0; i < segments.Length - 1; i++)
+                {
+                    if (segments[i] == "regex" && i + 2 < segments.Length)
+                        return segments[i + 2];
+                }
+            }
+            return string.Empty;
         }
 
         /// <summary>
@@ -1225,7 +1592,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 if (claims.TryGetValue("cognito:groups", out var groups)
                     && !string.IsNullOrWhiteSpace(groups))
                 {
-                    if (groups.Contains("administrator", StringComparison.OrdinalIgnoreCase)
+                    if (groups.Contains("admin", StringComparison.OrdinalIgnoreCase)
                         || groups.Contains(adminRoleStr, StringComparison.OrdinalIgnoreCase))
                         return true;
                 }
@@ -1727,6 +2094,29 @@ namespace WebVellaErp.EntityManagement.Functions
         {
             if (value == null)
                 return null;
+
+            // Treat empty strings as null for typed (non-text) fields. The React form
+            // submits "" for untouched inputs; storing "" as a number/date/guid causes
+            // ExtractFieldValue to throw in RecordService.
+            if (value is string strVal && string.IsNullOrWhiteSpace(strVal))
+            {
+                switch (fieldType)
+                {
+                    case FieldType.NumberField:
+                    case FieldType.CurrencyField:
+                    case FieldType.PercentField:
+                    case FieldType.AutoNumberField:
+                    case FieldType.DateField:
+                    case FieldType.DateTimeField:
+                    case FieldType.GuidField:
+                    case FieldType.CheckboxField:
+                        return null;
+                    // For text-like fields, preserve the empty string (or convert to null
+                    // depending on whether the field is required — caller handles that).
+                    default:
+                        break;
+                }
+            }
 
             switch (fieldType)
             {

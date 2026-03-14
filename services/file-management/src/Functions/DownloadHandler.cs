@@ -213,6 +213,65 @@ namespace WebVellaErp.FileManagement.Functions
         /// Now replaced by a single S3 presigned URL — no data proxied through Lambda.
         /// </para>
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            // Extract the proxy path segment(s) from {proxy+} parameter
+            string proxyPath = string.Empty;
+            request.PathParameters?.TryGetValue("proxy", out proxyPath!);
+            proxyPath ??= string.Empty;
+            var segments = proxyPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            if (method == "DELETE")
+                return await HandleDeleteFile(request, context);
+
+            if (method == "PUT")
+                return await HandleUpdateModificationDate(request, context);
+
+            if (method == "GET")
+            {
+                // GET /v1/files/list or GET /v1/files (empty proxy) → list files
+                if (segments.Length == 0 || string.Equals(segments[0], "list", StringComparison.OrdinalIgnoreCase))
+                    return await HandleListFiles(request, context);
+
+                // GET /v1/files/by-path?path=... → get file by path
+                if (string.Equals(segments[0], "by-path", StringComparison.OrdinalIgnoreCase))
+                    return await HandleGetFileByPath(request, context);
+
+                // GET /v1/files/user-files/... → list user files (delegate to HandleListFiles)
+                if (string.Equals(segments[0], "user-files", StringComparison.OrdinalIgnoreCase))
+                    return await HandleListFiles(request, context);
+
+                // GET /v1/files/{fileId}/download-url → presigned download URL
+                if (segments.Length >= 2 && string.Equals(segments[^1], "download-url", StringComparison.OrdinalIgnoreCase))
+                    return await HandleGetDownloadUrl(request, context);
+
+                // GET /v1/files/{fileId} → file details (single file by ID)
+                if (segments.Length == 1 && Guid.TryParse(segments[0], out _))
+                    return await HandleGetDownloadUrl(request, context);
+
+                // Fallback: if it has a path= query param, treat as file-by-path
+                if (request.QueryStringParameters != null &&
+                    request.QueryStringParameters.ContainsKey("path"))
+                    return await HandleGetFileByPath(request, context);
+
+                // Default to list
+                return await HandleListFiles(request, context);
+            }
+
+            // Default: route to HandleListFiles for unrecognized methods
+            return await HandleListFiles(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleGetDownloadUrl(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -230,9 +289,17 @@ namespace WebVellaErp.FileManagement.Functions
                     correlationId);
 
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     _logger.LogWarning("Invalid or missing fileId in path parameters");
                     return BuildErrorResponse(400, "Invalid or missing fileId parameter. Must be a valid GUID.",
@@ -507,9 +574,17 @@ namespace WebVellaErp.FileManagement.Functions
                 var (callerId, callerEmail) = ExtractCallerFromContext(request);
 
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     _logger.LogWarning("Invalid or missing fileId for copy operation");
                     return BuildErrorResponse(400, "Invalid or missing fileId parameter. Must be a valid GUID.",
@@ -684,9 +759,17 @@ namespace WebVellaErp.FileManagement.Functions
                 var (callerId, callerEmail) = ExtractCallerFromContext(request);
 
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     _logger.LogWarning("Invalid or missing fileId for move operation");
                     return BuildErrorResponse(400, "Invalid or missing fileId parameter. Must be a valid GUID.",
@@ -855,9 +938,17 @@ namespace WebVellaErp.FileManagement.Functions
                 var (callerId, callerEmail) = ExtractCallerFromContext(request);
 
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     _logger.LogWarning("Invalid or missing fileId for delete operation");
                     return BuildErrorResponse(400, "Invalid or missing fileId parameter. Must be a valid GUID.",
@@ -955,9 +1046,17 @@ namespace WebVellaErp.FileManagement.Functions
                     correlationId);
 
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     _logger.LogWarning("Invalid or missing fileId for modification date update");
                     return BuildErrorResponse(400, "Invalid or missing fileId parameter. Must be a valid GUID.",

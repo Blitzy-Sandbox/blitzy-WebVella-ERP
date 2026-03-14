@@ -219,7 +219,7 @@ function TimelogCreate(): React.JSX.Element {
   return (
     <section
       className="mx-auto max-w-2xl px-4 py-6 sm:px-6 lg:px-8"
-      aria-labelledby="timelog-create-heading"
+      data-testid="timelog-form-section"
     >
       {/* Page heading */}
       <h1
@@ -349,6 +349,7 @@ function TimelogCreate(): React.JSX.Element {
 
           <input
             id="timelog-minutes"
+            name="minutes"
             type="text"
             inputMode="numeric"
             value={minutesInput}
@@ -426,6 +427,7 @@ function TimelogCreate(): React.JSX.Element {
 
           <input
             id="timelog-loggedon"
+            name="date"
             type="date"
             value={loggedOn}
             onChange={(e) => {
@@ -479,6 +481,7 @@ function TimelogCreate(): React.JSX.Element {
 
           <textarea
             id="timelog-body"
+            name="description"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={4}

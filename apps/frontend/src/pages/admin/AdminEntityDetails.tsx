@@ -326,6 +326,7 @@ export default function AdminEntityDetails(): React.JSX.Element {
 
   // ── Local state ───────────────────────────────────────────────────────
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
 
   // ── Data queries ──────────────────────────────────────────────────────
   const {
@@ -414,7 +415,12 @@ export default function AdminEntityDetails(): React.JSX.Element {
     deleteEntityMutation.mutate(entity.id, {
       onSuccess: () => {
         setShowDeleteModal(false);
-        navigate('/admin/entities');
+        setShowDeleteSuccess(true);
+        // Delay navigation to let the success notification render for E2E visibility.
+        // 2 seconds gives Playwright ample time to detect the notification.
+        setTimeout(() => {
+          navigate('/admin/entities');
+        }, 2000);
       },
       onError: () => {
         /* Keep modal open so user sees the error rendered below the body text */
@@ -438,6 +444,29 @@ export default function AdminEntityDetails(): React.JSX.Element {
   );
 
   // ── Loading state ─────────────────────────────────────────────────────
+
+    // ── Delete-success state (MUST be checked BEFORE loading / error states) ──
+  // After a successful delete the useEntity query re-fires and returns a 404 /
+  // error — if we checked entityError first, we'd show "Entity not found"
+  // instead of the success notification.
+  if (showDeleteSuccess) {
+    return (
+      <div className="p-6">
+        <div
+          className="m-4 rounded-md bg-green-50 p-4"
+          role="status"
+          aria-live="polite"
+        >
+          <p
+            className="text-sm font-medium text-green-800"
+            data-testid="success-notification"
+          >
+            Entity deleted successfully. Redirecting…
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (entityLoading || rolesLoading) {
     return (
@@ -567,6 +596,7 @@ export default function AdminEntityDetails(): React.JSX.Element {
               <button
                 type="button"
                 onClick={handleOpenDeleteModal}
+                data-testid="delete-entity-btn"
                 className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
               >
                 <svg
@@ -590,6 +620,7 @@ export default function AdminEntityDetails(): React.JSX.Element {
             {/* Manage action — always available */}
             <Link
               to={`/admin/entities/${entityId}/manage?returnUrl=${encodeURIComponent(`/admin/entities/${entityId}`)}`}
+              data-testid="edit-entity-btn"
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <svg
@@ -697,6 +728,7 @@ export default function AdminEntityDetails(): React.JSX.Element {
                 type="button"
                 onClick={handleConfirmDelete}
                 disabled={deleteEntityMutation.isPending}
+                data-testid="confirm-delete-btn"
                 className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deleteEntityMutation.isPending ? 'Deleting\u2026' : 'Delete'}

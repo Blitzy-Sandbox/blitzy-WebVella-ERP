@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { ClipboardIcon, CheckIcon } from '../common/ClipboardIcons';
 import type { BaseFieldProps } from './FieldRenderer';
 
 /* ------------------------------------------------------------------ */
@@ -41,45 +42,7 @@ export interface GuidFieldProps extends Omit<BaseFieldProps, 'value' | 'onChange
 /*  Inline SVG Icons                                                   */
 /* ------------------------------------------------------------------ */
 
-/**
- * Clipboard copy icon — a small SVG used on the copy-to-clipboard button.
- * Uses fill="currentColor" so it inherits text color from the parent.
- */
-function ClipboardIcon(): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-      className="inline-block h-4 w-4"
-    >
-      <path d="M8 2a1 1 0 0 0 0 2h2a1 1 0 1 0 0-2H8Z" />
-      <path
-        d="M3 5a2 2 0 0 1 2-2 3 3 0 0 0 3 3h2a3 3 0 0 0 3-3 2 2 0 0 1 2 2v6h-4.586l1.293-1.293a1 1 0 0 0-1.414-1.414l-3 3a1 1 0 0 0 0 1.414l3 3a1 1 0 0 0 1.414-1.414L10.414 13H15v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Z"
-      />
-    </svg>
-  );
-}
 
-/**
- * Checkmark icon — displayed after a successful copy-to-clipboard action.
- */
-function CheckIcon(): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-      className="inline-block h-4 w-4"
-    >
-      <path
-        fillRule="evenodd"
-        d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
 
 /**
  * Refresh/Generate icon — shown on the "Generate" button in edit mode.

@@ -64,7 +64,7 @@ const TEST_EMAIL: string = process.env.TEST_EMAIL ?? 'erp@webvella.com';
  * Default system user password — migrated to Cognito user pool.
  * Original monolith used MD5-hashed password for erp@webvella.com.
  */
-const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erp';
+const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erpadmin';
 
 /** Login page route — replaces login.cshtml Razor Page. */
 const LOGIN_URL = '/login';

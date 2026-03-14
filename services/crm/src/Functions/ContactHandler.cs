@@ -1229,12 +1229,23 @@ namespace WebVellaErp.Crm.Functions
             APIGatewayHttpApiV2ProxyRequest request,
             string parameterName)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(parameterName, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(parameterName, out var value) &&
+                    !string.IsNullOrEmpty(value))
+                    return value;
+                // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out _))
+                            return segments[i];
+                    }
+                }
             }
-
             return null;
         }
 

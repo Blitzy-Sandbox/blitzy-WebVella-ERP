@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -93,6 +94,7 @@ namespace WebVellaErp.PluginSystem.Functions
 
         private readonly IPluginService _pluginService;
         private readonly IPluginRepository _pluginRepository;
+        private readonly ISitemapService _sitemapService;
         private readonly IAmazonSimpleNotificationService _snsClient;
         private readonly ILogger<PluginHandler> _logger;
         private readonly IServiceProvider _serviceProvider;
@@ -174,11 +176,13 @@ namespace WebVellaErp.PluginSystem.Functions
             // Register application services with transient lifetime
             services.AddTransient<IPluginRepository, PluginRepository>();
             services.AddTransient<IPluginService, PluginService>();
+            services.AddTransient<ISitemapService, SitemapService>();
 
             // Build DI container and resolve all handler dependencies
             _serviceProvider = services.BuildServiceProvider();
             _pluginService = _serviceProvider.GetRequiredService<IPluginService>();
             _pluginRepository = _serviceProvider.GetRequiredService<IPluginRepository>();
+            _sitemapService = _serviceProvider.GetRequiredService<ISitemapService>();
             _snsClient = _serviceProvider.GetRequiredService<IAmazonSimpleNotificationService>();
             _logger = _serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<PluginHandler>();
 
@@ -196,6 +200,7 @@ namespace WebVellaErp.PluginSystem.Functions
             _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
             _pluginService = _serviceProvider.GetRequiredService<IPluginService>();
             _pluginRepository = _serviceProvider.GetRequiredService<IPluginRepository>();
+            _sitemapService = _serviceProvider.GetRequiredService<ISitemapService>();
             _snsClient = _serviceProvider.GetRequiredService<IAmazonSimpleNotificationService>();
             _logger = _serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<PluginHandler>();
             _snsTopicArn = Environment.GetEnvironmentVariable(SnsTopicArnEnvVar);
@@ -217,6 +222,88 @@ namespace WebVellaErp.PluginSystem.Functions
         /// Generates idempotency key for the write operation per AAP Section 0.8.5.
         /// Publishes plugin-system.plugin.created SNS domain event on success.
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        ///
+        /// Routing table:
+        ///   Plugin routes:
+        ///     POST   /v1/plugins                    → HandleRegisterPlugin
+        ///     GET    /v1/plugins                    → HandleListPlugins
+        ///     GET    /v1/plugins/{id}               → HandleGetPlugin
+        ///     PUT    /v1/plugins/{id}/activate      → HandleActivatePlugin
+        ///     PUT    /v1/plugins/{id}/deactivate    → HandleDeactivatePlugin
+        ///     DELETE /v1/plugins/{id}               → HandleUnregisterPlugin
+        ///
+        ///   App/Sitemap routes (served via ISitemapService):
+        ///     GET    /v1/apps                       → HandleListApps
+        ///     GET    /v1/apps/{idOrName}            → HandleGetApp
+        ///     POST   /v1/apps                       → HandleCreateApp
+        ///     PUT    /v1/apps/{id}                  → HandleUpdateApp
+        ///     DELETE /v1/apps/{id}                  → HandleDeleteApp
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            // Normalize path for routing
+            var normalizedPath = path.TrimEnd('/').ToLowerInvariant();
+
+            // ── App/Sitemap Routes ──
+            // The frontend calls GET /v1/apps to populate the sidebar menu.
+            if (normalizedPath.Contains("/apps"))
+            {
+                // Extract the proxy segment after /apps (if any)
+                var proxySegment = ExtractPathParameter(request, "proxy") ?? string.Empty;
+
+                switch (method)
+                {
+                    case "GET":
+                        // GET /v1/apps → list; GET /v1/apps/{idOrName} → get single
+                        return string.IsNullOrEmpty(proxySegment)
+                            ? await HandleListApps(request, context)
+                            : await HandleGetApp(request, context, proxySegment);
+                    case "POST":
+                        return await HandleCreateApp(request, context);
+                    case "PUT":
+                        return await HandleUpdateApp(request, context, proxySegment);
+                    case "DELETE":
+                        return await HandleDeleteApp(request, context, proxySegment);
+                    default:
+                        return await HandleListApps(request, context);
+                }
+            }
+
+            // ── Plugin Routes ──
+            // Extract proxy segment to differentiate list vs single-item operations
+            var pluginProxy = ExtractPathParameter(request, "proxy") ?? string.Empty;
+            var hasId = !string.IsNullOrEmpty(pluginProxy) && !pluginProxy.Equals("plugins", StringComparison.OrdinalIgnoreCase);
+
+            switch (method)
+            {
+                case "GET":
+                    return hasId
+                        ? await HandleGetPlugin(request, context)
+                        : await HandleListPlugins(request, context);
+                case "POST":
+                    return await HandleRegisterPlugin(request, context);
+                case "PUT":
+                    if (normalizedPath.Contains("/activate"))
+                        return await HandleActivatePlugin(request, context);
+                    if (normalizedPath.Contains("/deactivate"))
+                        return await HandleDeactivatePlugin(request, context);
+                    return CreateErrorResponse(400, "Unsupported PUT operation. Use /activate or /deactivate.");
+                case "DELETE":
+                    return await HandleUnregisterPlugin(request, context);
+                default:
+                    return CreateErrorResponse(405, $"HTTP method {method} is not supported.");
+            }
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleRegisterPlugin(
             APIGatewayHttpApiV2ProxyRequest request,
             ILambdaContext context)
@@ -1002,6 +1089,311 @@ namespace WebVellaErp.PluginSystem.Functions
 
         #endregion
 
+        #region App/Sitemap Handler Methods
+
+        /// <summary>
+        /// Handles GET /v1/apps — Returns all applications with their sitemap trees.
+        /// The frontend AppShell.tsx calls useApps() → GET /apps to populate the sidebar
+        /// navigation menu. Each app includes its sitemap areas and nodes so the UI can
+        /// render hierarchical navigation without additional API calls.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleListApps(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var correlationId = GetCorrelationId(request);
+            _logger.LogInformation("HandleListApps invoked. CorrelationId: {CorrelationId}", correlationId);
+
+            try
+            {
+                var apps = await _sitemapService.ListAppsAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // Build full app response objects with nested sitemap trees
+                var appResponses = new List<object>();
+                foreach (var app in apps)
+                {
+                    var sitemapData = await _sitemapService.GetOrderedSitemapAsync(app.Id, CancellationToken.None).ConfigureAwait(false);
+
+                    // Extract areas from the sitemap structure
+                    var sitemapObj = sitemapData as dynamic;
+                    object? sitemapAreas = null;
+                    try { sitemapAreas = sitemapObj?.Sitemap; } catch { /* dynamic access may fail */ }
+
+                    appResponses.Add(new
+                    {
+                        id = app.Id.ToString(),
+                        name = app.Name,
+                        label = app.Label,
+                        description = app.Description ?? string.Empty,
+                        iconClass = app.IconClass ?? "fa fa-cube",
+                        author = string.Empty,
+                        color = app.Color ?? "#2196F3",
+                        sitemap = BuildSitemapResponse(sitemapAreas),
+                        homePages = Array.Empty<object>(),
+                        entities = Array.Empty<object>(),
+                        weight = app.Weight,
+                        access = app.AccessRoles?.Select(r => r.ToString()).ToArray() ?? Array.Empty<string>()
+                    });
+                }
+
+                return BuildResponse(200, new
+                {
+                    success = true,
+                    message = string.Empty,
+                    errors = Array.Empty<object>(),
+                    statusCode = 200,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    @object = appResponses
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error listing apps. CorrelationId: {CorrelationId}", correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred while listing applications." }, correlationId);
+            }
+        }
+
+        /// <summary>
+        /// Handles GET /v1/apps/{idOrName} — Returns a single application by ID or name.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleGetApp(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context, string idOrName)
+        {
+            var correlationId = GetCorrelationId(request);
+            _logger.LogInformation("HandleGetApp invoked for '{IdOrName}'. CorrelationId: {CorrelationId}", idOrName, correlationId);
+
+            try
+            {
+                AppRecord? app = null;
+
+                // Try to parse as GUID first
+                if (Guid.TryParse(idOrName, out var appId))
+                {
+                    app = await _sitemapService.GetAppByIdAsync(appId, CancellationToken.None).ConfigureAwait(false);
+                }
+
+                // If not found by ID, search by name
+                if (app == null)
+                {
+                    var allApps = await _sitemapService.ListAppsAsync(CancellationToken.None).ConfigureAwait(false);
+                    app = allApps.FirstOrDefault(a => a.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (app == null)
+                {
+                    return BuildResponse(404, new
+                    {
+                        success = false,
+                        message = $"Application '{idOrName}' was not found.",
+                        errors = Array.Empty<object>(),
+                        statusCode = 404,
+                        timestamp = DateTime.UtcNow.ToString("o")
+                    }, correlationId);
+                }
+
+                var sitemapData = await _sitemapService.GetOrderedSitemapAsync(app.Id, CancellationToken.None).ConfigureAwait(false);
+                var sitemapObj = sitemapData as dynamic;
+                object? sitemapAreas = null;
+                try { sitemapAreas = sitemapObj?.Sitemap; } catch { /* dynamic access may fail */ }
+
+                var appResponse = new
+                {
+                    id = app.Id.ToString(),
+                    name = app.Name,
+                    label = app.Label,
+                    description = app.Description ?? string.Empty,
+                    iconClass = app.IconClass ?? "fa fa-cube",
+                    author = string.Empty,
+                    color = app.Color ?? "#2196F3",
+                    sitemap = BuildSitemapResponse(sitemapAreas),
+                    homePages = Array.Empty<object>(),
+                    entities = Array.Empty<object>(),
+                    weight = app.Weight,
+                    access = app.AccessRoles?.Select(r => r.ToString()).ToArray() ?? Array.Empty<string>()
+                };
+
+                return BuildResponse(200, new
+                {
+                    success = true,
+                    message = string.Empty,
+                    errors = Array.Empty<object>(),
+                    statusCode = 200,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    @object = appResponse
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting app '{IdOrName}'. CorrelationId: {CorrelationId}", idOrName, correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred." }, correlationId);
+            }
+        }
+
+        /// <summary>
+        /// Handles POST /v1/apps — Creates a new application.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleCreateApp(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var correlationId = GetCorrelationId(request);
+            _logger.LogInformation("HandleCreateApp invoked. CorrelationId: {CorrelationId}", correlationId);
+
+            try
+            {
+                if (!IsAdministrator(request))
+                {
+                    return BuildResponse(403, new { success = false, message = "Access denied. Administrator role required." }, correlationId);
+                }
+
+                var body = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(request.Body ?? "{}");
+                var appId = body.TryGetProperty("id", out var idProp) && Guid.TryParse(idProp.GetString(), out var parsedId)
+                    ? parsedId : Guid.NewGuid();
+                var name = body.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? string.Empty : string.Empty;
+                var label = body.TryGetProperty("label", out var labelProp) ? labelProp.GetString() ?? string.Empty : string.Empty;
+                var description = body.TryGetProperty("description", out var descProp) ? descProp.GetString() : null;
+                var iconClass = body.TryGetProperty("iconClass", out var iconProp) ? iconProp.GetString() : "fa fa-cube";
+                var color = body.TryGetProperty("color", out var colorProp) ? colorProp.GetString() : "#2196F3";
+                var weight = body.TryGetProperty("weight", out var weightProp) ? weightProp.GetInt32() : 10;
+
+                var result = await _sitemapService.CreateAppAsync(appId, name, label, description, iconClass, color, weight, null, CancellationToken.None).ConfigureAwait(false);
+
+                return BuildResponse(result.Success ? 201 : 400, new
+                {
+                    success = result.Success,
+                    message = result.Message,
+                    errors = Array.Empty<object>(),
+                    statusCode = result.Success ? 201 : 400,
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    @object = result.Success ? new { id = appId.ToString(), name, label } : null
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating app. CorrelationId: {CorrelationId}", correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred." }, correlationId);
+            }
+        }
+
+        /// <summary>
+        /// Handles PUT /v1/apps/{id} — Updates an existing application.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleUpdateApp(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context, string appIdStr)
+        {
+            var correlationId = GetCorrelationId(request);
+            _logger.LogInformation("HandleUpdateApp invoked for '{AppId}'. CorrelationId: {CorrelationId}", appIdStr, correlationId);
+
+            try
+            {
+                if (!IsAdministrator(request))
+                {
+                    return BuildResponse(403, new { success = false, message = "Access denied. Administrator role required." }, correlationId);
+                }
+
+                if (!Guid.TryParse(appIdStr, out var appId))
+                {
+                    return BuildResponse(400, new { success = false, message = "A valid application ID (GUID) is required." }, correlationId);
+                }
+
+                var body = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(request.Body ?? "{}");
+                var name = body.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? string.Empty : string.Empty;
+                var label = body.TryGetProperty("label", out var labelProp) ? labelProp.GetString() ?? string.Empty : string.Empty;
+                var description = body.TryGetProperty("description", out var descProp) ? descProp.GetString() : null;
+                var iconClass = body.TryGetProperty("iconClass", out var iconProp) ? iconProp.GetString() : "fa fa-cube";
+                var color = body.TryGetProperty("color", out var colorProp) ? colorProp.GetString() : "#2196F3";
+                var weight = body.TryGetProperty("weight", out var weightProp) ? weightProp.GetInt32() : 10;
+
+                var result = await _sitemapService.UpdateAppAsync(appId, name, label, description, iconClass, color, weight, null, CancellationToken.None).ConfigureAwait(false);
+
+                return BuildResponse(result.Success ? 200 : 400, new
+                {
+                    success = result.Success,
+                    message = result.Message,
+                    errors = Array.Empty<object>(),
+                    statusCode = result.Success ? 200 : 400,
+                    timestamp = DateTime.UtcNow.ToString("o")
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating app. CorrelationId: {CorrelationId}", correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred." }, correlationId);
+            }
+        }
+
+        /// <summary>
+        /// Handles DELETE /v1/apps/{id} — Deletes an application and all its sitemap data.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleDeleteApp(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context, string appIdStr)
+        {
+            var correlationId = GetCorrelationId(request);
+            _logger.LogInformation("HandleDeleteApp invoked for '{AppId}'. CorrelationId: {CorrelationId}", appIdStr, correlationId);
+
+            try
+            {
+                if (!IsAdministrator(request))
+                {
+                    return BuildResponse(403, new { success = false, message = "Access denied. Administrator role required." }, correlationId);
+                }
+
+                if (!Guid.TryParse(appIdStr, out var appId))
+                {
+                    return BuildResponse(400, new { success = false, message = "A valid application ID (GUID) is required." }, correlationId);
+                }
+
+                var result = await _sitemapService.DeleteAppAsync(appId, CancellationToken.None).ConfigureAwait(false);
+
+                return BuildResponse(result.Success ? 200 : 400, new
+                {
+                    success = result.Success,
+                    message = result.Message,
+                    errors = Array.Empty<object>(),
+                    statusCode = result.Success ? 200 : 400,
+                    timestamp = DateTime.UtcNow.ToString("o")
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting app. CorrelationId: {CorrelationId}", correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred." }, correlationId);
+            }
+        }
+
+        /// <summary>
+        /// Builds a frontend-compatible sitemap response object from the raw DynamoDB sitemap data.
+        /// Returns null if no sitemap data exists, which the frontend App type expects (sitemap: Sitemap | null).
+        /// </summary>
+        private static object? BuildSitemapResponse(object? sitemapAreas)
+        {
+            if (sitemapAreas == null) return null;
+
+            // The SitemapService returns sitemap as a list of area objects with nested nodes.
+            // Wrap it in the Sitemap envelope that the frontend expects:
+            // { areas: [...], groups: [...] }
+            return new { areas = sitemapAreas, groups = Array.Empty<object>() };
+        }
+
+        /// <summary>
+        /// Creates a structured error response for unsupported operations.
+        /// </summary>
+        private APIGatewayHttpApiV2ProxyResponse CreateErrorResponse(int statusCode, string message)
+        {
+            return new APIGatewayHttpApiV2ProxyResponse
+            {
+                StatusCode = statusCode,
+                Headers = StandardResponseHeaders,
+                Body = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    message,
+                    statusCode,
+                    timestamp = DateTime.UtcNow.ToString("o")
+                })
+            };
+        }
+
+        #endregion
+
         #region Helper Methods
 
         /// <summary>
@@ -1045,10 +1437,24 @@ namespace WebVellaErp.PluginSystem.Functions
             }
             catch (Exception)
             {
-                // Fallback: if serialization fails, return a generic error body
-                serializedBody = JsonSerializer.Serialize(
-                    new PluginResponse { Success = false, Message = "Response serialization error." },
-                    PluginHandlerJsonContext.Default.PluginResponse);
+                // Fallback: use runtime reflection-based serialization for anonymous
+                // types (e.g., app/sitemap responses). This path is only hit for
+                // non-AOT-registered types and is safe in managed Lambda runtimes.
+                try
+                {
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+                    };
+                    serializedBody = JsonSerializer.Serialize(body, options);
+                }
+                catch (Exception)
+                {
+                    serializedBody = JsonSerializer.Serialize(
+                        new PluginResponse { Success = false, Message = "Response serialization error." },
+                        PluginHandlerJsonContext.Default.PluginResponse);
+                }
             }
 
             return new APIGatewayHttpApiV2ProxyResponse
@@ -1066,12 +1472,23 @@ namespace WebVellaErp.PluginSystem.Functions
             APIGatewayHttpApiV2ProxyRequest request,
             string parameterName)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(parameterName, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(parameterName, out var value) &&
+                    !string.IsNullOrEmpty(value))
+                    return value;
+                // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out _))
+                            return segments[i];
+                    }
+                }
             }
-
             return null;
         }
 

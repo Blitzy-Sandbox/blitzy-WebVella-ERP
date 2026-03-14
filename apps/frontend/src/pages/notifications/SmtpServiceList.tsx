@@ -144,12 +144,12 @@ export default function SmtpServiceList(): React.JSX.Element {
 
   /* ---- Navigation handlers ---- */
   const handleAddService = useCallback(() => {
-    navigate('/notifications/smtp-services/create');
+    navigate('/notifications/smtp/create');
   }, [navigate]);
 
   const handleEditClick = useCallback(
     (service: SmtpService) => {
-      navigate(`/notifications/smtp-services/${service.id}/manage`);
+      navigate(`/notifications/smtp/${service.id}/manage`);
     },
     [navigate],
   );
@@ -181,7 +181,7 @@ export default function SmtpServiceList(): React.JSX.Element {
         sortable: true,
         cell: (_value: unknown, record: SmtpService) => (
           <Link
-            to={`/notifications/smtp-services/${record.id}/manage`}
+            to={`/notifications/smtp/${record.id}/manage`}
             className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
           >
             {record.name}

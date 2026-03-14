@@ -148,6 +148,7 @@ export default function AdminEntityManage(): React.ReactNode {
     useState<RecordPermissions>(EMPTY_PERMISSIONS);
 
   /** Validation state matching DynamicForm expectations. */
+  const [showSuccess, setShowSuccess] = useState(false);
   const [validation, setValidation] = useState<FormValidation | undefined>(
     undefined,
   );
@@ -300,8 +301,9 @@ export default function AdminEntityManage(): React.ReactNode {
       /* ---- Execute update mutation ---- */
       try {
         await updateMutateAsync({ id: entityId!, entity: payload });
-        /* Navigate to entity detail page on success. */
-        navigate(`/admin/entities/${entityId}`);
+        /* Show success briefly then navigate to entity detail page. */
+        setShowSuccess(true);
+        setTimeout(() => navigate(`/admin/entities/${entityId}`), 1500);
       } catch (err: unknown) {
         /*
          * Build a human-readable validation from the caught error.
@@ -360,6 +362,11 @@ export default function AdminEntityManage(): React.ReactNode {
   /* ── Render ──────────────────────────────────────────────────── */
   return (
     <div className="flex flex-col min-h-full">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Entity saved successfully. Redirecting…</p>
+        </div>
+      )}
       {/* ════════════════════════════════════════════════════════════
        * Page Header
        * Matches manage.cshtml lines 1-14:

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -872,7 +873,8 @@ namespace WebVellaErp.Identity.Tests.Unit
                 .Values.FirstOrDefault(v => v.S != null && v.S.Contains("20"));
             tsValue.Should().NotBeNull("a timestamp value should be provided");
 
-            var parsedTimestamp = DateTime.Parse(tsValue!.S);
+            var parsedTimestamp = DateTime.Parse(tsValue!.S, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            parsedTimestamp.Kind.Should().Be(DateTimeKind.Utc, "stored timestamp must be UTC");
             parsedTimestamp.Should().BeOnOrAfter(beforeCall.AddSeconds(-2));
             parsedTimestamp.Should().BeOnOrBefore(afterCall.AddSeconds(2));
         }

@@ -59,6 +59,19 @@ namespace WebVellaErp.Notifications.DataAccess
         /// </summary>
         Task<List<Email>> GetEmailsByStatusAsync(EmailStatus status, int limit = 50, CancellationToken ct = default);
 
+        /// <summary>
+        /// Lists all email records, optionally filtered by status and search term.
+        /// Maps to the monolith's MailPlugin email listing grid which used EQL:
+        /// SELECT * FROM email ORDER BY created_on DESC PAGE {page} PAGESIZE {pageSize}
+        /// Scans the DynamoDB table partition EMAIL# with optional GSI1 status filter.
+        /// </summary>
+        Task<List<Email>> ListEmailsAsync(
+            string? statusFilter = null,
+            string? searchTerm = null,
+            int page = 1,
+            int pageSize = 50,
+            CancellationToken ct = default);
+
         // ── SMTP Service Config Operations ──
 
         /// <summary>
@@ -393,6 +406,88 @@ namespace WebVellaErp.Notifications.DataAccess
             {
                 _logger.LogError(ex, "Failed to query emails by status {Status}", status);
                 throw new Exception($"Failed to query emails by status '{status}': {ex.Message}", ex);
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Email>> ListEmailsAsync(
+            string? statusFilter = null,
+            string? searchTerm = null,
+            int page = 1,
+            int pageSize = 50,
+            CancellationToken ct = default)
+        {
+            _logger.LogInformation(
+                "Listing emails. StatusFilter={Status}, Search={Search}, Page={Page}, PageSize={PageSize}",
+                statusFilter, searchTerm, page, pageSize);
+
+            try
+            {
+                List<Email> allEmails;
+
+                if (!string.IsNullOrWhiteSpace(statusFilter) &&
+                    Enum.TryParse<EmailStatus>(statusFilter, true, out var parsedStatus))
+                {
+                    // Use GSI1 for status-filtered query
+                    allEmails = await GetEmailsByStatusAsync(parsedStatus, 500, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Scan EMAIL# partition for all emails
+                    var request = new ScanRequest
+                    {
+                        TableName = _tableName,
+                        FilterExpression = "begins_with(PK, :pk)",
+                        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                        {
+                            [":pk"] = new AttributeValue { S = "EMAIL#" }
+                        }
+                    };
+
+                    allEmails = new List<Email>();
+                    ScanResponse? response = null;
+                    do
+                    {
+                        if (response?.LastEvaluatedKey?.Count > 0)
+                        {
+                            request.ExclusiveStartKey = response.LastEvaluatedKey;
+                        }
+                        response = await _dynamoDbClient.ScanAsync(request, ct).ConfigureAwait(false);
+                        foreach (var item in response.Items)
+                        {
+                            allEmails.Add(MapToEmail(item));
+                        }
+                    } while (response.LastEvaluatedKey?.Count > 0);
+                }
+
+                // Apply search filter in-memory
+                if (!string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    var term = searchTerm.Trim().ToLowerInvariant();
+                    allEmails = allEmails.Where(e =>
+                        (e.Subject?.ToLowerInvariant().Contains(term) ?? false) ||
+                        (e.Sender?.Address?.ToLowerInvariant().Contains(term) ?? false) ||
+                        (e.Recipients?.Any(r => r.Address?.ToLowerInvariant().Contains(term) ?? false) ?? false)
+                    ).ToList();
+                }
+
+                // Sort by created_on descending (newest first)
+                allEmails.Sort((a, b) => b.CreatedOn.CompareTo(a.CreatedOn));
+
+                // Apply pagination
+                var pagedEmails = allEmails
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToList();
+
+                _logger.LogInformation("Listed {Count} emails (page {Page}, total {Total})",
+                    pagedEmails.Count, page, allEmails.Count);
+                return pagedEmails;
+            }
+            catch (AmazonDynamoDBException ex)
+            {
+                _logger.LogError(ex, "Failed to list emails");
+                throw new Exception($"Failed to list emails: {ex.Message}", ex);
             }
         }
 

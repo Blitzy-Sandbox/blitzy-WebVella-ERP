@@ -162,6 +162,12 @@ export interface IdentityStackProps extends cdk.StackProps {
   readonly userPool: cognito.IUserPool;
 
   /**
+   * Cognito User Pool Client reference from SharedStack.
+   * Required by CognitoService for authentication flows (AdminInitiateAuth).
+   */
+  readonly userPoolClientId: string;
+
+  /**
    * Central SNS topic serving as the domain event bus.
    *
    * Passed from SharedStack. The AuthHandler, UserHandler, and RoleHandler
@@ -238,7 +244,7 @@ export class IdentityStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: IdentityStackProps) {
     super(scope, id, props);
 
-    const { isLocalStack, userPool, eventBus } = props;
+    const { isLocalStack, userPool, userPoolClientId, eventBus } = props;
 
     // -----------------------------------------------------------------------
     // 1. DynamoDB Table — Single-table design for Identity & Access Management
@@ -284,6 +290,17 @@ export class IdentityStack extends cdk.Stack {
         },
         sortKey: {
           name: 'GSI1SK',
+          type: dynamodb.AttributeType.STRING,
+        },
+      },
+      {
+        indexName: 'GSI2',
+        partitionKey: {
+          name: 'GSI2PK',
+          type: dynamodb.AttributeType.STRING,
+        },
+        sortKey: {
+          name: 'GSI2SK',
           type: dynamodb.AttributeType.STRING,
         },
       },
@@ -398,14 +415,16 @@ export class IdentityStack extends cdk.Stack {
 
     const sharedEnvironment: Record<string, string> = {
       TABLE_NAME: identityTable.tableName,
+      IDENTITY_TABLE_NAME: identityTable.tableName,
       COGNITO_USER_POOL_ID: userPool.userPoolId,
+      COGNITO_CLIENT_ID: userPoolClientId,
       EVENT_TOPIC_ARN: eventBus.topicArn,
     };
 
     // Only inject AWS_ENDPOINT_URL for LocalStack environments.
     // In production, the AWS SDK uses default service endpoints.
     if (isLocalStack) {
-      sharedEnvironment['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+      sharedEnvironment['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     // Combined IAM policies for all identity Lambda handlers.
@@ -449,8 +468,8 @@ export class IdentityStack extends cdk.Stack {
       serviceName: 'erp-identity',
       functionName: 'auth',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/identity/src',
-      handler: 'bootstrap',
+      codePath: '../services/identity/publish',
+      handler: 'WebVellaErp.Identity::WebVellaErp.Identity.Functions.AuthHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -495,8 +514,8 @@ export class IdentityStack extends cdk.Stack {
       serviceName: 'erp-identity',
       functionName: 'user',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/identity/src',
-      handler: 'bootstrap',
+      codePath: '../services/identity/publish',
+      handler: 'WebVellaErp.Identity::WebVellaErp.Identity.Functions.UserHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -540,8 +559,8 @@ export class IdentityStack extends cdk.Stack {
       serviceName: 'erp-identity',
       functionName: 'role',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/identity/src',
-      handler: 'bootstrap',
+      codePath: '../services/identity/publish',
+      handler: 'WebVellaErp.Identity::WebVellaErp.Identity.Functions.RoleHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,

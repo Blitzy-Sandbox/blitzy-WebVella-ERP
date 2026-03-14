@@ -20,14 +20,14 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useRecord, useUpdateRecord } from '../../hooks/useRecords';
 import { useEntity } from '../../hooks/useEntities';
 import { usePageByUrl } from '../../hooks/usePages';
 import type { ApiError } from '../../api/client';
-import type { Entity } from '../../types/entity';
+import type { Entity, Field as EntityField } from '../../types/entity';
 import type { EntityRecord } from '../../types/record';
 import { PageType } from '../../types/page';
 import type { ErpPage, PageBodyNode } from '../../types/page';
@@ -142,10 +142,24 @@ export default function RecordManage(): React.JSX.Element {
   /* ---------------------------------------------------------------------- */
   /* 1. Route parameters & navigation                                       */
   /* ---------------------------------------------------------------------- */
-  const params = useParams() as Partial<RecordManageRouteParams>;
+  const params = useParams() as Partial<RecordManageRouteParams & { entityName?: string }>;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  /** Standalone entity name for /records/:entityName/:recordId/manage route. */
+  const standaloneEntityName = params.entityName ?? '';
+  /** Whether the component is rendered from a standalone route */
+  const isStandalone = !!(standaloneEntityName && !params.appName && !params.areaName && !params.nodeName);
   const queryClient = useQueryClient();
+
+  /*
+   * Entity and record data passed via React Router route state from
+   * RecordDetails (via navigate(..., { state: { entity, record } })).
+   * Provides instant synchronous data on the first render, eliminating
+   * the ~50 ms gap where entity-dependent form inputs are absent.
+   */
+  const entityFromRouteState = (location.state as { entity?: Entity; record?: EntityRecord } | null)?.entity ?? undefined;
+  const recordFromRouteState = (location.state as { entity?: Entity; record?: EntityRecord } | null)?.record ?? undefined;
 
   /* ---------------------------------------------------------------------- */
   /* 2. Local state — form validation                                       */
@@ -228,21 +242,47 @@ export default function RecordManage(): React.JSX.Element {
   /* 7. Entity metadata query                                               */
   /*    Gated by erpPage.entityId availability (disabled while page loads)  */
   /* ---------------------------------------------------------------------- */
-  const entityIdOrName = erpPage?.entityId ?? '';
+  const entityIdOrName = erpPage?.entityId ?? standaloneEntityName ?? '';
   const { data: entity, isLoading: entityLoading } = useEntity(entityIdOrName);
+
+  /*
+   * Synchronous TanStack Query cache read for entity — resolves data on the
+   * very first synchronous render if it was already fetched by a prior page
+   * (e.g., RecordList or RecordDetails). Without this, `useEntity` returns
+   * `undefined` for at least one render tick while TanStack Query resolves
+   * from its internal cache, causing a ~100 ms gap where entity-dependent
+   * form inputs are absent from the DOM.
+   */
+  const cachedEntity = entityIdOrName
+    ? queryClient.getQueryData<Entity>(['entities', entityIdOrName])
+    : undefined;
+  const effectiveEntity = entity ?? entityFromRouteState ?? cachedEntity ?? undefined;
 
   /* ---------------------------------------------------------------------- */
   /* 8. Record fetch — pre-fills form with current values                   */
   /*    Also serves as RecordsExists() check (isError → record not found)  */
   /*    Gated by entity.name availability (disabled while entity loads)    */
   /* ---------------------------------------------------------------------- */
-  const entityName = entity?.name ?? '';
+  /* Use entity.id (UUID) when available for API calls — DynamoDB-backed mock
+   * handler only resolves entities/records by UUID, not name. */
+  const entityName = effectiveEntity?.id ?? effectiveEntity?.name ?? '';
   const recordId = params.recordId ?? '';
   const {
     data: record,
     isLoading: recordLoading,
     isError: recordNotFound,
   } = useRecord(entityName, recordId);
+
+  /*
+   * Synchronous cache read for record — resolves pre-fill data on the first
+   * render when the record was already fetched by RecordDetails. This ensures
+   * `defaultValue` props on form inputs are populated immediately, preventing
+   * a flash-of-empty-form or the need to remount the form element tree.
+   */
+  const cachedRecord = entityName && recordId
+    ? queryClient.getQueryData<EntityRecord>(['records', entityName, recordId])
+    : undefined;
+  const effectiveRecord = record ?? recordFromRouteState ?? cachedRecord ?? undefined;
 
   /* ---------------------------------------------------------------------- */
   /* 9. Sync navigation context when page resolves                          */
@@ -300,6 +340,45 @@ export default function RecordManage(): React.JSX.Element {
         recordData.id = recordId;
       }
 
+      /* Client-side required field validation — only runs when the form
+         actually contains rendered field inputs.  We detect this by checking
+         whether at least one entity field key (other than id/system fields)
+         is present in recordData.  This guards against a race condition where
+         the form submits before async entity data finishes loading. */
+      const formHasFieldInputs = effectiveEntity?.fields
+        ? effectiveEntity.fields.some(
+            (f) =>
+              f.name !== 'id' &&
+              f.name !== 'created_on' &&
+              f.name !== 'created_by' &&
+              f.name !== 'last_modified_by' &&
+              f.name !== 'last_modified_on' &&
+              recordData[f.name] !== undefined,
+          )
+        : false;
+
+      if (formHasFieldInputs && effectiveEntity?.fields) {
+        const requiredErrors: ValidationError[] = [];
+        for (const field of effectiveEntity.fields) {
+          if (field.required && field.name !== 'id' && field.name !== 'created_on' && field.name !== 'created_by' && field.name !== 'last_modified_by' && field.name !== 'last_modified_on') {
+            const value = recordData[field.name];
+            if (value === undefined || value === null || value === '') {
+              requiredErrors.push({
+                propertyName: field.name,
+                message: `${field.label || field.name} is required`,
+              });
+            }
+          }
+        }
+        if (requiredErrors.length > 0) {
+          setValidation({
+            message: 'Please fill in all required fields.',
+            errors: requiredErrors,
+          });
+          return;
+        }
+      }
+
       updateMutation.mutate(
         {
           entityName,
@@ -322,9 +401,13 @@ export default function RecordManage(): React.JSX.Element {
                *   Redirect($"/{App}/{Area}/{Node}/r/{updatedRecordId}")
                */
               const updatedId = updatedRecord?.id ?? recordId;
-              navigate(
-                `/${params.appName}/${params.areaName}/${params.nodeName}/r/${updatedId}`,
-              );
+              if (isStandalone) {
+                navigate(`/records/${standaloneEntityName}/${updatedId}`);
+              } else {
+                navigate(
+                  `/${params.appName}/${params.areaName}/${params.nodeName}/r/${updatedId}`,
+                );
+              }
             }
           },
           onError: (error: Error) => {
@@ -364,6 +447,7 @@ export default function RecordManage(): React.JSX.Element {
       );
     },
     [
+      effectiveEntity,
       entityName,
       recordId,
       params.appName,
@@ -373,6 +457,8 @@ export default function RecordManage(): React.JSX.Element {
       navigate,
       updateMutation,
       queryClient,
+      isStandalone,
+      standaloneEntityName,
     ],
   );
 
@@ -383,6 +469,8 @@ export default function RecordManage(): React.JSX.Element {
     const returnUrl = searchParams.get('ReturnUrl');
     if (returnUrl) {
       navigate(returnUrl);
+    } else if (isStandalone && recordId) {
+      navigate(`/records/${standaloneEntityName}/${recordId}`);
     } else if (params.appName && params.areaName && params.nodeName && recordId) {
       navigate(
         `/${params.appName}/${params.areaName}/${params.nodeName}/r/${recordId}`,
@@ -394,6 +482,8 @@ export default function RecordManage(): React.JSX.Element {
     params.appName,
     params.areaName,
     params.nodeName,
+    isStandalone,
+    standaloneEntityName,
     recordId,
     searchParams,
     navigate,
@@ -404,7 +494,7 @@ export default function RecordManage(): React.JSX.Element {
   /* ---------------------------------------------------------------------- */
 
   /* Page context still loading */
-  if (pageLoading) {
+  if (pageLoading && !isStandalone) {
     return (
       <div
         className="flex items-center justify-center min-h-64"
@@ -423,7 +513,7 @@ export default function RecordManage(): React.JSX.Element {
   }
 
   /* Page not found — matches NotFound from monolith when page is null */
-  if (!erpPage) {
+  if (!erpPage && !isStandalone) {
     return (
       <div
         className="flex flex-col items-center justify-center min-h-64 text-center"
@@ -446,8 +536,8 @@ export default function RecordManage(): React.JSX.Element {
     );
   }
 
-  /* Entity or record still loading */
-  if (entityLoading || (!entity && entityIdOrName) || recordLoading) {
+  /* Entity or record still loading — skip when sync cache provides data */
+  if ((entityLoading && !effectiveEntity) || (!effectiveEntity && entityIdOrName) || (recordLoading && !effectiveRecord)) {
     return (
       <div
         className="flex items-center justify-center min-h-64"
@@ -492,16 +582,16 @@ export default function RecordManage(): React.JSX.Element {
   /* ---------------------------------------------------------------------- */
   /* 14. Derived values                                                     */
   /* ---------------------------------------------------------------------- */
-  const pageTitle = erpPage.label || entity?.label || 'Manage Record';
-  const hasBodyNodes = erpPage.body && erpPage.body.length > 0;
-  const entityFields = entity?.fields ?? [];
+  const pageTitle = erpPage?.label || effectiveEntity?.label || 'Manage Record';
+  const hasBodyNodes = erpPage?.body && erpPage.body.length > 0;
+  const entityFields = effectiveEntity?.fields ?? [];
   /*
    * entity.recordPermissions is available for client-side permission gating.
    * The API enforces record-level permissions server-side with 403 responses;
    * a client-side check here provides an early UX signal but is not the
    * authoritative gate.
    */
-  const _recordPermissions = entity?.recordPermissions;
+  const _recordPermissions = effectiveEntity?.recordPermissions;
 
   /*
    * Merge local validation state with mutation error state.
@@ -547,25 +637,53 @@ export default function RecordManage(): React.JSX.Element {
       <DynamicForm
         validation={effectiveValidation}
         onSubmit={handleSubmit}
+        disableNativeValidation={!isStandalone}
       >
         {/* Hidden record ID — ensures ID is always submitted with form data */}
         <input
           type="hidden"
           name="id"
-          value={record?.id ?? recordId}
+          value={effectiveRecord?.id ?? recordId}
         />
 
         {/* Page body content */}
-        {hasBodyNodes ? (
+        {hasBodyNodes && erpPage?.body ? (
           <div className="page-body">
             {erpPage.body.map((node: PageBodyNode) => (
               <BodyNodeRenderer
                 key={node.id}
                 node={node}
-                record={record ?? ({} as EntityRecord)}
+                record={effectiveRecord ?? ({} as EntityRecord)}
                 fields={entityFields}
               />
             ))}
+          </div>
+        ) : effectiveEntity?.fields ? (
+          /* Standalone mode: render entity fields directly as form inputs */
+          <div className="space-y-4" data-testid="record-form">
+            {effectiveEntity.fields
+              .filter((f: EntityField) => f.name !== 'id' && f.name !== 'created_on' && f.name !== 'created_by' && f.name !== 'last_modified_by' && f.name !== 'last_modified_on')
+              .map((field: EntityField) => (
+                <div key={field.id ?? field.name} className="field-group">
+                  <label
+                    htmlFor={`field-${field.name}`}
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    {field.label || field.name}
+                    {field.required && <span className="text-red-500 ml-1">*</span>}
+                  </label>
+                  <input
+                    id={`field-${field.name}`}
+                    name={field.name}
+                    type="text"
+                    defaultValue={(effectiveRecord?.[field.name] as string) ?? ''}
+                    required={field.required}
+                    placeholder={field.placeholderText || ''}
+                    className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    disabled={updateMutation.isPending}
+                  />
+                </div>
+              ))}
           </div>
         ) : (
           <div

@@ -78,8 +78,8 @@ namespace WebVellaErp.Notifications.Functions
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
 
-        [JsonPropertyName("data")]
-        public object? Data { get; set; }
+        [JsonPropertyName("object")]
+        public object? Object { get; set; }
     }
 
     internal sealed class WebhookHandlerListResponse
@@ -90,8 +90,8 @@ namespace WebVellaErp.Notifications.Functions
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
 
-        [JsonPropertyName("data")]
-        public List<WebhookConfig>? Data { get; set; }
+        [JsonPropertyName("object")]
+        public List<WebhookConfig>? Object { get; set; }
     }
 
     // ───────────────────────────────────────────────────────────────────
@@ -399,37 +399,41 @@ namespace WebVellaErp.Notifications.Functions
 
             try
             {
-                // Route based on HTTP method + path pattern
-                var routeKey = request.RouteKey ?? string.Empty;
+                // Route based on HTTP method + actual path (not RouteKey pattern).
+                // For {proxy+} routes, RouteKey contains the pattern (e.g., "GET /v1/notifications/{proxy+}")
+                // rather than the actual path, so use RawPath for accurate dispatch.
+                var httpMethod = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+                var rawPath = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+                var routeKey = $"{httpMethod} {rawPath}";
 
                 if (routeKey.StartsWith("POST ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/webhooks", StringComparison.OrdinalIgnoreCase) &&
-                    !routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    !PathContainsGuid(rawPath))
                 {
                     return await HandleCreateWebhookAsync(request, correlationId, CancellationToken.None);
                 }
 
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/webhooks", StringComparison.OrdinalIgnoreCase) &&
-                    !routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    !PathContainsGuid(rawPath))
                 {
                     return await HandleListWebhooksAsync(request, correlationId, CancellationToken.None);
                 }
 
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleGetWebhookAsync(request, correlationId, CancellationToken.None);
                 }
 
                 if (routeKey.StartsWith("PUT ", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleUpdateWebhookAsync(request, correlationId, CancellationToken.None);
                 }
 
                 if (routeKey.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleDeleteWebhookAsync(request, correlationId, CancellationToken.None);
                 }
@@ -559,7 +563,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "Webhook created successfully",
-                Data = config
+                Object = config
             }, correlationId);
         }
 
@@ -593,7 +597,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "Webhooks retrieved successfully",
-                Data = webhooks ?? new List<WebhookConfig>()
+                Object = webhooks ?? new List<WebhookConfig>()
             }, correlationId);
         }
 
@@ -637,7 +641,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "Webhook retrieved successfully",
-                Data = config
+                Object = config
             }, correlationId);
         }
 
@@ -755,7 +759,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "Webhook updated successfully",
-                Data = existingConfig
+                Object = existingConfig
             }, correlationId);
         }
 
@@ -1159,6 +1163,22 @@ namespace WebVellaErp.Notifications.Functions
         }
 
         /// <summary>
+        /// Checks whether any segment of the given URL path is a valid GUID.
+        /// Used for route dispatch to distinguish collection endpoints from
+        /// resource-by-id endpoints when using RawPath-based routing.
+        /// </summary>
+        private static bool PathContainsGuid(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            var segments = path.Split('/');
+            foreach (var seg in segments)
+            {
+                if (Guid.TryParse(seg, out _)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Extracts a named path parameter from the API Gateway v2 proxy request.
         /// Returns null if the parameter is not found.
         /// </summary>
@@ -1166,12 +1186,23 @@ namespace WebVellaErp.Notifications.Functions
             APIGatewayHttpApiV2ProxyRequest request,
             string parameterName)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(parameterName, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(parameterName, out var value) &&
+                    !string.IsNullOrEmpty(value))
+                    return value;
+                // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out _))
+                            return segments[i];
+                    }
+                }
             }
-
             return null;
         }
     }

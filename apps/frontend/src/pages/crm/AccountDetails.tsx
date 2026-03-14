@@ -17,7 +17,7 @@
 
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
 import Modal from '../../components/common/Modal';
 
@@ -535,6 +535,7 @@ function RelatedContactsTable({
 export default function AccountDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   /* ---- State ---- */
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -549,14 +550,16 @@ export default function AccountDetails() {
     queryKey: ['crm', 'accounts', id],
     queryFn: async () => {
       const response = await apiClient.get<ApiEnvelope<AccountRecord>>(
-        `/v1/crm/accounts/${id}`,
+        `/crm/accounts/${id}`,
       );
       return response.data;
     },
     enabled: !!id,
   });
 
-  const account = accountResponse?.object ?? null;
+  // Handle both envelope ({ success, object }) and raw Lambda responses
+  const account: AccountRecord | null =
+    (accountResponse?.object ?? accountResponse ?? null) as AccountRecord | null;
 
   /* ---- Related Contacts Query ---- */
   const { data: contactsResponse, isLoading: isContactsLoading } =
@@ -564,24 +567,33 @@ export default function AccountDetails() {
       queryKey: ['crm', 'accounts', id, 'contacts'],
       queryFn: async () => {
         const response = await apiClient.get<ApiEnvelope<RelatedContact[]>>(
-          `/v1/crm/accounts/${id}/contacts`,
+          `/crm/accounts/${id}/contacts`,
         );
         return response.data;
       },
       enabled: !!account,
     });
 
-  const relatedContacts = contactsResponse?.object ?? [];
+  // Handle both envelope and raw Lambda list responses
+  const rawContactsObj = (contactsResponse?.object ?? contactsResponse) as unknown;
+  const relatedContacts: RelatedContact[] = Array.isArray(rawContactsObj)
+    ? (rawContactsObj as RelatedContact[])
+    : Array.isArray((rawContactsObj as Record<string, unknown>)?.data)
+      ? ((rawContactsObj as Record<string, unknown>).data as RelatedContact[])
+      : [];
 
   /* ---- Delete Mutation ---- */
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.delete<ApiEnvelope<null>>(
-        `/v1/crm/accounts/${id}`,
+        `/crm/accounts/${id}`,
       );
       return response.data;
     },
     onSuccess: () => {
+      // Invalidate the accounts list cache so the list page refetches fresh data.
+      queryClient.invalidateQueries({ queryKey: ['crm', 'accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
       navigate('/crm/accounts');
     },
   });

@@ -433,10 +433,15 @@ export class WebVellaLambdaService extends Construct {
     switch (props.runtime) {
       case LambdaRuntime.DOTNET_9_AOT:
         return {
+          // Self-contained .NET 9 publish bundles the runtime in the deployment package.
+          // provided.al2023 is used for BOTH LocalStack and production — the 'bootstrap'
+          // executable in the publish directory IS the entry point (no managed runtime needed).
           runtime: lambda.Runtime.PROVIDED_AL2023,
           handler: props.handler,
           memorySize: props.memorySize ?? 512,
-          timeoutSeconds: props.timeoutSeconds ?? 30,
+          // .NET 9 self-contained cold starts require longer timeouts (~15-40s on cold start)
+          // due to JIT compilation overhead in the provided.al2023 runtime.
+          timeoutSeconds: props.timeoutSeconds ?? 120,
         };
 
       case LambdaRuntime.NODEJS_22:
@@ -489,9 +494,11 @@ export class WebVellaLambdaService extends Construct {
     };
 
     // LocalStack-specific: inject the endpoint URL for SDK redirects
-    // Uses host.docker.internal to reach LocalStack from within Lambda containers
+    // Uses LOCALSTACK_HOSTNAME env var (auto-injected by LocalStack into Lambda containers)
+    // to dynamically resolve the LocalStack endpoint from within Docker networks.
+    // Falls back to Docker bridge gateway 172.17.0.1 which routes to the host's port binding.
     if (props.isLocalStack) {
-      standardEnv['AWS_ENDPOINT_URL'] = 'http://host.docker.internal:4566';
+      standardEnv['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     // Cognito User Pool ID: passed by SharedStack, used for token validation

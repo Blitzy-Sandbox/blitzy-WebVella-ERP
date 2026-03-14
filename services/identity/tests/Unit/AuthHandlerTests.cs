@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -742,7 +743,8 @@ namespace WebVellaErp.Identity.Tests.Unit
             // timestamp (string, DateTime format) — MUST be present
             root.TryGetProperty("timestamp", out var timestampProp).Should().BeTrue("response must have 'timestamp' field");
             timestampProp.ValueKind.Should().Be(JsonValueKind.String);
-            DateTime.TryParse(timestampProp.GetString(), out var parsedTimestamp).Should().BeTrue("timestamp must be a valid DateTime");
+            DateTime.TryParse(timestampProp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTimestamp).Should().BeTrue("timestamp must be a valid DateTime");
+            parsedTimestamp.Kind.Should().Be(DateTimeKind.Utc, "response timestamp must be UTC");
             parsedTimestamp.Should().BeAfter(DateTime.UtcNow.AddMinutes(-5), "timestamp should be recent");
 
             // message (string) — MUST be present

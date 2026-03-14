@@ -65,6 +65,14 @@ import type { BaseResponseModel } from '../types/common';
  * that mutations on one entity do not unnecessarily invalidate another.
  */
 const PROJECT_QUERY_KEYS = {
+  projects: {
+    /** Root key for all project-level queries */
+    all: ['projects'] as const,
+    /** Project list */
+    list: () => ['projects', 'list'] as const,
+    /** Single project by ID */
+    detail: (id: string) => ['projects', id] as const,
+  },
   tasks: {
     /** Root key for all task queries — used for broadest invalidation */
     all: ['tasks'] as const,
@@ -116,7 +124,7 @@ const PROJECT_QUERY_KEYS = {
  * on every request via direct DB queries in RecordManager.Find(). The
  * 30-second staleTime balances network efficiency with data freshness.
  */
-const PROJECT_DEFAULT_STALE_TIME_MS = 30 * 1000;
+const PROJECT_DEFAULT_STALE_TIME_MS = 5_000;
 
 /**
  * Polling interval for the activity feed — 60 seconds (60 000 ms).
@@ -500,12 +508,38 @@ function buildTimelogSummaryQueryParams(
  * }
  * ```
  */
+/**
+ * Fetches the list of projects from the Inventory service.
+ *
+ * Replaces the monolith's RecordListPageModel rendering for the project
+ * entity.  The Inventory Lambda returns project-level metadata including
+ * name, abbreviation, status, and owner.
+ *
+ * API: `GET /v1/inventory/projects`
+ *
+ * @returns TanStack Query result with array of project records
+ */
+export function useProjects() {
+  return useQuery<EntityRecord[], Error>({
+    queryKey: PROJECT_QUERY_KEYS.projects.list(),
+    queryFn: async (): Promise<EntityRecord[]> => {
+      const response = await get<EntityRecord[]>('/inventory/projects');
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to fetch projects');
+      }
+      /* The API may return the array directly in `object` */
+      return (response.object as EntityRecord[] | undefined) ?? [];
+    },
+    staleTime: PROJECT_DEFAULT_STALE_TIME_MS,
+  });
+}
+
 export function useTasks(params?: TasksParams) {
   return useQuery<RecordListResponse['object'], Error>({
     queryKey: PROJECT_QUERY_KEYS.tasks.list(params),
 
     queryFn: async (): Promise<RecordListResponse['object']> => {
-      const response = await get<EntityRecordList>(
+      const response = await get<EntityRecordList | EntityRecord[]>(
         '/inventory/tasks',
         buildTaskQueryParams(params),
       );
@@ -515,7 +549,21 @@ export function useTasks(params?: TasksParams) {
         throw new Error('Task list response missing data');
       }
 
-      return response.object;
+      /* The Inventory Lambda may return either an EntityRecordList
+         ({ records, totalCount/total_count }) or a plain array of EntityRecord[].
+         Normalise both shapes into the canonical RecordListResponse form.
+         The Lambda serialises the count as snake_case "total_count" but the
+         TypeScript interface uses camelCase "totalCount" — handle both. */
+      const obj = response.object as Record<string, unknown>;
+      if (Array.isArray(obj)) {
+        return { records: obj as EntityRecord[], totalCount: obj.length };
+      }
+      const records = (obj.records ?? []) as EntityRecord[];
+      const totalCount =
+        (typeof obj.totalCount === 'number' ? obj.totalCount : undefined) ??
+        (typeof obj.total_count === 'number' ? obj.total_count : undefined) ??
+        records.length;
+      return { records, totalCount };
     },
 
     staleTime: PROJECT_DEFAULT_STALE_TIME_MS,
@@ -844,7 +892,7 @@ export function useTimelogs(params?: TimelogsParams) {
     queryKey: PROJECT_QUERY_KEYS.timelogs.list(params),
 
     queryFn: async (): Promise<RecordListResponse['object']> => {
-      const response = await get<EntityRecordList>(
+      const response = await get<EntityRecordList | EntityRecord[]>(
         '/inventory/timelogs',
         buildTimelogQueryParams(params),
       );
@@ -854,7 +902,17 @@ export function useTimelogs(params?: TimelogsParams) {
         throw new Error('Timelog list response missing data');
       }
 
-      return response.object;
+      /* Normalise — API may return plain array or { records, total_count/totalCount } */
+      const obj = response.object as Record<string, unknown>;
+      if (Array.isArray(obj)) {
+        return { records: obj as EntityRecord[], totalCount: obj.length };
+      }
+      const records = (obj.records ?? []) as EntityRecord[];
+      const totalCount =
+        (typeof obj.totalCount === 'number' ? obj.totalCount : undefined) ??
+        (typeof obj.total_count === 'number' ? obj.total_count : undefined) ??
+        records.length;
+      return { records, totalCount };
     },
 
     staleTime: PROJECT_DEFAULT_STALE_TIME_MS,
@@ -1082,7 +1140,7 @@ export function useComments(taskId: string, params?: { page?: number; pageSize?:
     queryKey: PROJECT_QUERY_KEYS.comments.byTask(taskId),
 
     queryFn: async (): Promise<RecordListResponse['object']> => {
-      const response = await get<EntityRecordList>(
+      const response = await get<EntityRecordList | EntityRecord[]>(
         `/inventory/tasks/${encodeURIComponent(taskId)}/comments`,
         queryParams,
       );
@@ -1092,7 +1150,17 @@ export function useComments(taskId: string, params?: { page?: number; pageSize?:
         throw new Error(`Comment list response missing data for task "${taskId}"`);
       }
 
-      return response.object;
+      /* Normalise — API may return plain array or { records, total_count/totalCount } */
+      const obj = response.object as Record<string, unknown>;
+      if (Array.isArray(obj)) {
+        return { records: obj as EntityRecord[], totalCount: obj.length };
+      }
+      const records = (obj.records ?? []) as EntityRecord[];
+      const totalCount =
+        (typeof obj.totalCount === 'number' ? obj.totalCount : undefined) ??
+        (typeof obj.total_count === 'number' ? obj.total_count : undefined) ??
+        records.length;
+      return { records, totalCount };
     },
 
     staleTime: PROJECT_DEFAULT_STALE_TIME_MS,

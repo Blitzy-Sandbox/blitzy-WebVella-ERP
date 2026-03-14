@@ -184,6 +184,12 @@ function AdminEntityCreate(): React.JSX.Element {
     }),
   );
 
+  /** Client-side validation state for inline error display (e.g. empty name). */
+  const [clientValidation, setClientValidation] = useState<{
+    message: string;
+    errors: { propertyName: string; message: string }[];
+  } | null>(null);
+
   // ------------------------------------------------------------------
   // Validation state
   // ------------------------------------------------------------------
@@ -249,6 +255,25 @@ function AdminEntityCreate(): React.JSX.Element {
     // Clear any previous mutation state before re-submitting
     reset();
 
+    // Client-side validation: name is required, must be lowercase without spaces
+    // Matches EntityManager.CreateEntity() validation from the monolith.
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setClientValidation({
+        message: 'Name is required',
+        errors: [{ propertyName: 'Name', message: 'Name is required.' }],
+      });
+      return;
+    }
+    if (trimmedName !== trimmedName.toLowerCase() || trimmedName.includes(' ')) {
+      setClientValidation({
+        message: 'Entity name must be lowercase and contain no spaces',
+        errors: [{ propertyName: 'Name', message: 'Entity name must be lowercase and contain no spaces.' }],
+      });
+      return;
+    }
+    setClientValidation(null);
+
     const input: InputEntity = {
       name: name.trim(),
       label: label.trim(),
@@ -268,10 +293,11 @@ function AdminEntityCreate(): React.JSX.Element {
 
     try {
       const result = await mutateAsync(input);
-      // Navigate to the newly created entity's detail page.
+      // Navigate to the newly created entity's detail page after a brief delay
+      // to allow the success message to render visibly for users and E2E tests.
       // Replaces: return Redirect($"/sdk/objects/entity/r/{createdEntity.Id}/");
       if (result?.id) {
-        navigate(`/admin/entities/${result.id}`);
+        setTimeout(() => navigate(`/admin/entities/${result.id}`), 1500);
       }
     } catch {
       // Error is captured by the mutation hook and surfaced via the
@@ -378,6 +404,17 @@ function AdminEntityCreate(): React.JSX.Element {
         </div>
       )}
 
+      {/* ── Client-side Validation Errors ────────────────────────── */}
+      {clientValidation && (
+        <p
+          className="mb-4 rounded-md bg-red-50 p-4 text-sm font-medium text-red-800"
+          role="alert"
+          data-testid="validation-error"
+        >
+          {clientValidation.message}
+        </p>
+      )}
+
       {/* ── Entity Creation Form ────────────────────────────────── */}
       <DynamicForm
         id="CreateEntity"
@@ -405,6 +442,7 @@ function AdminEntityCreate(): React.JSX.Element {
               </label>
               <input
                 id="entity-name"
+                name="name"
                 type="text"
                 required
                 value={name}
@@ -414,8 +452,8 @@ function AdminEntityCreate(): React.JSX.Element {
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               <p className="mt-1 text-xs text-gray-500">
-                Unique system name (lowercase, no spaces). Cannot be changed
-                after creation.
+                Unique system identifier using only a-z characters and
+                underscores. Cannot be changed after creation.
               </p>
             </div>
 
@@ -429,6 +467,7 @@ function AdminEntityCreate(): React.JSX.Element {
               </label>
               <input
                 id="entity-id"
+                name="entityId"
                 type="text"
                 value={entityId}
                 onChange={(e) => { setEntityId(e.target.value); }}
@@ -475,6 +514,7 @@ function AdminEntityCreate(): React.JSX.Element {
               </label>
               <input
                 id="entity-label"
+                name="label"
                 type="text"
                 value={label}
                 onChange={(e) => { setLabel(e.target.value); }}
@@ -493,6 +533,7 @@ function AdminEntityCreate(): React.JSX.Element {
               </label>
               <input
                 id="entity-label-plural"
+                name="labelPlural"
                 type="text"
                 value={labelPlural}
                 onChange={(e) => { setLabelPlural(e.target.value); }}
@@ -516,6 +557,7 @@ function AdminEntityCreate(): React.JSX.Element {
               <div className="mt-1 flex items-center gap-3">
                 <input
                   id="entity-color"
+                name="color"
                   type="color"
                   value={color}
                   onChange={(e) => { setColor(e.target.value); }}
@@ -541,6 +583,7 @@ function AdminEntityCreate(): React.JSX.Element {
               </label>
               <input
                 id="entity-icon"
+                name="iconName"
                 type="text"
                 value={iconName}
                 onChange={(e) => { setIconName(e.target.value); }}

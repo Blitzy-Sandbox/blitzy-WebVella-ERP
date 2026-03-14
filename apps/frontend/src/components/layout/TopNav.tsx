@@ -539,6 +539,7 @@ function TopNav({ brandLogo, devMode = false }: TopNavProps) {
               aria-expanded={openDropdown === 'siteMenu'}
               aria-haspopup="true"
               aria-label="Site menu"
+              data-testid="app-switcher"
               className={`inline-flex items-center px-2 py-2.5 text-sm transition-colors duration-150
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
                 ${openDropdown === 'siteMenu' ? 'text-white' : 'text-gray-300 hover:text-white'}`}

@@ -189,6 +189,7 @@ const identityStack = new IdentityStack(app, `${STACK_PREFIX}Identity`, {
   env,
   isLocalStack,
   userPool: sharedStack.userPool,
+  userPoolClientId: sharedStack.userPoolClient.userPoolClientId,
   eventBus: sharedStack.eventBus,
   description: 'WebVella ERP — Identity & Access Management: auth, users, roles',
 });

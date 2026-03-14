@@ -166,6 +166,37 @@ namespace WebVellaErp.EntityManagement.Functions
         /// Returns a list of all registered datasources (both code-discovered and database-persisted).
         /// Source: DataSourceManager.GetAll() — merges code + DB datasources, cached with 1-hour TTL.
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "GET")
+                return await GetDataSources(request, context);
+            else if (method == "GET")
+                return await GetDataSource(request, context);
+            else if (method == "POST")
+                return await CreateDataSource(request, context);
+            else if (method == "PUT")
+                return await UpdateDataSource(request, context);
+            else if (method == "DELETE")
+                return await DeleteDataSource(request, context);
+            else if (method == "GET")
+                return await ExecuteDataSource(request, context);
+            else if (method == "GET")
+                return await ExecuteDataSourceSelect2(request, context);
+
+            // Default: route to GetDataSources
+            return await GetDataSources(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> GetDataSources(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -254,8 +285,25 @@ namespace WebVellaErp.EntityManagement.Functions
                 string? idOrName = null;
                 request.PathParameters?.TryGetValue("idOrName", out idOrName);
                 if (string.IsNullOrWhiteSpace(idOrName))
-                {
                     request.PathParameters?.TryGetValue("id", out idOrName);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes.
+                if (string.IsNullOrWhiteSpace(idOrName))
+                {
+                    if (request.PathParameters != null &&
+                        request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                        !string.IsNullOrEmpty(proxy))
+                    {
+                        var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        // Skip known sub-resource names; take last meaningful segment
+                        for (var i = segments.Length - 1; i >= 0; i--)
+                        {
+                            if (segments[i] != "execute" && segments[i] != "select2" &&
+                                segments[i] != "datasource" && segments[i] != "list")
+                            {
+                                idOrName = segments[i]; break;
+                            }
+                        }
+                    }
                 }
 
                 if (string.IsNullOrWhiteSpace(idOrName))
@@ -552,6 +600,13 @@ namespace WebVellaErp.EntityManagement.Functions
                 // Extract datasource ID from route.
                 string? idStr = null;
                 request.PathParameters?.TryGetValue("id", out idStr);
+                if (string.IsNullOrWhiteSpace(idStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var px))
+                {
+                    var segs = px.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { idStr = segs[i]; break; }
+                }
                 if (!Guid.TryParse(idStr, out var dsId) || dsId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -776,6 +831,13 @@ namespace WebVellaErp.EntityManagement.Functions
 
                 string? idStr = null;
                 request.PathParameters?.TryGetValue("id", out idStr);
+                if (string.IsNullOrWhiteSpace(idStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var px))
+                {
+                    var segs = px.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { idStr = segs[i]; break; }
+                }
                 if (!Guid.TryParse(idStr, out var dsId) || dsId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -873,6 +935,15 @@ namespace WebVellaErp.EntityManagement.Functions
                 // Determine execution mode based on route.
                 string? dsIdStr = null;
                 request.PathParameters?.TryGetValue("id", out dsIdStr);
+                if (string.IsNullOrWhiteSpace(dsIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var proxyDs2))
+                {
+                    var segs2 = proxyDs2.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs2.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segs2[i], out _)) { dsIdStr = segs2[i]; break; }
+                    }
+                }
 
                 // Try to parse body as a generic JSON object to determine request type.
                 Dictionary<string, object?>? bodyDict;
@@ -2032,7 +2103,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     // Check cognito:groups for administrator role.
                     if (claims.TryGetValue("cognito:groups", out var groups) && !string.IsNullOrWhiteSpace(groups))
                     {
-                        if (groups.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (groups.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             groups.Contains(SystemIds.AdministratorRoleId.ToString(), StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -2042,7 +2113,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     // Check custom:roles claim.
                     if (claims.TryGetValue("custom:roles", out var roles) && !string.IsNullOrWhiteSpace(roles))
                     {
-                        if (roles.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (roles.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             roles.Contains(SystemIds.AdministratorRoleId.ToString(), StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -2090,7 +2161,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     if (authorizer.Lambda.TryGetValue("roles", out var rolesObj))
                     {
                         var rolesStr = rolesObj?.ToString() ?? "";
-                        if (rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (rolesStr.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             rolesStr.Contains(SystemIds.AdministratorRoleId.ToString(), StringComparison.OrdinalIgnoreCase))
                         {
                             return true;

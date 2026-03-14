@@ -17,7 +17,8 @@ namespace WebVellaErp.Invoicing.Tests.Integration
     /// decimal financial precision, and constraint enforcement.
     /// Per AAP §0.8.4: ALL integration tests execute against LocalStack — NO mocked DB connections.
     /// </summary>
-    public class InvoiceLifecycleIntegrationTests : IClassFixture<LocalStackFixture>, IAsyncLifetime
+    [Collection("InvoicingIntegration")]
+    public class InvoiceLifecycleIntegrationTests : IAsyncLifetime
     {
         private readonly LocalStackFixture _fixture;
         private readonly IInvoiceRepository _repository;
@@ -37,7 +38,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
 
         /// <summary>
         /// Resets the invoicing schema before each test class to ensure clean isolation.
-        /// Truncates all tables: invoicing.payments, invoicing.invoice_line_items,
+        /// Truncates all tables: invoicing.payments, invoicing.line_items,
         /// invoicing.invoices CASCADE.
         /// </summary>
         public async Task InitializeAsync()
@@ -610,7 +611,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
                         Id = Guid.NewGuid(),
                         InvoiceId = invoiceId,
                         // Description is null — violates NOT NULL constraint on
-                        // invoicing.invoice_line_items.description per migration
+                        // invoicing.line_items.description per migration
                         Description = null!,
                         Quantity = 1m,
                         UnitPrice = 100.00m,
@@ -639,7 +640,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             // ── Assert: No orphaned line items via direct SQL ──
             await using var conn = _fixture.CreateNpgsqlConnection();
             await using var cmd = new NpgsqlCommand(
-                "SELECT COUNT(*) FROM invoicing.invoice_line_items WHERE invoice_id = @id",
+                "SELECT COUNT(*) FROM invoicing.line_items WHERE invoice_id = @id",
                 conn);
             cmd.Parameters.Add(new NpgsqlParameter("@id", invoiceId));
             var orphanCount = (long)(await cmd.ExecuteScalarAsync())!;

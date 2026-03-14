@@ -44,6 +44,117 @@
         "version",
         "data"
       ]
+    },
+    "recordCreatedEvent": {
+      "description": "Published when a record is created.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "record.created"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for record.created events.",
+              "properties": {
+                "entityName": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "entityName",
+                "recordId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "recordUpdatedEvent": {
+      "description": "Published when a record is updated.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "record.updated"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for record.updated events.",
+              "properties": {
+                "entityName": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "entityName",
+                "recordId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "recordDeletedEvent": {
+      "description": "Published when a record is deleted.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "record.deleted"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for record.deleted events.",
+              "properties": {
+                "entityName": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "entityName",
+                "recordId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -51,7 +162,9 @@
       "title": "Record Created Event",
       "description": "Published after a record is successfully created in any entity. Replaces the synchronous IErpPostCreateRecordHook.OnPostCreateRecord(entityName, record) invocation pattern from RecordHookManager.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "type": "object",
       "properties": {
@@ -121,7 +234,9 @@
       "title": "Record Updated Event",
       "description": "Published after a record is successfully updated in any entity. Replaces the synchronous IErpPostUpdateRecordHook.OnPostUpdateRecord(entityName, record) invocation pattern from RecordHookManager.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "type": "object",
       "properties": {
@@ -198,7 +313,9 @@
       "title": "Record Deleted Event",
       "description": "Published after a record is successfully deleted from any entity. Replaces the synchronous IErpPostDeleteRecordHook.OnPostDeleteRecord(entityName, record) invocation pattern from RecordHookManager.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "type": "object",
       "properties": {
@@ -258,6 +375,15 @@
         "version",
         "data"
       ]
+    },
+    {
+      "$ref": "#/$defs/recordCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/recordUpdatedEvent"
+    },
+    {
+      "$ref": "#/$defs/recordDeletedEvent"
     }
   ]
 }

@@ -305,6 +305,12 @@ export const handler = async (
     // Extract token_use for downstream identification
     const tokenUse: string = (payload as JwtPayload).token_use || '';
 
+    // Determine admin status — check if user belongs to "admin" or "administrator" group.
+    // Downstream Lambda handlers check this flag via request.RequestContext.Authorizer.Lambda["isAdmin"].
+    const isAdmin: boolean = cognitoGroups.some(
+      (g) => g.toLowerCase() === 'admin' || g.toLowerCase() === 'administrator'
+    );
+
     // Build the context object passed to downstream Lambda integrations.
     // This replaces the monolith's `context.Items["User"]` assignment
     // (JwtMiddleware.cs line 49) and `context.User` principal attachment
@@ -315,6 +321,7 @@ export const handler = async (
       roles,
       tokenUse,
       correlationId,
+      isAdmin,
     };
 
     // -----------------------------------------------------------------------

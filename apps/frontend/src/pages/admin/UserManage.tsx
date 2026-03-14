@@ -59,6 +59,7 @@ function UserManage(): React.JSX.Element {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
   const [image, setImage] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -169,7 +170,8 @@ function UserManage(): React.JSX.Element {
 
       updateUser(payload, {
         onSuccess: () => {
-          navigate('/admin/users');
+          setShowSuccess(true);
+          setTimeout(() => navigate('/admin/users'), 1500);
         },
         onError: (error: unknown) => {
           const message =
@@ -199,6 +201,17 @@ function UserManage(): React.JSX.Element {
   // ---------------------------------------------------------------------------
   // Loading state
   // ---------------------------------------------------------------------------
+  // Show success notification immediately, even during loading transitions
+  if (showSuccess) {
+    return (
+      <div className="p-6">
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">User saved successfully. Redirecting…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center py-16" role="status">
@@ -332,6 +345,7 @@ function UserManage(): React.JSX.Element {
             </label>
             <input
               id="field-email"
+                name="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -374,6 +388,7 @@ function UserManage(): React.JSX.Element {
             </label>
             <input
               id="field-password"
+                name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -465,6 +480,7 @@ function UserManage(): React.JSX.Element {
             </label>
             <input
               id="field-firstName"
+                name="firstName"
               type="text"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
@@ -483,6 +499,7 @@ function UserManage(): React.JSX.Element {
             </label>
             <input
               id="field-lastName"
+                name="lastName"
               type="text"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}

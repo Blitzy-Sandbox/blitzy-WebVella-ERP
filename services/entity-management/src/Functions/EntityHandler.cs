@@ -100,20 +100,40 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <param name="snsClient">SNS client for publishing domain events.</param>
         /// <param name="cache">In-memory cache for entity metadata with 1-hour TTL.</param>
         /// <param name="logger">Structured JSON logger with correlation-ID propagation.</param>
+        /// <param name="loggerFactory">Logger factory used to create loggers for delegated handlers (e.g., FieldHandler).</param>
         public EntityHandler(
             IEntityService entityService,
             IAmazonSimpleNotificationService snsClient,
             IMemoryCache cache,
-            ILogger<EntityHandler> logger)
+            ILogger<EntityHandler> logger,
+            ILoggerFactory loggerFactory)
         {
             _entityService = entityService ?? throw new ArgumentNullException(nameof(entityService));
             _snsClient = snsClient ?? throw new ArgumentNullException(nameof(snsClient));
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
 
             _entityTopicArn = Environment.GetEnvironmentVariable("ENTITY_TOPIC_ARN");
             _isDevelopmentMode = string.Equals(
                 Environment.GetEnvironmentVariable("IS_LOCAL"), "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ─── Lazy FieldHandler for delegated field sub-path routing ──────
+
+        private readonly ILoggerFactory _loggerFactory;
+        private FieldHandler? _fieldHandler;
+
+        /// <summary>
+        /// Returns a lazily-initialized FieldHandler instance for processing field-related
+        /// requests that arrive at the entity endpoint via the {proxy+} catch-all route.
+        /// API Gateway routes POST /v1/meta/entity/{entityId}/fields to this handler's
+        /// {proxy+} route; the FunctionHandler detects the /fields sub-path and delegates here.
+        /// </summary>
+        private FieldHandler GetFieldHandler()
+        {
+            return _fieldHandler ??= new FieldHandler(
+                _entityService, _snsClient, _cache, _loggerFactory.CreateLogger<FieldHandler>());
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -128,6 +148,61 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <param name="request">API Gateway HTTP API v2 proxy request containing InputEntity in body.</param>
         /// <param name="context">Lambda execution context for logging and request correlation.</param>
         /// <returns>APIGatewayHttpApiV2ProxyResponse with EntityResponse envelope (201 Created or error).</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+            var proxy = GetParam(request.PathParameters, "proxy");
+
+            // ── Field sub-path delegation ─────────────────────────────────
+            // API Gateway {proxy+} on /v1/meta/entity/{proxy+} also captures
+            // requests like /v1/meta/entity/{entityId}/fields[/{fieldId}].
+            // These must be forwarded to the FieldHandler which owns all
+            // field CRUD operations and their SNS event publishing.
+            if (!string.IsNullOrEmpty(proxy) && proxy.Contains("fields"))
+            {
+                _logger.LogInformation(
+                    "EntityHandler delegating field sub-path to FieldHandler. Path={Path}, Method={Method}",
+                    path, method);
+                return await GetFieldHandler().FunctionHandler(request, context);
+            }
+
+            // Route clone operations first — path-based regardless of method
+            if (path.Contains("/clone"))
+                return await CloneEntity(request, context);
+
+            if (method == "POST")
+                return await CreateEntity(request, context);
+            else if (method == "GET")
+            {
+                // Determine list vs single read:
+                // No proxy segment, or bare path without ID → list all entities
+                if (string.IsNullOrEmpty(proxy)
+                    || path.EndsWith("/entity") || path.EndsWith("/entity/")
+                    || path.EndsWith("/entities") || path.EndsWith("/entities/")
+                    || path.EndsWith("/list") || path.EndsWith("/list/"))
+                    return await ReadEntities(request, context);
+                // Otherwise → single entity read by ID or name
+                return await ReadEntity(request, context);
+            }
+            else if (method == "PUT")
+                return await UpdateEntity(request, context);
+            else if (method == "PATCH")
+                return await PatchEntity(request, context);
+            else if (method == "DELETE")
+                return await DeleteEntity(request, context);
+
+            // Default: route to ReadEntities for safety
+            return await ReadEntities(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateEntity(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -261,6 +336,20 @@ namespace WebVellaErp.EntityManagement.Functions
                 var idOrName = GetParam(request.PathParameters, "idOrName");
                 if (string.IsNullOrEmpty(idOrName))
                     idOrName = GetParam(request.PathParameters, "id");
+                // Fallback: extract from {proxy+} path parameter used by API Gateway HTTP API v2.
+                // Proxy path may be "{id}", "id/{id}", or "{name}".
+                if (string.IsNullOrEmpty(idOrName))
+                {
+                    var proxy = GetParam(request.PathParameters, "proxy");
+                    if (!string.IsNullOrEmpty(proxy))
+                    {
+                        var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                        if (segments.Length >= 2 && segments[0] == "id")
+                            idOrName = segments[1]; // "id/{uuid}" pattern
+                        else if (segments.Length >= 1 && segments[0] != "list" && segments[0] != "entities")
+                            idOrName = segments[0]; // "{name}" or "{uuid}" pattern
+                    }
+                }
 
                 if (string.IsNullOrWhiteSpace(idOrName))
                 {
@@ -440,7 +529,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // Extract and validate entity ID from path parameters.
-                var idStr = GetParam(request.PathParameters, "id");
+                var idStr = ExtractIdFromPathOrProxy(request.PathParameters, "id", "idOrName");
                 if (!Guid.TryParse(idStr, out var entityId) || entityId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -556,7 +645,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // Extract and validate entity ID from path parameters.
-                var idStr = GetParam(request.PathParameters, "id");
+                var idStr = ExtractIdFromPathOrProxy(request.PathParameters, "id", "idOrName");
                 if (!Guid.TryParse(idStr, out var entityId) || entityId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -789,7 +878,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // Extract and validate entity ID from path parameters.
-                var idStr = GetParam(request.PathParameters, "id");
+                var idStr = ExtractIdFromPathOrProxy(request.PathParameters, "id", "idOrName");
                 if (!Guid.TryParse(idStr, out var entityId) || entityId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -876,7 +965,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 }
 
                 // Extract and validate source entity ID from path parameters.
-                var idStr = GetParam(request.PathParameters, "id");
+                var idStr = ExtractIdFromPathOrProxy(request.PathParameters, "id", "idOrName");
                 if (!Guid.TryParse(idStr, out var sourceEntityId) || sourceEntityId == Guid.Empty)
                 {
                     return BuildErrorResponse(
@@ -1024,6 +1113,41 @@ namespace WebVellaErp.EntityManagement.Functions
         }
 
         /// <summary>
+        /// Extracts an entity/field/relation ID from API Gateway path parameters.
+        /// Supports both named path parameters (e.g. {id}) and the {proxy+}
+        /// catch-all used by HTTP API v2 routes like /v1/meta/entity/{proxy+}.
+        /// Proxy paths follow these patterns:
+        ///   "{uuid}"                   → entity ID directly
+        ///   "id/{uuid}"               → legacy /id/{entityId} pattern
+        ///   "{uuid}/fields"           → entity ID for field listing
+        ///   "{uuid}/fields/{fieldId}" → field ID is last segment
+        /// </summary>
+        private static string ExtractIdFromPathOrProxy(
+            IDictionary<string, string>? parameters, params string[] namedKeys)
+        {
+            if (parameters == null) return string.Empty;
+            // 1. Try named parameters first (works when API GW uses {id} or {idOrName})
+            foreach (var key in namedKeys)
+            {
+                if (parameters.TryGetValue(key, out var val) && !string.IsNullOrEmpty(val))
+                    return val;
+            }
+            // 2. Fall back to {proxy+} path parameter
+            if (!parameters.TryGetValue("proxy", out var proxy) || string.IsNullOrEmpty(proxy))
+                return string.Empty;
+            var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0) return string.Empty;
+            // "id/{uuid}" pattern → return uuid
+            if (segments.Length >= 2 && segments[0] == "id")
+                return segments[1];
+            // Single segment → could be a GUID or entity name
+            if (segments.Length == 1) return segments[0];
+            // Multi-segment: return first segment as the primary ID
+            // (e.g. "{entityId}/fields/{fieldId}" → return entityId)
+            return segments[0];
+        }
+
+        /// <summary>
         /// Safely retrieves a nullable value from an IDictionary{string, string}.
         /// Returns null if the key is not present (used for optional query parameters like 'hash').
         /// </summary>
@@ -1106,20 +1230,24 @@ namespace WebVellaErp.EntityManagement.Functions
                 var lambdaAuth = request.RequestContext?.Authorizer?.Lambda;
                 if (lambdaAuth != null)
                 {
-                    // Check isAdmin boolean flag from custom authorizer.
-                    if (lambdaAuth.TryGetValue("isAdmin", out var isAdminObj))
+                    // Check isAdmin flag from custom authorizer.
+                    // API Gateway may deliver boolean values as JsonElement, string, or bool,
+                    // so we handle all representations robustly via ToString().
+                    if (lambdaAuth.TryGetValue("isAdmin", out var isAdminObj) && isAdminObj != null)
                     {
-                        if (isAdminObj is bool isAdmin && isAdmin)
-                            return true;
-                        if (isAdminObj is string isAdminStr &&
-                            string.Equals(isAdminStr, "true", StringComparison.OrdinalIgnoreCase))
+                        var isAdminStr = isAdminObj.ToString() ?? "";
+                        if (string.Equals(isAdminStr, "true", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(isAdminStr, "True", StringComparison.Ordinal))
                             return true;
                     }
 
                     // Check roles string from custom authorizer.
-                    if (lambdaAuth.TryGetValue("roles", out var rolesObj) && rolesObj is string rolesStr)
+                    // Cognito group "admin" maps to administrator role.
+                    if (lambdaAuth.TryGetValue("roles", out var rolesObj) && rolesObj != null)
                     {
-                        if (rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        var rolesStr = rolesObj.ToString() ?? "";
+                        if (rolesStr.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
+                            rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
                             rolesStr.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;

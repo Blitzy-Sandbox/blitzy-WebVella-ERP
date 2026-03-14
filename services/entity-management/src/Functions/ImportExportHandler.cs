@@ -155,6 +155,23 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <param name="request">API Gateway HTTP API v2 proxy request.</param>
         /// <param name="context">Lambda execution context.</param>
         /// <returns>API Gateway response with <see cref="ResponseModel"/> body.</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+
+            // Default: route to ImportFromCsv
+            return await ImportFromCsv(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> ImportFromCsv(
             APIGatewayHttpApiV2ProxyRequest request,
             ILambdaContext context)
@@ -1478,7 +1495,29 @@ namespace WebVellaErp.EntityManagement.Functions
         {
             if (parameters == null)
                 return string.Empty;
-            return parameters.TryGetValue(key, out var value) ? value : string.Empty;
+
+            // Try named parameter first
+            if (parameters.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
+                return value;
+
+            // Fallback: extract from {proxy+} catch-all parameter for HTTP API v2
+            if (parameters.TryGetValue("proxy", out var proxy) && !string.IsNullOrEmpty(proxy))
+            {
+                var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (key == "entityName" && segments.Length >= 1)
+                {
+                    // For import-export, the proxy path is like "{entityName}/import" or "{entityName}/export"
+                    // The first segment is the entity name
+                    foreach (var seg in segments)
+                    {
+                        if (!seg.Equals("import", StringComparison.OrdinalIgnoreCase) &&
+                            !seg.Equals("export", StringComparison.OrdinalIgnoreCase))
+                            return seg;
+                    }
+                }
+            }
+
+            return string.Empty;
         }
 
         // ===============================================================

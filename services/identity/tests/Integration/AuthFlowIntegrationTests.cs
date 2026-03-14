@@ -80,13 +80,17 @@ namespace WebVellaErp.Identity.Tests.Integration
         /// <returns>The email address used as the Cognito username identifier.</returns>
         private async Task<string> CreateTestUserInCognito(string email, string password, string username)
         {
+            // Normalize password to meet Cognito's minimum 6-character requirement.
+            // Legacy monolith passwords like "erp" (3 chars) are padded deterministically.
+            var cognitoPassword = NormalizeCognitoPassword(password);
+
             // Step 1: Create user with required attributes using AdminCreateUser
             // MessageAction.SUPPRESS prevents sending a welcome email/SMS to the test user
             var createRequest = new AdminCreateUserRequest
             {
                 UserPoolId = _userPoolId,
                 Username = email,
-                TemporaryPassword = password,
+                TemporaryPassword = cognitoPassword,
                 MessageAction = MessageActionType.SUPPRESS,
                 UserAttributes = new List<AttributeType>
                 {
@@ -104,12 +108,21 @@ namespace WebVellaErp.Identity.Tests.Integration
             {
                 UserPoolId = _userPoolId,
                 Username = email,
-                Password = password,
+                Password = cognitoPassword,
                 Permanent = true
             };
             await _cognitoClient.AdminSetUserPasswordAsync(setPasswordRequest);
 
             return email;
+        }
+
+        /// <summary>
+        /// Normalizes a legacy password to meet Cognito's minimum 6-character requirement.
+        /// Legacy monolith passwords (e.g., "erp") may be shorter than Cognito's enforced minimum.
+        /// </summary>
+        private static string NormalizeCognitoPassword(string password)
+        {
+            return password.Length < 6 ? password.PadRight(6, '!') : password;
         }
 
         /// <summary>
@@ -158,7 +171,7 @@ namespace WebVellaErp.Identity.Tests.Integration
                 AuthParameters = new Dictionary<string, string>
                 {
                     { "USERNAME", email },
-                    { "PASSWORD", password }
+                    { "PASSWORD", NormalizeCognitoPassword(password) }
                 }
             };
             return await _cognitoClient.AdminInitiateAuthAsync(authRequest);

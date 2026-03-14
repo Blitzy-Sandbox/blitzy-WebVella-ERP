@@ -300,6 +300,31 @@ namespace WebVellaErp.Invoicing.Functions
         /// <param name="request">HTTP API Gateway v2 proxy request containing payment data in Body.</param>
         /// <param name="context">Lambda execution context providing FunctionName, Logger, RemainingTime.</param>
         /// <returns>201 Created with <see cref="PaymentResponse"/> on success; 400/404/500 on error.</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "POST")
+                return await HandleRecordPayment(request, context);
+            else if (method == "GET")
+                return await HandleGetPayment(request, context);
+            else if (method == "GET")
+                return await HandleListPayments(request, context);
+            else if (method == "GET" && path.Contains("/health"))
+                return await HandleHealthCheck(request, context);
+
+            // Default: route to HandleRecordPayment
+            return await HandleRecordPayment(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleRecordPayment(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -546,11 +571,26 @@ namespace WebVellaErp.Invoicing.Functions
             {
                 await EnsureInitializedAsync(CancellationToken.None).ConfigureAwait(false);
 
-                // Extract paymentId from path parameters
+                // Extract paymentId from path parameters (named param or {proxy+} fallback)
                 string? paymentIdStr = null;
                 if (request.PathParameters != null)
                 {
-                    request.PathParameters.TryGetValue("paymentId", out paymentIdStr);
+                    if (!request.PathParameters.TryGetValue("paymentId", out paymentIdStr) || string.IsNullOrWhiteSpace(paymentIdStr))
+                    {
+                        // Fallback: extract from {proxy+} catch-all — scan segments for GUID
+                        if (request.PathParameters.TryGetValue("proxy", out var proxyVal) && !string.IsNullOrEmpty(proxyVal))
+                        {
+                            var segments = proxyVal.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                            for (var i = segments.Length - 1; i >= 0; i--)
+                            {
+                                if (Guid.TryParse(segments[i], out _))
+                                {
+                                    paymentIdStr = segments[i];
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (string.IsNullOrWhiteSpace(paymentIdStr) || !Guid.TryParse(paymentIdStr, out var paymentId))

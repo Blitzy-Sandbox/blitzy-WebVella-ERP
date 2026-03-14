@@ -32,9 +32,9 @@ namespace WebVellaErp.Identity.Tests.Integration
         // Well-known system role GUIDs from source WebVella.Erp/Api/Definitions.cs
         // These are the exact GUIDs used by the legacy monolith for system roles.
         // ──────────────────────────────────────────────────────────────────────
-        private const string AdministratorRoleId = "BDC56420-CAF0-4030-8A0E-D264938E0CDA";
-        private const string RegularRoleId = "F16EC6DB-626D-4C27-8DE0-3E7CE542C55F";
-        private const string GuestRoleId = "987148B1-AFA8-4B33-8616-55861E5FD065";
+        private const string AdministratorRoleId = "bdc56420-caf0-4030-8a0e-d264938e0cda";
+        private const string RegularRoleId = "f16ec6db-626d-4c27-8de0-3e7ce542c55f";
+        private const string GuestRoleId = "987148b1-afa8-4b33-8616-55861e5fd065";
 
         /// <summary>
         /// Pre-configured Cognito Identity Provider client pointing to LocalStack.
@@ -402,13 +402,30 @@ namespace WebVellaErp.Identity.Tests.Integration
                         Name = "preferred_username",
                         AttributeDataType = AttributeDataType.String,
                         Mutable = true
-                    }
+                    },
                 },
                 AutoVerifiedAttributes = new List<string> { "email" },
                 UsernameAttributes = new List<string> { "email" }
             });
 
             UserPoolId = createPoolResponse.UserPool.Id;
+
+            // Add custom attributes via AddCustomAttributes API (LocalStack Cognito does not
+            // support custom attributes in the CreateUserPool Schema parameter, but supports
+            // them via the AddCustomAttributes API after pool creation)
+            await CognitoClient.AddCustomAttributesAsync(new AddCustomAttributesRequest
+            {
+                UserPoolId = UserPoolId,
+                CustomAttributes = new List<SchemaAttributeType>
+                {
+                    new SchemaAttributeType
+                    {
+                        Name = "legacy_user_id",
+                        AttributeDataType = AttributeDataType.String,
+                        Mutable = true
+                    }
+                }
+            });
         }
 
         /// <summary>

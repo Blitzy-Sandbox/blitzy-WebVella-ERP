@@ -153,6 +153,33 @@ namespace WebVellaErp.EntityManagement.Functions
         /// On success: persists to DynamoDB, clears cache, publishes SNS event.
         /// Source: EntityRelationManager.Create() + WebApiController.CreateEntityRelation()
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "POST")
+                return await CreateRelation(request, context);
+            else if (method == "GET")
+                return await ReadRelation(request, context);
+            else if (method == "GET")
+                return await ReadRelations(request, context);
+            else if (method == "PUT")
+                return await UpdateRelation(request, context);
+            else if (method == "DELETE")
+                return await DeleteRelation(request, context);
+
+            // Default: route to CreateRelation
+            return await CreateRelation(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateRelation(
             APIGatewayHttpApiV2ProxyRequest request,
             ILambdaContext context)
@@ -1046,7 +1073,33 @@ namespace WebVellaErp.EntityManagement.Functions
             if (parameters == null)
                 return string.Empty;
 
-            return parameters.TryGetValue(key, out var value) ? value : string.Empty;
+            // Try named parameter first
+            if (parameters.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
+                return value;
+
+            // Fallback: extract from {proxy+} catch-all parameter for HTTP API v2
+            if (parameters.TryGetValue("proxy", out var proxy) && !string.IsNullOrEmpty(proxy))
+            {
+                var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                // For "idOrName" or "id" — the relation ID/name is typically the first or last segment
+                if (key is "idOrName" or "id")
+                {
+                    // If only one segment, that's the ID/name
+                    if (segments.Length >= 1)
+                    {
+                        // Return the first non-keyword segment (skip "relations", "list", etc.)
+                        foreach (var seg in segments)
+                        {
+                            if (seg.Equals("relations", StringComparison.OrdinalIgnoreCase) ||
+                                seg.Equals("list", StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            return seg;
+                        }
+                    }
+                }
+            }
+
+            return string.Empty;
         }
 
         /// <summary>
@@ -1119,7 +1172,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     // Check cognito:groups claim
                     if (claims.TryGetValue("cognito:groups", out var groups) && !string.IsNullOrEmpty(groups))
                     {
-                        if (groups.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (groups.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             groups.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -1129,7 +1182,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     // Check custom:roles claim
                     if (claims.TryGetValue("custom:roles", out var roles) && !string.IsNullOrEmpty(roles))
                     {
-                        if (roles.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (roles.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             roles.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -1165,7 +1218,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     {
                         var rolesStr = rolesObj.ToString();
                         if (rolesStr != null &&
-                            (rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                            (rolesStr.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                              rolesStr.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase)))
                         {
                             return true;

@@ -129,6 +129,38 @@ export async function getFileDownloadUrl(
 }
 
 /**
+ * Shared multipart/form-data upload helper.
+ *
+ * Extracts the common FormData construction, header setting, and response
+ * unwrapping that is repeated across uploadFile(), uploadUserFilesMultiple(),
+ * and uploadFilesMultiple().
+ *
+ * @param url       - The API endpoint to POST the form data to.
+ * @param fieldName - The FormData field name for the file(s).
+ * @param files     - One or more File objects to include in the upload.
+ * @returns The unwrapped API response from the server.
+ */
+async function postMultipart<T>(
+  url: string,
+  fieldName: string,
+  files: File | File[],
+): Promise<ApiResponse<T>> {
+  const formData = new FormData();
+  const fileArray = Array.isArray(files) ? files : [files];
+  for (const file of fileArray) {
+    formData.append(fieldName, file);
+  }
+
+  const response = await apiClient.post<ApiResponse<T>>(
+    url,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+
+  return response.data;
+}
+
+/**
  * Upload a single file to temporary storage.
  *
  * Replaces the monolith's `UploadFile` endpoint (WebApiController.cs line 3327)
@@ -148,16 +180,7 @@ export async function getFileDownloadUrl(
 export async function uploadFile(
   file: File,
 ): Promise<ApiResponse<FileUploadResponse>> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await apiClient.post<ApiResponse<FileUploadResponse>>(
-    `${FILE_BASE}/upload`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
-  );
-
-  return response.data;
+  return postMultipart<FileUploadResponse>(`${FILE_BASE}/upload`, 'file', file);
 }
 
 /**
@@ -274,18 +297,7 @@ export async function createUserFile(
 export async function uploadUserFilesMultiple(
   files: File[],
 ): Promise<ApiResponse<EntityRecord[]>> {
-  const formData = new FormData();
-  for (const file of files) {
-    formData.append('files', file);
-  }
-
-  const response = await apiClient.post<ApiResponse<EntityRecord[]>>(
-    `${USER_FILE_BASE}/upload-multiple`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
-  );
-
-  return response.data;
+  return postMultipart<EntityRecord[]>(`${USER_FILE_BASE}/upload-multiple`, 'files', files);
 }
 
 /**
@@ -309,16 +321,5 @@ export async function uploadUserFilesMultiple(
 export async function uploadFilesMultiple(
   files: File[],
 ): Promise<ApiResponse<FileUploadResponse[]>> {
-  const formData = new FormData();
-  for (const file of files) {
-    formData.append('files', file);
-  }
-
-  const response = await apiClient.post<ApiResponse<FileUploadResponse[]>>(
-    `${FILE_BASE}/upload-multiple`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
-  );
-
-  return response.data;
+  return postMultipart<FileUploadResponse[]>(`${FILE_BASE}/upload-multiple`, 'files', files);
 }

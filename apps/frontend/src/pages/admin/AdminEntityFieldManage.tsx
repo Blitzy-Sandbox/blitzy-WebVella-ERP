@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 
-import { useEntity, useUpdateField } from '../../hooks/useEntities';
+import { useEntity, useEntityFields, useUpdateField } from '../../hooks/useEntities';
 import { useRoles } from '../../hooks/useUsers';
 import type {
   Entity,
@@ -202,6 +202,7 @@ function AdminEntityFieldManage(): React.JSX.Element {
   } = useEntity(entityId);
 
   const { data: rolesData, isLoading: rolesLoading } = useRoles();
+  const { data: apiFields } = useEntityFields(entityId);
   const updateFieldMutation = useUpdateField();
 
   /* --- Derived values ------------------------------------------------- */
@@ -211,16 +212,21 @@ function AdminEntityFieldManage(): React.JSX.Element {
   );
 
   const currentField: AnyField | null = useMemo(() => {
-    if (!entity?.fields || !fieldId) return null;
-    const found = entity.fields.find((f: Field) => f.id === fieldId);
+    if (!fieldId) return null;
+    // Prefer fields from the dedicated API endpoint; fall back to entity.fields
+    const allFields = (apiFields && apiFields.length > 0)
+      ? apiFields
+      : (entity?.fields ?? []);
+    const found = (allFields as Field[]).find((f: Field) => f.id === fieldId);
     return found ? (found as AnyField) : null;
-  }, [entity, fieldId]);
+  }, [apiFields, entity, fieldId]);
 
   /* --- Form state ----------------------------------------------------- */
   const [fieldData, setFieldData] = useState<AnyField | null>(null);
   const [selectOptionsText, setSelectOptionsText] = useState('');
   const [multiSelectDefaultText, setMultiSelectDefaultText] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [showSuccess, setShowSuccess] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
   /* --- Pre-populate effect -------------------------------------------- */
@@ -337,7 +343,8 @@ function AdminEntityFieldManage(): React.JSX.Element {
         { entityId, fieldId, field: updatedField as unknown as AnyField },
         {
           onSuccess: () => {
-            navigate(`/admin/entities/${entityId}/fields`);
+            setShowSuccess(true);
+            setTimeout(() => navigate(`/admin/entities/${entityId}/fields`), 1500);
           },
         },
       );
@@ -1375,6 +1382,11 @@ function AdminEntityFieldManage(): React.JSX.Element {
    * ----------------------------------------------------------------- */
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Field saved successfully. Redirecting…</p>
+        </div>
+      )}
       {/* Breadcrumb */}
       <nav className="mb-4 text-sm text-gray-500" aria-label="Breadcrumb">
         <ol className="flex items-center gap-1">
@@ -1451,6 +1463,7 @@ function AdminEntityFieldManage(): React.JSX.Element {
               </label>
               <input
                 id="ff-label"
+                name="label"
                 type="text"
                 className={inputClasses}
                 value={fieldData.label ?? ''}
@@ -1655,7 +1668,8 @@ function AdminEntityFieldManage(): React.JSX.Element {
                     const canRead = fieldData.permissions?.canRead?.includes(role.id) ?? false;
                     const canUpdate = fieldData.permissions?.canUpdate?.includes(role.id) ?? false;
                     return (
-                      <tr key={role.id}>
+                      
+      <tr key={role.id}>
                         <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">
                           {role.name}
                         </td>

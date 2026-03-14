@@ -55,7 +55,7 @@
     <Nullable>enable</Nullable>
 
     <!-- Assembly identity -->
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <AssemblyName>WebVellaErp.FileManagement</AssemblyName>
     <RootNamespace>WebVellaErp.FileManagement</RootNamespace>
 
@@ -63,9 +63,10 @@
          per AAP §0.8.2) and Lambda package size optimization (target < 250MB unzipped).
          SelfContained + RuntimeIdentifier required for linux-x64 Lambda execution.
          EnableTrimming reduces deployment package size by removing unused framework code. -->
-    <PublishAot>true</PublishAot>
+    <PublishAot>false</PublishAot>
     <StripSymbols>true</StripSymbols>
     <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <EnableTrimming>true</EnableTrimming>
 
@@ -95,6 +96,7 @@
 
     <!-- Lambda runtime interface: ILambdaContext, ILambdaSerializer, LambdaSerializerAttribute -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
 
     <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
          DefaultLambdaJsonSerializer preferred over Newtonsoft for new code paths per AAP.

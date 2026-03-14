@@ -613,9 +613,12 @@ function TimelogList({
 
   if (timelogs.length === 0) {
     return (
-      <div className={inline ? '' : 'mx-auto max-w-4xl px-4 py-6'}>
+      <div className={inline ? '' : 'mx-auto max-w-4xl px-4 py-6'} data-testid="timelog-list">
         {!inline && (
-          <h1 className="mb-6 text-2xl font-bold text-gray-900">Timelogs</h1>
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-gray-900">Timelogs</h1>
+            <span className="text-sm text-gray-500" data-testid="hours-summary">Total hours: 0</span>
+          </div>
         )}
         <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center">
           <svg
@@ -649,16 +652,29 @@ function TimelogList({
   // Render: Timelog List
   // ---------------------------------------------------------------------------
 
+  /** Aggregate total minutes across all displayed timelogs for the summary line. */
+  const totalMinutes = timelogs.reduce(
+    (acc, t) => acc + safeNumber(t.minutes, 0),
+    0,
+  );
+  const totalHours = Math.floor(totalMinutes / 60);
+  const remainingMins = Math.round(totalMinutes % 60);
+
   return (
-    <div className={inline ? '' : 'mx-auto max-w-4xl px-4 py-6'}>
+    <div className={inline ? '' : 'mx-auto max-w-4xl px-4 py-6'} data-testid="timelog-list">
       {!inline && (
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Timelogs</h1>
-          {isFetching && (
-            <span className="text-sm text-gray-500" aria-live="polite">
-              Refreshing…
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600" data-testid="hours-summary">
+              Total hours: {totalHours}h {remainingMins > 0 ? `${remainingMins}m` : ''}
             </span>
-          )}
+            {isFetching && (
+              <span className="text-sm text-gray-500" aria-live="polite">
+                Refreshing…
+              </span>
+            )}
+          </div>
         </div>
       )}
 

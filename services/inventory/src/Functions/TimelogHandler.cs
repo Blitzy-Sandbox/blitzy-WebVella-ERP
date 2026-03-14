@@ -134,6 +134,31 @@ namespace WebVellaErp.Inventory.Functions
         ///      updates task aggregate minutes, clears timelog_started_on, creates activity feed)
         ///   7. Return 201 Created with timelog data
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "POST")
+                return await CreateTimelog(request, context);
+            else if (method == "DELETE")
+                return await DeleteTimelog(request, context);
+            else if (method == "GET")
+                return await GetTimelogs(request, context);
+            else if (method == "GET" && path.Contains("/health"))
+                return await HealthCheck(request, context);
+
+            // Default: route to CreateTimelog
+            return await CreateTimelog(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateTimelog(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -748,11 +773,22 @@ namespace WebVellaErp.Inventory.Functions
         private static bool TryGetPathParameterGuid(APIGatewayHttpApiV2ProxyRequest request, string paramName, out Guid value)
         {
             value = Guid.Empty;
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(paramName, out var paramStr) &&
-                !string.IsNullOrWhiteSpace(paramStr))
+            if (request.PathParameters != null)
             {
-                return Guid.TryParse(paramStr, out value);
+                if (request.PathParameters.TryGetValue(paramName, out var paramStr) &&
+                    !string.IsNullOrWhiteSpace(paramStr))
+                    return Guid.TryParse(paramStr, out value);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out value))
+                            return true;
+                    }
+                }
             }
             return false;
         }

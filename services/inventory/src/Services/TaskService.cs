@@ -137,9 +137,10 @@ namespace WebVellaErp.Inventory.Services
             Guid projectOwnerId = project?.OwnerId ?? Guid.Empty;
 
             // Calculate key: project abbreviation + "-" + task number (source line 76)
+            var numberStr = (task.Number ?? 0m).ToString("N0");
             task.Key = string.IsNullOrEmpty(projectAbbr)
-                ? task.Number.ToString("N0")
-                : projectAbbr + "-" + task.Number.ToString("N0");
+                ? numberStr
+                : projectAbbr + "-" + numberStr;
 
             await _repository.UpdateTaskAsync(task);
 
@@ -586,7 +587,7 @@ namespace WebVellaErp.Inventory.Services
                 // Update key with new project abbreviation (source line 459)
                 if (newProject != null)
                 {
-                    record.Key = newProject.Abbr + "-" + record.Number.ToString("N0");
+                    record.Key = newProject.Abbr + "-" + (record.Number ?? 0m).ToString("N0");
 
                     // Add new project owner to watchers if not already present (source lines 474-485)
                     var currentWatchers = await _repository.GetTaskWatchersAsync(record.Id);
@@ -787,11 +788,11 @@ namespace WebVellaErp.Inventory.Services
             // Step 4: Update task aggregate minutes (source lines 227-243)
             if (record.IsBillable)
             {
-                relatedTask.XBillableMinutes += record.Minutes;
+                relatedTask.XBillableMinutes = (relatedTask.XBillableMinutes ?? 0m) + record.Minutes;
             }
             else
             {
-                relatedTask.XNonBillableMinutes += record.Minutes;
+                relatedTask.XNonBillableMinutes = (relatedTask.XNonBillableMinutes ?? 0m) + record.Minutes;
             }
 
             // Clear timelog_started_on on the task (source line 240)
@@ -882,11 +883,11 @@ namespace WebVellaErp.Inventory.Services
                         // Step 4: Reverse aggregate minutes (source lines 332-353)
                         if (timelog.IsBillable)
                         {
-                            relatedTask.XBillableMinutes = Math.Max(0, relatedTask.XBillableMinutes - timelog.Minutes);
+                            relatedTask.XBillableMinutes = Math.Max(0m, (relatedTask.XBillableMinutes ?? 0m) - timelog.Minutes);
                         }
                         else
                         {
-                            relatedTask.XNonBillableMinutes = Math.Max(0, relatedTask.XNonBillableMinutes - timelog.Minutes);
+                            relatedTask.XNonBillableMinutes = Math.Max(0m, (relatedTask.XNonBillableMinutes ?? 0m) - timelog.Minutes);
                         }
                         await _repository.UpdateTaskAsync(relatedTask);
                         _logger.LogInformation("Reversed {Minutes} minutes on task {TaskId}", timelog.Minutes, relId);

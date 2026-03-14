@@ -698,19 +698,47 @@ test.describe('File Management', () => {
 
       await waitForFileInList(page, fileName);
 
-      // Locate the download button/link for the uploaded file.
+      // Navigate away and back to ensure the file list is fully settled.
+      // TanStack Query's invalidation/refetch cycle can cause transient
+      // re-renders immediately after upload; a fresh page load eliminates
+      // any race between the query cache and the React render cycle.
+      await page.goto(FILES_URL);
+      await page.waitForLoadState('networkidle');
+
+      // Wait for the uploaded file to appear in the freshly-loaded list.
+      await waitForFileInList(page, fileName);
+
+      // Locate the download <a> element specifically — use the data-testid
+      // to ensure we get the anchor (not a button) so the browser's native
+      // download handling fires.
+      const downloadLink = page
+        .locator(`a[data-testid="download-file-btn"][download]`)
+        .filter({ hasText: /Download/i })
+        .first();
+
+      // If the specific anchor isn't found, fall back to any download trigger
+      // inside the file row.
       const fileRow = page
         .locator('[data-testid="file-list-item"], [data-testid="file-row"], tr, .file-item')
         .filter({ hasText: fileName });
-
-      const downloadBtn = fileRow
+      const fallbackBtn = fileRow
         .locator(
-          '[data-testid="download-file-btn"], [aria-label*="download" i], a[download], button:has-text("Download")',
+          '[data-testid="download-file-btn"], a[download], [aria-label*="Save file" i]',
         )
         .first();
 
+      // Choose whichever locator finds a visible element first.
+      const downloadBtn = (await downloadLink.isVisible().catch(() => false))
+        ? downloadLink
+        : fallbackBtn;
+
+      // Ensure the download link/button is fully attached and stable.
+      await expect(downloadBtn).toBeVisible({ timeout: EXTENDED_TIMEOUT });
+
       // Set up download event listener BEFORE clicking.
-      // Playwright's download handling captures browser download events.
+      // Playwright's download handling captures browser download events
+      // triggered by <a download> clicks or Content-Disposition: attachment
+      // responses.
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: EXTENDED_TIMEOUT }),
         downloadBtn.click(),

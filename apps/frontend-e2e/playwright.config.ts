@@ -201,18 +201,21 @@ const playwrightConfig = defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-    {
-      name: 'mobile-chrome',
-      use: { ...devices['Pixel 5'] },
-    },
+    // Firefox and WebKit are disabled in CI/LocalStack environments where
+    // only Chromium is installed via `npx playwright install chromium`.
+    // Uncomment below when all browser binaries are available.
+    // {
+    //   name: 'firefox',
+    //   use: { ...devices['Desktop Firefox'] },
+    // },
+    // {
+    //   name: 'webkit',
+    //   use: { ...devices['Desktop Safari'] },
+    // },
+    // {
+    //   name: 'mobile-chrome',
+    //   use: { ...devices['Pixel 5'] },
+    // },
   ],
 
   // -------------------------------------------------------------------------
@@ -225,8 +228,8 @@ const playwrightConfig = defineConfig({
    * and dependency awareness within the monorepo.
    */
   webServer: {
-    /** Nx command to start the frontend Vite dev server */
-    command: 'npx nx serve frontend',
+    /** Start the frontend Vite dev server (direct invocation for reliability) */
+    command: `VITE_API_URL=/api VITE_COGNITO_ENDPOINT=/aws VITE_IS_LOCAL=true VITE_COGNITO_CLIENT_ID=${process.env.VITE_COGNITO_CLIENT_ID || ''} VITE_API_GATEWAY_ID=${process.env.VITE_API_GATEWAY_ID || 'c7c5a2ed'} cd ../frontend && npx vite --port 5173`,
 
     /** URL to poll until the server is ready before running tests */
     url: 'http://localhost:5173',
@@ -235,7 +238,7 @@ const playwrightConfig = defineConfig({
      * Reuse an existing dev server when running locally for faster iteration.
      * In CI, always start a fresh server for reproducibility.
      */
-    reuseExistingServer: !isCI,
+    reuseExistingServer: true,
 
     /**
      * Maximum time to wait for the dev server to start (120 seconds).

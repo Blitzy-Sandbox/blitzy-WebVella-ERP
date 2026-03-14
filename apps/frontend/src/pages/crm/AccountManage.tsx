@@ -211,13 +211,13 @@ export default function AccountManage() {
     queryKey: ['lookup', 'countries'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/countries');
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch countries');
+      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
+        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch countries');
       }
-      if (!response.object) {
-        throw new Error('Countries response missing data');
-      }
-      return response.object;
+      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
+      const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
+      return { records, totalCount };
     },
     staleTime: LOOKUP_STALE_TIME_MS,
   });
@@ -226,13 +226,13 @@ export default function AccountManage() {
     queryKey: ['lookup', 'languages'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/languages');
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch languages');
+      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
+        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch languages');
       }
-      if (!response.object) {
-        throw new Error('Languages response missing data');
-      }
-      return response.object;
+      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
+      const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
+      return { records, totalCount };
     },
     staleTime: LOOKUP_STALE_TIME_MS,
   });
@@ -241,13 +241,13 @@ export default function AccountManage() {
     queryKey: ['lookup', 'currencies'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/currencies');
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to fetch currencies');
+      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
+        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch currencies');
       }
-      if (!response.object) {
-        throw new Error('Currencies response missing data');
-      }
-      return response.object;
+      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
+      const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
+      return { records, totalCount };
     },
     staleTime: LOOKUP_STALE_TIME_MS,
   });

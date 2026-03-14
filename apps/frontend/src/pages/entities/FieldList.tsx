@@ -31,7 +31,7 @@ import {
   type ChangeEvent,
 } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useEntity } from '../../hooks/useEntities';
+import { useEntity, useEntityFields } from '../../hooks/useEntities';
 import {
   DataTable,
   type DataTableColumn,
@@ -337,7 +337,12 @@ export default function FieldList(): ReactElement {
   const { entityId = '' } = useParams<{ entityId: string }>();
 
   /* ── Entity data (TanStack Query) ─────────────────────────── */
-  const { data: entity, isLoading, isError, error } = useEntity(entityId);
+  const { data: entity, isLoading: entityLoading, isError, error } = useEntity(entityId);
+
+  /* ── Fields data (fetched independently from /entities/{id}/fields) ── */
+  const { data: apiFields, isLoading: fieldsLoading } = useEntityFields(entityId);
+
+  const isLoading = entityLoading || fieldsLoading;
 
   /* ── Local UI state ───────────────────────────────────────── */
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -345,13 +350,14 @@ export default function FieldList(): ReactElement {
 
   /* ── Filtered & sorted fields (memoised) ──────────────────── */
   const filteredFields = useMemo((): AnyField[] => {
-    if (!entity?.fields) {
-      return [];
-    }
+    // Prefer fields from the dedicated API endpoint; fall back to entity.fields
+    const rawFields = (apiFields && apiFields.length > 0)
+      ? apiFields
+      : (entity?.fields ?? []) as AnyField[];
 
-    // Entity.fields is typed as Field[]; cast to AnyField[] — runtime
-    // objects are always concrete field-type instances.
-    let fields = [...entity.fields] as AnyField[];
+    if (rawFields.length === 0) return [];
+
+    let fields = [...rawFields];
 
     // Case-insensitive CONTAINS filter on field name.
     // Mirrors: allFields.FindAll(x => x.Name.ToLowerInvariant().Contains(...))

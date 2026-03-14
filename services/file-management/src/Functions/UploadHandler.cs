@@ -236,6 +236,42 @@ namespace WebVellaErp.FileManagement.Functions
         /// <param name="request">API Gateway HTTP API v2 proxy request.</param>
         /// <param name="context">Lambda execution context.</param>
         /// <returns>API Gateway proxy response with presigned upload URL and file metadata.</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        /// <summary>Lazily-initialized DownloadHandler for delegating GET/DELETE/PUT requests.</summary>
+        private DownloadHandler? _downloadHandler;
+        private DownloadHandler GetDownloadHandler()
+        {
+            _downloadHandler ??= new DownloadHandler();
+            return _downloadHandler;
+        }
+
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            // Delegate GET, DELETE, PUT to the DownloadHandler which handles read/delete/update ops
+            if (method == "GET" || method == "DELETE" || method == "PUT")
+                return await GetDownloadHandler().FunctionHandler(request, context);
+
+            // POST routes — upload-related operations
+            if (path.Contains("/confirm"))
+                return await HandleConfirmUpload(request, context);
+            if (path.Contains("/temp"))
+                return await HandleCreateTempUploadUrl(request, context);
+            if (path.Contains("/finalize"))
+                return await HandleFinalizeUserFile(request, context);
+
+            // Default: generate upload URL
+            return await HandleGenerateUploadUrl(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleGenerateUploadUrl(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -458,9 +494,17 @@ namespace WebVellaErp.FileManagement.Functions
             try
             {
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     return BuildValidationErrorResponse(
                         new Dictionary<string, string> { ["fileId"] = "Valid file ID is required in path." },
@@ -764,9 +808,17 @@ namespace WebVellaErp.FileManagement.Functions
             try
             {
                 // Extract fileId from path parameters
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("fileId", out var fileIdStr) ||
-                    !Guid.TryParse(fileIdStr, out var fileId))
+                string? fileIdStr = null;
+                request.PathParameters?.TryGetValue("fileId", out fileIdStr);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes
+                if (string.IsNullOrEmpty(fileIdStr) && request.PathParameters != null &&
+                    request.PathParameters.TryGetValue("proxy", out var fpx))
+                {
+                    var segs = fpx.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segs.Length - 1; i >= 0; i--)
+                        if (Guid.TryParse(segs[i], out _)) { fileIdStr = segs[i]; break; }
+                }
+                if (!Guid.TryParse(fileIdStr, out var fileId))
                 {
                     return BuildValidationErrorResponse(
                         new Dictionary<string, string> { ["fileId"] = "Valid file ID is required in path." },

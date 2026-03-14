@@ -29,10 +29,9 @@
  * @module pages/projects/TaskCreate
  */
 
-import { useState, useCallback, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useCreateTask } from '../../hooks/useProjects';
-import { useRecords } from '../../hooks/useRecords';
+import { useState, useCallback, useEffect, type FormEvent } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useCreateTask, useProjects } from '../../hooks/useProjects';
 import { useUsers } from '../../hooks/useUsers';
 
 // ---------------------------------------------------------------------------
@@ -76,11 +75,11 @@ interface PriorityOption {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default initial form state. Priority defaults to "2" (Normal). */
+/** Default initial form state. Priority defaults to "medium". */
 const INITIAL_FORM_STATE: TaskFormState = {
   subject: '',
   description: '',
-  priority: '2',
+  priority: 'medium',
   status_id: '',
   type_id: '',
   owner_id: '',
@@ -90,11 +89,41 @@ const INITIAL_FORM_STATE: TaskFormState = {
   projectIds: [],
 };
 
-/** Static priority options matching the monolith's task priority enum. */
+/**
+ * Static priority options matching the monolith's task priority enum from
+ * ProjectPlugin patches. Values are lowercase label strings used directly
+ * as the stored value in the inventory service.
+ */
 const PRIORITY_OPTIONS: PriorityOption[] = [
-  { value: '1', label: 'Low' },
-  { value: '2', label: 'Normal' },
-  { value: '3', label: 'High' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'urgent', label: 'urgent' },
+];
+
+/**
+ * Static task type options derived from the ProjectPlugin patches which
+ * seed the task_type entity with these values. In the microservices
+ * architecture, these are static enumeration values rather than dynamic
+ * entity records.
+ */
+const TASK_TYPE_OPTIONS: PriorityOption[] = [
+  { value: 'bug', label: 'bug' },
+  { value: 'feature', label: 'feature' },
+  { value: 'task', label: 'task' },
+  { value: 'improvement', label: 'improvement' },
+];
+
+/**
+ * Static task status options derived from the ProjectPlugin patches.
+ * Represents the lifecycle states of a task matching the monolith's
+ * task_status entity seeded records.
+ */
+const TASK_STATUS_OPTIONS: PriorityOption[] = [
+  { value: 'not started', label: 'not started' },
+  { value: 'in progress', label: 'in progress' },
+  { value: 'completed', label: 'completed' },
+  { value: 'on hold', label: 'on hold' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -109,6 +138,7 @@ const PRIORITY_OPTIONS: PriorityOption[] = [
  */
 function TaskCreate(): React.JSX.Element {
   const navigate = useNavigate();
+  const { projectId: urlProjectId } = useParams<{ projectId: string }>();
 
   // ── Mutations & Queries ────────────────────────────────────────────────
   const {
@@ -121,12 +151,9 @@ function TaskCreate(): React.JSX.Element {
     reset: resetMutation,
   } = useCreateTask();
 
-  const { data: statusData, isLoading: isStatusLoading } =
-    useRecords('task_status');
-  const { data: typeData, isLoading: isTypeLoading } =
-    useRecords('task_type');
-  const { data: projectData, isLoading: isProjectLoading } =
-    useRecords('project');
+  // Task types and statuses are static enums from ProjectPlugin patches.
+  // No API call needed — values are defined as constants above.
+  const { data: projectRecords, isLoading: isProjectLoading } = useProjects();
   const { data: usersData, isLoading: isUsersLoading } = useUsers();
 
   // ── Form State ─────────────────────────────────────────────────────────
@@ -135,14 +162,27 @@ function TaskCreate(): React.JSX.Element {
     {},
   );
 
+  // ── Auto-select project from URL ───────────────────────────────────────
+  // When navigating from /projects/:projectId/tasks/create, pre-select the
+  // project specified in the URL so the user doesn't have to manually pick it.
+  useEffect(() => {
+    if (urlProjectId && !form.projectIds.includes(urlProjectId)) {
+      setForm((prev) => ({
+        ...prev,
+        projectIds: prev.projectIds.includes(urlProjectId)
+          ? prev.projectIds
+          : [...prev.projectIds, urlProjectId],
+      }));
+    }
+    // Only run on mount or when urlProjectId changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlProjectId]);
+
   // ── Derived Data ───────────────────────────────────────────────────────
-  const statuses = statusData?.data ?? [];
-  const types = typeData?.data ?? [];
-  const projects = projectData?.data ?? [];
+  const projects = projectRecords ?? [];
   const users = usersData?.object ?? [];
 
-  const isDropdownsLoading =
-    isStatusLoading || isTypeLoading || isProjectLoading || isUsersLoading;
+  const isDropdownsLoading = isProjectLoading || isUsersLoading;
 
   // ── Handlers ───────────────────────────────────────────────────────────
 
@@ -253,14 +293,20 @@ function TaskCreate(): React.JSX.Element {
         end_time: form.end_time || null,
         // M2M relation key for project ↔ task association
         $project_nn_task: form.projectIds,
+        // Include project_id for the primary project association (first selected)
+        project_id: form.projectIds[0] ?? null,
       };
 
       // Only include optional FK fields when a value is selected
       if (form.status_id) {
         payload.status_id = form.status_id;
+        // Also send as "status" string for inventory Lambda compatibility
+        payload.status = form.status_id;
       }
       if (form.type_id) {
         payload.type_id = form.type_id;
+        // Also send as "type" string for inventory Lambda compatibility
+        payload.type = form.type_id;
       }
       if (form.owner_id) {
         payload.owner_id = form.owner_id;
@@ -447,18 +493,16 @@ function TaskCreate(): React.JSX.Element {
                 onChange={(e) =>
                   handleFieldChange('status_id', e.target.value)
                 }
-                disabled={isPending || isStatusLoading}
+                disabled={isPending}
                 className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2
                   text-sm text-gray-900 shadow-sm
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
                   disabled:cursor-not-allowed disabled:bg-gray-50"
               >
-                <option value="">
-                  {isStatusLoading ? 'Loading…' : '— Select status —'}
-                </option>
-                {statuses.map((s) => (
-                  <option key={String(s.id)} value={String(s.id)}>
-                    {String(s.label ?? s.name ?? s.id)}
+                <option value="">— Select status —</option>
+                {TASK_STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
                   </option>
                 ))}
               </select>
@@ -481,18 +525,16 @@ function TaskCreate(): React.JSX.Element {
                 onChange={(e) =>
                   handleFieldChange('type_id', e.target.value)
                 }
-                disabled={isPending || isTypeLoading}
+                disabled={isPending}
                 className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2
                   text-sm text-gray-900 shadow-sm
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
                   disabled:cursor-not-allowed disabled:bg-gray-50"
               >
-                <option value="">
-                  {isTypeLoading ? 'Loading…' : '— Select type —'}
-                </option>
-                {types.map((t) => (
-                  <option key={String(t.id)} value={String(t.id)}>
-                    {String(t.label ?? t.name ?? t.id)}
+                <option value="">— Select type —</option>
+                {TASK_TYPE_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>

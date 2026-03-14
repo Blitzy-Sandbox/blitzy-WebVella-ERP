@@ -1005,13 +1005,39 @@ namespace WebVellaErp.Reporting.Services
             {
                 foreach (var param in report.Parameters)
                 {
-                    bool hasParam = effectiveParams.ContainsKey(param.Name) ||
-                                    effectiveParams.ContainsKey("@" + param.Name);
-                    if (!hasParam)
+                    string key = effectiveParams.ContainsKey(param.Name) ? param.Name
+                        : effectiveParams.ContainsKey("@" + param.Name) ? "@" + param.Name
+                        : null!;
+
+                    if (key == null)
                     {
-                        // Resolve default value with type conversion
+                        // No user-supplied value — resolve default value with type conversion
                         var resolved = ResolveParameterValue(param);
                         effectiveParams[param.Name] = resolved;
+                    }
+                    else
+                    {
+                        // User-supplied value — coerce to the declared parameter type
+                        // so that Npgsql binds with the correct NpgsqlDbType.
+                        object? rawValue = effectiveParams[key];
+                        string? rawString = rawValue is System.Text.Json.JsonElement je
+                            ? (je.ValueKind == System.Text.Json.JsonValueKind.String
+                                ? je.GetString() : je.GetRawText())
+                            : rawValue?.ToString();
+
+                        var resolvedParam = new ReportParameter
+                        {
+                            Name = param.Name,
+                            Type = param.Type,
+                            DefaultValue = rawString,
+                            IgnoreParseErrors = param.IgnoreParseErrors
+                        };
+                        var resolved = ResolveParameterValue(resolvedParam);
+
+                        // Normalize key to not include "@" prefix for consistent lookup
+                        string normalizedKey = param.Name;
+                        effectiveParams.Remove(key);
+                        effectiveParams[normalizedKey] = resolved;
                     }
                 }
             }
@@ -1028,11 +1054,19 @@ namespace WebVellaErp.Reporting.Services
             command.CommandTimeout = SQL_EXECUTION_TIMEOUT_SECONDS;
 
             // ── Add parameters (explicit NpgsqlParameter for AOT compatibility) ──
+            // When parameters arrive from JSON deserialization, values may be
+            // System.Text.Json.JsonElement instead of primitive .NET types.
+            // Npgsql cannot infer the PostgreSQL type from JsonElement, so we
+            // must unwrap them to native types before binding.
+            // Build declared type lookup from report parameter definitions
+            var paramTypeLookup = (report.Parameters ?? new List<ReportParameter>())
+                .ToDictionary(p => p.Name, p => p.Type, StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in effectiveParams)
             {
                 string paramName = kvp.Key.StartsWith("@") ? kvp.Key : "@" + kvp.Key;
-                var npgsqlParam = new NpgsqlParameter(paramName, kvp.Value ?? DBNull.Value);
-                command.Parameters.Add(npgsqlParam);
+                string cleanName = kvp.Key.TrimStart('@');
+                paramTypeLookup.TryGetValue(cleanName, out string? declaredType);
+                AddTypedNpgsqlParameter(command, paramName, kvp.Value, declaredType);
             }
 
             // ── Extract column metadata and data rows from reader ──
@@ -1069,7 +1103,7 @@ namespace WebVellaErp.Reporting.Services
             if (report.ReturnTotal)
             {
                 totalCount = await ExecuteCountQueryAsync(
-                    connection, report.SqlTemplate, effectiveParams, cancellationToken);
+                    connection, report.SqlTemplate, effectiveParams, paramTypeLookup, cancellationToken);
             }
             else
             {
@@ -1146,8 +1180,7 @@ namespace WebVellaErp.Reporting.Services
                 foreach (var kvp in parameters)
                 {
                     string paramName = kvp.Key.StartsWith("@") ? kvp.Key : "@" + kvp.Key;
-                    var npgsqlParam = new NpgsqlParameter(paramName, kvp.Value ?? DBNull.Value);
-                    command.Parameters.Add(npgsqlParam);
+                    AddTypedNpgsqlParameter(command, paramName, kvp.Value);
                 }
             }
 
@@ -1185,7 +1218,7 @@ namespace WebVellaErp.Reporting.Services
             {
                 var effectiveParams = parameters ?? new Dictionary<string, object?>();
                 totalCount = await ExecuteCountQueryAsync(
-                    connection, sqlQuery, effectiveParams, cancellationToken);
+                    connection, sqlQuery, effectiveParams, null, cancellationToken);
             }
             else
             {
@@ -1228,20 +1261,31 @@ namespace WebVellaErp.Reporting.Services
         /// Executes a COUNT(*) wrapper query to determine total rows matching
         /// the base query, used when <see cref="ReportDefinition.ReturnTotal"/> is true.
         /// </summary>
+        /// <param name="connection">Open NpgsqlConnection.</param>
+        /// <param name="baseQuery">The base SQL query to wrap in COUNT(*).</param>
+        /// <param name="parameters">Effective parameter values.</param>
+        /// <param name="paramTypeLookup">Declared parameter type lookup for null type hints.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
         private async Task<int> ExecuteCountQueryAsync(
             NpgsqlConnection connection, string baseQuery,
             Dictionary<string, object?> parameters,
+            Dictionary<string, string>? paramTypeLookup,
             CancellationToken cancellationToken)
         {
             string countSql = $"SELECT COUNT(*) FROM ({baseQuery}) AS __count_wrapper";
             await using var countCmd = new NpgsqlCommand(countSql, connection);
             countCmd.CommandTimeout = SQL_EXECUTION_TIMEOUT_SECONDS;
 
+            // Unwrap JsonElement values and set explicit NpgsqlDbType — same pattern as
+            // the main ExecuteReportAsync parameter loop. Without this, Npgsql maps
+            // System.Text.Json.JsonElement → jsonb, causing type mismatches.
             foreach (var kvp in parameters)
             {
                 string paramName = kvp.Key.StartsWith("@") ? kvp.Key : "@" + kvp.Key;
-                var npgsqlParam = new NpgsqlParameter(paramName, kvp.Value ?? DBNull.Value);
-                countCmd.Parameters.Add(npgsqlParam);
+                string cleanName = kvp.Key.TrimStart('@');
+                string? declaredType = null;
+                paramTypeLookup?.TryGetValue(cleanName, out declaredType);
+                AddTypedNpgsqlParameter(countCmd, paramName, kvp.Value, declaredType);
             }
 
             var result = await countCmd.ExecuteScalarAsync(cancellationToken);
@@ -1254,6 +1298,160 @@ namespace WebVellaErp.Reporting.Services
         /// Maps the monolith's 20+ FieldType enum values to basic reporting types:
         /// "string", "number", "date", "boolean", "guid".
         /// </summary>
+
+        /// <summary>
+        /// Converts a <see cref="System.Text.Json.JsonElement"/> value (produced by
+        /// System.Text.Json deserialization of <c>Dictionary&lt;string, object?&gt;</c>)
+        /// into a native .NET primitive so that <see cref="NpgsqlParameter"/> can correctly
+        /// infer the PostgreSQL wire type.  Non-JsonElement values pass through unchanged.
+        /// </summary>
+        private static object? UnwrapJsonElement(object? value)
+        {
+            if (value is null)
+                return null;
+
+            if (value is System.Text.Json.JsonElement jsonElement)
+            {
+                switch (jsonElement.ValueKind)
+                {
+                    case System.Text.Json.JsonValueKind.String:
+                        // Try parsing as Guid first, then DateTime, then fall back to string
+                        string? str = jsonElement.GetString();
+                        if (str is not null && Guid.TryParse(str, out Guid guidVal))
+                            return guidVal;
+                        if (str is not null && DateTime.TryParse(str, System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.RoundtripKind, out DateTime dtVal))
+                            return dtVal;
+                        return str;
+
+                    case System.Text.Json.JsonValueKind.Number:
+                        // Prefer integer types when possible, then fall back to decimal
+                        if (jsonElement.TryGetInt32(out int intVal))
+                            return intVal;
+                        if (jsonElement.TryGetInt64(out long longVal))
+                            return longVal;
+                        if (jsonElement.TryGetDecimal(out decimal decVal))
+                            return decVal;
+                        return jsonElement.GetDouble();
+
+                    case System.Text.Json.JsonValueKind.True:
+                        return true;
+
+                    case System.Text.Json.JsonValueKind.False:
+                        return false;
+
+                    case System.Text.Json.JsonValueKind.Null:
+                    case System.Text.Json.JsonValueKind.Undefined:
+                        return DBNull.Value;
+
+                    case System.Text.Json.JsonValueKind.Array:
+                    case System.Text.Json.JsonValueKind.Object:
+                        // For complex JSON values, serialize back to string
+                        // so Npgsql maps them to text/json rather than jsonb
+                        return jsonElement.GetRawText();
+
+                    default:
+                        return jsonElement.ToString();
+                }
+            }
+
+            // Non-JsonElement values pass through unchanged
+            return value;
+        }
+
+        /// <summary>
+        /// Adds a typed <see cref="NpgsqlParameter"/> to a command, unwrapping any
+        /// <see cref="System.Text.Json.JsonElement"/> values and explicitly setting
+        /// <see cref="NpgsqlTypes.NpgsqlDbType"/> to prevent Npgsql from inferring
+        /// jsonb for boxed objects. This shared helper is used by ExecuteReportAsync,
+        /// ExecuteCountQueryAsync, and ExecuteAdHocQueryAsync.
+        /// </summary>
+        /// <param name="command">The NpgsqlCommand to add the parameter to.</param>
+        /// <param name="paramName">The parameter name (with or without @ prefix).</param>
+        /// <param name="rawValue">The raw value, possibly a JsonElement.</param>
+        /// <param name="declaredType">Optional declared parameter type hint (e.g., "guid", "int", "date")
+        /// used to set the correct NpgsqlDbType when the value is null.</param>
+        private static void AddTypedNpgsqlParameter(
+            NpgsqlCommand command, string paramName, object? rawValue, string? declaredType = null)
+        {
+            object? nativeValue = UnwrapJsonElement(rawValue);
+            var npgsqlParam = new NpgsqlParameter();
+            npgsqlParam.ParameterName = paramName;
+
+            if (nativeValue == null || nativeValue is DBNull)
+            {
+                npgsqlParam.Value = DBNull.Value;
+                // Set explicit NpgsqlDbType for null values based on declared type
+                // to prevent Npgsql type inference issues with casts like ::uuid
+                if (!string.IsNullOrEmpty(declaredType))
+                {
+                    npgsqlParam.NpgsqlDbType = declaredType.ToLowerInvariant() switch
+                    {
+                        "guid" => NpgsqlTypes.NpgsqlDbType.Uuid,
+                        "int" => NpgsqlTypes.NpgsqlDbType.Integer,
+                        "decimal" => NpgsqlTypes.NpgsqlDbType.Numeric,
+                        "bool" or "boolean" => NpgsqlTypes.NpgsqlDbType.Boolean,
+                        "date" => NpgsqlTypes.NpgsqlDbType.TimestampTz,
+                        _ => NpgsqlTypes.NpgsqlDbType.Text
+                    };
+                }
+            }
+            else if (nativeValue is string s)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Text;
+                npgsqlParam.Value = s;
+            }
+            else if (nativeValue is int intVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Integer;
+                npgsqlParam.Value = intVal;
+            }
+            else if (nativeValue is long longVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Bigint;
+                npgsqlParam.Value = longVal;
+            }
+            else if (nativeValue is decimal decVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Numeric;
+                npgsqlParam.Value = decVal;
+            }
+            else if (nativeValue is double dblVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Double;
+                npgsqlParam.Value = dblVal;
+            }
+            else if (nativeValue is bool boolVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Boolean;
+                npgsqlParam.Value = boolVal;
+            }
+            else if (nativeValue is DateTime dtVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.TimestampTz;
+                // Npgsql 9.x requires DateTimeKind.Utc for TimestampTz parameters.
+                // Convert all kinds to UTC: Local → ToUniversalTime(), Unspecified → SpecifyKind(Utc).
+                npgsqlParam.Value = dtVal.Kind switch
+                {
+                    DateTimeKind.Utc => dtVal,
+                    DateTimeKind.Local => dtVal.ToUniversalTime(),
+                    _ => DateTime.SpecifyKind(dtVal, DateTimeKind.Utc)
+                };
+            }
+            else if (nativeValue is Guid guidVal)
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
+                npgsqlParam.Value = guidVal;
+            }
+            else
+            {
+                npgsqlParam.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Text;
+                npgsqlParam.Value = nativeValue.ToString();
+            }
+
+            command.Parameters.Add(npgsqlParam);
+        }
+
         private static string MapPostgresTypeToReportType(Type clrType)
         {
             if (clrType == typeof(Guid))
@@ -1383,7 +1581,9 @@ namespace WebVellaErp.Reporting.Services
                         return DateTime.UtcNow;
 
                     // Valid date string → parsed DateTime (source lines 422-423)
-                    if (DateTime.TryParse(value, out DateTime dateResult))
+                    // Use RoundtripKind to preserve UTC kind from ISO 8601 "Z" suffix;
+                    // Npgsql 9.x requires DateTimeKind.Utc for TimestampTz parameters.
+                    if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime dateResult))
                         return dateResult;
 
                     // Invalid + IgnoreParseErrors → null (source lines 425-426)

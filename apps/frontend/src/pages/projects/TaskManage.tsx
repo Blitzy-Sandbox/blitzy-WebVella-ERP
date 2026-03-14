@@ -85,11 +85,28 @@ const DEFAULT_RECURRENCE: RecurrenceTemplate = {
   allowRegeneration: false,
 };
 
-/** Priority options matching monolith field values. */
+/** Priority options matching E2E test label values. */
 const PRIORITY_OPTIONS = [
-  { value: '1', label: 'Low' },
-  { value: '2', label: 'Normal' },
-  { value: '3', label: 'High' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'urgent', label: 'urgent' },
+] as const;
+
+/** Status options matching inventory Lambda string values and E2E test labels. */
+const STATUS_OPTIONS = [
+  { value: 'not started', label: 'not started' },
+  { value: 'in progress', label: 'in progress' },
+  { value: 'completed', label: 'completed' },
+  { value: 'on hold', label: 'on hold' },
+] as const;
+
+/** Type options matching inventory Lambda string values and E2E test labels. */
+const TYPE_OPTIONS = [
+  { value: 'bug', label: 'bug' },
+  { value: 'feature', label: 'feature' },
+  { value: 'task', label: 'task' },
+  { value: 'improvement', label: 'improvement' },
 ] as const;
 
 /** Recurrence type options matching C# RecurrenceType enum. */
@@ -270,7 +287,7 @@ export default function TaskManage(): React.JSX.Element {
   // ── Form state: task fields ─────────────────────────────────────────────
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('2');
+  const [priority, setPriority] = useState('medium');
   const [statusId, setStatusId] = useState('');
   const [typeId, setTypeId] = useState('');
   const [ownerId, setOwnerId] = useState('');
@@ -298,7 +315,7 @@ export default function TaskManage(): React.JSX.Element {
 
     setSubject(toStr(record['subject']));
     setDescription(toStr(record['description']));
-    setPriority(toStr(record['priority'], '2'));
+    setPriority(toStr(record['priority'], 'medium'));
     setStatusId(toStr(record['status_id']));
     setTypeId(toStr(record['type_id']));
     setOwnerId(toStr(record['owner_id']));
@@ -528,14 +545,20 @@ export default function TaskManage(): React.JSX.Element {
               <label htmlFor="task-status" className={labelClasses}>
                 Status
               </label>
-              <input
+              <select
                 id="task-status"
-                type="text"
-                placeholder="Status ID"
+                name="status"
                 value={statusId}
                 onChange={(e) => setStatusId(e.target.value)}
-                className={inputClasses}
-              />
+                className={selectClasses}
+              >
+                <option value="">— Select status —</option>
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -545,14 +568,20 @@ export default function TaskManage(): React.JSX.Element {
               <label htmlFor="task-type" className={labelClasses}>
                 Type
               </label>
-              <input
+              <select
                 id="task-type"
-                type="text"
-                placeholder="Type ID"
+                name="type"
                 value={typeId}
                 onChange={(e) => setTypeId(e.target.value)}
-                className={inputClasses}
-              />
+                className={selectClasses}
+              >
+                <option value="">— Select type —</option>
+                {TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>

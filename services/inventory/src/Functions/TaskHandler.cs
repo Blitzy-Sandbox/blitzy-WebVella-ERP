@@ -52,6 +52,7 @@ namespace WebVellaErp.Inventory.Functions
         #region Fields and Constants
 
         private readonly ITaskService _taskService;
+        private readonly IInventoryRepository _repository;
         private readonly ILogger<TaskHandler> _logger;
 
         /// <summary>
@@ -115,6 +116,7 @@ namespace WebVellaErp.Inventory.Functions
             ConfigureServices(services);
             var serviceProvider = services.BuildServiceProvider();
             _taskService = serviceProvider.GetRequiredService<ITaskService>();
+            _repository = serviceProvider.GetRequiredService<IInventoryRepository>();
             _logger = serviceProvider.GetRequiredService<ILogger<TaskHandler>>();
         }
 
@@ -125,10 +127,11 @@ namespace WebVellaErp.Inventory.Functions
         /// </summary>
         /// <param name="taskService">Business logic service consolidating all task operations.</param>
         /// <param name="logger">Structured logger for correlation-ID tracking.</param>
-        public TaskHandler(ITaskService taskService, ILogger<TaskHandler> logger)
+        public TaskHandler(ITaskService taskService, ILogger<TaskHandler> logger, IInventoryRepository? repository = null)
         {
             _taskService = taskService ?? throw new ArgumentNullException(nameof(taskService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _repository = repository!;
         }
 
         #endregion
@@ -153,6 +156,136 @@ namespace WebVellaErp.Inventory.Functions
         ///   5. Execute post-creation hooks via ITaskService.PostCreateTaskAsync
         ///   6. Return 201 Created with task data
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            // Extract the proxy path segment from {proxy+} parameter
+            var proxy = "";
+            if (request.PathParameters != null &&
+                request.PathParameters.TryGetValue("proxy", out var proxyVal))
+                proxy = proxyVal ?? "";
+
+            var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var resource = segments.Length > 0 ? segments[0].ToLowerInvariant() : "";
+
+            _logger.LogInformation(
+                "FunctionHandler routing: method={Method}, proxy={Proxy}, resource={Resource}, segCount={SegCount}",
+                method, proxy, resource, segments.Length);
+
+            // ── /health ────────────────────────────────────────────────
+            if (resource == "health")
+                return await HealthCheck(request, context);
+
+            // ── /projects ──────────────────────────────────────────────
+            if (resource == "projects")
+            {
+                if (method == "GET")
+                    return await ListProjects(request, context);
+                return ErrorResponse(405, "Method not allowed for /projects");
+            }
+
+            // ── /tasks ─────────────────────────────────────────────────
+            if (resource == "tasks")
+            {
+                var taskIdStr = segments.Length > 1 ? segments[1] : null;
+                var subResource = segments.Length > 2 ? segments[2].ToLowerInvariant() : null;
+
+                switch (method)
+                {
+                    case "GET":
+                        if (taskIdStr != null && Guid.TryParse(taskIdStr, out _))
+                            return await GetTask(request, context);
+                        // List tasks (no ID)
+                        return await ListTasks(request, context);
+
+                    case "POST":
+                        if (subResource == "status")
+                            return await SetTaskStatus(request, context);
+                        if (subResource == "watch")
+                            return await WatchTask(request, context);
+                        if (subResource == "start-timelog")
+                            return await StartTimelog(request, context);
+                        if (subResource == "stop-timelog")
+                            return await StopTimelog(request, context);
+                        return await CreateTask(request, context);
+
+                    case "PUT":
+                        return await UpdateTask(request, context);
+
+                    case "DELETE":
+                        return await DeleteTask(request, context);
+
+                    default:
+                        return ErrorResponse(405, "Method not allowed for /tasks");
+                }
+            }
+
+            // ── /timelogs ──────────────────────────────────────────────
+            if (resource == "timelogs")
+            {
+                var subResource = segments.Length > 1 ? segments[1].ToLowerInvariant() : null;
+
+                switch (method)
+                {
+                    case "GET":
+                        if (subResource == "summary")
+                            return await GetTimelogSummary(request, context);
+                        return await ListTimelogs(request, context);
+
+                    case "POST":
+                        return await CreateTimelog(request, context);
+
+                    case "DELETE":
+                        return await DeleteTimelog(request, context);
+
+                    default:
+                        return ErrorResponse(405, "Method not allowed for /timelogs");
+                }
+            }
+
+            // ── /comments ──────────────────────────────────────────────
+            if (resource == "comments")
+            {
+                switch (method)
+                {
+                    case "POST":
+                        return await CreateComment(request, context);
+                    case "DELETE":
+                        return await DeleteComment(request, context);
+                    default:
+                        return ErrorResponse(405, "Method not allowed for /comments");
+                }
+            }
+
+            // ── /feed ──────────────────────────────────────────────────
+            if (resource == "feed")
+            {
+                if (method == "GET")
+                    return await GetActivityFeed(request, context);
+                return ErrorResponse(405, "Method not allowed for /feed");
+            }
+
+            // ── /dashboard ─────────────────────────────────────────────
+            if (resource == "dashboard")
+            {
+                if (method == "GET")
+                    return await GetDashboard(request, context);
+                return ErrorResponse(405, "Method not allowed for /dashboard");
+            }
+
+            // Fallback — try to infer from method for backward compat
+            _logger.LogWarning("Unrouted request: method={Method}, proxy={Proxy}", method, proxy);
+            return ErrorResponse(404, $"Route not found: {method} /inventory/{proxy}");
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateTask(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -172,19 +305,80 @@ namespace WebVellaErp.Inventory.Functions
                     return ErrorResponse(400, "Request body is required.");
                 }
 
-                Models.Task? task;
-                try
-                {
-                    task = JsonSerializer.Deserialize<Models.Task>(request.Body, JsonOptions);
-                }
+                // Parse raw JSON first so we can handle string labels for Guid fields
+                // The frontend may send status_id/type_id as labels ("not started", "feature")
+                // which cannot be deserialized directly to Guid?.
+                JsonDocument? bodyDoc = null;
+                try { bodyDoc = JsonDocument.Parse(request.Body); }
                 catch (JsonException ex)
                 {
                     _logger.LogWarning(ex, "CreateTask: invalid JSON body. CorrelationId: {CorrelationId}", context.AwsRequestId);
                     return ErrorResponse(400, "Invalid JSON request body.");
                 }
 
+                // Preprocess the JSON: replace non-GUID status_id/type_id with null
+                // so System.Text.Json can deserialize to Guid? without errors.
+                string processedBody = request.Body;
+                if (bodyDoc != null)
+                {
+                    var root = bodyDoc.RootElement;
+                    bool needsPreprocessing = false;
+
+                    if (root.TryGetProperty("status_id", out var sid) && sid.ValueKind == JsonValueKind.String)
+                    {
+                        var sv = sid.GetString();
+                        if (!string.IsNullOrWhiteSpace(sv) && !Guid.TryParse(sv, out _))
+                            needsPreprocessing = true;
+                    }
+                    if (root.TryGetProperty("type_id", out var tid) && tid.ValueKind == JsonValueKind.String)
+                    {
+                        var tv = tid.GetString();
+                        if (!string.IsNullOrWhiteSpace(tv) && !Guid.TryParse(tv, out _))
+                            needsPreprocessing = true;
+                    }
+
+                    if (needsPreprocessing)
+                    {
+                        // Rebuild the JSON with non-GUID status_id/type_id set to null
+                        using var ms = new System.IO.MemoryStream();
+                        using (var writer = new System.Text.Json.Utf8JsonWriter(ms))
+                        {
+                            writer.WriteStartObject();
+                            foreach (var prop in root.EnumerateObject())
+                            {
+                                if ((prop.Name == "status_id" || prop.Name == "type_id") &&
+                                    prop.Value.ValueKind == JsonValueKind.String)
+                                {
+                                    var val = prop.Value.GetString();
+                                    if (!string.IsNullOrWhiteSpace(val) && !Guid.TryParse(val, out _))
+                                    {
+                                        writer.WriteNull(prop.Name);
+                                        continue;
+                                    }
+                                }
+                                prop.WriteTo(writer);
+                            }
+                            writer.WriteEndObject();
+                        }
+                        processedBody = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                    }
+                }
+
+                Models.Task? task;
+                try
+                {
+                    task = JsonSerializer.Deserialize<Models.Task>(processedBody, JsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "CreateTask: invalid JSON body. CorrelationId: {CorrelationId}", context.AwsRequestId);
+                    bodyDoc?.Dispose();
+                    return ErrorResponse(400, "Invalid JSON request body.");
+                }
+
                 if (task == null)
                 {
+                    bodyDoc?.Dispose();
                     return ErrorResponse(400, "Request body could not be deserialized to a valid Task.");
                 }
 
@@ -197,6 +391,45 @@ namespace WebVellaErp.Inventory.Functions
                 // Set audit fields
                 task.CreatedBy = currentUserId;
                 task.CreatedOn = DateTime.UtcNow;
+
+                // Build LRelatedRecords from frontend-provided project_id or $project_nn_task fields
+                // The frontend sends { project_id: "guid", $project_nn_task: ["guid", ...] }
+                if (string.IsNullOrWhiteSpace(task.LRelatedRecords) && bodyDoc != null)
+                {
+                    var root = bodyDoc.RootElement;
+                    var projectIds = new List<string>();
+
+                    // Check $project_nn_task array first
+                    if (root.TryGetProperty("$project_nn_task", out var nnTask) && nnTask.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in nnTask.EnumerateArray())
+                        {
+                            var val = item.GetString();
+                            if (!string.IsNullOrWhiteSpace(val) && Guid.TryParse(val, out _))
+                                projectIds.Add(val);
+                        }
+                    }
+                    // Check project_id scalar
+                    if (root.TryGetProperty("project_id", out var pid) && pid.ValueKind == JsonValueKind.String)
+                    {
+                        var pidStr = pid.GetString();
+                        if (!string.IsNullOrWhiteSpace(pidStr) && Guid.TryParse(pidStr, out _) && !projectIds.Contains(pidStr))
+                            projectIds.Add(pidStr);
+                    }
+
+                    if (projectIds.Count > 0)
+                    {
+                        task.LRelatedRecords = JsonSerializer.Serialize(projectIds, JsonOptions);
+                    }
+                }
+
+                // Resolve status_id and type_id from string labels if not valid GUIDs
+                // The frontend may send labels like "not started" instead of GUIDs
+                if (bodyDoc != null)
+                {
+                    await ResolveStatusAndTypeFromBody(task, bodyDoc.RootElement);
+                }
+                bodyDoc?.Dispose();
 
                 // Step 3: Pre-hook validation — replaces IErpPreCreateRecordHook pipeline
                 // Source: TaskService.PreCreateRecordPageHookLogic lines 300-330
@@ -1007,6 +1240,353 @@ namespace WebVellaErp.Inventory.Functions
         }
 
         /// <summary>
+        // ═══════════════════════════════════════════════════════════════════
+        // New routing endpoints for full E2E support
+        // ═══════════════════════════════════════════════════════════════════
+
+        /// <summary>GET /v1/inventory/projects — list all projects</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> ListProjects(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("ListProjects invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                var projects = await _repository.GetAllProjectsAsync();
+                return SuccessResponse("Projects retrieved", projects);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ListProjects error");
+                return ErrorResponse(500, "Failed to list projects.");
+            }
+        }
+
+        /// <summary>GET /v1/inventory/tasks — list/filter tasks</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> ListTasks(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("ListTasks invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                Guid? projectId = null;
+                Guid? userId = null;
+                string? status = null;
+                int limit = 50;
+
+                if (request.QueryStringParameters != null)
+                {
+                    if (request.QueryStringParameters.TryGetValue("projectId", out var pid) && Guid.TryParse(pid, out var pguid))
+                        projectId = pguid;
+                    if (request.QueryStringParameters.TryGetValue("userId", out var uid) && Guid.TryParse(uid, out var uguid))
+                        userId = uguid;
+                    if (request.QueryStringParameters.TryGetValue("status", out var s))
+                        status = s;
+                    if (request.QueryStringParameters.TryGetValue("pageSize", out var ps) && int.TryParse(ps, out var psi))
+                        limit = Math.Min(psi, 200);
+                }
+
+                var tasks = await _taskService.GetTaskQueueAsync(projectId, userId, Models.TasksDueType.All, limit);
+                // If status filter specified, filter after retrieval
+                if (!string.IsNullOrEmpty(status))
+                {
+                    var statuses = await _taskService.GetTaskStatusesAsync();
+                    var targetStatus = statuses.FirstOrDefault(st =>
+                        string.Equals(st.Label, status, StringComparison.OrdinalIgnoreCase));
+                    if (targetStatus != null)
+                    {
+                        tasks = tasks.Where(t => t.StatusId == targetStatus.Id).ToList();
+                    }
+                }
+
+                var result = new { records = tasks, totalCount = tasks.Count };
+                return SuccessResponse("Tasks retrieved", result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ListTasks error");
+                return ErrorResponse(500, "Failed to list tasks.");
+            }
+        }
+
+        /// <summary>PUT /v1/inventory/tasks/{id} — update a task</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> UpdateTask(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("UpdateTask invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                if (!TryGetPathParameterGuid(request, "id", out var taskId))
+                    return ErrorResponse(400, "Task ID is required.");
+
+                var existing = await _taskService.GetTaskAsync(taskId);
+                if (existing == null) return ErrorResponse(404, "Task not found.");
+
+                var currentUserId = GetCurrentUserId(request);
+                if (string.IsNullOrWhiteSpace(request.Body))
+                    return ErrorResponse(400, "Request body is required.");
+
+                var updates = JsonSerializer.Deserialize<JsonElement>(request.Body);
+                if (updates.ValueKind == JsonValueKind.Object)
+                {
+                    if (updates.TryGetProperty("subject", out var sub) && sub.ValueKind == JsonValueKind.String)
+                        existing.Subject = sub.GetString() ?? existing.Subject;
+                    if (updates.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String)
+                    {
+                        var statuses = await _taskService.GetTaskStatusesAsync();
+                        var match = statuses.FirstOrDefault(s => string.Equals(s.Label, st.GetString(), StringComparison.OrdinalIgnoreCase));
+                        if (match != null) existing.StatusId = match.Id;
+                    }
+                    if (updates.TryGetProperty("priority", out var pr) && pr.ValueKind == JsonValueKind.String)
+                        existing.Priority = pr.GetString() ?? existing.Priority;
+                    if (updates.TryGetProperty("description", out var desc) && desc.ValueKind == JsonValueKind.String)
+                        existing.Body = desc.GetString() ?? existing.Body;
+                    if (updates.TryGetProperty("body", out var bd) && bd.ValueKind == JsonValueKind.String)
+                        existing.Body = bd.GetString() ?? existing.Body;
+                }
+
+                existing.LastModifiedOn = DateTime.UtcNow;
+                existing.LastModifiedBy = currentUserId;
+
+                var errors = new List<string>();
+                await _taskService.PreUpdateTaskAsync(existing, currentUserId, errors);
+                if (errors.Any()) return ErrorResponse(400, string.Join("; ", errors));
+
+                await _repository.UpdateTaskAsync(existing);
+                await _taskService.PostUpdateTaskAsync(existing, currentUserId);
+
+                return SuccessResponse("Task updated", existing);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UpdateTask error");
+                return ErrorResponse(500, "Failed to update task.");
+            }
+        }
+
+        /// <summary>DELETE /v1/inventory/tasks/{id} — delete a task</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> DeleteTask(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("DeleteTask invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                if (!TryGetPathParameterGuid(request, "id", out var taskId))
+                    return ErrorResponse(400, "Task ID is required.");
+
+                var existing = await _taskService.GetTaskAsync(taskId);
+                if (existing == null) return ErrorResponse(404, "Task not found.");
+
+                await _repository.DeleteTaskAsync(taskId);
+                return SuccessResponse("Task deleted");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DeleteTask error");
+                return ErrorResponse(500, "Failed to delete task.");
+            }
+        }
+
+        /// <summary>POST /v1/inventory/timelogs — create a timelog entry</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> CreateTimelog(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("CreateTimelog invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                var currentUserId = GetCurrentUserId(request);
+                if (string.IsNullOrWhiteSpace(request.Body))
+                    return ErrorResponse(400, "Request body is required.");
+
+                var body = JsonSerializer.Deserialize<JsonElement>(request.Body);
+                int minutes = 0;
+                bool isBillable = false;
+                string description = "";
+                DateTime loggedOn = DateTime.UtcNow;
+                Guid? taskId = null;
+                var scope = new List<string>();
+                var relatedRecords = new List<Guid>();
+
+                if (body.TryGetProperty("minutes", out var m)) minutes = m.GetInt32();
+                if (body.TryGetProperty("hours", out var h) && h.ValueKind == JsonValueKind.String && decimal.TryParse(h.GetString(), out var hrs)) minutes = (int)(hrs * 60);
+                if (body.TryGetProperty("is_billable", out var ib)) isBillable = ib.ValueKind == JsonValueKind.True;
+                if (body.TryGetProperty("isBillable", out var ib2)) isBillable = ib2.ValueKind == JsonValueKind.True;
+                if (body.TryGetProperty("body", out var bd)) description = bd.GetString() ?? "";
+                if (body.TryGetProperty("description", out var dd)) description = dd.GetString() ?? "";
+                if (body.TryGetProperty("logged_on", out var lo) && DateTime.TryParse(lo.GetString(), out var lop)) loggedOn = lop;
+                if (body.TryGetProperty("date", out var dt) && DateTime.TryParse(dt.GetString(), out var dtp)) loggedOn = dtp;
+                if (body.TryGetProperty("taskId", out var ti) && Guid.TryParse(ti.GetString(), out var tig)) { taskId = tig; relatedRecords.Add(tig); }
+                if (body.TryGetProperty("task_id", out var ti2) && Guid.TryParse(ti2.GetString(), out var tig2)) { taskId = tig2; relatedRecords.Add(tig2); }
+
+                scope.Add("projects");
+
+                await _taskService.CreateTimelogAsync(null, currentUserId, DateTime.UtcNow, loggedOn, minutes, isBillable, description, scope, relatedRecords);
+
+                return CreatedResponse("Timelog created", new { minutes, isBillable, loggedOn, taskId });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CreateTimelog error");
+                return ErrorResponse(500, "Failed to create timelog.");
+            }
+        }
+
+        /// <summary>GET /v1/inventory/timelogs — list timelogs</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> ListTimelogs(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("ListTimelogs invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                Guid? projectId = null;
+                Guid? userId = null;
+                var start = DateTime.UtcNow.AddMonths(-1);
+                var end = DateTime.UtcNow.AddDays(1);
+
+                if (request.QueryStringParameters != null)
+                {
+                    if (request.QueryStringParameters.TryGetValue("projectId", out var pid) && Guid.TryParse(pid, out var pg))
+                        projectId = pg;
+                    if (request.QueryStringParameters.TryGetValue("userId", out var uid) && Guid.TryParse(uid, out var ug))
+                        userId = ug;
+                    if (request.QueryStringParameters.TryGetValue("startDate", out var sd) && DateTime.TryParse(sd, out var sdp))
+                        start = sdp;
+                    if (request.QueryStringParameters.TryGetValue("endDate", out var ed) && DateTime.TryParse(ed, out var edp))
+                        end = edp;
+                }
+
+                var timelogs = await _taskService.GetTimelogsForPeriodAsync(projectId, userId, start, end);
+                var result = new { records = timelogs, totalCount = timelogs.Count };
+                return SuccessResponse("Timelogs retrieved", result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ListTimelogs error");
+                return ErrorResponse(500, "Failed to list timelogs.");
+            }
+        }
+
+        /// <summary>DELETE /v1/inventory/timelogs/{id} — delete timelog</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> DeleteTimelog(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("DeleteTimelog invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                if (!TryGetPathParameterGuid(request, "id", out var timelogId))
+                    return ErrorResponse(400, "Timelog ID is required.");
+
+                var currentUserId = GetCurrentUserId(request);
+                await _taskService.DeleteTimelogAsync(timelogId, currentUserId);
+                return SuccessResponse("Timelog deleted");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DeleteTimelog error");
+                return ErrorResponse(500, "Failed to delete timelog.");
+            }
+        }
+
+        /// <summary>GET /v1/inventory/timelogs/summary — timelog aggregations</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> GetTimelogSummary(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("GetTimelogSummary invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                int year = DateTime.UtcNow.Year;
+                int month = DateTime.UtcNow.Month;
+                Guid? accountId = null;
+
+                if (request.QueryStringParameters != null)
+                {
+                    if (request.QueryStringParameters.TryGetValue("year", out var y) && int.TryParse(y, out var yi)) year = yi;
+                    if (request.QueryStringParameters.TryGetValue("month", out var m) && int.TryParse(m, out var mi)) month = mi;
+                    if (request.QueryStringParameters.TryGetValue("accountId", out var aid) && Guid.TryParse(aid, out var ag)) accountId = ag;
+                }
+
+                var data = await _taskService.GetTimelogReportDataAsync(year, month, accountId);
+                return SuccessResponse("Timelog summary", data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetTimelogSummary error");
+                return ErrorResponse(500, "Failed to get timelog summary.");
+            }
+        }
+
+        /// <summary>GET /v1/inventory/feed — activity feed</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> GetActivityFeed(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("GetActivityFeed invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                int limit = 50;
+                string? recordId = null;
+
+                if (request.QueryStringParameters != null)
+                {
+                    if (request.QueryStringParameters.TryGetValue("pageSize", out var ps) && int.TryParse(ps, out var psi)) limit = Math.Min(psi, 200);
+                    if (request.QueryStringParameters.TryGetValue("recordId", out var rid)) recordId = rid;
+                }
+
+                List<Models.FeedItem> items;
+                if (!string.IsNullOrEmpty(recordId))
+                    items = await _repository.GetFeedItemsByRelatedRecordAsync(recordId, limit);
+                else
+                {
+                    var currentUserId = GetCurrentUserId(request);
+                    items = await _repository.GetFeedItemsByUserAsync(currentUserId, limit);
+                }
+                var result = new { records = items, totalCount = items.Count };
+                return SuccessResponse("Feed retrieved", result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetActivityFeed error");
+                return ErrorResponse(500, "Failed to get activity feed.");
+            }
+        }
+
+        /// <summary>GET /v1/inventory/dashboard — project dashboard stats</summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> GetDashboard(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            _logger.LogInformation("GetDashboard invoked. CorrelationId: {Id}", context.AwsRequestId);
+            try
+            {
+                Guid? projectId = null;
+                if (request.QueryStringParameters != null &&
+                    request.QueryStringParameters.TryGetValue("projectId", out var pid) &&
+                    Guid.TryParse(pid, out var pg))
+                    projectId = pg;
+
+                var tasks = await _taskService.GetTaskQueueAsync(projectId, null, Models.TasksDueType.All);
+                var statuses = await _taskService.GetTaskStatusesAsync();
+
+                var dashboard = new Dictionary<string, object>
+                {
+                    ["totalTasks"] = tasks.Count,
+                    ["statusBreakdown"] = statuses.Select(s => new
+                    {
+                        status = s.Label,
+                        count = tasks.Count(t => t.StatusId == s.Id)
+                    }),
+                    ["priorityBreakdown"] = tasks
+                        .GroupBy(t => t.Priority ?? "unset")
+                        .Select(g => new { priority = g.Key, count = g.Count() })
+                };
+
+                return SuccessResponse("Dashboard data", dashboard);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetDashboard error");
+                return ErrorResponse(500, "Failed to get dashboard data.");
+            }
+        }
+
+        /// <summary>
         /// Lambda handler for GET /v1/inventory/tasks/health — service health check endpoint.
         /// Returns a simple healthy status for load balancer and monitoring integration.
         /// Does not require authentication (per AAP §0.8.5 health check requirement).
@@ -1048,14 +1628,94 @@ namespace WebVellaErp.Inventory.Functions
         /// <param name="request">The API Gateway v2 proxy request containing JWT authorizer claims.</param>
         /// <returns>The authenticated user's GUID extracted from the "sub" claim.</returns>
         /// <exception cref="UnauthorizedAccessException">Thrown when JWT claims are missing or the "sub" claim is not a valid GUID.</exception>
+        /// <summary>
+        /// Resolves status_id and type_id from string labels (e.g., "not started", "bug")
+        /// to their corresponding GUID identifiers when the frontend sends label strings
+        /// instead of GUID values.
+        /// </summary>
+        private async System.Threading.Tasks.Task ResolveStatusAndTypeFromBody(Models.Task task, JsonElement root)
+        {
+            try
+            {
+                // Resolve status: check status_id or status field
+                if (!task.StatusId.HasValue || task.StatusId == Guid.Empty)
+                {
+                    string? statusLabel = null;
+                    if (root.TryGetProperty("status_id", out var sid) && sid.ValueKind == JsonValueKind.String)
+                        statusLabel = sid.GetString();
+                    if (string.IsNullOrWhiteSpace(statusLabel) && root.TryGetProperty("status", out var sLabel) && sLabel.ValueKind == JsonValueKind.String)
+                        statusLabel = sLabel.GetString();
+
+                    if (!string.IsNullOrWhiteSpace(statusLabel) && !Guid.TryParse(statusLabel, out _))
+                    {
+                        // It's a label, not a GUID — look up
+                        var statuses = await _repository.GetAllTaskStatusesAsync();
+                        var matched = statuses.FirstOrDefault(s =>
+                            string.Equals(s.Label, statusLabel, StringComparison.OrdinalIgnoreCase));
+                        if (matched != null)
+                            task.StatusId = matched.Id;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(statusLabel) && Guid.TryParse(statusLabel, out var parsedSid))
+                    {
+                        task.StatusId = parsedSid;
+                    }
+                }
+
+                // Resolve type: check type_id or type field
+                if (!task.TypeId.HasValue || task.TypeId == Guid.Empty)
+                {
+                    string? typeLabel = null;
+                    if (root.TryGetProperty("type_id", out var tid) && tid.ValueKind == JsonValueKind.String)
+                        typeLabel = tid.GetString();
+                    if (string.IsNullOrWhiteSpace(typeLabel) && root.TryGetProperty("type", out var tLabel) && tLabel.ValueKind == JsonValueKind.String)
+                        typeLabel = tLabel.GetString();
+
+                    if (!string.IsNullOrWhiteSpace(typeLabel) && !Guid.TryParse(typeLabel, out _))
+                    {
+                        // It's a label, not a GUID — look up
+                        var types = await _repository.GetAllTaskTypesAsync();
+                        var matched = types.FirstOrDefault(t =>
+                            string.Equals(t.Label, typeLabel, StringComparison.OrdinalIgnoreCase));
+                        if (matched != null)
+                            task.TypeId = matched.Id;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(typeLabel) && Guid.TryParse(typeLabel, out var parsedTid))
+                    {
+                        task.TypeId = parsedTid;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve status/type labels to GUIDs");
+            }
+        }
+
         private Guid GetCurrentUserId(APIGatewayHttpApiV2ProxyRequest request)
         {
-            if (request.RequestContext?.Authorizer?.Jwt?.Claims != null &&
-                request.RequestContext.Authorizer.Jwt.Claims.TryGetValue("sub", out var sub))
+            // Try JWT authorizer claims first (native JWT authorizer)
+            if (request.RequestContext?.Authorizer?.Jwt?.Claims != null)
             {
-                if (Guid.TryParse(sub, out var userId))
-                {
+                var claims = request.RequestContext.Authorizer.Jwt.Claims;
+                if (claims.TryGetValue("sub", out var sub) && Guid.TryParse(sub, out var userId))
                     return userId;
+                if (claims.TryGetValue("userId", out var uid) && Guid.TryParse(uid, out var userId2))
+                    return userId2;
+                if (claims.TryGetValue("custom:erp_user_id", out var erpId) && Guid.TryParse(erpId, out var userId3))
+                    return userId3;
+            }
+
+            // Try Lambda authorizer context (custom Lambda authorizer — used by LocalStack)
+            if (request.RequestContext?.Authorizer?.Lambda != null)
+            {
+                foreach (var kv in request.RequestContext.Authorizer.Lambda)
+                {
+                    if (string.Equals(kv.Key, "userId", StringComparison.OrdinalIgnoreCase) && kv.Value != null)
+                    {
+                        var val = kv.Value.ToString();
+                        if (!string.IsNullOrWhiteSpace(val) && Guid.TryParse(val, out var lambdaUserId))
+                            return lambdaUserId;
+                    }
                 }
             }
 
@@ -1125,11 +1785,22 @@ namespace WebVellaErp.Inventory.Functions
         private static bool TryGetPathParameterGuid(APIGatewayHttpApiV2ProxyRequest request, string paramName, out Guid value)
         {
             value = Guid.Empty;
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(paramName, out var paramStr) &&
-                !string.IsNullOrWhiteSpace(paramStr))
+            if (request.PathParameters != null)
             {
-                return Guid.TryParse(paramStr, out value);
+                if (request.PathParameters.TryGetValue(paramName, out var paramStr) &&
+                    !string.IsNullOrWhiteSpace(paramStr))
+                    return Guid.TryParse(paramStr, out value);
+                // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out value))
+                            return true;
+                    }
+                }
             }
             return false;
         }

@@ -48,11 +48,11 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// <summary>LocalStack RDS PostgreSQL port per AAP Section 0.8.6.</summary>
         private const int RdsPort = 4510;
 
-        /// <summary>Default PostgreSQL username for LocalStack.</summary>
-        private const string RdsUsername = "postgres";
+        /// <summary>Default PostgreSQL username for LocalStack RDS.</summary>
+        private const string RdsUsername = "test";
 
-        /// <summary>Default PostgreSQL password for LocalStack.</summary>
-        private const string RdsPassword = "postgres";
+        /// <summary>Default PostgreSQL password for LocalStack RDS.</summary>
+        private const string RdsPassword = "test";
 
         /// <summary>Master/admin database for CREATE/DROP DATABASE operations.</summary>
         private const string MasterDatabase = "postgres";

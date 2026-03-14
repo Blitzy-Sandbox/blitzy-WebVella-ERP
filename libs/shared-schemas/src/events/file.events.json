@@ -10,7 +10,7 @@
       "properties": {
         "eventType": {
           "type": "string",
-          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP §0.8.5."
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP \u00a70.8.5."
         },
         "correlationId": {
           "type": "string",
@@ -31,7 +31,9 @@
           "type": "string",
           "pattern": "^\\d+\\.\\d+$",
           "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
-          "examples": ["1.0"]
+          "examples": [
+            "1.0"
+          ]
         },
         "data": {
           "type": "object",
@@ -47,6 +49,182 @@
         "data"
       ],
       "additionalProperties": false
+    },
+    "fileCreatedEvent": {
+      "description": "Published when a file is uploaded.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "file-management.file.created"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for file-management.file.created events.",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "fileName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "fileName"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "fileDeletedEvent": {
+      "description": "Published when a file is deleted.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "file-management.file.deleted"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for file-management.file.deleted events.",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "fileId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "fileMovedEvent": {
+      "description": "Published when a file is moved.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "file-management.file.moved"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for file-management.file.moved events.",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "sourcePath": {
+                  "type": "string"
+                },
+                "targetPath": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "sourcePath"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "fileCopiedEvent": {
+      "description": "Published when a file is copied.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "file-management.file.copied"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for file-management.file.copied events.",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "fileId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "fileFinalizedEvent": {
+      "description": "Published when a temp file is finalized.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "file-management.file.finalized"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for file-management.file.finalized events.",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "fileId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -54,7 +232,9 @@
       "title": "File Uploaded Event",
       "description": "Published when a file is uploaded to S3 via the File Management service. Replaces the monolith's DbFileRepository.Create method which inserts a record into the PostgreSQL 'files' table and writes binary content to one of three backends (Large Objects, filesystem, or Storage.Net blob). In the target architecture, binary content goes to S3 and metadata to DynamoDB. Also emitted as the second half of Copy operations (DbFileRepository.Copy calls Create internally) and Move operations that change storage location. The CreateTempFile method (which creates files under the /tmp namespace) also triggers this event with isTemporary=true.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "properties": {
         "eventType": {
@@ -104,15 +284,24 @@
             },
             "entityName": {
               "oneOf": [
-                { "type": "string" },
-                { "type": "null" }
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "Entity the file is associated with, if any. In the monolith, UserFileService associates files with the 'user_file' entity via RecMan.CreateRecord('user_file', ...). Null when the file is not linked to any entity (e.g., standalone temp uploads)."
             },
             "recordId": {
               "oneOf": [
-                { "type": "string", "format": "uuid" },
-                { "type": "null" }
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "Record ID the file belongs to, if any. In the monolith, UserFileService creates a user_file record with a newFileId (Guid.NewGuid()). Null when the file is not linked to a specific record."
             },
@@ -143,7 +332,9 @@
       "title": "File Deleted Event",
       "description": "Published when a file is deleted from S3 via the File Management service. Replaces the monolith's DbFileRepository.Delete method which removes binary content from the active storage backend (Large Objects via NpgsqlLargeObjectManager.Unlink, filesystem via File.Delete, or blob storage via IBlobStorage.DeleteAsync) and then deletes the metadata row from the 'files' table. Also emitted as the first half of Copy-with-overwrite operations and Move-with-overwrite operations (both call Delete internally before creating the new file). The CleanupExpiredTempFiles method iterates temp files and calls Delete for each, generating one event per deleted temp file.",
       "allOf": [
-        { "$ref": "#/$defs/eventEnvelope" }
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
       ],
       "properties": {
         "eventType": {
@@ -189,6 +380,21 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "$ref": "#/$defs/fileCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/fileDeletedEvent"
+    },
+    {
+      "$ref": "#/$defs/fileMovedEvent"
+    },
+    {
+      "$ref": "#/$defs/fileCopiedEvent"
+    },
+    {
+      "$ref": "#/$defs/fileFinalizedEvent"
     }
   ]
 }

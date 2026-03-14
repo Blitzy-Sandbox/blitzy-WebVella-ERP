@@ -10,6 +10,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -988,7 +989,8 @@ namespace WebVellaErp.FileManagement.Tests
             result.Should().NotBeNull();
             result!.CreatedOn.Should().Be(sourceCreatedOn);
             capturedPut.Should().NotBeNull();
-            var savedCreatedOn = DateTime.Parse(capturedPut!.Item["createdOn"].S);
+            var savedCreatedOn = DateTime.Parse(capturedPut!.Item["createdOn"].S, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            savedCreatedOn.Kind.Should().Be(DateTimeKind.Utc, "stored timestamp must be UTC");
             savedCreatedOn.Should().Be(sourceCreatedOn);
         }
 

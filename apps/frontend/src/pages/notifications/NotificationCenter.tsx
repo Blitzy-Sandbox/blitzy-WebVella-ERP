@@ -599,7 +599,7 @@ function NotificationCenter(): React.JSX.Element {
   const { data: unreadCountData } = useQuery({
     queryKey: CENTER_QUERY_KEYS.unreadCount,
     queryFn: () =>
-      get<NotificationListResponse>('/v1/notifications', {
+      get<NotificationListResponse>('/notifications', {
         status: 'sent',
         pageSize: 1,
       }),
@@ -614,7 +614,7 @@ function NotificationCenter(): React.JSX.Element {
 
   /** Bulk mark all as read — PUT /v1/notifications/read-all. */
   const markAllAsReadMutation = useMutation({
-    mutationFn: () => put('/v1/notifications/read-all'),
+    mutationFn: () => put('/notifications/read-all'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },

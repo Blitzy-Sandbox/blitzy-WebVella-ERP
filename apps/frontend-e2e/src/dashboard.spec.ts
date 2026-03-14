@@ -54,7 +54,7 @@ const TEST_EMAIL: string = process.env.TEST_EMAIL ?? 'erp@webvella.com';
  * Default system user password — migrated to Cognito user pool.
  * Original monolith used MD5-hashed password for erp@webvella.com.
  */
-const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erp';
+const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erpadmin';
 
 /** Login page route — replaces login.cshtml Razor Page. */
 const LOGIN_URL = '/login';
@@ -200,7 +200,8 @@ test.describe('Dashboard', () => {
         .locator('[data-testid="top-nav"]')
         .or(page.locator('header'))
         .or(page.locator('nav[aria-label*="top" i]'))
-        .or(page.locator('nav[aria-label*="main" i]'));
+        .or(page.locator('nav[aria-label*="main" i]'))
+        .or(page.locator('nav[aria-label*="primary" i]'));
       await expect(topNav.first()).toBeVisible({ timeout: 5_000 });
 
       // --- Main content area ---
@@ -241,17 +242,24 @@ test.describe('Dashboard', () => {
     test('should display welcome or user greeting', async ({ page }) => {
       // The monolith populated ErpRequestContext with user information
       // (from SecurityContext / BaseErpPageModel).  The React SPA
-      // displays the authenticated user's name, email, or a greeting.
+      // displays the authenticated user's identity in the navigation bar
+      // via the user menu button (aria-label contains the email).
 
-      // Look for the test user's email or a generic welcome text.
-      const userGreeting = page
-        .getByText(TEST_EMAIL)
+      // Look for user indicator in navigation (button with user email in aria-label),
+      // the test user's email as visible text, or a generic welcome/greeting text.
+      const userIndicator = page
+        .getByRole('button', {
+          name: new RegExp(
+            TEST_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+            'i',
+          ),
+        })
+        .or(page.getByText(TEST_EMAIL))
         .or(page.getByText(/welcome/i))
         .or(page.getByText(/hello/i))
-        .or(page.getByText(/good\s(morning|afternoon|evening)/i))
-        .or(page.getByText(/erp/i));
+        .or(page.getByText(/good\s(morning|afternoon|evening)/i));
 
-      await expect(userGreeting.first()).toBeVisible({ timeout: 10_000 });
+      await expect(userIndicator.first()).toBeVisible({ timeout: 10_000 });
     });
   });
 
@@ -537,7 +545,7 @@ test.describe('Dashboard', () => {
       // Navigate to a non-existent page/route that mimics a missing
       // home-page configuration.
       await page.goto('/nonexistent-page-' + Date.now(), {
-        waitUntil: 'networkidle',
+        waitUntil: 'load',
         timeout: 15_000,
       });
 
@@ -545,6 +553,8 @@ test.describe('Dashboard', () => {
       //   a) A 404 / "Page not found" message
       //   b) A default/empty dashboard state
       //   c) A redirect back to the home page
+      // Wait for React to render by checking for any of the expected
+      // outcomes with a waiting assertion.
       const is404 = page
         .getByText(/not found/i)
         .or(page.getByText(/404/i))
@@ -556,13 +566,11 @@ test.describe('Dashboard', () => {
         .or(page.locator('main'))
         .or(page.locator('[role="main"]'));
 
-      // One of these outcomes is acceptable:
-      const notFoundVisible = await is404.first().isVisible().catch(() => false);
-      const dashboardVisible = await isDashboard.first().isVisible().catch(() => false);
-
-      // Either a 404 message is displayed OR the app gracefully falls
-      // back to the dashboard/shell — both are valid React SPA behaviours.
-      expect(notFoundVisible || dashboardVisible).toBeTruthy();
+      // Wait for the React app to render something — either a 404 page
+      // or the dashboard shell.  The combined locator settles as soon as
+      // either outcome becomes visible.
+      const combined = is404.first().or(isDashboard.first());
+      await expect(combined).toBeVisible({ timeout: 10_000 });
 
       // The page should never render a blank/empty screen
       await expect(page.locator('body')).not.toBeEmpty();

@@ -93,11 +93,17 @@ namespace WebVellaErp.EntityManagement.Tests.Unit.Functions
             Environment.SetEnvironmentVariable("ENTITY_TOPIC_ARN", "arn:aws:sns:us-east-1:000000000000:entity-events");
             Environment.SetEnvironmentVariable("IS_LOCAL", "false");
 
+            var mockLoggerFactory = new Mock<ILoggerFactory>();
+            mockLoggerFactory
+                .Setup(f => f.CreateLogger(It.IsAny<string>()))
+                .Returns(new Mock<ILogger>().Object);
+
             _handler = new EntityHandler(
                 _mockEntityService.Object,
                 _mockSnsClient.Object,
                 _mockCache.Object,
-                _mockLogger.Object
+                _mockLogger.Object,
+                mockLoggerFactory.Object
             );
         }
 

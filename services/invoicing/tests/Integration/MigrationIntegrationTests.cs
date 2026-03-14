@@ -20,7 +20,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
     ///   - The "invoicing" schema
     ///   - The uuid-ossp PostgreSQL extension
     ///   - The invoices table (15 columns with correct types, PK, unique constraint)
-    ///   - The invoice_line_items table (8 columns with FK to invoices)
+    ///   - The line_items table (8 columns with FK to invoices)
     ///   - The payments table (9 columns with FK to invoices, no cascade)
     ///   - All expected indexes (11 indexes across the 3 tables)
     ///   - uuid_generate_v4() defaults on all id columns
@@ -37,7 +37,8 @@ namespace WebVellaErp.Invoicing.Tests.Integration
     ///   - DBTypeConverter.cs (PostgreSQL type mappings: uuid, numeric, timestamptz, text, date)
     ///   - DbEntityRepository.cs (entity table creation with columns)
     /// </summary>
-    public class MigrationIntegrationTests : IClassFixture<LocalStackFixture>, IAsyncLifetime
+    [Collection("InvoicingIntegration")]
+    public class MigrationIntegrationTests : IAsyncLifetime
     {
         /// <summary>
         /// Shared fixture providing LocalStack infrastructure: PostgreSQL connection,
@@ -223,15 +224,15 @@ namespace WebVellaErp.Invoicing.Tests.Integration
 
             // Verify each column's data type and nullability
             AssertColumn(columns, "id", "uuid", "NO");
-            AssertColumn(columns, "number", "character varying", "NO");
+            AssertColumn(columns, "invoice_number", "character varying", "NO");
             AssertColumn(columns, "customer_id", "uuid", "NO");
             AssertColumn(columns, "status", "character varying", "NO");
-            AssertColumn(columns, "issue_date", "date", "YES");
-            AssertColumn(columns, "due_date", "date", "YES");
-            AssertColumn(columns, "subtotal", "numeric", "NO");
+            AssertColumn(columns, "issue_date", "timestamp with time zone", "YES");
+            AssertColumn(columns, "due_date", "timestamp with time zone", "YES");
+            AssertColumn(columns, "sub_total", "numeric", "NO");
             AssertColumn(columns, "tax_amount", "numeric", "NO");
             AssertColumn(columns, "total_amount", "numeric", "NO");
-            AssertColumn(columns, "currency", "character varying", "NO");
+            AssertColumn(columns, "currency", "jsonb", "YES");
             AssertColumn(columns, "notes", "text", "YES");
             AssertColumn(columns, "created_by", "uuid", "NO");
             AssertColumn(columns, "created_on", "timestamp with time zone", "NO");
@@ -276,8 +277,8 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         public void InitialCreate_InvoicesTable_HasUniqueConstraint_OnNumber()
         {
             // Verify the unique index exists
-            IndexExists("invoicing", "uq_invoices_number").Should().BeTrue(
-                "a unique index should exist on invoices.number");
+            IndexExists("invoicing", "uq_invoices_invoice_number").Should().BeTrue(
+                "a unique index should exist on invoices.invoice_number");
 
             // Verify it is actually a UNIQUE index by inspecting the index definition
             using var connection = _fixture.CreateNpgsqlConnection();
@@ -285,12 +286,12 @@ namespace WebVellaErp.Invoicing.Tests.Integration
                 SELECT indexdef
                 FROM pg_indexes
                 WHERE schemaname = 'invoicing'
-                    AND indexname = 'uq_invoices_number';", connection);
+                    AND indexname = 'uq_invoices_invoice_number';", connection);
 
             var indexDef = cmd.ExecuteScalar()?.ToString();
             indexDef.Should().NotBeNull();
             indexDef.Should().Contain("UNIQUE",
-                "the index on invoices.number should be a UNIQUE index");
+                "the index on invoices.invoice_number should be a UNIQUE index");
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -298,17 +299,17 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         // ──────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Verifies that InitialCreate.Up() creates the invoicing.invoice_line_items table
+        /// Verifies that InitialCreate.Up() creates the invoicing.line_items table
         /// with exactly 8 columns having the correct data types and nullability.
         /// </summary>
         [RdsFact]
         public void InitialCreate_CreatesLineItemsTable_WithCorrectColumns()
         {
-            var columns = GetColumnInfo("invoicing", "invoice_line_items");
+            var columns = GetColumnInfo("invoicing", "line_items");
 
             // Verify total column count
             columns.Should().HaveCount(8,
-                "invoice_line_items table should have exactly 8 columns");
+                "line_items table should have exactly 8 columns");
 
             // Verify each column
             AssertColumn(columns, "id", "uuid", "NO");
@@ -322,7 +323,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         }
 
         /// <summary>
-        /// Verifies that invoice_line_items has a FOREIGN KEY constraint from
+        /// Verifies that line_items has a FOREIGN KEY constraint from
         /// invoice_id to invoices.id with ON DELETE CASCADE.
         /// Pattern from source DbRepository.CreateRelation (line 404):
         ///   ALTER TABLE "{targetTable}" ADD CONSTRAINT "{relName}" FOREIGN KEY ("{targetField}")
@@ -333,18 +334,18 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         {
             using var connection = _fixture.CreateNpgsqlConnection();
 
-            // Verify FK constraint exists on the invoice_line_items table
+            // Verify FK constraint exists on the line_items table
             using var fkCmd = new NpgsqlCommand(@"
                 SELECT tc.constraint_name
                 FROM information_schema.table_constraints tc
                 WHERE tc.table_schema = 'invoicing'
-                    AND tc.table_name = 'invoice_line_items'
+                    AND tc.table_name = 'line_items'
                     AND tc.constraint_type = 'FOREIGN KEY'
                     AND tc.constraint_name = 'fk_line_items_invoice';", connection);
 
             var constraintName = fkCmd.ExecuteScalar();
             constraintName.Should().NotBeNull(
-                "FK constraint 'fk_line_items_invoice' should exist on invoice_line_items");
+                "FK constraint 'fk_line_items_invoice' should exist on line_items");
 
             // Verify the FK references invoices.id
             using var refCmd = new NpgsqlCommand(@"
@@ -394,7 +395,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             AssertColumn(columns, "id", "uuid", "NO");
             AssertColumn(columns, "invoice_id", "uuid", "NO");
             AssertColumn(columns, "amount", "numeric", "NO");
-            AssertColumn(columns, "payment_date", "date", "NO");
+            AssertColumn(columns, "payment_date", "timestamp with time zone", "NO");
             AssertColumn(columns, "payment_method", "character varying", "NO");
             AssertColumn(columns, "reference_number", "character varying", "YES");
             AssertColumn(columns, "notes", "text", "YES");
@@ -474,16 +475,16 @@ namespace WebVellaErp.Invoicing.Tests.Integration
                 "index on invoices.issue_date should exist for date-range queries");
             IndexExists("invoicing", "idx_invoices_due_date").Should().BeTrue(
                 "index on invoices.due_date should exist for overdue detection");
-            IndexExists("invoicing", "uq_invoices_number").Should().BeTrue(
+            IndexExists("invoicing", "uq_invoices_invoice_number").Should().BeTrue(
                 "unique index on invoices.number should exist for invoice number uniqueness");
             IndexExists("invoicing", "idx_invoices_status_due_date").Should().BeTrue(
                 "composite index on (status, due_date) should exist for overdue invoice queries");
 
             // Invoice line items table indexes
             IndexExists("invoicing", "idx_line_items_invoice_id").Should().BeTrue(
-                "index on invoice_line_items.invoice_id should exist for join lookups");
+                "index on line_items.invoice_id should exist for join lookups");
             IndexExists("invoicing", "idx_line_items_sort_order").Should().BeTrue(
-                "index on invoice_line_items.sort_order should exist for ordered retrieval");
+                "index on line_items.sort_order should exist for ordered retrieval");
 
             // Payments table indexes
             IndexExists("invoicing", "idx_payments_invoice_id").Should().BeTrue(
@@ -499,7 +500,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         // ──────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Verifies that all id columns (invoices.id, invoice_line_items.id, payments.id)
+        /// Verifies that all id columns (invoices.id, line_items.id, payments.id)
         /// have uuid_generate_v4() as default value for random UUID generation.
         /// Pattern from source DbRepository.cs line 233 (updated from uuid_generate_v1() to v4).
         /// </summary>
@@ -514,14 +515,14 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             invoiceId.ColumnDefault.Should().Contain("uuid_generate_v4()",
                 "invoices.id default should use uuid_generate_v4() for random UUID generation");
 
-            // Verify invoice_line_items.id default
-            var lineItemColumns = GetColumnInfo("invoicing", "invoice_line_items");
+            // Verify line_items.id default
+            var lineItemColumns = GetColumnInfo("invoicing", "line_items");
             var lineItemId = lineItemColumns.FirstOrDefault(c => c.Name == "id");
-            lineItemId.Should().NotBeNull("invoice_line_items.id column should exist");
+            lineItemId.Should().NotBeNull("line_items.id column should exist");
             lineItemId!.ColumnDefault.Should().NotBeNull(
-                "invoice_line_items.id should have a default value");
+                "line_items.id should have a default value");
             lineItemId.ColumnDefault.Should().Contain("uuid_generate_v4()",
-                "invoice_line_items.id default should use uuid_generate_v4()");
+                "line_items.id default should use uuid_generate_v4()");
 
             // Verify payments.id default
             var paymentColumns = GetColumnInfo("invoicing", "payments");
@@ -577,7 +578,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
 
         /// <summary>
         /// Verifies that InitialCreate.Down() drops all tables in the correct
-        /// dependency order (payments → invoice_line_items → invoices) and then
+        /// dependency order (payments → line_items → invoices) and then
         /// removes the invoicing schema entirely.
         ///
         /// Uses <see cref="LocalStackFixture.ServiceProvider"/> to resolve
@@ -593,42 +594,58 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             // Pre-condition: verify all tables exist before running Down()
             TableExists("invoicing", "invoices").Should().BeTrue(
                 "invoices table should exist before Down() migration");
-            TableExists("invoicing", "invoice_line_items").Should().BeTrue(
-                "invoice_line_items table should exist before Down() migration");
+            TableExists("invoicing", "line_items").Should().BeTrue(
+                "line_items table should exist before Down() migration");
             TableExists("invoicing", "payments").Should().BeTrue(
                 "payments table should exist before Down() migration");
 
-            // Act: resolve IMigrationRunner from the fixture's ServiceProvider
-            // and execute MigrateDown(0) to reverse all applied migrations.
-            // This calls InitialCreate.Down() which drops tables in dependency
-            // order: payments → invoice_line_items → invoices → schema.
-            var runner = _fixture.ServiceProvider
-                .GetRequiredService<IMigrationRunner>();
-            runner.MigrateDown(0);
+            // Act: build a dedicated FluentMigrator runner to avoid dependency on the
+            // fixture's ServiceProvider which may be null under parallel test execution.
+            // MigrateDown(0) reverses all applied migrations — InitialCreate.Down() drops
+            // tables in dependency order: payments → line_items → invoices → schema.
+            var localServices = new ServiceCollection()
+                .AddFluentMigratorCore()
+                .ConfigureRunner(rb => rb
+                    .AddPostgres()
+                    .WithGlobalConnectionString(_fixture.ConnectionString)
+                    .ScanIn(typeof(InitialCreate).Assembly).For.Migrations())
+                .AddLogging(lb => lb.AddFluentMigratorConsole())
+                .BuildServiceProvider(false);
 
-            // Assert: all tables should no longer exist
-            TableExists("invoicing", "payments").Should().BeFalse(
-                "payments table should be dropped after Down() migration");
-            TableExists("invoicing", "invoice_line_items").Should().BeFalse(
-                "invoice_line_items table should be dropped after Down() migration");
-            TableExists("invoicing", "invoices").Should().BeFalse(
-                "invoices table should be dropped after Down() migration");
+            try
+            {
+                var runner = localServices.GetRequiredService<IMigrationRunner>();
+                runner.MigrateDown(0);
 
-            // Assert: the invoicing schema itself should no longer exist
-            using var connection = _fixture.CreateNpgsqlConnection();
-            using var schemaCmd = new NpgsqlCommand(
-                "SELECT schema_name FROM information_schema.schemata WHERE schema_name = @schema;",
-                connection);
-            schemaCmd.Parameters.AddWithValue("@schema", "invoicing");
+                // Assert: all tables should no longer exist
+                TableExists("invoicing", "payments").Should().BeFalse(
+                    "payments table should be dropped after Down() migration");
+                TableExists("invoicing", "line_items").Should().BeFalse(
+                    "line_items table should be dropped after Down() migration");
+                TableExists("invoicing", "invoices").Should().BeFalse(
+                    "invoices table should be dropped after Down() migration");
 
-            var schemaResult = schemaCmd.ExecuteScalar();
-            schemaResult.Should().BeNull(
-                "the invoicing schema should be dropped after Down() migration " +
-                "via DROP SCHEMA IF EXISTS invoicing CASCADE");
+                // Assert: the invoicing schema itself should no longer exist
+                using var connection = _fixture.CreateNpgsqlConnection();
+                using var schemaCmd = new NpgsqlCommand(
+                    "SELECT schema_name FROM information_schema.schemata WHERE schema_name = @schema;",
+                    connection);
+                schemaCmd.Parameters.AddWithValue("@schema", "invoicing");
 
-            // Restore state: resolve runner and re-run MigrateUp() so that
-            // subsequent tests (if any remain) have a valid schema to work with.
-            runner.MigrateUp();
+                var schemaResult = schemaCmd.ExecuteScalar();
+                schemaResult.Should().BeNull(
+                    "the invoicing schema should be dropped after Down() migration " +
+                    "via DROP SCHEMA IF EXISTS invoicing CASCADE");
+
+                // Restore state: re-run MigrateUp() so that subsequent tests
+                // (if any remain) have a valid schema to work with.
+                runner.MigrateUp();
+            }
+            finally
+            {
+                if (localServices is IDisposable disposable)
+                    disposable.Dispose();
+            }
         }
 
         // ──────────────────────────────────────────────────────────────────

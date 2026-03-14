@@ -315,11 +315,16 @@ function useEmails(params: EmailListParams) {
         queryParams.search = params.search;
       }
 
-      const response = await get<EmailListResponse>(
+      const response = await get<EmailListResponse | Email[]>(
         EMAILS_ENDPOINT,
         queryParams,
       );
-      return response.object ?? { data: [], total: 0, page: 1, pageSize: params.pageSize };
+      const obj = response.object;
+      // Normalize: API may return raw Email[] array or { data, total } envelope
+      if (Array.isArray(obj)) {
+        return { data: obj as Email[], total: obj.length, page: params.page, pageSize: params.pageSize };
+      }
+      return (obj as EmailListResponse) ?? { data: [], total: 0, page: 1, pageSize: params.pageSize };
     },
     placeholderData: (previousData) => previousData,
   });
@@ -448,12 +453,7 @@ function EmailList(): React.ReactElement {
     [updateSearchParams],
   );
 
-  /** Navigate to the email compose (create) page */
-  const handleComposeClick = useCallback(() => {
-    navigate('/notifications/compose');
-  }, [navigate]);
-
-  // ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
   // Column definitions — matching monolith's PcGrid 8-column configuration
   // ---------------------------------------------------------------------------
   const columns = useMemo<DataTableColumn<Email>[]>(
@@ -600,9 +600,9 @@ function EmailList(): React.ReactElement {
       {/* ── Page Header ───────────────────────────────────────── */}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-gray-900">Emails</h1>
-        <button
-          type="button"
-          onClick={handleComposeClick}
+        <Link
+          to="/notifications/emails/compose"
+          data-testid="compose-email"
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-200 hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <svg
@@ -614,7 +614,7 @@ function EmailList(): React.ReactElement {
             <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
           </svg>
           Compose Email
-        </button>
+        </Link>
       </header>
 
       {/* ── Status Filter Tabs + Search ───────────────────────── */}
@@ -731,11 +731,13 @@ function EmailList(): React.ReactElement {
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
           onSortChange={handleSortChange}
+          onRowClick={(record) => navigate(`/notifications/emails/${record.id}`)}
           loading={isLoading}
           emptyText="No emails found"
           hover
           striped
           responsiveBreakpoint="md"
+          rowTestId="email-row"
         />
       </div>
     </div>

@@ -326,7 +326,7 @@ export class ApiGatewayStack extends cdk.Stack {
           serviceName: 'erp-authorizer',
           functionName: 'jwt-validator',
           runtime: LambdaRuntime.NODEJS_22,
-          codePath: '../services/authorizer/src',
+          codePath: '../services/authorizer/dist',
           handler: 'index.handler',
           isLocalStack,
           memorySize: 256,
@@ -393,12 +393,25 @@ export class ApiGatewayStack extends cdk.Stack {
       requireAuth: boolean = true,
     ): RouteDefinition[] => {
       const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-      return methods.map((method) => ({
+      const routes = methods.map((method) => ({
         method,
         path: basePath,
         handler,
         requireAuth,
       }));
+
+      // Also create bare routes (without {proxy+}) for list endpoints.
+      // API Gateway treats {proxy+} as requiring at least one path segment,
+      // so bare GET/POST to the root path (e.g., /v1/roles) needs its own route.
+      if (basePath.endsWith('/{proxy+}')) {
+        const barePath = basePath.replace('/{proxy+}', '');
+        routes.push(
+          { method: 'GET', path: barePath, handler, requireAuth },
+          { method: 'POST', path: barePath, handler, requireAuth },
+        );
+      }
+
+      return routes;
     };
 
     // -------------------------------------------------------------------
@@ -489,55 +502,65 @@ export class ApiGatewayStack extends cdk.Stack {
     const entityManagementRoutes: RouteDefinition[] = [
       // EQL query endpoint — POST only
       // Source: api/v3/en_US/eql (lines 63-188)
+      // Routed to SearchHandler [5] which owns query execution logic.
       {
         method: 'POST',
         path: '/v1/eql',
-        handler: props.entityManagementFunctions[0],
+        handler: props.entityManagementFunctions[5],
         requireAuth: true,
       },
       // Entity metadata CRUD
       // Source: api/v3/en_US/meta/entity/* (lines 1437-2008)
+      // EntityHandler [0] — entity/field metadata management.
       ...createCrudRoutes(
         '/v1/meta/entity/{proxy+}',
         props.entityManagementFunctions[0],
       ),
       // Relation metadata CRUD
       // Source: api/v3/en_US/meta/relation/* (lines 2009-2105)
+      // RelationHandler [2] — relation metadata management.
       ...createCrudRoutes(
         '/v1/meta/relation/{proxy+}',
-        props.entityManagementFunctions[0],
+        props.entityManagementFunctions[2],
       ),
       // Record CRUD
       // Source: api/v3/en_US/record/* (lines 2504-3018)
+      // RecordHandler [3] — record CRUD with domain event publishing.
+      // RecordHandler also delegates /entities/{proxy+} entity/field
+      // requests internally, but these legacy /v1/record paths must
+      // reach it directly for proper record operations.
       ...createCrudRoutes(
         '/v1/record/{proxy+}',
-        props.entityManagementFunctions[0],
+        props.entityManagementFunctions[3],
       ),
       // DataSource operations
       // Source: api/v3.0/datasource/*
+      // DataSourceHandler [4] — datasource registry and execution.
       ...createCrudRoutes(
         '/v1/datasource/{proxy+}',
-        props.entityManagementFunctions[0],
+        props.entityManagementFunctions[4],
       ),
       // Search endpoint — GET and POST
       // Source: api/v3/en_US/quick-search
+      // SearchHandler [5] — full-text search operations.
       {
         method: 'GET',
         path: '/v1/search',
-        handler: props.entityManagementFunctions[0],
+        handler: props.entityManagementFunctions[5],
         requireAuth: true,
       },
       {
         method: 'POST',
         path: '/v1/search',
-        handler: props.entityManagementFunctions[0],
+        handler: props.entityManagementFunctions[5],
         requireAuth: true,
       },
       // Import/Export operations
       // Source: api/v3/en_US/record/*/import*
+      // ImportExportHandler [6] — CSV import/export pipelines.
       ...createCrudRoutes(
         '/v1/import-export/{proxy+}',
-        props.entityManagementFunctions[0],
+        props.entityManagementFunctions[6],
       ),
     ];
 
@@ -698,10 +721,22 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'plugin-system',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/plugins/{proxy+}',
-          props.pluginSystemFunctions[0],
-        ),
+        routes: [
+          ...createCrudRoutes(
+            '/v1/plugins/{proxy+}',
+            props.pluginSystemFunctions[0],
+          ),
+          // The frontend fetches the application list via GET /v1/apps.
+          // PluginHandler routes /apps requests to app management logic
+          // (HandleListApps, HandleGetApp, HandleCreateApp, etc.).
+          // These routes point to the same plugin-system Lambda that handles
+          // the /v1/plugins paths — PluginHandler dispatches based on the
+          // normalized request path.
+          ...createCrudRoutes(
+            '/v1/apps/{proxy+}',
+            props.pluginSystemFunctions[0],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 

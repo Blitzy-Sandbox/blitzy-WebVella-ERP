@@ -213,7 +213,8 @@ export default function Login(): React.JSX.Element {
               <input
                 type="email"
                 id="loginEmail"
-                name="Username"
+                name="email"
+                data-testid="email-input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="block w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -236,7 +237,8 @@ export default function Login(): React.JSX.Element {
               <input
                 type="password"
                 id="loginPassword"
-                name="Password"
+                name="password"
+                data-testid="password-input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="block w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -250,6 +252,7 @@ export default function Login(): React.JSX.Element {
             {/* Submit button — replaces .btn.btn-primary.btn-block.mt-4.btn-sm */}
             <button
               type="submit"
+              data-testid="login-button"
               className="mt-4 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isSubmitting}
             >

@@ -245,6 +245,14 @@ function RoleList(): React.ReactElement {
         label: 'Name',
         accessorKey: 'name',
         width: '200px',
+        cell: (_value: unknown, record: RoleRecord) => (
+          <Link
+            to={`/admin/roles/${record.id}`}
+            className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            {record.name}
+          </Link>
+        ),
       },
       {
         id: 'description',
@@ -281,12 +289,13 @@ function RoleList(): React.ReactElement {
          *   text="New role"> from list.cshtml line 11 */}
         <Link
           to="/admin/roles/create"
+          data-testid="create-role-btn"
           className="inline-flex items-center gap-1.5 rounded border border-white/30 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 shadow-sm transition-colors duration-200 hover:bg-gray-100"
         >
           <span className="text-green-600">
             <PlusIcon />
           </span>
-          New role
+          Create role
         </Link>
       </header>
 

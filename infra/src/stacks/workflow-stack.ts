@@ -279,19 +279,20 @@ export class WorkflowStack extends cdk.Stack {
 
     const stepHandlerEnvironment: Record<string, string> = {
       TABLE_NAME: workflowTable.tableName,
+      DYNAMODB_TABLE_NAME: workflowTable.tableName,
       EVENT_TOPIC_ARN: eventBus.topicArn,
     };
 
     if (isLocalStack) {
-      stepHandlerEnvironment['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+      stepHandlerEnvironment['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     const stepHandler = new WebVellaLambdaService(this, 'StepHandler', {
       serviceName: 'workflow',
       functionName: 'step',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/workflow/src',
-      handler: 'bootstrap',
+      codePath: '../services/workflow/publish',
+      handler: 'WebVellaErp.Workflow::WebVellaErp.Workflow.Functions.WorkflowHandler::HandleApiRequest',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 300,
@@ -580,20 +581,21 @@ export class WorkflowStack extends cdk.Stack {
 
     const workflowHandlerEnvironment: Record<string, string> = {
       TABLE_NAME: workflowTable.tableName,
+      DYNAMODB_TABLE_NAME: workflowTable.tableName,
       STATE_MACHINE_ARN: stateMachine.stateMachineArn,
       EVENT_TOPIC_ARN: eventBus.topicArn,
     };
 
     if (isLocalStack) {
-      workflowHandlerEnvironment['AWS_ENDPOINT_URL'] = 'http://localhost:4566';
+      workflowHandlerEnvironment['AWS_ENDPOINT_URL'] = 'http://172.17.0.1:4566';
     }
 
     const workflowHandler = new WebVellaLambdaService(this, 'WorkflowHandler', {
       serviceName: 'workflow',
       functionName: 'handler',
       runtime: LambdaRuntime.DOTNET_9_AOT,
-      codePath: '../services/workflow/src',
-      handler: 'bootstrap',
+      codePath: '../services/workflow/publish',
+      handler: 'WebVellaErp.Workflow::WebVellaErp.Workflow.Functions.StepHandler::FunctionHandler',
       isLocalStack,
       memorySize: 512,
       timeoutSeconds: 30,
@@ -629,7 +631,9 @@ export class WorkflowStack extends cdk.Stack {
         description:
           'Triggers WorkflowHandler every minute to process pending schedule plans. ' +
           'Replaces SheduleManager.cs IntervalInMinutes polling loop.',
-        enabled: true,
+        // Disabled in LocalStack to prevent retry storms when Lambda containers
+        // take longer to cold-start than the 1-minute invocation interval.
+        enabled: !props.isLocalStack,
       },
     );
 
@@ -656,7 +660,8 @@ export class WorkflowStack extends cdk.Stack {
           'Daily maintenance at 02:00 UTC — cleans up stale executions, reconciles ' +
           'schedule plans, and archives completed workflow history. ' +
           'Replaces SchedulePlanType.Daily from SheduleManager.cs.',
-        enabled: true,
+        // Disabled in LocalStack to prevent retry storms during development.
+        enabled: !props.isLocalStack,
       },
     );
 

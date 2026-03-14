@@ -41,6 +41,7 @@ namespace WebVellaErp.Notifications.Functions
     [JsonSerializable(typeof(TestSmtpRequest))]
     [JsonSerializable(typeof(SmtpServiceConfig))]
     [JsonSerializable(typeof(Email))]
+    [JsonSerializable(typeof(List<Email>))]
     [JsonSerializable(typeof(List<SmtpServiceConfig>))]
     [JsonSerializable(typeof(List<ValidationError>))]
     [JsonSerializable(typeof(EmailHandlerResponse))]
@@ -169,8 +170,12 @@ namespace WebVellaErp.Notifications.Functions
         [JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
 
-        [JsonPropertyName("data")]
-        public object? Data { get; set; }
+        /// <summary>
+        /// Payload property named "object" to match the standard ApiResponse&lt;T&gt;
+        /// envelope expected by the React frontend (see api/client.ts ApiResponse).
+        /// </summary>
+        [JsonPropertyName("object")]
+        public object? Object { get; set; }
 
         [JsonPropertyName("errors")]
         public List<ValidationError>? Errors { get; set; }
@@ -184,8 +189,12 @@ namespace WebVellaErp.Notifications.Functions
         [JsonPropertyName("success")]
         public bool Success { get; set; }
 
-        [JsonPropertyName("data")]
-        public List<SmtpServiceConfig>? Data { get; set; }
+        /// <summary>
+        /// Payload property named "object" to match the standard ApiResponse&lt;T&gt;
+        /// envelope expected by the React frontend (see api/client.ts ApiResponse).
+        /// </summary>
+        [JsonPropertyName("object")]
+        public List<SmtpServiceConfig>? Object { get; set; }
 
         [JsonPropertyName("total_count")]
         public int TotalCount { get; set; }
@@ -428,11 +437,16 @@ namespace WebVellaErp.Notifications.Functions
             ILambdaContext context)
         {
             var correlationId = context.AwsRequestId;
-            var routeKey = request.RouteKey ?? string.Empty;
+            // For {proxy+} catch-all routes, RouteKey contains the pattern
+            // (e.g., "GET /v1/notifications/{proxy+}") rather than the actual path.
+            // Use RawPath + HTTP method for accurate route dispatch.
+            var httpMethod = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+            var rawPath = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var routeKey = $"{httpMethod} {rawPath}";
 
             _logger.LogInformation(
-                "EmailHandler.HandleAsync started. RouteKey={RouteKey}, CorrelationId={CorrelationId}",
-                routeKey, correlationId);
+                "EmailHandler.HandleAsync started. RouteKey={RouteKey}, RawPath={RawPath}, CorrelationId={CorrelationId}",
+                routeKey, rawPath, correlationId);
 
             try
             {
@@ -453,7 +467,7 @@ namespace WebVellaErp.Notifications.Functions
                 if (routeKey.StartsWith("POST ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/emails/send", StringComparison.OrdinalIgnoreCase) &&
                     !routeKey.Contains("/send-now", StringComparison.OrdinalIgnoreCase) &&
-                    !routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    !PathContainsGuid(rawPath))
                 {
                     return await HandleSendEmailAsync(request, correlationId);
                 }
@@ -475,15 +489,27 @@ namespace WebVellaErp.Notifications.Functions
                 // ── Send Now (POST /v1/notifications/emails/{id}/send-now) ─
                 if (routeKey.StartsWith("POST ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/send-now", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleSendNowAsync(request, correlationId);
+                }
+
+                // ── List Emails (GET /v1/notifications/emails) ─────────
+                // Must be checked BEFORE Get-by-ID to avoid matching the
+                // list endpoint against the {id} route.
+                if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
+                    routeKey.Contains("/emails", StringComparison.OrdinalIgnoreCase) &&
+                    !PathContainsGuid(rawPath) &&
+                    !routeKey.Contains("/smtp", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/health", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await HandleListEmailsAsync(request, correlationId);
                 }
 
                 // ── Get Email by ID (GET /v1/notifications/emails/{id}) ─
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/emails/", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleGetEmailAsync(request, correlationId);
                 }
@@ -491,7 +517,7 @@ namespace WebVellaErp.Notifications.Functions
                 // ── Create SMTP Service (POST /v1/notifications/smtp-services) ─
                 if (routeKey.StartsWith("POST ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/smtp-services", StringComparison.OrdinalIgnoreCase) &&
-                    !routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    !PathContainsGuid(rawPath))
                 {
                     return await HandleCreateSmtpServiceAsync(request, correlationId);
                 }
@@ -499,7 +525,7 @@ namespace WebVellaErp.Notifications.Functions
                 // ── List SMTP Services (GET /v1/notifications/smtp-services) ─
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/smtp-services", StringComparison.OrdinalIgnoreCase) &&
-                    !routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    !PathContainsGuid(rawPath))
                 {
                     return await HandleListSmtpServicesAsync(correlationId);
                 }
@@ -507,21 +533,21 @@ namespace WebVellaErp.Notifications.Functions
                 // ── Get SMTP Service (GET /v1/notifications/smtp-services/{id}) ─
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/smtp-services/", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleGetSmtpServiceAsync(request, correlationId);
                 }
 
                 // ── Update SMTP Service (PUT /v1/notifications/smtp-services/{id}) ─
                 if (routeKey.StartsWith("PUT ", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleUpdateSmtpServiceAsync(request, correlationId);
                 }
 
                 // ── Delete SMTP Service (DELETE /v1/notifications/smtp-services/{id}) ─
                 if (routeKey.StartsWith("DELETE ", StringComparison.OrdinalIgnoreCase) &&
-                    routeKey.Contains("{id}", StringComparison.OrdinalIgnoreCase))
+                    PathContainsGuid(rawPath))
                 {
                     return await HandleDeleteSmtpServiceAsync(request, correlationId);
                 }
@@ -789,6 +815,74 @@ namespace WebVellaErp.Notifications.Functions
         }
 
         // ═════════════════════════════════════════════════════════════
+        //  HandleListEmailsAsync — List Emails
+        // ═════════════════════════════════════════════════════════════
+        //
+        // Replaces the monolith's MailPlugin email listing grid which used:
+        // SELECT * FROM email ORDER BY created_on DESC PAGE {page} PAGESIZE {pageSize}
+        // Optional status filter and search support.
+        // ═════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Handles GET /v1/notifications/emails — list email records with
+        /// optional status filter, search, and pagination.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> HandleListEmailsAsync(
+            APIGatewayHttpApiV2ProxyRequest request,
+            string correlationId,
+            CancellationToken ct = default)
+        {
+            _logger.LogInformation(
+                "EmailHandler.HandleListEmailsAsync: Listing emails. CorrelationId={CorrelationId}",
+                correlationId);
+
+            try
+            {
+                var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+                queryParams.TryGetValue("status", out var statusFilter);
+                queryParams.TryGetValue("search", out var searchTerm);
+
+                int page = 1;
+                if (queryParams.TryGetValue("page", out var pageStr) && int.TryParse(pageStr, out var parsedPage))
+                {
+                    page = Math.Max(1, parsedPage);
+                }
+
+                int pageSize = 50;
+                if (queryParams.TryGetValue("pageSize", out var pageSizeStr) && int.TryParse(pageSizeStr, out var parsedPageSize))
+                {
+                    pageSize = Math.Clamp(parsedPageSize, 1, 200);
+                }
+
+                var emails = await _repository.ListEmailsAsync(statusFilter, searchTerm, page, pageSize, ct)
+                    .ConfigureAwait(false);
+
+                _logger.LogInformation(
+                    "EmailHandler.HandleListEmailsAsync: Retrieved {Count} emails. CorrelationId={CorrelationId}",
+                    emails.Count, correlationId);
+
+                return BuildResponse(200, new EmailHandlerResponse
+                {
+                    Success = true,
+                    Message = $"Retrieved {emails.Count} emails.",
+                    Object = emails
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "EmailHandler.HandleListEmailsAsync: Failed to list emails. CorrelationId={CorrelationId}",
+                    correlationId);
+
+                return BuildResponse(500, new EmailHandlerResponse
+                {
+                    Success = false,
+                    Message = $"Failed to list emails: {ex.Message}"
+                }, correlationId);
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════
         //  HandleGetEmailAsync — Get Email by ID
         // ═════════════════════════════════════════════════════════════
         //
@@ -832,7 +926,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "Email retrieved successfully.",
-                Data = email
+                Object = email
             }, correlationId);
         }
 
@@ -1245,7 +1339,7 @@ namespace WebVellaErp.Notifications.Functions
                 {
                     Success = true,
                     Message = "SMTP service created successfully.",
-                    Data = config
+                    Object = config
                 }, correlationId);
             }
             catch (Exception ex)
@@ -1369,7 +1463,7 @@ namespace WebVellaErp.Notifications.Functions
                 {
                     Success = true,
                     Message = "SMTP service updated successfully.",
-                    Data = config
+                    Object = config
                 }, correlationId);
             }
             catch (Exception ex)
@@ -1525,7 +1619,7 @@ namespace WebVellaErp.Notifications.Functions
             {
                 Success = true,
                 Message = "SMTP service retrieved successfully.",
-                Data = service
+                Object = service
             }, correlationId);
         }
 
@@ -1550,7 +1644,7 @@ namespace WebVellaErp.Notifications.Functions
             return BuildResponse(200, new EmailHandlerListResponse
             {
                 Success = true,
-                Data = serviceList,
+                Object = serviceList,
                 TotalCount = serviceList.Count
             }, correlationId);
         }
@@ -1671,6 +1765,23 @@ namespace WebVellaErp.Notifications.Functions
         }
 
         /// <summary>
+        /// Checks whether any segment of the given URL path is a valid GUID.
+        /// Used for route dispatch to distinguish /emails vs /emails/{guid}
+        /// when using RawPath-based routing (where {proxy+} routes contain
+        /// the actual GUID rather than the literal "{id}" pattern).
+        /// </summary>
+        private static bool PathContainsGuid(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            var segments = path.Split('/');
+            foreach (var seg in segments)
+            {
+                if (Guid.TryParse(seg, out _)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Safely extracts a path parameter from the API Gateway request.
         /// Returns null if the parameter is not present.
         /// </summary>
@@ -1678,10 +1789,22 @@ namespace WebVellaErp.Notifications.Functions
             APIGatewayHttpApiV2ProxyRequest request,
             string paramName)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(paramName, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(paramName, out var value) &&
+                    !string.IsNullOrEmpty(value))
+                    return value;
+                // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = segments.Length - 1; i >= 0; i--)
+                    {
+                        if (Guid.TryParse(segments[i], out _))
+                            return segments[i];
+                    }
+                }
             }
             return null;
         }

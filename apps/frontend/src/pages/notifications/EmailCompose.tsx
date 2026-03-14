@@ -43,6 +43,7 @@ import type {
 } from '../../hooks/useNotifications';
 import { useFileUpload } from '../../hooks/useFiles';
 import type { FileMetadata } from '../../hooks/useFiles';
+import { useAuthStore } from '../../stores/authStore';
 
 /* ------------------------------------------------------------------ */
 /*  Local Types                                                        */
@@ -135,20 +136,38 @@ function parseEmailAddress(input: string): string {
  *  - Subject required (MaxLength 1000)
  *  - Reply-to (if provided) must be valid email
  */
-function validateEmailForm(
-  recipients: string[],
-  ccRecipients: string[],
-  bccRecipients: string[],
-  smtpConfigId: string,
-  subject: string,
-  senderEmail: string,
-  replyToEmail: string,
-): FieldErrors {
+/**
+ * Options object for email form validation. Consolidates the 7 individual
+ * parameters into a single structured argument for improved readability
+ * and maintainability (Directive 5 refactoring).
+ */
+interface EmailFormValidationOptions {
+  recipients: string[];
+  ccRecipients: string[];
+  bccRecipients: string[];
+  smtpConfigId: string;
+  subject: string;
+  senderEmail: string;
+  replyToEmail: string;
+}
+
+function validateEmailForm(opts: EmailFormValidationOptions): FieldErrors {
+  const {
+    recipients,
+    ccRecipients,
+    bccRecipients,
+    smtpConfigId,
+    subject,
+    senderEmail,
+    replyToEmail,
+  } = opts;
   const errors: FieldErrors = {};
 
-  if (!smtpConfigId) {
-    errors.smtpConfigId = 'SMTP service selection is required.';
-  }
+  /* SMTP service is optional — in the serverless architecture emails are
+     routed through SES / the notification Lambda.  An explicit SMTP config
+     is only needed for legacy SMTP relay scenarios.  We surface a soft
+     warning in the UI (via the "No enabled SMTP services found" message)
+     but do NOT block form submission. */
 
   if (!senderEmail?.trim()) {
     errors.senderEmail = 'Sender email address is required.';
@@ -243,6 +262,7 @@ function formatFileSize(bytes: number): string {
 export default function EmailCompose(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((s) => s.currentUser);
 
   /* ---- Query Hooks ---- */
 
@@ -271,20 +291,46 @@ export default function EmailCompose(): React.JSX.Element {
     reset: resetUpload,
   } = useFileUpload();
 
-  /* Inline mutation for "Send Now" — uses post() from client.ts */
+  /* Inline mutation for "Send Now" — uses post() from client.ts.
+     Transform the frontend payload shape to the backend EmailHandler format:
+     recipients: [{name,address}], sender: {name,address}, text_body, html_body */
   const {
     mutateAsync: sendNow,
     isPending: isSendPending,
   } = useMutation<ApiResponse<EmailActionResponse>, Error, SendEmailRequest>({
-    mutationFn: (payload: SendEmailRequest) =>
-      post<EmailActionResponse>('/notifications/email/send', payload),
+    mutationFn: (payload: SendEmailRequest) => {
+      const toAddr = (email: string) => ({ name: '', address: email });
+      const allRecipients = [
+        ...payload.recipients.map(toAddr),
+        ...(payload.ccRecipients ?? []).map((e) => ({ name: `cc:${e}`, address: e })),
+        ...(payload.bccRecipients ?? []).map((e) => ({ name: `bcc:${e}`, address: e })),
+      ];
+      const backendPayload: Record<string, unknown> = {
+        recipients: allRecipients,
+        subject: payload.subject,
+        text_body: payload.textContent ?? '',
+        html_body: payload.htmlContent ?? '',
+        attachment_keys: payload.attachmentIds ?? [],
+      };
+      if (payload.senderEmail) {
+        backendPayload.sender = { name: payload.senderName ?? '', address: payload.senderEmail };
+      }
+      if (payload.replyTo) { backendPayload.reply_to = payload.replyTo; }
+      return post<EmailActionResponse>('/notifications/emails/send', backendPayload);
+    },
   });
 
   /* ---- Form State ---- */
 
   const [smtpConfigId, setSmtpConfigId] = useState<string>('');
-  const [senderName, setSenderName] = useState<string>('');
-  const [senderEmail, setSenderEmail] = useState<string>('');
+  const [senderName, setSenderName] = useState<string>(
+    currentUser?.firstName && currentUser?.lastName
+      ? `${currentUser.firstName} ${currentUser.lastName}`
+      : '',
+  );
+  const [senderEmail, setSenderEmail] = useState<string>(
+    currentUser?.email ?? '',
+  );
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientInput, setRecipientInput] = useState<string>('');
   const [ccRecipients, setCcRecipients] = useState<string[]>([]);
@@ -401,7 +447,7 @@ export default function EmailCompose(): React.JSX.Element {
       /* Attempt fresh fetch via get() from client.ts */
       try {
         const response = await get<SmtpConfig>(
-          `/notifications/smtp-configs/${configId}`,
+          `/notifications/smtp/${configId}`,
         );
         if (response.success && response.object) {
           setSenderName(response.object.defaultFromName ?? '');
@@ -580,6 +626,8 @@ export default function EmailCompose(): React.JSX.Element {
 
   /** Construct the SendEmailRequest payload from current form state */
   const buildPayload = useCallback((): SendEmailRequest => ({
+    senderEmail: senderEmail.trim() || undefined,
+    senderName: senderName.trim() || undefined,
     recipients,
     ccRecipients: ccRecipients.length > 0 ? ccRecipients : undefined,
     bccRecipients: bccRecipients.length > 0 ? bccRecipients : undefined,
@@ -592,6 +640,7 @@ export default function EmailCompose(): React.JSX.Element {
       attachments.length > 0 ? attachments.map((a) => a.id) : undefined,
     priority,
   }), [
+    senderEmail, senderName,
     recipients, ccRecipients, bccRecipients, subject,
     contentHtml, contentText, replyToEmail, smtpConfigId,
     attachments, priority,
@@ -608,10 +657,18 @@ export default function EmailCompose(): React.JSX.Element {
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
 
-      const errors = validateEmailForm(
-        recipients, ccRecipients, bccRecipients,
+      /* ── Commit any pending tag-input text before validation ── */
+      let effectiveRecipients = recipients;
+      if (recipientInput.trim()) {
+        effectiveRecipients = [...recipients, recipientInput.trim()];
+        setRecipients(effectiveRecipients);
+        setRecipientInput('');
+      }
+
+      const errors = validateEmailForm({
+        recipients: effectiveRecipients, ccRecipients, bccRecipients,
         smtpConfigId, subject, senderEmail, replyToEmail,
-      );
+      });
 
       if (Object.keys(errors).length > 0) {
         setFieldErrors(errors);
@@ -623,9 +680,14 @@ export default function EmailCompose(): React.JSX.Element {
       setFormValidation({ errors: [] });
 
       try {
-        const response = await sendNow(buildPayload());
+        const payload = { ...buildPayload(), recipients: effectiveRecipients };
+        const response = await sendNow(payload);
         if (response.success) {
+          /* Invalidate both the notification center cache and the email list
+             cache — the list uses queryKey ['emails', …] while the center
+             uses ['notifications']. */
           queryClient.invalidateQueries({ queryKey: ['notifications'] });
+          queryClient.invalidateQueries({ queryKey: ['emails'] });
           queryClient.invalidateQueries({ queryKey: ['smtp-configs'] });
           const emailId = response.object?.id;
           navigate(
@@ -641,7 +703,7 @@ export default function EmailCompose(): React.JSX.Element {
       }
     },
     [
-      recipients, ccRecipients, bccRecipients, smtpConfigId,
+      recipients, recipientInput, ccRecipients, bccRecipients, smtpConfigId,
       subject, senderEmail, replyToEmail, sendNow, buildPayload,
       queryClient, navigate, handleApiValidationErrors, handleMutationError,
     ],
@@ -653,10 +715,10 @@ export default function EmailCompose(): React.JSX.Element {
    * On success navigates to email list.
    */
   const handleSchedule = useCallback(async () => {
-    const errors = validateEmailForm(
+    const errors = validateEmailForm({
       recipients, ccRecipients, bccRecipients,
       smtpConfigId, subject, senderEmail, replyToEmail,
-    );
+    });
 
     if (!scheduledOn) {
       errors.scheduledOn = 'Scheduled date and time is required when scheduling.';
@@ -679,6 +741,7 @@ export default function EmailCompose(): React.JSX.Element {
       const response = await queueEmail(payload);
       if (response.success) {
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        queryClient.invalidateQueries({ queryKey: ['emails'] });
         queryClient.invalidateQueries({ queryKey: ['smtp-configs'] });
         navigate('/notifications/emails');
       } else {
@@ -781,7 +844,7 @@ export default function EmailCompose(): React.JSX.Element {
                 <button
                   type="button"
                   className="text-blue-600 underline hover:text-blue-800"
-                  onClick={() => navigate('/notifications/smtp-services/create')}
+                  onClick={() => navigate('/notifications/smtp/create')}
                 >
                   Create one
                 </button>
@@ -938,6 +1001,8 @@ export default function EmailCompose(): React.JSX.Element {
               ))}
               <input
                 id="recipients"
+                name="recipient"
+                data-testid="recipient-input"
                 type="email"
                 value={recipientInput}
                 onChange={(e) => setRecipientInput(e.target.value)}
@@ -1126,6 +1191,7 @@ export default function EmailCompose(): React.JSX.Element {
             <input
               id="subject"
               name="subject"
+              data-testid="subject-input"
               type="text"
               value={subject}
               onChange={handleFieldChange('subject', setSubject)}
@@ -1192,6 +1258,7 @@ export default function EmailCompose(): React.JSX.Element {
               <select
                 id="priority"
                 name="priority"
+                data-testid="priority-select"
                 value={priority}
                 onChange={(e) =>
                   setPriority(e.target.value as NotificationPriority)
@@ -1262,7 +1329,8 @@ export default function EmailCompose(): React.JSX.Element {
             </label>
             <textarea
               id="contentHtml"
-              name="contentHtml"
+              name="content"
+              data-testid="body-input"
               value={contentHtml}
               onChange={(e) => setContentHtml(e.target.value)}
               rows={12}
@@ -1488,6 +1556,7 @@ export default function EmailCompose(): React.JSX.Element {
           {/* Send Now (form submit button) */}
           <button
             type="submit"
+            data-testid="send-email"
             className="rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isBusy}
           >

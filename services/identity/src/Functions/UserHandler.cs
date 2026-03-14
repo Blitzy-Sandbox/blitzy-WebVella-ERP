@@ -194,6 +194,45 @@ namespace WebVellaErp.Identity.Functions
         /// Retrieves a single user by ID with their associated roles.
         /// Replaces SecurityManager.GetUser(Guid) which used EQL against PostgreSQL.
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "GET" && path.Contains("/by-email"))
+                return await HandleGetUserByEmail(request, context);
+            else if (method == "GET")
+            {
+                // If proxy is empty or path ends with /users or /users/, list all users
+                var proxy = string.Empty;
+                request.PathParameters?.TryGetValue("proxy", out proxy);
+                if (string.IsNullOrEmpty(proxy)
+                    || path.EndsWith("/users") || path.EndsWith("/users/")
+                    || path.EndsWith("/list") || path.EndsWith("/list/"))
+                    return await HandleGetUsers(request, context);
+                // Otherwise, get single user by ID
+                return await HandleGetUser(request, context);
+            }
+            else if (method == "POST")
+                return await HandleSaveUser(request, context);
+            else if (method == "PUT" && path.Contains("/login"))
+                return await HandleUpdateLastLogin(request, context);
+            else if (method == "PUT")
+                return await HandleSaveUser(request, context);
+            else if (method == "DELETE")
+                return await HandleDeleteUser(request, context);
+
+            // Default: route to HandleGetUsers for safety
+            return await HandleGetUsers(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleGetUser(
             APIGatewayHttpApiV2ProxyRequest request,
             ILambdaContext context)
@@ -201,10 +240,8 @@ namespace WebVellaErp.Identity.Functions
             var correlationId = GetCorrelationId(request);
             try
             {
-                // Extract userId from path parameters: /v1/users/{userId}
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("userId", out var userIdStr) ||
-                    !Guid.TryParse(userIdStr, out var userId))
+                // Extract userId from path parameters: /v1/users/{userId} or {proxy+} fallback
+                if (!TryGetPathParameterGuid(request, "userId", out var userId))
                 {
                     return BuildResponse(400, new { success = false, message = "Invalid or missing userId path parameter." });
                 }
@@ -227,11 +264,13 @@ namespace WebVellaErp.Identity.Functions
                 var roles = await _userRepository.GetUserRolesAsync(userId);
                 user.Roles = roles;
 
+                // Return the user directly as `object` (not wrapped in { user: ... })
+                // to match the frontend's expected ApiResponse<ErpUser> envelope.
                 return BuildResponse(200, new
                 {
                     success = true,
                     timestamp = DateTime.UtcNow,
-                    @object = new { user }
+                    @object = user
                 });
             }
             catch (Exception ex)
@@ -284,7 +323,7 @@ namespace WebVellaErp.Identity.Functions
                     {
                         success = true,
                         timestamp = DateTime.UtcNow,
-                        @object = new { user }
+                        @object = user
                     });
                 }
 
@@ -309,7 +348,7 @@ namespace WebVellaErp.Identity.Functions
                     {
                         success = true,
                         timestamp = DateTime.UtcNow,
-                        @object = new { user }
+                        @object = user
                     });
                 }
 
@@ -393,7 +432,7 @@ namespace WebVellaErp.Identity.Functions
                 {
                     success = true,
                     timestamp = DateTime.UtcNow,
-                    @object = new { users }
+                    @object = users
                 });
             }
             catch (Exception ex)
@@ -453,10 +492,8 @@ namespace WebVellaErp.Identity.Functions
 
                 if (isUpdate)
                 {
-                    // Also extract userId from path parameters for PUT /v1/users/{userId}
-                    if (request.PathParameters != null &&
-                        request.PathParameters.TryGetValue("userId", out var userIdStr) &&
-                        Guid.TryParse(userIdStr, out var userId))
+                    // Also extract userId from path parameters for PUT /v1/users/{userId} or {proxy+} fallback
+                    if (TryGetPathParameterGuid(request, "userId", out var userId))
                     {
                         saveRequest.Id = userId;
                     }
@@ -603,7 +640,7 @@ namespace WebVellaErp.Identity.Functions
             {
                 success = true,
                 timestamp = DateTime.UtcNow,
-                @object = new { user = createdUser }
+                @object = createdUser
             });
         }
 
@@ -754,8 +791,94 @@ namespace WebVellaErp.Identity.Functions
             {
                 success = true,
                 timestamp = DateTime.UtcNow,
-                @object = new { user = updatedUser }
+                @object = updatedUser
             });
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Handler: DELETE /v1/users/{userId}
+        // Replaces: SecurityManager.DeleteUser(Guid userId) — deletes user from
+        //           Cognito and DynamoDB, removes all role associations.
+        // ──────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Lambda handler for DELETE /v1/users/{userId}.
+        /// Deletes a user from both DynamoDB and Cognito (disables in Cognito).
+        /// Requires administrator permissions. System user cannot be deleted.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> HandleDeleteUser(
+            APIGatewayHttpApiV2ProxyRequest request,
+            ILambdaContext context)
+        {
+            var correlationId = GetCorrelationId(request);
+            try
+            {
+                // Extract caller for permission checks
+                var caller = await ExtractCallerFromContext(request);
+                if (!_permissionService.HasMetaPermission(caller))
+                {
+                    return BuildResponse(403, new { success = false, message = "Insufficient permissions to delete users." });
+                }
+
+                // Extract userId from path
+                if (!TryGetPathParameterGuid(request, "userId", out var userId))
+                {
+                    return BuildResponse(400, new { success = false, message = "Invalid or missing userId path parameter." });
+                }
+
+                // Guard: Prevent deletion of system user
+                if (userId == User.SystemUserId)
+                {
+                    return BuildResponse(403, new { success = false, message = "System user cannot be deleted." });
+                }
+
+                var existingUser = await _userRepository.GetUserByIdAsync(userId);
+                if (existingUser == null)
+                {
+                    return BuildResponse(404, new { success = false, message = "User not found." });
+                }
+
+                // Delete from DynamoDB (removes user record and all role associations)
+                await _userRepository.DeleteUserAsync(userId);
+
+                // Attempt to disable in Cognito (best-effort; no AdminDeleteUser in ICognitoService)
+                try
+                {
+                    await _cognitoService.DisableUserAsync(userId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to disable user in Cognito after DynamoDB deletion: userId={UserId}", userId);
+                }
+
+                _logger.LogInformation(
+                    "User deleted: userId={UserId}, correlationId={CorrelationId}",
+                    userId, correlationId);
+
+                // Publish domain event
+                await PublishDomainEventAsync("identity.user.deleted", new
+                {
+                    eventType = "identity.user.deleted",
+                    userId,
+                    email = existingUser.Email,
+                    timestamp = DateTime.UtcNow,
+                    correlationId
+                });
+
+                return BuildResponse(200, new
+                {
+                    success = true,
+                    timestamp = DateTime.UtcNow,
+                    message = "User successfully deleted."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error in HandleDeleteUser, correlationId={CorrelationId}", correlationId);
+                return BuildResponse(500, new { success = false, message = "An internal error occurred." });
+            }
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -778,10 +901,8 @@ namespace WebVellaErp.Identity.Functions
             var correlationId = GetCorrelationId(request);
             try
             {
-                // Extract userId from path parameters: /v1/users/{userId}/last-login
-                if (request.PathParameters == null ||
-                    !request.PathParameters.TryGetValue("userId", out var userIdStr) ||
-                    !Guid.TryParse(userIdStr, out var userId))
+                // Extract userId from path parameters: /v1/users/{userId}/last-login or {proxy+} fallback
+                if (!TryGetPathParameterGuid(request, "userId", out var userId))
                 {
                     return BuildResponse(400, new { success = false, message = "Invalid or missing userId path parameter." });
                 }
@@ -819,6 +940,33 @@ namespace WebVellaErp.Identity.Functions
         /// Response format matches the monolith's ResponseModel pattern:
         /// { success, timestamp, object }.
         /// </summary>
+        /// <summary>
+        /// Extracts a GUID path parameter by named key, falling back to the {proxy+} catch-all parameter.
+        /// HTTP API v2 catch-all routes put everything after the base path into PathParameters["proxy"].
+        /// </summary>
+        private static bool TryGetPathParameterGuid(APIGatewayHttpApiV2ProxyRequest request, string paramName, out Guid value)
+        {
+            value = Guid.Empty;
+            if (request.PathParameters == null) return false;
+
+            // Try named parameter first
+            if (request.PathParameters.TryGetValue(paramName, out var paramValue) &&
+                Guid.TryParse(paramValue, out value) && value != Guid.Empty)
+                return true;
+
+            // Fallback: extract from {proxy+} catch-all — scan segments right-to-left for GUID
+            if (request.PathParameters.TryGetValue("proxy", out var proxy) && !string.IsNullOrEmpty(proxy))
+            {
+                var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                for (var i = segments.Length - 1; i >= 0; i--)
+                {
+                    if (Guid.TryParse(segments[i], out value) && value != Guid.Empty)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         private static APIGatewayHttpApiV2ProxyResponse BuildResponse(int statusCode, object body)
         {
             return new APIGatewayHttpApiV2ProxyResponse
@@ -886,44 +1034,67 @@ namespace WebVellaErp.Identity.Functions
         {
             try
             {
-                var claims = request.RequestContext?.Authorizer?.Jwt?.Claims;
-                if (claims == null)
+                // HTTP API v2 supports two authorizer types:
+                //   1. Custom Lambda authorizer → claims in Authorizer.Lambda (IDictionary<string,object>)
+                //   2. Native JWT authorizer → claims in Authorizer.Jwt.Claims (IDictionary<string,string>)
+                // LocalStack uses a custom Lambda authorizer, so check Lambda first.
+
+                var lambdaCtx = request.RequestContext?.Authorizer?.Lambda;
+                if (lambdaCtx != null && lambdaCtx.Count > 0)
                 {
-                    return null;
+                    return await ExtractCallerFromLambdaAuthorizer(lambdaCtx);
                 }
 
-                // Try custom user_id claim first (set by custom authorizer)
-                if (claims.TryGetValue("user_id", out var userIdStr) &&
-                    Guid.TryParse(userIdStr, out var userId))
+                var jwtClaims = request.RequestContext?.Authorizer?.Jwt?.Claims;
+                if (jwtClaims != null && jwtClaims.Count > 0)
                 {
-                    var user = await _userRepository.GetUserByIdAsync(userId);
-                    if (user != null)
-                    {
-                        user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
-                        return user;
-                    }
+                    return await ExtractCallerFromJwtClaims(jwtClaims);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to extract caller from request context");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts caller from custom Lambda authorizer context.
+        /// The authorizer sets: userId (Cognito sub), email, roles (comma-separated), isAdmin.
+        /// Looks up the full user from DynamoDB for complete permission data.
+        /// </summary>
+        private async Task<User?> ExtractCallerFromLambdaAuthorizer(IDictionary<string, object> lambdaCtx)
+        {
+            // Try email first — most reliable lookup key in our DynamoDB design
+            var email = lambdaCtx.TryGetValue("email", out var e) ? e?.ToString() : null;
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                var user = await _userRepository.GetUserByEmailAsync(email);
+                if (user != null)
+                {
+                    user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
+                    return user;
+                }
+            }
+
+            // Fall back to userId (Cognito sub) — stored as CognitoSub on user records
+            var userIdStr = lambdaCtx.TryGetValue("userId", out var uid) ? uid?.ToString() : null;
+            if (!string.IsNullOrWhiteSpace(userIdStr))
+            {
+                var allUsers = await _userRepository.GetAllUsersAsync();
+                var user = allUsers.FirstOrDefault(u =>
+                    string.Equals(u.CognitoSub, userIdStr, StringComparison.OrdinalIgnoreCase));
+                if (user != null)
+                {
+                    user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
+                    return user;
                 }
 
-                // Fall back to email claim (standard Cognito)
-                if (claims.TryGetValue("email", out var email) &&
-                    !string.IsNullOrWhiteSpace(email))
+                // Also try parsing as direct user ID (ERP user GUID)
+                if (Guid.TryParse(userIdStr, out var directId))
                 {
-                    var user = await _userRepository.GetUserByEmailAsync(email);
-                    if (user != null)
-                    {
-                        user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
-                        return user;
-                    }
-                }
-
-                // Fall back to sub claim (Cognito subject ID)
-                if (claims.TryGetValue("sub", out var sub) &&
-                    !string.IsNullOrWhiteSpace(sub))
-                {
-                    // The sub may be stored as CognitoSub on the user record
-                    var allUsers = await _userRepository.GetAllUsersAsync();
-                    var user = allUsers.FirstOrDefault(u =>
-                        string.Equals(u.CognitoSub, sub, StringComparison.OrdinalIgnoreCase));
+                    user = await _userRepository.GetUserByIdAsync(directId);
                     if (user != null)
                     {
                         user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
@@ -931,9 +1102,52 @@ namespace WebVellaErp.Identity.Functions
                     }
                 }
             }
-            catch (Exception ex)
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts caller from native JWT authorizer claims (production AWS mode).
+        /// Looks up the full user from DynamoDB for complete permission data.
+        /// </summary>
+        private async Task<User?> ExtractCallerFromJwtClaims(IDictionary<string, string> claims)
+        {
+            // Try custom user_id claim first (set by custom authorizer)
+            if (claims.TryGetValue("user_id", out var userIdStr) &&
+                Guid.TryParse(userIdStr, out var userId))
             {
-                _logger.LogWarning(ex, "Failed to extract caller from JWT context");
+                var user = await _userRepository.GetUserByIdAsync(userId);
+                if (user != null)
+                {
+                    user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
+                    return user;
+                }
+            }
+
+            // Fall back to email claim (standard Cognito)
+            if (claims.TryGetValue("email", out var email) &&
+                !string.IsNullOrWhiteSpace(email))
+            {
+                var user = await _userRepository.GetUserByEmailAsync(email);
+                if (user != null)
+                {
+                    user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
+                    return user;
+                }
+            }
+
+            // Fall back to sub claim (Cognito subject ID)
+            if (claims.TryGetValue("sub", out var sub) &&
+                !string.IsNullOrWhiteSpace(sub))
+            {
+                var allUsers = await _userRepository.GetAllUsersAsync();
+                var user = allUsers.FirstOrDefault(u =>
+                    string.Equals(u.CognitoSub, sub, StringComparison.OrdinalIgnoreCase));
+                if (user != null)
+                {
+                    user.Roles = await _userRepository.GetUserRolesAsync(user.Id);
+                    return user;
+                }
             }
 
             return null;

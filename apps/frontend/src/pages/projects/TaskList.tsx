@@ -28,7 +28,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTasks, useProjectDashboard } from '../../hooks/useProjects';
 import { DataTable } from '../../components/data-table/DataTable';
 import type { DataTableColumn } from '../../components/data-table/DataTable';
@@ -294,15 +294,20 @@ const PARAM_PAGE = 'page';
  * @returns JSX element rendering the task queue page
  */
 function TaskList({ projectId, userId }: TaskListProps): React.JSX.Element {
+  /* ── URL params (from React Router :projectId) ──────────── */
+  const urlParams = useParams<{ projectId: string }>();
+
   /* ── URL search-param state for filter persistence ──────── */
   const [searchParams, setSearchParams] = useSearchParams();
 
   /**
-   * Resolve effective filter values: props take precedence over URL params
-   * to support both route-level usage (props) and direct navigation (URL).
+   * Resolve effective filter values: props take precedence over URL path
+   * params, which take precedence over URL search params — supporting
+   * route-level usage (props), per-project routes (:projectId), and
+   * direct navigation (URL query params).
    */
   const effectiveProjectId =
-    projectId ?? searchParams.get(PARAM_PROJECT_ID) ?? undefined;
+    projectId ?? urlParams.projectId ?? searchParams.get(PARAM_PROJECT_ID) ?? undefined;
   const effectiveUserId =
     userId ?? searchParams.get(PARAM_USER_ID) ?? undefined;
 
@@ -518,6 +523,18 @@ function TaskList({ projectId, userId }: TaskListProps): React.JSX.Element {
             </p>
           )}
         </div>
+        {/* Create Task button — replaces the monolith's RecordCreate page
+            link rendered by the Razor Pages PageModel */}
+        <Link
+          to={effectiveProjectId ? `/projects/${effectiveProjectId}/tasks/create` : '/projects/tasks/create'}
+          data-testid="create-task"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+          </svg>
+          Create Task
+        </Link>
       </header>
 
       {/* ── Filter bar ──────────────────────────────────── */}

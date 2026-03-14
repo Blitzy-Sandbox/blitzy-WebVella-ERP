@@ -376,6 +376,10 @@ public class EventConsumer
             ? domainEvent.CorrelationId
             : correlationId;
 
+        // Propagate the resolved correlation ID back onto the event so downstream
+        // processors (e.g., BuildProjectionData) can include it in projection metadata.
+        domainEvent.CorrelationId = effectiveCorrelationId;
+
         // Enrich log scope with event details
         using var eventScope = _logger.BeginScope(
             new Dictionary<string, object>

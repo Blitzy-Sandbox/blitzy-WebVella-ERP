@@ -17,10 +17,11 @@
  */
 
 import { useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import {
   useProjectDashboard,
+  useProjects,
   useTasks,
   useTimelogs,
 } from '../../hooks/useProjects';
@@ -490,6 +491,80 @@ function TasksPriorityWidget({ data }: { data: TasksPriorityData }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+ * ProjectListSection — Inline project list DataTable
+ *
+ * Renders a table of all projects with columns for name, status, and owner.
+ * Replaces the monolith's RecordListPageModel for the project entity.
+ * Click-to-navigate sends the user to the project detail/task list.
+ * ═══════════════════════════════════════════════════════════════ */
+
+interface ProjectRow extends Record<string, unknown> {
+  id: string;
+  name: string;
+  abbr: string;
+  status: string;
+  owner: string;
+  description: string;
+}
+
+function ProjectListSection() {
+  const navigate = useNavigate();
+  const { data: projects, isLoading } = useProjects();
+
+  const rows: ProjectRow[] = useMemo(() => {
+    if (!projects || !Array.isArray(projects)) return [];
+    return projects.map((p) => ({
+      id: safeString(p.id ?? p['id'] ?? ''),
+      name: safeString(p['name'] ?? ''),
+      abbr: safeString(p['abbr'] ?? p['abbreviation'] ?? ''),
+      status: safeString(p['status'] ?? ''),
+      owner: safeString(p['owner_id'] ?? p['owner'] ?? ''),
+      description: safeString(p['description'] ?? ''),
+    }));
+  }, [projects]);
+
+  const columns: DataTableColumn<ProjectRow>[] = useMemo(
+    () => [
+      {
+        id: 'name',
+        label: 'Name',
+        sortable: true,
+        render: (_val: unknown, row: ProjectRow) => (
+          <span className="font-medium text-blue-600 hover:underline">
+            {row.name || '—'}
+          </span>
+        ),
+      },
+      { id: 'abbr', label: 'Abbr', sortable: true },
+      { id: 'status', label: 'Status', sortable: true },
+      { id: 'owner', label: 'Owner', sortable: true },
+    ],
+    [],
+  );
+
+  if (isLoading) {
+    return (
+      <section aria-label="Projects" className="mb-4">
+        <h3 className="mb-2 text-lg font-semibold text-gray-800">Projects</h3>
+        <p className="text-sm text-gray-500">Loading projects…</p>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-label="Projects" className="mb-4">
+      <h3 className="mb-2 text-lg font-semibold text-gray-800">Projects</h3>
+      <DataTable<ProjectRow>
+        data={rows}
+        columns={columns}
+        pageSize={10}
+        onRowClick={(row) => navigate(`/projects/${row.id}/tasks`)}
+      />
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
  * ProjectDashboard — Main Page Component
  *
  * Route: /projects/:projectId/dashboard
@@ -780,14 +855,19 @@ export default function ProjectDashboard() {
     );
   }
 
-  /* ── Render — responsive 2×2 grid ──────────────────────────── */
+  /* ── Render — project list + responsive 2×2 grid ─────────── */
   return (
     <div className="p-6">
       <h2 className="mb-6 text-2xl font-bold text-gray-900">
         Project Dashboard
       </h2>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* Project list section — replaces the monolith's RecordListPageModel
+          rendering for the project entity.  Shows name, status, and owner
+          columns in a DataTable with click-to-navigate to project details. */}
+      <ProjectListSection />
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <BudgetWidget data={budgetData} />
         <TaskDistributionWidget rows={distributionData} />
         <TasksChartWidget data={tasksDueData} />

@@ -30,6 +30,7 @@ import type {
   EntityListResponse,
   EntityRelationListResponse,
   FieldResponse,
+  AnyField,
 } from '../../types/entity';
 
 /**
@@ -109,6 +110,25 @@ export function getEntityByName(
 ): Promise<ApiResponse<Entity>> {
   return get<Entity>(
     `${ENTITY_BASE}/${encodeURIComponent(name)}`,
+  );
+}
+
+/**
+ * Retrieves all fields defined on a specific entity by entity ID.
+ *
+ * This fetches fields from the dedicated `/entities/{id}/fields` endpoint,
+ * which is separate from the entity detail endpoint. The mock Lambda
+ * stores fields in `FIELDS#{entityId}` DynamoDB partition, so they must
+ * be fetched independently from the entity metadata.
+ *
+ * @param entityId - UUID of the entity whose fields to retrieve.
+ * @returns A promise resolving to the list of fields for the entity.
+ */
+export function getEntityFields(
+  entityId: string,
+): Promise<ApiResponse<AnyField[]>> {
+  return get<AnyField[]>(
+    `${ENTITY_BASE}/${encodeURIComponent(entityId)}/fields`,
   );
 }
 
@@ -221,15 +241,35 @@ export function createField(
  * @param field    - Complete field definition JSON.
  * @returns A promise resolving to the replaced field.
  */
+/**
+ * Internal shared implementation for field mutation operations (PUT/PATCH).
+ * Both updateField and patchField share identical URL construction and
+ * payload forwarding; only the HTTP method differs.
+ *
+ * @param method   - HTTP method function (put or patch).
+ * @param entityId - GUID string identifying the parent entity.
+ * @param fieldId  - GUID string identifying the field.
+ * @param payload  - Field properties to send.
+ * @returns A promise resolving to the updated/patched field.
+ */
+function mutateField(
+  method: typeof put | typeof patch,
+  entityId: string,
+  fieldId: string,
+  payload: Record<string, unknown>,
+): Promise<ApiResponse<FieldResponse['object']>> {
+  return method<FieldResponse['object']>(
+    `${ENTITY_BASE}/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
+    payload,
+  );
+}
+
 export function updateField(
   entityId: string,
   fieldId: string,
   field: Record<string, unknown>,
 ): Promise<ApiResponse<FieldResponse['object']>> {
-  return put<FieldResponse['object']>(
-    `${ENTITY_BASE}/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
-    field,
-  );
+  return mutateField(put, entityId, fieldId, field);
 }
 
 /**
@@ -256,10 +296,7 @@ export function patchField(
   fieldId: string,
   fields: Record<string, unknown>,
 ): Promise<ApiResponse<FieldResponse['object']>> {
-  return patch<FieldResponse['object']>(
-    `${ENTITY_BASE}/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
-    fields,
-  );
+  return mutateField(patch, entityId, fieldId, fields);
 }
 
 /**

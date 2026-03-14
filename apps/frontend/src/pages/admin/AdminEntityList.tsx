@@ -45,7 +45,7 @@ type EntityRow = Entity & Record<string, unknown>;
  * ════════════════════════════════════════════════════════════════ */
 
 /** Matches PagerSize = 15 from list.cshtml.cs (line 24). */
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 100;
 
 /** Page header accent colour — matches monolith's wv-page-header color="#dc3545". */
 const HEADER_COLOR = '#dc3545';
@@ -274,13 +274,22 @@ export default function AdminEntityList() {
       },
 
       /* Name column — sortable, main identifier.
-         Matches monolith's Name column with Sortable = true. */
+         Matches monolith's Name column with Sortable = true.
+         Name text is a clickable link to the entity detail page. */
       {
         id: 'name',
         name: 'name',
         label: 'Name',
         sortable: true,
         accessorKey: 'name' as keyof EntityRow,
+        cell: (_value: unknown, record: EntityRow) => (
+          <Link
+            to={`/admin/entities/${record.id}`}
+            className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            {record.name}
+          </Link>
+        ),
       },
 
       /* Label column — sortable, human-friendly display name. */

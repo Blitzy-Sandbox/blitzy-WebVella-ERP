@@ -21,8 +21,8 @@
  * Design decisions:
  *   - Reports are CQRS read-models built from domain events (AAP §0.4.2).
  *   - Report listing and retrieval route to the Reporting service
- *     (`/v1/reports`), while data-source management routes to the Entity
- *     Management service (`/v1/datasources`).
+ *     (`/reports`), while data-source management routes to the Entity
+ *     Management service (`/datasources`).
  *   - `useReportExecution` issues a POST (complex parameter payload) but is
  *     modelled as `useQuery` so that TanStack Query caches the result set.
  *     `staleTime: 0` ensures always-fresh data.
@@ -133,7 +133,7 @@ interface ReportListParams {
 /**
  * Parameters for executing a stored report.
  *
- * Mirrors the POST body of `/v1/reports/{id}/execute`.
+ * Mirrors the POST body of `/reports/{id}/execute`.
  * Replaces `DataSourceManager.Execute(Guid id, List<EqlParameter> parameters)`.
  */
 interface ReportExecutionParams {
@@ -297,7 +297,7 @@ export function useReports(params?: ReportListParams) {
     queryKey: reportKeys.list(params),
     queryFn: async (): Promise<DataSourceBase[]> => {
       const response = await client.get<DataSourceBase[]>(
-        '/v1/reports',
+        '/reports',
         params as Record<string, unknown> | undefined,
       );
 
@@ -336,7 +336,7 @@ export function useReport(id?: string) {
     queryKey: reportKeys.detail(id ?? ''),
     queryFn: async (): Promise<DataSourceBase | null> => {
       const response = await client.get<DataSourceBase>(
-        `/v1/reports/${encodeURIComponent(id!)}`,
+        `/reports/${encodeURIComponent(id!)}`,
       );
       return response.object ?? null;
     },
@@ -385,7 +385,7 @@ export function useReportExecution(
     queryKey: reportKeys.execution(id ?? '', params),
     queryFn: async (): Promise<ReportExecutionResult> => {
       const response = await client.post<ReportExecutionResult>(
-        `/v1/reports/${encodeURIComponent(id!)}/execute`,
+        `/reports/${encodeURIComponent(id!)}/execute`,
         params,
       );
 
@@ -432,7 +432,7 @@ export function useDataSources() {
   return useQuery({
     queryKey: datasourceKeys.list(),
     queryFn: async (): Promise<DataSourceBase[]> => {
-      const response = await client.get<DataSourceBase[]>('/v1/datasources');
+      const response = await client.get<DataSourceBase[]>('/datasources');
 
       if (!response.object) {
         return [];
@@ -469,7 +469,7 @@ export function useDataSource(id?: string) {
     queryKey: datasourceKeys.detail(id ?? ''),
     queryFn: async (): Promise<DataSourceBase | null> => {
       const response = await client.get<DataSourceBase>(
-        `/v1/datasources/${encodeURIComponent(id!)}`,
+        `/datasources/${encodeURIComponent(id!)}`,
       );
       return response.object ?? null;
     },
@@ -517,7 +517,7 @@ export function useCreateReport() {
       payload: ReportMutationPayload,
     ): Promise<DatabaseDataSource> => {
       const response = await client.post<DatabaseDataSource>(
-        '/v1/reports',
+        '/reports',
         payload,
       );
 
@@ -570,7 +570,7 @@ export function useUpdateReport() {
     ): Promise<DatabaseDataSource> => {
       const { id, ...data } = payload;
       const response = await client.put<DatabaseDataSource>(
-        `/v1/reports/${encodeURIComponent(id)}`,
+        `/reports/${encodeURIComponent(id)}`,
         data,
       );
 
@@ -616,7 +616,7 @@ export function useDeleteReport() {
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await client.del<BaseResponseModel>(
-        `/v1/reports/${encodeURIComponent(id)}`,
+        `/reports/${encodeURIComponent(id)}`,
       );
 
       // Surface server-side errors as thrown exceptions so that TanStack
@@ -671,7 +671,7 @@ export function useExecuteAdHocQuery() {
       payload: AdHocQueryPayload,
     ): Promise<ReportExecutionResult> => {
       const response = await client.post<ReportExecutionResult>(
-        '/v1/reports/query',
+        '/reports/query',
         payload,
       );
 
@@ -717,7 +717,7 @@ export function useGenerateSql() {
       payload: GenerateSqlPayload,
     ): Promise<GenerateSqlResult> => {
       const response = await client.post<GenerateSqlResult>(
-        '/v1/datasources/generate-sql',
+        '/datasources/generate-sql',
         payload,
       );
 

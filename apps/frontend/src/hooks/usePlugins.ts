@@ -94,7 +94,7 @@ interface SavePluginDataPayload {
 // ---------------------------------------------------------------------------
 
 /** Base API path for plugin endpoints. */
-const PLUGINS_BASE = '/v1/plugins';
+const PLUGINS_BASE = '/plugins';
 
 /**
  * Stale time for plugin list/detail queries (10 minutes).

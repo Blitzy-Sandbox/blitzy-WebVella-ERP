@@ -177,6 +177,27 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <param name="request">API Gateway HTTP API v2 proxy request containing SearchQuery in body.</param>
         /// <param name="context">Lambda execution context for logging and request correlation.</param>
         /// <returns>APIGatewayHttpApiV2ProxyResponse with ResponseModel envelope containing SearchResultList.</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "GET")
+                return await Search(request, context);
+            else if (method == "GET")
+                return await QuickSearch(request, context);
+
+            // Default: route to Search
+            return await Search(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> Search(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -1430,7 +1451,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     if (claims.TryGetValue("cognito:groups", out var groups) &&
                         !string.IsNullOrEmpty(groups))
                     {
-                        if (groups.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (groups.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             groups.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -1441,7 +1462,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     if (claims.TryGetValue("custom:roles", out var roles) &&
                         !string.IsNullOrEmpty(roles))
                     {
-                        if (roles.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (roles.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             roles.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -1465,7 +1486,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 {
                     if (lambdaAuth.TryGetValue("isAdmin", out var isAdminObj))
                     {
-                        if (isAdminObj is bool isAdmin && isAdmin)
+                        if (string.Equals(isAdminObj?.ToString(), "true", StringComparison.OrdinalIgnoreCase))
                             return true;
                         if (isAdminObj is string isAdminStr &&
                             string.Equals(isAdminStr, "true", StringComparison.OrdinalIgnoreCase))
@@ -1474,7 +1495,7 @@ namespace WebVellaErp.EntityManagement.Functions
 
                     if (lambdaAuth.TryGetValue("roles", out var rolesObj) && rolesObj is string rolesStr)
                     {
-                        if (rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                        if (rolesStr.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
                             rolesStr.Contains(adminRoleIdStr, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
@@ -1499,10 +1520,29 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <returns>The parameter value, or null if not found.</returns>
         private static string? GetPathParameter(APIGatewayHttpApiV2ProxyRequest request, string key)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(key, out var value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value))
+                    return value;
+
+                // Fallback: extract from {proxy+} catch-all parameter
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) && !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    // For search handler, the proxy path is typically simple; return the full proxy value
+                    // if the requested key is a generic identifier, or scan for GUIDs
+                    if (segments.Length > 0)
+                    {
+                        // If looking for an id-like parameter, find a GUID segment
+                        foreach (var seg in segments)
+                        {
+                            if (Guid.TryParse(seg, out _))
+                                return seg;
+                        }
+                        // Otherwise return first non-keyword segment
+                        return segments[0];
+                    }
+                }
             }
             return null;
         }

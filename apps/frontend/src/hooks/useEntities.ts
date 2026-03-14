@@ -32,6 +32,7 @@
  * @module hooks/useEntities
  */
 
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { get, post, put, del } from '../api/client';
 import type {
@@ -220,7 +221,7 @@ export function useEntities() {
     queryKey: ENTITY_QUERY_KEYS.all,
 
     queryFn: async (): Promise<EntityListResponse['object']> => {
-      const response = await get<Entity[]>('/v1/entities');
+      const response = await get<Entity[]>('/entities');
       assertApiSuccess(response, 'Failed to fetch entities');
 
       if (!response.object) {
@@ -268,15 +269,26 @@ export function useEntity(idOrName: string) {
 
     queryFn: async (): Promise<EntityResponse['object']> => {
       const response = await get<Entity>(
-        `/v1/entities/${encodeURIComponent(idOrName)}`,
+        `/entities/${encodeURIComponent(idOrName)}`,
       );
       assertApiSuccess(response, `Failed to fetch entity '${idOrName}'`);
 
-      if (!response.object) {
+      // The API may return a single Entity or an array of entities.
+      // When the backend cannot resolve by name directly, it returns
+      // the full entity list — we find the matching entity by name/id.
+      let entity = response.object;
+      if (Array.isArray(entity)) {
+        const match = (entity as unknown as Entity[]).find(
+          (e) => e.name === idOrName || e.id === idOrName,
+        );
+        entity = (match ?? null) as Entity | null;
+      }
+
+      if (!entity) {
         throw new Error(`Entity '${idOrName}' not found`);
       }
 
-      return response.object;
+      return entity;
     },
 
     // Disable query when no idOrName provided — prevents empty API calls
@@ -286,9 +298,117 @@ export function useEntity(idOrName: string) {
   });
 }
 
+/**
+ * Fetches the field definitions for a specific entity by ID.
+ *
+ * The entity detail endpoint may not include embedded fields (especially
+ * when fields are stored in a separate DynamoDB partition). This hook
+ * fetches fields directly from the dedicated `/entities/{id}/fields`
+ * endpoint.
+ *
+ * @param entityId - UUID of the entity whose fields to retrieve.
+ * @returns TanStack Query result with `data: AnyField[]`
+ */
+export function useEntityFields(entityId: string) {
+  return useQuery<AnyField[], Error>({
+    queryKey: [...ENTITY_QUERY_KEYS.detail(entityId), 'fields'],
+
+    queryFn: async (): Promise<AnyField[]> => {
+      const response = await get<AnyField[]>(
+        `/entities/${encodeURIComponent(entityId)}/fields`,
+      );
+      assertApiSuccess(response, `Failed to fetch fields for entity '${entityId}'`);
+
+      // The API may return a flat array or a wrapped object with a 'fields' property.
+      const obj = response.object;
+      if (Array.isArray(obj)) return obj;
+      if (obj && typeof obj === 'object' && 'fields' in (obj as Record<string, unknown>)) {
+        return (obj as unknown as { fields: AnyField[] }).fields;
+      }
+      return [];
+    },
+
+    enabled: !!entityId,
+    staleTime: ENTITY_METADATA_STALE_TIME_MS,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Entity Mutation Hooks
 // ---------------------------------------------------------------------------
+
+/**
+ /**
+ * Fetches all entities AND independently fetches fields for each entity,
+ * then merges them into the entity objects. This is necessary when the
+ * API stores entities and fields in separate collections (e.g. mock Lambda
+ * with DynamoDB).
+ *
+ * Used by relation create / relation list pages that need GUID fields
+ * across ALL entities to populate origin/target selectors.
+ *
+ * @returns `{ data: Entity[], isLoading: boolean }` with entity.fields populated
+ */
+export function useEntitiesWithFields(): {
+  data: Entity[] | undefined;
+  isLoading: boolean;
+} {
+  const { data: allEntities, isLoading: entitiesLoading } = useEntities();
+
+  // Second query: fetch fields for ALL entities in a single effect-driven
+  // query that depends on the entity list being loaded.
+  const entityIds: string[] = useMemo(
+    () => (allEntities ?? []).map((e) => e.id),
+    [allEntities],
+  );
+
+  const allFieldsQuery = useQuery<Record<string, AnyField[]>, Error>({
+    queryKey: ['all-entity-fields', ...entityIds],
+    queryFn: async (): Promise<Record<string, AnyField[]>> => {
+      const results: Record<string, AnyField[]> = {};
+      const promises = entityIds.map(async (eid) => {
+        try {
+          const resp = await get<AnyField[]>(
+            `/entities/${encodeURIComponent(eid)}/fields`,
+          );
+          const obj = resp.object;
+          if (Array.isArray(obj)) {
+            results[eid] = obj;
+          } else if (
+            obj &&
+            typeof obj === 'object' &&
+            'fields' in (obj as Record<string, unknown>)
+          ) {
+            results[eid] = (obj as unknown as { fields: AnyField[] }).fields;
+          } else {
+            results[eid] = [];
+          }
+        } catch {
+          results[eid] = [];
+        }
+      });
+      await Promise.all(promises);
+      return results;
+    },
+    enabled: entityIds.length > 0,
+    staleTime: ENTITY_METADATA_STALE_TIME_MS,
+  });
+
+  // Merge fields into entity objects.
+  const enrichedEntities = useMemo<Entity[] | undefined>(() => {
+    if (!allEntities) return undefined;
+    const fieldsMap = allFieldsQuery.data ?? {};
+    return allEntities.map((entity) => ({
+      ...entity,
+      fields: fieldsMap[entity.id] ?? entity.fields ?? [],
+    }));
+  }, [allEntities, allFieldsQuery.data]);
+
+  return {
+    data: enrichedEntities,
+    isLoading: entitiesLoading || allFieldsQuery.isLoading,
+  };
+}
 
 /**
  * Creates a new entity definition.
@@ -330,7 +450,7 @@ export function useCreateEntity() {
     mutationFn: async (
       entity: InputEntity,
     ): Promise<EntityResponse['object']> => {
-      const response = await post<Entity>('/v1/entities', entity);
+      const response = await post<Entity>('/entities', entity);
       assertApiSuccess(response, 'Failed to create entity');
 
       if (!response.object) {
@@ -380,7 +500,7 @@ export function useUpdateEntity() {
       entity,
     }: UpdateEntityVariables): Promise<EntityResponse['object']> => {
       const response = await put<Entity>(
-        `/v1/entities/${encodeURIComponent(id)}`,
+        `/entities/${encodeURIComponent(id)}`,
         entity,
       );
       assertApiSuccess(response, 'Failed to update entity');
@@ -437,7 +557,7 @@ export function useDeleteEntity() {
 
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      const response = await del(`/v1/entities/${encodeURIComponent(id)}`);
+      const response = await del(`/entities/${encodeURIComponent(id)}`);
       assertApiSuccess(response, 'Failed to delete entity');
     },
 
@@ -497,7 +617,7 @@ export function useCreateField() {
       field,
     }: CreateFieldVariables): Promise<EntityResponse['object']> => {
       const response = await post<Entity>(
-        `/v1/entities/${encodeURIComponent(entityId)}/fields`,
+        `/entities/${encodeURIComponent(entityId)}/fields`,
         field,
       );
       assertApiSuccess(response, 'Failed to create field');
@@ -559,7 +679,7 @@ export function useUpdateField() {
       field,
     }: UpdateFieldVariables): Promise<EntityResponse['object']> => {
       const response = await put<Entity>(
-        `/v1/entities/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
+        `/entities/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
         field,
       );
       assertApiSuccess(response, 'Failed to update field');
@@ -615,7 +735,7 @@ export function useDeleteField() {
       fieldId,
     }: DeleteFieldVariables): Promise<void> => {
       const response = await del(
-        `/v1/entities/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
+        `/entities/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(fieldId)}`,
       );
       assertApiSuccess(response, 'Failed to delete field');
     },
@@ -661,7 +781,7 @@ export function useRelations() {
     queryKey: ENTITY_QUERY_KEYS.relations,
 
     queryFn: async (): Promise<EntityRelationListResponse['object']> => {
-      const response = await get<EntityRelation[]>('/v1/relations');
+      const response = await get<EntityRelation[]>('/relations');
       assertApiSuccess(response, 'Failed to fetch relations');
 
       if (!response.object) {
@@ -704,7 +824,7 @@ export function useRelation(idOrName: string) {
 
     queryFn: async (): Promise<EntityRelationResponse['object']> => {
       const response = await get<EntityRelation>(
-        `/v1/relations/${encodeURIComponent(idOrName)}`,
+        `/relations/${encodeURIComponent(idOrName)}`,
       );
       assertApiSuccess(response, `Failed to fetch relation '${idOrName}'`);
 
@@ -764,7 +884,7 @@ export function useCreateRelation() {
     mutationFn: async (
       relation: EntityRelation,
     ): Promise<EntityRelationResponse['object']> => {
-      const response = await post<EntityRelation>('/v1/relations', relation);
+      const response = await post<EntityRelation>('/relations', relation);
       assertApiSuccess(response, 'Failed to create relation');
 
       if (!response.object) {
@@ -824,7 +944,7 @@ export function useUpdateRelation() {
       relation,
     }: UpdateRelationVariables): Promise<EntityRelationResponse['object']> => {
       const response = await put<EntityRelation>(
-        `/v1/relations/${encodeURIComponent(id)}`,
+        `/relations/${encodeURIComponent(id)}`,
         relation,
       );
       assertApiSuccess(response, 'Failed to update relation');
@@ -879,7 +999,7 @@ export function useDeleteRelation() {
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       const response = await del(
-        `/v1/relations/${encodeURIComponent(id)}`,
+        `/relations/${encodeURIComponent(id)}`,
       );
       assertApiSuccess(response, 'Failed to delete relation');
     },

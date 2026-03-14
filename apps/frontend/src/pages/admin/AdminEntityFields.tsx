@@ -39,7 +39,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 
-import { useEntity } from '../../hooks/useEntities';
+import { useEntity, useEntityFields } from '../../hooks/useEntities';
 import type { Entity, Field } from '../../types/entity';
 import { FieldType } from '../../types/entity';
 import { DataTable } from '../../components/data-table/DataTable';
@@ -185,10 +185,15 @@ function AdminEntityFields(): React.JSX.Element {
    */
   const {
     data: entity,
-    isLoading,
+    isLoading: entityLoading,
     isError,
     error,
   } = useEntity(entityId ?? '');
+
+  /* Fetch fields independently — the entity detail endpoint may not embed them */
+  const { data: apiFields, isLoading: fieldsLoading } = useEntityFields(entityId ?? '');
+
+  const isLoading = entityLoading || fieldsLoading;
 
   /* ================================================================== */
   /*  Local state                                                        */
@@ -211,16 +216,17 @@ function AdminEntityFields(): React.JSX.Element {
   /**
    * Final filtered and sorted field list.
    *
-   * Applies the name CONTAINS filter (case-insensitive) matching the
-   * monolith's `string.Contains(StringComparison.InvariantCultureIgnoreCase)`
-   * pattern from fields.cshtml.cs lines 74-91, then sorts by name ascending
-   * matching the monolith's default `order_by=name` / `order_dir=ASC`
-   * from fields.cshtml.cs line 93.
+   * Prefers fields from the dedicated `/entities/{id}/fields` endpoint;
+   * falls back to `entity.fields` if the dedicated endpoint returned empty.
    */
   const filteredFields = useMemo<Field[]>(() => {
-    if (!entity?.fields) return [];
+    const rawFields = (apiFields && apiFields.length > 0)
+      ? (apiFields as unknown as Field[])
+      : (entity?.fields ?? []);
 
-    let fields = [...entity.fields];
+    if (rawFields.length === 0) return [];
+
+    let fields = [...rawFields];
 
     /* Apply name CONTAINS filter (case-insensitive) */
     const trimmed = nameFilter.trim().toLowerCase();
@@ -234,7 +240,7 @@ function AdminEntityFields(): React.JSX.Element {
     fields.sort((a: Field, b: Field) => a.name.localeCompare(b.name));
 
     return fields;
-  }, [entity?.fields, nameFilter]);
+  }, [apiFields, entity?.fields, nameFilter]);
 
   /* ================================================================== */
   /*  Event handlers                                                     */
@@ -556,13 +562,15 @@ function AdminEntityFields(): React.JSX.Element {
            * (fields.cshtml.cs line 184) linking to
            * /sdk/objects/entity/r/{EntityId}/rl/fields/select-type
            */}
-          <Button
-            href={`/admin/entities/${entityId}/fields/create`}
-            iconClass="fa fa-plus"
-            text="Create Field"
-            color={ButtonColor.White}
-            size={ButtonSize.Small}
-          />
+          <span data-testid="create-field-btn">
+            <Button
+              href={`/admin/entities/${entityId}/fields/create`}
+              iconClass="fa fa-plus"
+              text="Create Field"
+              color={ButtonColor.White}
+              size={ButtonSize.Small}
+            />
+          </span>
         </div>
       </header>
 

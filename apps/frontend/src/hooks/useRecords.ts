@@ -411,11 +411,22 @@ export function useRecords(entityName: string, params?: RecordsParams) {
       );
       assertApiSuccess(response, `Failed to fetch records for entity "${entityName}"`);
 
-      if (!response.object) {
+      // The backend may return a QueryResult { fieldsMeta, data } or a plain
+      // array of records (depending on the service implementation). Normalise
+      // both shapes into the expected QueryResult interface.
+      let result = response.object;
+      if (Array.isArray(result)) {
+        result = { fieldsMeta: [], data: result as unknown as EntityRecord[] } as unknown as QueryResult;
+      } else if (result && !result.data && !result.fieldsMeta) {
+        // Unexpected shape — wrap as empty result
+        result = { fieldsMeta: [], data: [] };
+      }
+
+      if (!result) {
         throw new Error(`Record list response missing data for entity "${entityName}"`);
       }
 
-      return response.object;
+      return result;
     },
 
     staleTime: RECORD_STALE_TIME_MS,
@@ -523,13 +534,20 @@ export function useRecordCount(entityName: string, query?: QueryObject | null) {
         `Failed to fetch record count for entity "${entityName}"`,
       );
 
-      if (response.object === undefined || response.object === null) {
-        throw new Error(
-          `Record count response missing data for entity "${entityName}"`,
-        );
+      // The backend may return a number or an object/array for the count
+      // endpoint. Normalise to a plain number.
+      let count = response.object;
+      if (count === undefined || count === null) {
+        // Gracefully default to 0 instead of throwing, so the UI still
+        // renders without a count (pagination may be approximate).
+        count = 0 as unknown as number;
+      }
+      if (typeof count !== 'number') {
+        // If the backend returned something unexpected, coerce or default
+        count = (Array.isArray(count) ? count.length : 0) as unknown as number;
       }
 
-      return response.object;
+      return count;
     },
 
     staleTime: RECORD_STALE_TIME_MS,

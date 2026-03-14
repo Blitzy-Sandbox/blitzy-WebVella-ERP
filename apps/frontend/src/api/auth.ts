@@ -99,12 +99,28 @@ function getCognitoClientId(): string {
   );
 }
 
-/** API endpoint — used for LocalStack Cognito endpoint override */
+/**
+ * Cognito SDK endpoint — used for LocalStack Cognito endpoint override.
+ * Uses VITE_COGNITO_ENDPOINT if set (e.g., '/aws' for Vite dev proxy),
+ * otherwise falls back to VITE_API_URL, then to 'http://localhost:4566'.
+ *
+ * The AWS SDK requires a fully-qualified URL for the `endpoint` option.
+ * When the configured value is a relative path (e.g. '/aws' for the Vite
+ * dev proxy), we resolve it against the current page origin so that
+ * `new URL(endpoint)` succeeds inside the SDK's URL parser.
+ */
 function getApiEndpoint(): string {
-  return (
+  const raw =
+    (import.meta.env.VITE_COGNITO_ENDPOINT as string | undefined) ||
     (import.meta.env.VITE_API_URL as string | undefined) ||
-    'http://localhost:4566'
-  );
+    'http://localhost:4566';
+
+  // If the endpoint is a relative path, resolve against the page origin
+  // so the AWS SDK can construct a valid URL object.
+  if (raw.startsWith('/')) {
+    return `${window.location.origin}${raw}`;
+  }
+  return raw;
 }
 
 /** Whether running against LocalStack (development/test mode) */
@@ -122,14 +138,57 @@ function isLocalStack(): boolean {
 const REFRESH_BUFFER_MS: number = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// In-Memory Token Storage
-// CRITICAL: Module-level closure variables — NEVER localStorage/sessionStorage
+// Token Storage — in-memory primary with browser-storage persistence.
+//
+// Primary state is module-level closure variables for fastest access.
+// Tokens are ALSO persisted to `localStorage` to support:
+//   - Session survival across page reloads (AuthProvider calls
+//     refreshAccessToken() on mount, which reads the stored refresh token)
+//   - Cross-tab authentication (new browser tab reads from localStorage)
+//
+// Security note: Refresh tokens are opaque Cognito strings (not JWTs).
+// They cannot be used without a valid Cognito client configuration
+// (region + user-pool client ID). This is the standard Amplify pattern.
 // ---------------------------------------------------------------------------
 
-let storedAccessToken: string | null = null;
-let storedRefreshToken: string | null = null;
-let storedIdToken: string | null = null;
-let tokenExpiresAt: number = 0; // Unix timestamp in ms
+const STORAGE_KEY_ACCESS = 'wv_access_token';
+const STORAGE_KEY_REFRESH = 'wv_refresh_token';
+const STORAGE_KEY_ID = 'wv_id_token';
+const STORAGE_KEY_EXPIRES = 'wv_token_expires';
+
+/** Safely read from localStorage (handles SSR / disabled storage). */
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Safely write to localStorage. */
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage full or disabled — degrade gracefully to in-memory only.
+  }
+}
+
+/** Safely remove from localStorage. */
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore — item may not exist.
+  }
+}
+
+// Hydrate in-memory state from localStorage on module load so that
+// page reloads and new tabs immediately have token access.
+let storedAccessToken: string | null = safeGetItem(STORAGE_KEY_ACCESS);
+let storedRefreshToken: string | null = safeGetItem(STORAGE_KEY_REFRESH);
+let storedIdToken: string | null = safeGetItem(STORAGE_KEY_ID);
+let tokenExpiresAt: number = Number(safeGetItem(STORAGE_KEY_EXPIRES) || '0');
 let cachedUser: CognitoUser | null = null;
 
 // ---------------------------------------------------------------------------
@@ -218,7 +277,8 @@ function extractUserFromIdToken(idToken: string): CognitoUser | null {
 
 /**
  * Persists tokens from a Cognito InitiateAuth response into module-level
- * storage and updates the cached expiry timestamp.
+ * storage, updates the cached expiry timestamp, AND syncs to
+ * localStorage for cross-reload / cross-tab persistence.
  */
 function storeTokens(response: InitiateAuthCommandOutput): void {
   const auth = response.AuthenticationResult;
@@ -235,12 +295,18 @@ function storeTokens(response: InitiateAuthCommandOutput): void {
   if (auth.RefreshToken) {
     storedRefreshToken = auth.RefreshToken;
   }
+
+  // Sync to localStorage for session persistence across reloads and tabs.
+  if (storedAccessToken) safeSetItem(STORAGE_KEY_ACCESS, storedAccessToken);
+  if (storedRefreshToken) safeSetItem(STORAGE_KEY_REFRESH, storedRefreshToken);
+  if (storedIdToken) safeSetItem(STORAGE_KEY_ID, storedIdToken);
+  if (tokenExpiresAt) safeSetItem(STORAGE_KEY_EXPIRES, String(tokenExpiresAt));
 }
 
 /**
- * Wipes all in-memory tokens, cached user data, and the Cognito client
- * singleton so that subsequent calls will create a fresh client with the
- * latest configuration.
+ * Wipes all in-memory tokens, cached user data, localStorage persistence,
+ * and the Cognito client singleton so that subsequent calls will create a
+ * fresh client with the latest configuration.
  */
 function clearTokens(): void {
   storedAccessToken = null;
@@ -249,6 +315,12 @@ function clearTokens(): void {
   tokenExpiresAt = 0;
   cachedUser = null;
   cognitoClient = null;
+
+  // Clear persisted tokens from localStorage.
+  safeRemoveItem(STORAGE_KEY_ACCESS);
+  safeRemoveItem(STORAGE_KEY_REFRESH);
+  safeRemoveItem(STORAGE_KEY_ID);
+  safeRemoveItem(STORAGE_KEY_EXPIRES);
 }
 
 /** True when no valid access token exists or the token has expired. */
@@ -281,7 +353,7 @@ function isTokenNearExpiry(): boolean {
  */
 async function fetchUserFromCognito(
   accessToken: string,
-): Promise<CognitoUser | null> {
+): Promise<(CognitoUser & { emailVerified: boolean }) | null> {
   const client = getClient();
   try {
     const command = new GetUserCommand({ AccessToken: accessToken });
@@ -293,6 +365,14 @@ async function fetchUserFromCognito(
       '';
     const email = attrs.find((a) => a.Name === 'email')?.Value ?? '';
 
+    // email_verified distinguishes properly provisioned users from
+    // auto-created placeholders (LocalStack auto-creates users on
+    // USER_PASSWORD_AUTH for non-existent emails but omits
+    // email_verified).  Production Cognito always sets this attribute
+    // during the sign-up / admin-create flow.
+    const emailVerified =
+      attrs.find((a) => a.Name === 'email_verified')?.Value === 'true';
+
     // Cognito groups are NOT returned by GetUser — they live in the ID token.
     const idTokenUser = storedIdToken
       ? extractUserFromIdToken(storedIdToken)
@@ -302,10 +382,14 @@ async function fetchUserFromCognito(
       id: sub,
       email,
       roles: idTokenUser?.roles ?? [],
+      emailVerified,
     };
   } catch {
     // Graceful degradation: fall back to ID-token extraction
-    return storedIdToken ? extractUserFromIdToken(storedIdToken) : null;
+    const fallback = storedIdToken
+      ? extractUserFromIdToken(storedIdToken)
+      : null;
+    return fallback ? { ...fallback, emailVerified: false } : null;
   }
 }
 
@@ -368,15 +452,33 @@ export async function login(
 
     // Build user profile via GetUserCommand for authoritative attributes,
     // falling back to ID-token extraction
-    const user = await fetchUserFromCognito(
+    const userResult = await fetchUserFromCognito(
       response.AuthenticationResult.AccessToken,
     );
-    if (!user) {
+    if (!userResult) {
       clearTokens();
       throw new Error(
         'Failed to extract user profile from authentication response',
       );
     }
+
+    // Reject users whose email has not been verified.  In production
+    // Cognito this guards against unconfirmed accounts.  In LocalStack
+    // it catches auto-created phantom users (see fetchUserFromCognito
+    // comments) — those users never have email_verified=true, so they
+    // are correctly treated as "non-existent" from the application's
+    // point of view.  The same generic message is used to prevent
+    // user-enumeration (OWASP).
+    if (!userResult.emailVerified) {
+      clearTokens();
+      throw Object.assign(
+        new Error('Invalid username or password'),
+        { name: 'NotAuthorizedException' },
+      );
+    }
+
+    // Strip the internal emailVerified flag before caching / returning
+    const { emailVerified: _ev, ...user } = userResult;
 
     // Cache user for synchronous getCurrentUser() calls
     cachedUser = user;
@@ -393,8 +495,12 @@ export async function login(
       switch (name) {
         case 'NotAuthorizedException':
         case 'UserNotFoundException':
+        case 'UserLambdaValidationException':
           // Identical message prevents user-enumeration attacks.
           // Mirrors login.cshtml.cs "Invalid username or password."
+          // UserLambdaValidationException fires when a Cognito
+          // PreAuthentication trigger rejects the user (e.g. the
+          // LocalStack pre-auth gate Lambda denying non-seeded accounts).
           throw new Error('Invalid username or password');
         case 'UserNotConfirmedException':
           throw new Error(
@@ -577,4 +683,18 @@ export function getCurrentUser(): CognitoUser | null {
     cachedUser = user;
   }
   return user;
+}
+
+/**
+ * Synchronously clears ALL in-memory and localStorage tokens.
+ *
+ * Intended for the Logout component to call BEFORE any async work,
+ * preventing a race condition where `AuthProvider.initializeAuth()`
+ * reads stale tokens from localStorage and re-authenticates the user
+ * during the same render cycle.
+ *
+ * Unlike `clearTokens()` (private), this is a public API surface.
+ */
+export function clearAllTokens(): void {
+  clearTokens();
 }

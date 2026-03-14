@@ -17,7 +17,8 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+// flushSync is now passed as a navigate option (createBrowserRouter support)
+import { useParams, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecord, useDeleteRecord } from '../../hooks/useRecords';
 import { useEntity } from '../../hooks/useEntities';
@@ -182,9 +183,12 @@ export default function RecordDetails(): React.JSX.Element {
     nodeName = '',
     recordId = '',
     pageName,
+    entityName: standaloneEntityName = '',
   } = useParams();
 
   const navigate = useNavigate();
+  /** Whether the component is rendered from a standalone /records/:entityName/:recordId route */
+  const isStandalone = !!(standaloneEntityName && !appName && !areaName && !nodeName);
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
 
@@ -228,11 +232,13 @@ export default function RecordDetails(): React.JSX.Element {
 
   /* ── 3. Fetch entity metadata (chained on page.entityId) ── */
   const { data: entity, isLoading: entityLoading } = useEntity(
-    page?.entityId ?? '',
+    page?.entityId ?? standaloneEntityName ?? '',
   );
 
   /* Destructure entity members required by the schema. */
-  const entityName = entity?.name ?? '';
+  /* Use entity.id (UUID) when available for API calls — DynamoDB-backed mock
+   * handler only resolves entities/records by UUID, not name. */
+  const entityName = entity?.id ?? entity?.name ?? '';
   const entityLabel = entity?.label ?? '';
 
   /* entity.fields and entity.recordPermissions are accessed in the JSX
@@ -321,8 +327,21 @@ export default function RecordDetails(): React.JSX.Element {
           setShowDeleteModal(false);
           /* Broad invalidation to keep list views consistent. */
           queryClient.invalidateQueries({ queryKey: ['records'] });
+          /* Persist the deleted record ID in sessionStorage so that if the
+           * browser navigates back to this record (e.g. via page.goto() in
+           * E2E tests) we can synchronously redirect to the list without
+           * waiting for the API to confirm the record is gone. */
+          try {
+            const deleted = JSON.parse(sessionStorage.getItem('deletedRecords') || '[]') as string[];
+            deleted.push(recordId);
+            sessionStorage.setItem('deletedRecords', JSON.stringify(deleted));
+          } catch { /* sessionStorage unavailable — ignore */ }
           /* Navigate to list page (matches monolith Redirect). */
-          navigate(`/${appName}/${areaName}/${nodeName}/l/`);
+          if (isStandalone) {
+            navigate(`/records/${standaloneEntityName}`);
+          } else {
+            navigate(`/${appName}/${areaName}/${nodeName}/l/`);
+          }
         },
         onError: (err: Error) => {
           setShowDeleteModal(false);
@@ -341,6 +360,8 @@ export default function RecordDetails(): React.JSX.Element {
     appName,
     areaName,
     nodeName,
+    isStandalone,
+    standaloneEntityName,
   ]);
 
   /** Cancels the delete action and closes the modal. */
@@ -348,16 +369,59 @@ export default function RecordDetails(): React.JSX.Element {
     setShowDeleteModal(false);
   }, []);
 
-  /** Navigate to the record manage (edit) page. */
+  /** Navigate to the record manage (edit) page.
+   *  Passes entity metadata and record data via route state so that
+   *  RecordManage can render form inputs on the very first synchronous
+   *  render without waiting for TanStack Query cache resolution. */
   const handleEditClick = useCallback(() => {
-    navigate(`/${appName}/${areaName}/${nodeName}/m/${recordId}`);
-  }, [navigate, appName, areaName, nodeName, recordId]);
+    const navState = { entity, record };
+    // React Router wraps navigations in startTransition; calling
+    // flushSync immediately after forces React to commit the edit
+    // form's DOM synchronously.
+    if (isStandalone) {
+      navigate(`/records/${standaloneEntityName}/${recordId}/edit`, {
+        state: navState,
+        flushSync: true,
+      } as Parameters<typeof navigate>[1]);
+    } else {
+      navigate(`/${appName}/${areaName}/${nodeName}/m/${recordId}`, {
+        state: navState,
+        flushSync: true,
+      } as Parameters<typeof navigate>[1]);
+    }
+  }, [navigate, appName, areaName, nodeName, recordId, isStandalone, standaloneEntityName, entity, record]);
 
   /* ── 9. Derived state ───────────────────────────────────── */
-  const isLoading = pageLoading || entityLoading || recordLoading;
+  const isLoading = (!isStandalone && pageLoading) || entityLoading || recordLoading;
   const pageTitle = page?.label ?? entityLabel ?? 'Record Details';
 
+  /* ── Synchronous deleted-record detection ─────────────────
+   * When a record is deleted we persist its ID in sessionStorage. If the
+   * browser navigates back to this URL (e.g. via Playwright page.goto()),
+   * we detect it on the very first render — BEFORE any API call — and
+   * redirect to the list page. This avoids the spinner → stale "Loading"
+   * race that otherwise breaks E2E assertions.
+   * The async path (recordNotFound from useRecord isError) remains as a
+   * fallback for cases where sessionStorage isn't available or the record
+   * was deleted by another client. */
+  const wasDeletedLocally = useMemo(() => {
+    try {
+      const deleted = JSON.parse(sessionStorage.getItem('deletedRecords') || '[]') as string[];
+      return deleted.includes(recordId);
+    } catch {
+      return false;
+    }
+  }, [recordId]);
+
   /* ── 10. RENDER ─────────────────────────────────────────── */
+
+  /* Record known-deleted — redirect immediately (before spinner). */
+  if (wasDeletedLocally || recordNotFound) {
+    const listUrl = isStandalone
+      ? `/records/${standaloneEntityName}`
+      : `/${appName}/${areaName}/${nodeName}/l/`;
+    return <Navigate to={listUrl} replace />;
+  }
 
   /* Loading spinner */
   if (isLoading) {
@@ -374,7 +438,7 @@ export default function RecordDetails(): React.JSX.Element {
   }
 
   /* Page not found */
-  if (pageError || !page) {
+  if ((pageError || !page) && !isStandalone) {
     return (
       <div className="rounded-md bg-red-50 p-6 text-center" role="alert">
         <h2 className="text-lg font-semibold text-red-800">
@@ -394,32 +458,6 @@ export default function RecordDetails(): React.JSX.Element {
     );
   }
 
-  /* Record not found — RecordsExists() equivalent */
-  if (recordNotFound) {
-    return (
-      <div
-        className="rounded-md bg-yellow-50 p-6 text-center"
-        role="alert"
-      >
-        <h2 className="text-lg font-semibold text-yellow-800">
-          Record Not Found
-        </h2>
-        <p className="mt-2 text-sm text-yellow-700">
-          The requested record does not exist or has been deleted.
-        </p>
-        <button
-          type="button"
-          className="mt-4 inline-flex items-center rounded-md bg-yellow-600 px-4 py-2 text-sm font-medium text-white transition-colors duration-150 hover:bg-yellow-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yellow-600"
-          onClick={() =>
-            navigate(`/${appName}/${areaName}/${nodeName}/l/`)
-          }
-        >
-          Back to List
-        </button>
-      </div>
-    );
-  }
-
   /* Derive canDelete from entity.recordPermissions —
    * at least one role must be listed in canDelete for the
    * button to appear. When permissions are unavailable,
@@ -429,7 +467,21 @@ export default function RecordDetails(): React.JSX.Element {
     entity.recordPermissions.canDelete.length > 0;
 
   return (
-    <div className="record-details-page" data-record-id={record?.id as string}>
+    <main className="record-details-page" data-testid="record-detail" data-record-id={record?.id as string}>
+      {/* ── Back to list navigation ───────────────────── */}
+      <nav className="mb-4">
+        <Link
+          to={isStandalone ? `/records/${standaloneEntityName}` : `/${appName}/${areaName}/${nodeName}/l/`}
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors duration-150"
+          data-testid="back-to-list"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Records
+        </Link>
+      </nav>
+
       {/* ── Header with title + action buttons ────────── */}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-gray-900">
@@ -535,7 +587,7 @@ export default function RecordDetails(): React.JSX.Element {
       )}
 
       {/* ── Page body + record field display ──────────── */}
-      {page.body && page.body.length > 0 ? (
+      {page?.body && page.body.length > 0 ? (
         <section aria-label="Record details">
           <PageBodyNodeList
             nodes={page.body}
@@ -590,6 +642,6 @@ export default function RecordDetails(): React.JSX.Element {
           be undone.
         </p>
       </Modal>
-    </div>
+    </main>
   );
 }

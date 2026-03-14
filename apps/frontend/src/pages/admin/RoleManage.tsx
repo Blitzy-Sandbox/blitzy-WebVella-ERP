@@ -38,6 +38,7 @@ function RoleManage(): React.JSX.Element {
   /* ─── Local Form State ────────────────────────────────────────── */
   const [name, setName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [showSuccess, setShowSuccess] = useState(false);
   const [validation, setValidation] = useState<FormValidation | undefined>(
     undefined,
   );
@@ -93,8 +94,9 @@ function RoleManage(): React.JSX.Element {
           description: description.trim(),
         });
 
-        /* Navigate to role details on success */
-        navigate(`/admin/roles/${roleId}`, { replace: true });
+        /* Show success briefly then navigate to role details */
+        setShowSuccess(true);
+        setTimeout(() => navigate(`/admin/roles/${roleId}`, { replace: true }), 1500);
       } catch (mutationError: unknown) {
         /*
          * Map the API error envelope to FormValidation so DynamicForm
@@ -208,6 +210,11 @@ function RoleManage(): React.JSX.Element {
    * ═══════════════════════════════════════════════════════════════ */
   return (
     <div className="p-6">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Role saved successfully. Redirecting…</p>
+        </div>
+      )}
       {/* ── Page Header ──────────────────────────────────────────── */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">

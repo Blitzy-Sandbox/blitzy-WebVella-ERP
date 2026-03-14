@@ -47,7 +47,8 @@ namespace WebVellaErp.Invoicing.Tests.Integration
     /// </list>
     /// </para>
     /// </summary>
-    public class EventPublishingIntegrationTests : IClassFixture<LocalStackFixture>, IAsyncLifetime
+    [Collection("InvoicingIntegration")]
+    public class EventPublishingIntegrationTests : IAsyncLifetime
     {
         // ═══════════════════════════════════════════════════════════════════════
         //  Fields
@@ -453,7 +454,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             var source = eventEnvelope.GetProperty("source").GetString();
             var version = eventEnvelope.GetProperty("version").GetInt32();
             var payload = eventEnvelope.GetProperty("payload");
-            var payloadInvoiceId = payload.GetProperty("invoiceId").GetString();
+            var payloadInvoiceId = payload.GetProperty("invoice_id").GetString();
             var payloadAmount = payload.GetProperty("amount").GetDecimal();
 
             eventType.Should().Be("invoicing.payment.processed");

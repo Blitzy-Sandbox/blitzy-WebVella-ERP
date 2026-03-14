@@ -28,6 +28,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+// flushSync is now passed as a navigate option (createBrowserRouter support)
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 
 import { useRecords, useRecordCount } from '../../hooks/useRecords';
@@ -85,6 +86,8 @@ type RecordListRouteParams = {
   areaName?: string;
   nodeName?: string;
   pageName?: string;
+  entityName?: string;
+  recordId?: string;
   [key: string]: string | undefined;
 };
 
@@ -114,6 +117,11 @@ export default function RecordList(): React.JSX.Element {
   const areaName = params.areaName ?? '';
   const nodeName = params.nodeName ?? '';
   const pageName = params.pageName ?? '';
+  /** Standalone entity name for /records/:entityName route. */
+  const standaloneEntityName = params.entityName ?? '';
+
+  /** Whether the component is rendered from a standalone /records/:entityName route */
+  const isStandalone = !!(standaloneEntityName && !appName && !areaName && !nodeName);
 
   // -- Local state ------------------------------------------------------------
   // Mirrors monolith's Validation.Message pattern from RecordList.cshtml.cs
@@ -223,7 +231,7 @@ export default function RecordList(): React.JSX.Element {
   // The useEntity hook accepts idOrName (string).
   // Replaces ErpRequestContext.Entity metadata loading from BeforeRender().
 
-  const entityIdOrName = page?.entityId ?? '';
+  const entityIdOrName = page?.entityId ?? standaloneEntityName ?? '';
 
   const { data: entity, isLoading: isEntityLoading } =
     useEntity(entityIdOrName);
@@ -311,8 +319,11 @@ export default function RecordList(): React.JSX.Element {
 
   // -- 9. Fetch records list (replaces DataModel population) ------------------
   // useRecords returns QueryResult { fieldsMeta: Field[], data: EntityRecord[] }
+  // Prefer entity.id for the API path when available — the backend resolves
+  // records by entity UUID, and name-based paths may not be supported by all
+  // service implementations.  Fall back to entity.name for display/routing.
 
-  const entityName = entity?.name ?? '';
+  const entityName = entity?.id ?? entity?.name ?? '';
 
   const {
     data: recordsData,
@@ -442,7 +453,7 @@ export default function RecordList(): React.JSX.Element {
         if (!recordId) return null;
         return (
           <Link
-            to={`/${appName}/${areaName}/${nodeName}/r/${recordId}`}
+            to={isStandalone ? `/records/${standaloneEntityName}/${recordId}` : `/${appName}/${areaName}/${nodeName}/r/${recordId}`}
             className="inline-flex items-center rounded px-2 py-1 text-xs font-medium text-blue-600 transition-colors duration-150 hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             aria-label={`View record ${recordId}`}
           >
@@ -471,7 +482,7 @@ export default function RecordList(): React.JSX.Element {
         );
       },
     }),
-    [appName, areaName, nodeName],
+    [appName, areaName, nodeName, isStandalone, standaloneEntityName],
   );
 
   // Merge entity field columns + action column
@@ -519,8 +530,11 @@ export default function RecordList(): React.JSX.Element {
 
   // -- 17. Render states ------------------------------------------------------
 
-  // Loading state: waiting for page context resolution
-  if (isPageLoading) {
+  // Loading state: waiting for page context resolution.
+  // Only show loading spinner when we're actually fetching page context
+  // (urlInfo is defined). For standalone /records/:entityName routes
+  // the page query is disabled so isPageLoading is always false anyway.
+  if (isPageLoading && urlInfo) {
     return (
       <div
         className="flex min-h-[200px] items-center justify-center"
@@ -540,7 +554,11 @@ export default function RecordList(): React.JSX.Element {
 
   // Not found state: page context could not be resolved
   // Mirrors RecordList.cshtml.cs: if (ErpRequestContext.Page == null) return NotFound()
-  if (!page) {
+  // For standalone /records/:entityName routes (no app/area/node in URL),
+  // urlInfo will be undefined and page will be null — that's expected.
+  // Only show "Page Not Found" when we actually attempted page resolution
+  // (i.e. urlInfo was provided) but the server returned no page.
+  if (!page && urlInfo) {
     return (
       <div
         className="flex min-h-[200px] flex-col items-center justify-center gap-2 text-gray-500"
@@ -592,9 +610,34 @@ export default function RecordList(): React.JSX.Element {
           </h1>
         </div>
 
-        {/* Create new record button — links to the record creation page */}
-        <Link
-          to={`/${appName}/${areaName}/${nodeName}/c/`}
+        {/* Create new record button — navigates to the record creation page.
+            Uses navigate({ flushSync: true }) so React Router wraps the
+            DOM update in ReactDOM.flushSync, committing the destination
+            component's DOM synchronously before Playwright's waitForURL
+            resolves.  This eliminates the ~50ms gap between URL change
+            and input rendering caused by React Router's default
+            startTransition-wrapped navigation. */}
+        <a
+          href={isStandalone ? `/records/${standaloneEntityName}/create` : `/${appName}/${areaName}/${nodeName}/c/`}
+          role="link"
+          data-testid="create-record-btn"
+          onClick={(e) => {
+            e.preventDefault();
+            // React Router wraps navigations in startTransition, deferring
+            // DOM commits.  Calling flushSync immediately after navigate
+            // forces React to process the pending transition synchronously,
+            // ensuring the destination component's DOM (form inputs) exists
+            // before Playwright's page.waitForURL resolves.
+            navigate(
+              isStandalone
+                ? `/records/${standaloneEntityName}/create`
+                : `/${appName}/${areaName}/${nodeName}/c/`,
+              {
+                state: { entity },
+                flushSync: true,
+              } as Parameters<typeof navigate>[1],
+            );
+          }}
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <svg
@@ -612,7 +655,7 @@ export default function RecordList(): React.JSX.Element {
             />
           </svg>
           Create New
-        </Link>
+        </a>
       </div>
 
       {/* Validation / error message display */}

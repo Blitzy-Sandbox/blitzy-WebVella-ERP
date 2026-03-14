@@ -52,8 +52,9 @@ namespace WebVellaErp.Reporting.Tests.Integration
     /// status codes, response envelope structure, and data correctness.
     /// </summary>
     [Trait("Category", "Integration")]
+    [Collection("ReportingIntegration")]
     public class ReportExecutionIntegrationTests
-        : IClassFixture<LocalStackFixture>, IClassFixture<DatabaseFixture>, IAsyncLifetime
+        : IAsyncLifetime
     {
         // ─── Test Infrastructure ───────────────────────────────────────────
         private readonly LocalStackFixture _localStack;
@@ -81,7 +82,21 @@ namespace WebVellaErp.Reporting.Tests.Integration
         }
 
         /// <summary>Initializes async resources before the test class runs.</summary>
-        public Task InitializeAsync() => Task.CompletedTask;
+        public async Task InitializeAsync()
+        {
+            // CRITICAL: Update SSM parameter to point to DatabaseFixture's unique test DB
+            // so that ReportService.GetConnectionStringAsync() uses the same database as
+            // the test assertions. Without this, ReportService opens connections to the
+            // shared "reporting_test" DB while test data lives in "reporting_test_<guid>".
+            await _localStack.SsmClient.PutParameterAsync(
+                new Amazon.SimpleSystemsManagement.Model.PutParameterRequest
+                {
+                    Name = "/reporting/db-connection-string",
+                    Value = _dbFixture.ConnectionString,
+                    Type = "SecureString",
+                    Overwrite = true
+                });
+        }
 
         /// <summary>Cleans up test data after all tests in the class complete.</summary>
         public async Task DisposeAsync()
@@ -147,6 +162,18 @@ namespace WebVellaErp.Reporting.Tests.Integration
         /// </summary>
         private ReportHandler CreateReportHandlerWithBadConnection()
         {
+            // Set SSM parameter to a bad connection string so the handler's
+            // GetConnectionStringAsync (which reads from SSM) returns the invalid value.
+            // This ensures health checks actually fail on unreachable DB.
+            string badConnectionString = "Host=localhost;Port=9999;Database=nonexistent;Username=bad;Password=bad;Timeout=3;";
+            _localStack.SsmClient.PutParameterAsync(new Amazon.SimpleSystemsManagement.Model.PutParameterRequest
+            {
+                Name = "/reporting/db-connection-string",
+                Value = badConnectionString,
+                Type = Amazon.SimpleSystemsManagement.ParameterType.SecureString,
+                Overwrite = true
+            }).GetAwaiter().GetResult();
+
             var services = new ServiceCollection();
 
             services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
@@ -156,7 +183,6 @@ namespace WebVellaErp.Reporting.Tests.Integration
             services.AddSingleton(_localStack.SsmClient);
 
             // Use invalid connection string to simulate DB failure
-            string badConnectionString = "Host=localhost;Port=9999;Database=nonexistent;Username=bad;Password=bad;Timeout=3;";
             services.AddSingleton<IReportRepository>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<ReportRepository>>();
@@ -175,6 +201,20 @@ namespace WebVellaErp.Reporting.Tests.Integration
 
             var serviceProvider = services.BuildServiceProvider();
             return new ReportHandler(serviceProvider);
+        }
+
+        /// <summary>
+        /// Restores the SSM parameter to the correct DB connection string after bad-connection tests.
+        /// </summary>
+        private void RestoreGoodSsmConnectionString()
+        {
+            _localStack.SsmClient.PutParameterAsync(new Amazon.SimpleSystemsManagement.Model.PutParameterRequest
+            {
+                Name = "/reporting/db-connection-string",
+                Value = _dbFixture.ConnectionString,
+                Type = Amazon.SimpleSystemsManagement.ParameterType.SecureString,
+                Overwrite = true
+            }).GetAwaiter().GetResult();
         }
 
         /// <summary>Builds an API Gateway request with admin JWT claims for authorized endpoints.</summary>
@@ -357,7 +397,8 @@ namespace WebVellaErp.Reporting.Tests.Integration
             var executeResponse = await handler.HandleExecuteReport(executeRequest, CreateTestContext());
 
             // Assert — verify execution results
-            executeResponse.StatusCode.Should().Be(200);
+            executeResponse.StatusCode.Should().Be(200,
+                $"Response body: {executeResponse.Body}");
 
             var executeDoc = JsonDocument.Parse(executeResponse.Body);
             var root = executeDoc.RootElement;
@@ -534,7 +575,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
             string sql = @"SELECT source_record_id, source_entity 
                            FROM reporting.read_model_projections 
                            WHERE source_domain = 'project' 
-                           ORDER BY projected_at DESC 
+                           ORDER BY updated_at DESC 
                            LIMIT @maxRows";
 
             var parameters = new List<ReportParameter>
@@ -585,7 +626,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
             string sql = @"SELECT COUNT(*) AS matching_count
                            FROM reporting.read_model_projections 
                            WHERE source_domain = 'invoicing'
-                           AND (projected_data->>'amount')::decimal >= @minAmount";
+                           AND (projection_data->>'amount')::decimal >= @minAmount";
 
             var parameters = new List<ReportParameter>
             {
@@ -628,14 +669,14 @@ namespace WebVellaErp.Reporting.Tests.Integration
             await CleanDatabaseAsync();
             var handler = CreateReportHandler();
 
-            // Seed data — projections have projected_at timestamps
+            // Seed data — projections have created_at timestamps
             await SeedProjectionDataAsync("crm", "contact", Guid.NewGuid(),
                 JsonSerializer.Serialize(new { name = "Recent Contact" }));
 
-            // Create report with date parameter — the projected_at column is auto-set
+            // Create report with date parameter — the created_at column is auto-set
             string sql = @"SELECT COUNT(*) AS count_before_date
                            FROM reporting.read_model_projections 
-                           WHERE projected_at <= @cutoffDate::timestamptz";
+                           WHERE created_at <= @cutoffDate::timestamptz";
 
             var parameters = new List<ReportParameter>
             {
@@ -660,7 +701,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
             var response = await handler.HandleExecuteReport(executeRequest, CreateTestContext());
 
             // Assert
-            response.StatusCode.Should().Be(200);
+            response.StatusCode.Should().Be(200, $"Body: {response.Body}");
             var doc = JsonDocument.Parse(response.Body);
             var data = doc.RootElement.GetProperty("object").GetProperty("data");
             data.GetArrayLength().Should().BeGreaterOrEqualTo(1);
@@ -960,18 +1001,26 @@ namespace WebVellaErp.Reporting.Tests.Integration
         [RdsFact]
         public async Task ExecuteReport_InvalidSsmParameter_Returns503()
         {
-            // Arrange — create handler with bad connection (simulating invalid SSM value)
-            var badHandler = CreateReportHandlerWithBadConnection();
+            try
+            {
+                // Arrange — create handler with bad connection (simulating invalid SSM value)
+                var badHandler = CreateReportHandlerWithBadConnection();
 
-            // Act — health check should fail when DB is unreachable
-            var request = BuildAuthorizedRequest();
-            var response = await badHandler.HandleHealthCheck(request, CreateTestContext());
+                // Act — health check should fail when DB is unreachable
+                var request = BuildAuthorizedRequest();
+                var response = await badHandler.HandleHealthCheck(request, CreateTestContext());
 
-            // Assert — should return 503 indicating unhealthy service
-            response.StatusCode.Should().Be(503);
-            var doc = JsonDocument.Parse(response.Body);
-            doc.RootElement.GetProperty("status").GetString().Should().Be("unhealthy");
-            doc.RootElement.GetProperty("database").GetString().Should().NotBe("connected");
+                // Assert — should return 503 indicating unhealthy service
+                response.StatusCode.Should().Be(503);
+                var doc = JsonDocument.Parse(response.Body);
+                doc.RootElement.GetProperty("status").GetString().Should().Be("unhealthy");
+                doc.RootElement.GetProperty("database").GetString().Should().NotBe("connected");
+            }
+            finally
+            {
+                // Restore good SSM parameter for subsequent tests
+                RestoreGoodSsmConnectionString();
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1009,20 +1058,28 @@ namespace WebVellaErp.Reporting.Tests.Integration
         [RdsFact]
         public async Task HealthCheck_DatabaseDown_Returns503()
         {
-            // Arrange — handler with unreachable database
-            var badHandler = CreateReportHandlerWithBadConnection();
-            var request = BuildAuthorizedRequest();
+            try
+            {
+                // Arrange — handler with unreachable database
+                var badHandler = CreateReportHandlerWithBadConnection();
+                var request = BuildAuthorizedRequest();
 
-            // Act
-            var response = await badHandler.HandleHealthCheck(request, CreateTestContext());
+                // Act
+                var response = await badHandler.HandleHealthCheck(request, CreateTestContext());
 
-            // Assert
-            response.StatusCode.Should().Be(503);
+                // Assert
+                response.StatusCode.Should().Be(503);
 
-            var doc = JsonDocument.Parse(response.Body);
-            doc.RootElement.GetProperty("status").GetString().Should().Be("unhealthy");
-            // Database should be disconnected/error, SNS may still be connected
-            doc.RootElement.GetProperty("database").GetString().Should().NotBe("connected");
+                var doc = JsonDocument.Parse(response.Body);
+                doc.RootElement.GetProperty("status").GetString().Should().Be("unhealthy");
+                // Database should be disconnected/error, SNS may still be connected
+                doc.RootElement.GetProperty("database").GetString().Should().NotBe("connected");
+            }
+            finally
+            {
+                // Restore good SSM parameter for subsequent tests
+                RestoreGoodSsmConnectionString();
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════

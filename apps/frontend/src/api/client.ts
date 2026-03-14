@@ -126,9 +126,24 @@ declare module 'axios' {
  * Gateway level (AAP §0.8.6). The VITE_ prefix ensures Vite exposes the
  * value at build time via `import.meta.env`.
  */
-const BASE_URL = `${
-  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:4566'
-}/v1`;
+/**
+ * Compute the API base URL.
+ *
+ * The `/v1` version prefix is ALWAYS appended here so that individual hook
+ * modules use bare domain paths (e.g. `/entities`, `/apps`, `/pages/resolve`)
+ * without worrying about API versioning — all versioning is centralised in
+ * this single constant.
+ *
+ * For relative paths (e.g. `/api`), the result is `/api/v1`.  The Vite dev
+ * proxy strips the leading `/api` segment, forwarding `/v1/entities` to the
+ * API Gateway which routes on the `/v1/` prefix.
+ *
+ * For absolute URLs (e.g. `https://api.example.com`), the result is
+ * `https://api.example.com/v1`.
+ */
+const rawApiUrl =
+  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:4566';
+const BASE_URL = `${rawApiUrl.replace(/\/+$/, '')}/v1`;
 
 /**
  * Default request timeout in milliseconds.

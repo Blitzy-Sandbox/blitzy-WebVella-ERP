@@ -185,6 +185,28 @@ public class AuthHandler
     }
 
     /// <summary>
+    /// Single entry point for managed .NET Lambda runtime (dotnet9).
+    /// Routes API Gateway HTTP API v2 requests to the appropriate handler method.
+    /// </summary>
+    public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+        APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+    {
+        var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+        var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+        if (method == "POST" && path.Contains("/login"))
+            return await HandleLogin(request, context);
+        if (method == "POST" && path.Contains("/logout"))
+            return await HandleLogout(request, context);
+        if (method == "POST" && path.Contains("/refresh"))
+            return await HandleRefreshToken(request, context);
+
+        // Default: login
+        return await HandleLogin(request, context);
+    }
+
+
+    /// <summary>
     /// POST /v1/auth/login — Authenticates user via Cognito and returns tokens with user profile.
     ///
     /// Replaces:

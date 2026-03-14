@@ -302,6 +302,10 @@ export interface SmtpConfigListResponse {
  * Replaces SmtpInternalService.SendEmail (MimeMessage composition + SmtpClient).
  */
 export interface SendEmailRequest {
+  /** Sender email address. Defaults to the logged-in user's email. */
+  senderEmail?: string;
+  /** Sender display name. */
+  senderName?: string;
   /** Recipient email addresses. */
   recipients: string[];
   /** CC recipients (replaces SmtpInternalService cc: prefix handling). */
@@ -477,7 +481,7 @@ export function useNotifications(params?: NotificationListParams) {
     queryKey: notificationKeys.list(params),
     queryFn: async (): Promise<ApiResponse<NotificationListResponse>> => {
       const response = await get<NotificationListResponse>(
-        '/v1/notifications',
+        '/notifications',
         params as Record<string, unknown> | undefined,
       );
       if (!response.success) {
@@ -513,7 +517,7 @@ export function useNotification(id: string | undefined) {
   return useQuery({
     queryKey: notificationKeys.detail(id ?? ''),
     queryFn: async (): Promise<ApiResponse<Notification>> => {
-      const response = await get<Notification>(`/v1/notifications/${id}`);
+      const response = await get<Notification>(`/notifications/${id}`);
       if (!response.success) {
         const errorMessage =
           response.message ||
@@ -549,7 +553,7 @@ export function useEmailTemplates() {
     queryKey: emailTemplateKeys.lists(),
     queryFn: async (): Promise<ApiResponse<EmailTemplateListResponse>> => {
       const response = await get<EmailTemplateListResponse>(
-        '/v1/notifications/templates',
+        '/notifications/templates',
       );
       if (!response.success) {
         const errorMessage =
@@ -591,7 +595,7 @@ export function useSmtpConfigs() {
     queryKey: smtpConfigKeys.lists(),
     queryFn: async (): Promise<ApiResponse<SmtpConfigListResponse>> => {
       const response = await get<SmtpConfigListResponse>(
-        '/v1/notifications/smtp-configs',
+        '/notifications/smtp-configs',
       );
       if (!response.success) {
         const errorMessage =
@@ -636,6 +640,50 @@ export function useSmtpConfigs() {
  * });
  * ```
  */
+/**
+ * Transforms the frontend SendEmailRequest / QueueEmailRequest into the
+ * backend-compatible JSON payload.  The backend EmailHandler expects:
+ *   recipients: [{name, address}], sender: {name, address},
+ *   subject, text_body, html_body, attachment_keys, reply_to, priority
+ * while the frontend uses flat string fields (senderEmail, htmlContent, etc.).
+ */
+function transformEmailPayload(
+  request: SendEmailRequest | QueueEmailRequest,
+): Record<string, unknown> {
+  const toAddr = (email: string) => ({ name: '', address: email });
+  const allRecipients = [
+    ...request.recipients.map(toAddr),
+    ...(request.ccRecipients ?? []).map((e) => ({ name: `cc:${e}`, address: e })),
+    ...(request.bccRecipients ?? []).map((e) => ({ name: `bcc:${e}`, address: e })),
+  ];
+
+  const payload: Record<string, unknown> = {
+    recipients: allRecipients,
+    subject: request.subject,
+    text_body: request.textContent ?? '',
+    html_body: request.htmlContent ?? '',
+    attachment_keys: request.attachmentIds ?? [],
+  };
+
+  // Build sender object when provided
+  if ('senderEmail' in request && (request as SendEmailRequest).senderEmail) {
+    payload.sender = {
+      name: (request as SendEmailRequest).senderName ?? '',
+      address: (request as SendEmailRequest).senderEmail,
+    };
+  }
+
+  if (request.replyTo) {
+    payload.reply_to = request.replyTo;
+  }
+
+  if (request.priority !== undefined) {
+    payload.priority = request.priority;
+  }
+
+  return payload;
+}
+
 export function useSendEmail() {
   const queryClient = useQueryClient();
 
@@ -644,8 +692,8 @@ export function useSendEmail() {
       request: SendEmailRequest,
     ): Promise<ApiResponse<BaseResponseModel>> => {
       const response = await post<BaseResponseModel>(
-        '/v1/notifications/email/send',
-        request,
+        '/notifications/emails/send',
+        transformEmailPayload(request),
       );
       if (!response.success) {
         const errorMessage =
@@ -700,8 +748,8 @@ export function useQueueEmail() {
       request: QueueEmailRequest,
     ): Promise<ApiResponse<BaseResponseModel>> => {
       const response = await post<BaseResponseModel>(
-        '/v1/notifications/email/queue',
-        request,
+        '/notifications/emails/queue',
+        transformEmailPayload(request),
       );
       if (!response.success) {
         const errorMessage =
@@ -751,7 +799,7 @@ export function useCreateEmailTemplate() {
       request: CreateEmailTemplateRequest,
     ): Promise<ApiResponse<EmailTemplate>> => {
       const response = await post<EmailTemplate>(
-        '/v1/notifications/templates',
+        '/notifications/templates',
         request,
       );
       if (!response.success) {
@@ -802,7 +850,7 @@ export function useUpdateEmailTemplate() {
       data: UpdateEmailTemplateRequest;
     }): Promise<ApiResponse<EmailTemplate>> => {
       const response = await put<EmailTemplate>(
-        `/v1/notifications/templates/${params.id}`,
+        `/notifications/templates/${params.id}`,
         params.data,
       );
       if (!response.success) {
@@ -845,7 +893,7 @@ export function useDeleteEmailTemplate() {
       id: string,
     ): Promise<ApiResponse<BaseResponseModel>> => {
       const response = await del<BaseResponseModel>(
-        `/v1/notifications/templates/${id}`,
+        `/notifications/templates/${id}`,
       );
       if (!response.success) {
         const errorMessage =
@@ -907,7 +955,7 @@ export function useUpdateSmtpConfig() {
       data: UpdateSmtpConfigRequest;
     }): Promise<ApiResponse<SmtpConfig>> => {
       const response = await put<SmtpConfig>(
-        `/v1/notifications/smtp-configs/${params.id}`,
+        `/notifications/smtp-configs/${params.id}`,
         params.data,
       );
       if (!response.success) {
@@ -953,7 +1001,7 @@ export function useMarkNotificationRead() {
       id: string,
     ): Promise<ApiResponse<BaseResponseModel>> => {
       const response = await patch<BaseResponseModel>(
-        `/v1/notifications/${id}/read`,
+        `/notifications/${id}/read`,
       );
       if (!response.success) {
         const errorMessage =

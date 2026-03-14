@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>WebVellaErp.Invoicing</AssemblyName>
     <RootNamespace>WebVellaErp.Invoicing</RootNamespace>
-    <OutputType>Library</OutputType>
-    <PublishAot>true</PublishAot>
+    <OutputType>Exe</OutputType>
+    <PublishAot>false</PublishAot>
     <StripSymbols>true</StripSymbols>
     <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
@@ -23,6 +23,7 @@
 
     <!-- AWS Lambda runtime interface: ILambdaContext, LambdaSerializer attribute -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
 
     <!-- AOT-compatible System.Text.Json Lambda serializer for sub-second cold start target -->
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />

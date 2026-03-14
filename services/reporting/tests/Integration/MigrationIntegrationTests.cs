@@ -33,7 +33,8 @@ namespace WebVellaErp.Reporting.Tests.Integration
     /// </para>
     /// </summary>
     [Trait("Category", "Integration")]
-    public class MigrationIntegrationTests : IClassFixture<LocalStackFixture>, IAsyncLifetime
+    [Collection("ReportingIntegration")]
+    public class MigrationIntegrationTests : IAsyncLifetime
     {
         // ============================================================
         // Constants and Fields

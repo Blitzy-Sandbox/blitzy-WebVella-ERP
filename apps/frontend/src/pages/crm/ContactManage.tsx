@@ -168,28 +168,35 @@ export default function ContactManage() {
   /*  Data-fetching queries                                          */
   /* -------------------------------------------------------------- */
 
-  /** Fetch the existing contact record. */
+  /** Fetch the existing contact record.
+   *  IMPORTANT: queryFn returns `response.data` (the API envelope) to match
+   *  the same cache format used by ContactDetails — both share the query key
+   *  `['crm', 'contacts', id]`, so the data shape MUST be consistent.
+   */
   const {
     data: contactResponse,
     isLoading: isContactLoading,
     isError: isContactError,
   } = useQuery({
     queryKey: ['crm', 'contacts', id],
-    queryFn: () => apiClient.get<EntityRecord>(`/v1/crm/contacts/${id}`),
+    queryFn: async () => {
+      const response = await apiClient.get<EntityRecord>(`/crm/contacts/${id}`);
+      return response.data;
+    },
     enabled: Boolean(id),
   });
 
   /** Salutation reference data for the dropdown. */
   const { data: salutationsResponse, isLoading: isSalutationsLoading } = useQuery({
     queryKey: ['crm', 'salutations'],
-    queryFn: () => apiClient.get('/v1/crm/salutations'),
+    queryFn: () => apiClient.get('/crm/salutations'),
     staleTime: REFERENCE_DATA_STALE_TIME,
   });
 
   /** Country reference data for the dropdown. */
   const { data: countriesResponse, isLoading: isCountriesLoading } = useQuery({
     queryKey: ['crm', 'countries'],
-    queryFn: () => apiClient.get('/v1/crm/countries'),
+    queryFn: () => apiClient.get('/crm/countries'),
     staleTime: REFERENCE_DATA_STALE_TIME,
   });
 
@@ -200,7 +207,7 @@ export default function ContactManage() {
   /** PUT /v1/crm/contacts/:id — update contact. */
   const updateContact = useMutation({
     mutationFn: (data: EntityRecord) =>
-      apiClient.put<EntityRecord>(`/v1/crm/contacts/${id}`, data),
+      apiClient.put<EntityRecord>(`/crm/contacts/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'contacts', id] });
       queryClient.invalidateQueries({ queryKey: ['crm', 'contacts'] });
@@ -215,8 +222,11 @@ export default function ContactManage() {
   /*  Populate form when contact data arrives                        */
   /* -------------------------------------------------------------- */
   useEffect(() => {
-    const record = contactResponse?.data?.object as EntityRecord | undefined;
-    if (!record) return;
+    /* contactResponse may be envelope ({ success, object }) or raw Lambda data.
+       Handle both by trying .object first, then the response itself. */
+    const envelope = contactResponse as Record<string, unknown> | undefined;
+    const record = (envelope?.object ?? envelope) as EntityRecord | undefined;
+    if (!record || typeof record !== 'object' || !record.id) return;
 
     const populated = recordToFormState(record);
     setFormState(populated);
@@ -252,22 +262,29 @@ export default function ContactManage() {
   /* -------------------------------------------------------------- */
 
   const salutationOptions: SelectOption[] = useMemo(() => {
-    const raw = salutationsResponse?.data?.object;
+    // Handle both envelope (.data.object) and raw Lambda (.data directly) responses
+    const envelope = salutationsResponse?.data as Record<string, unknown> | undefined;
+    const raw = envelope?.object ?? envelope;
     if (!raw) return [];
-    const list = Array.isArray(raw) ? raw : (raw as { records?: EntityRecord[] })?.records;
+    const list = Array.isArray(raw)
+      ? raw
+      : ((raw as Record<string, unknown>)?.records ?? (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.items);
     if (!Array.isArray(list)) return [];
-    return list.map((s: EntityRecord) => ({
+    return (list as EntityRecord[]).map((s: EntityRecord) => ({
       value: String(s.id ?? ''),
       label: String(s.label ?? s.name ?? ''),
     }));
   }, [salutationsResponse]);
 
   const countryOptions: SelectOption[] = useMemo(() => {
-    const raw = countriesResponse?.data?.object;
+    const envelope = countriesResponse?.data as Record<string, unknown> | undefined;
+    const raw = envelope?.object ?? envelope;
     if (!raw) return [];
-    const list = Array.isArray(raw) ? raw : (raw as { records?: EntityRecord[] })?.records;
+    const list = Array.isArray(raw)
+      ? raw
+      : ((raw as Record<string, unknown>)?.records ?? (raw as Record<string, unknown>)?.data ?? (raw as Record<string, unknown>)?.items);
     if (!Array.isArray(list)) return [];
-    return list.map((c: EntityRecord) => ({
+    return (list as EntityRecord[]).map((c: EntityRecord) => ({
       value: String(c.id ?? ''),
       label: String(c.name ?? c.label ?? ''),
     }));
@@ -496,7 +513,10 @@ export default function ContactManage() {
     );
   }
 
-  if (isContactError || !contactResponse?.data?.object) {
+  // Handle both envelope (.object) and raw Lambda (has .id directly) responses
+  const contactRaw = contactResponse as Record<string, unknown> | undefined;
+  const hasContactData = Boolean(contactRaw?.object ?? contactRaw?.id);
+  if (isContactError || !hasContactData) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="rounded-lg border border-red-200 bg-red-50 p-8 text-center">

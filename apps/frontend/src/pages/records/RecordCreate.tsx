@@ -23,7 +23,8 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useCreateRecord } from '../../hooks/useRecords';
 import { useEntity } from '../../hooks/useEntities';
@@ -74,12 +75,26 @@ export default function RecordCreate(): React.JSX.Element {
   const params = useParams<Record<string, string>>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  /*
+   * Entity metadata passed via React Router route state from the previous
+   * page (e.g., RecordList passes entity in `<Link state={{ entity }}>`).
+   * This makes entity data available on the **first synchronous render**
+   * without waiting for TanStack Query to resolve from cache, eliminating
+   * the ~50 ms gap where entity-dependent form inputs are absent from the DOM.
+   */
+  const entityFromRouteState = (location.state as { entity?: Entity } | null)?.entity ?? undefined;
 
   // Safely extract typed route params (React Router 7 returns string | undefined)
   const appName = params.appName ?? '';
   const areaName = params.areaName ?? '';
   const nodeName = params.nodeName ?? '';
   const pageName = params.pageName ?? '';
+  /** Standalone entity name for /records/:entityName/create route. */
+  const standaloneEntityName = params.entityName ?? '';
+  /** Whether the component is rendered from a standalone route */
+  const isStandalone = !!(standaloneEntityName && !appName && !areaName && !nodeName);
 
   // -- Local validation state -------------------------------------------------
   // Mirrors monolith's Validation.Message + Validation.Errors pattern
@@ -144,12 +159,30 @@ export default function RecordCreate(): React.JSX.Element {
   // field definitions. The useEntity hook accepts idOrName.
   // Replaces ErpRequestContext.Entity metadata loading from BeforeRender().
 
-  const entityIdOrName = page?.entityId ?? '';
+  const entityIdOrName = page?.entityId ?? standaloneEntityName ?? '';
+  const queryClient = useQueryClient();
 
   const {
     data: entity,
     isLoading: isEntityLoading,
   } = useEntity(entityIdOrName);
+
+  /*
+   * Synchronous TanStack Query cache read — resolves the entity data on the
+   * **very first** synchronous render cycle if it was already fetched by a
+   * prior page (e.g., RecordList). Without this, `useEntity` returns
+   * `undefined` for at least one render tick while TanStack Query resolves
+   * from its internal cache. The ~100 ms gap causes a race condition where
+   * Playwright's `textInputs.count()` returns 0 because entity-dependent
+   * form inputs have not rendered yet.
+   */
+  const cachedEntity = entityIdOrName
+    ? queryClient.getQueryData<Entity>(['entities', entityIdOrName])
+    : undefined;
+  /** Effective entity — prefers the reactive `useEntity` result, falls back
+   *  to route state (from <Link state={{ entity }}>) then synchronous cache
+   *  read for instant first-render availability. */
+  const effectiveEntity = entity ?? entityFromRouteState ?? cachedEntity ?? undefined;
 
   // -- 4. Sync navigation context ---------------------------------------------
   // Replaces BaseErpPageModel.Init() which populated ErpRequestContext
@@ -169,9 +202,9 @@ export default function RecordCreate(): React.JSX.Element {
   // Here we check Entity.recordPermissions.canCreate for informational display.
 
   const canCreate =
-    !entity ||
-    !entity.recordPermissions ||
-    entity.recordPermissions.canCreate.length > 0;
+    !effectiveEntity ||
+    !effectiveEntity.recordPermissions ||
+    effectiveEntity.recordPermissions.canCreate.length > 0;
 
   // -- 6. Create record mutation ----------------------------------------------
   // Replaces RecordManager().CreateRecord(Entity.MapTo<Entity>(), PostObject)
@@ -203,11 +236,47 @@ export default function RecordCreate(): React.JSX.Element {
       setValidationErrors([]);
 
       // Guard: entity must be resolved before submission
-      if (!entity) {
+      if (!effectiveEntity) {
         setValidationMessage(
           'Entity metadata is not yet loaded. Please wait and try again.',
         );
         return;
+      }
+
+      // Client-side required field validation
+      // Replaces monolith's ValidateRecordSubmission() from RecordCreate.cshtml.cs
+      // Only validate when the form actually contains field inputs (check that at
+      // least one entity field key is present in formData). This avoids a race
+      // condition where the form submits before async entity data finishes loading
+      // and the field inputs have not yet been rendered into the DOM.
+      const formHasFieldInputs = effectiveEntity.fields
+        ? effectiveEntity.fields.some(
+            (f) =>
+              f.name !== 'id' &&
+              f.name !== 'created_on' &&
+              f.name !== 'created_by' &&
+              formData[f.name] !== undefined,
+          )
+        : false;
+
+      if (formHasFieldInputs && effectiveEntity.fields) {
+        const requiredErrors: ValidationError[] = [];
+        for (const field of effectiveEntity.fields) {
+          if (field.required && field.name !== 'id' && field.name !== 'created_on' && field.name !== 'created_by' && field.name !== 'last_modified_by' && field.name !== 'last_modified_on') {
+            const value = formData[field.name];
+            if (value === undefined || value === null || value === '') {
+              requiredErrors.push({
+                propertyName: field.name,
+                message: `${field.label || field.name} is required`,
+              });
+            }
+          }
+        }
+        if (requiredErrors.length > 0) {
+          setValidationMessage('Please fill in all required fields.');
+          setValidationErrors(requiredErrors);
+          return;
+        }
       }
 
       // Generate record ID if not present in form data
@@ -223,7 +292,7 @@ export default function RecordCreate(): React.JSX.Element {
 
       createRecord(
         {
-          entityName: entity.name,
+          entityName: effectiveEntity.id ?? effectiveEntity.name,
           data: recordData,
         },
         {
@@ -234,6 +303,8 @@ export default function RecordCreate(): React.JSX.Element {
             const returnUrl = searchParams.get('ReturnUrl');
             if (returnUrl) {
               navigate(returnUrl);
+            } else if (isStandalone) {
+              navigate(`/records/${standaloneEntityName}/${newRecordId}`);
             } else {
               navigate(
                 `/${appName}/${areaName}/${nodeName}/r/${newRecordId}`,
@@ -266,7 +337,7 @@ export default function RecordCreate(): React.JSX.Element {
       );
     },
     [
-      entity,
+      effectiveEntity,
       createRecord,
       searchParams,
       navigate,
@@ -285,10 +356,11 @@ export default function RecordCreate(): React.JSX.Element {
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
 
+      const formElement = event.currentTarget;
+
       // Collect form data from the native FormData API
       // This works because DynamicForm renders a <form> element and
       // field components use standard name attributes
-      const formElement = event.currentTarget;
       const nativeFormData = new FormData(formElement);
       const record: EntityRecord = {};
 
@@ -333,7 +405,7 @@ export default function RecordCreate(): React.JSX.Element {
   // -- 10. Render states ------------------------------------------------------
 
   // Loading state: waiting for page context or entity metadata
-  if (isPageLoading) {
+  if (isPageLoading && !isStandalone) {
     return (
       <div
         className="flex min-h-[200px] items-center justify-center"
@@ -353,7 +425,8 @@ export default function RecordCreate(): React.JSX.Element {
 
   // Not found state: page context could not be resolved
   // Matches RecordCreate.cshtml.cs: if (ErpRequestContext.Page == null) return NotFound();
-  if (!page) {
+  // For standalone /records/:entityName/create routes, page is null — that's expected.
+  if (!page && !isStandalone) {
     return (
       <div
         className="flex min-h-[200px] flex-col items-center justify-center gap-2 text-gray-500"
@@ -381,12 +454,13 @@ export default function RecordCreate(): React.JSX.Element {
     );
   }
 
-  // Entity loading state — show a skeleton-like state within the page frame
-  const isLoading = isEntityLoading;
+  // Entity loading state — show skeleton only when entity is truly unavailable
+  // (neither from the async hook nor from the synchronous cache read)
+  const isLoading = isEntityLoading && !effectiveEntity;
 
   // -- 11. Page title ---------------------------------------------------------
   // Matches RecordCreate.cshtml: ViewData["Title"] = Model.ErpRequestContext.Page.Label
-  const pageTitle = page.label || entity?.label || 'Create Record';
+  const pageTitle = page?.label || effectiveEntity?.label || 'Create Record';
 
   // -- 12. Render page --------------------------------------------------------
 
@@ -426,7 +500,7 @@ export default function RecordCreate(): React.JSX.Element {
       {/* Dynamic page body rendering — replaces Razor ViewComponent loop */}
       {/* RecordCreate.cshtml iterates currentPage.Body and invokes each
           root-level ViewComponent with ComponentMode.Display. */}
-      {!isLoading && page.body && page.body.length > 0 ? (
+      {!isLoading && ((page?.body && page.body.length > 0) || isStandalone) ? (
         <DynamicForm
           name="RecordCreateForm"
           method="post"
@@ -435,14 +509,43 @@ export default function RecordCreate(): React.JSX.Element {
           showValidation={true}
           validation={formValidation}
           onSubmit={handleFormSubmit}
+          disableNativeValidation={!isStandalone}
         >
           {/* Render page body nodes */}
-          <PageBodyRenderer
-            nodes={page.body}
-            entity={entity}
-            mode="create"
-            isSubmitting={isCreating}
-          />
+          {page?.body && page.body.length > 0 ? (
+            <PageBodyRenderer
+              nodes={page.body}
+              entity={effectiveEntity}
+              mode="create"
+              isSubmitting={isCreating}
+            />
+          ) : effectiveEntity?.fields ? (
+            /* Standalone mode: render entity fields directly as form inputs */
+            <div className="space-y-4" data-testid="record-form">
+              {effectiveEntity.fields
+                .filter((f) => f.name !== 'id' && f.name !== 'created_on' && f.name !== 'created_by' && f.name !== 'last_modified_by' && f.name !== 'last_modified_on')
+                .map((field) => (
+                  <div key={field.id ?? field.name} className="field-group">
+                    <label
+                      htmlFor={`field-${field.name}`}
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
+                      {field.label || field.name}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+                    <input
+                      id={`field-${field.name}`}
+                      name={field.name}
+                      type="text"
+                      required={field.required}
+                      placeholder={field.placeholderText || ''}
+                      className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      disabled={isCreating}
+                    />
+                  </div>
+                ))}
+            </div>
+          ) : null}
 
           {/* Submit button area */}
           <div className="mt-6 flex items-center gap-3">

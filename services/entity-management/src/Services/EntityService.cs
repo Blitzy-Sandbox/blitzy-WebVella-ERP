@@ -215,7 +215,11 @@ namespace WebVellaErp.EntityManagement.Services
         private const string ENTITIES_HASH_CACHE_KEY = "entities_hash";
         private const string RELATIONS_CACHE_KEY = "relations";
         private const string RELATIONS_HASH_CACHE_KEY = "relations_hash";
-        private static readonly TimeSpan CACHE_TTL = TimeSpan.FromHours(1);
+        // Short TTL (5 seconds) to handle cross-Lambda cache staleness.
+        // In a multi-Lambda architecture (EntityHandler vs RecordHandler),
+        // mutations on one Lambda clear its local cache but leave the other
+        // Lambda's cache stale.  A short TTL ensures near-real-time freshness.
+        private static readonly TimeSpan CACHE_TTL = TimeSpan.FromSeconds(5);
 
         // ─── Thread Safety ────────────────────────────────────────────────
 
@@ -546,18 +550,33 @@ namespace WebVellaErp.EntityManagement.Services
             {
                 _logger.LogInformation("ReadEntity by name started. Name={EntityName}", entityName);
 
-                // Delegate to ReadEntities and filter by name (source pattern)
+                // Try cache first via ReadEntities (source pattern)
                 var allResponse = await ReadEntities();
-                if (!allResponse.Success)
+                Entity? entity = null;
+                if (allResponse.Success && allResponse.Object != null)
                 {
-                    response.Success = false;
-                    response.Message = allResponse.Message;
-                    response.Errors = allResponse.Errors;
-                    return response;
+                    entity = allResponse.Object
+                        .FirstOrDefault(e => string.Equals(e.Name, entityName, StringComparison.OrdinalIgnoreCase));
                 }
 
-                var entity = allResponse.Object?
-                    .FirstOrDefault(e => string.Equals(e.Name, entityName, StringComparison.OrdinalIgnoreCase));
+                // Cache miss: query DynamoDB directly via GSI1 name lookup —
+                // handles cross-Lambda cache staleness.
+                if (entity == null)
+                {
+                    _logger.LogInformation(
+                        "ReadEntity cache miss for Name={EntityName}, querying DynamoDB directly.", entityName);
+
+                    entity = await _entityRepository.GetEntityByName(entityName);
+
+                    if (entity != null)
+                    {
+                        lock (_lockObj)
+                        {
+                            _cache.Remove(ENTITIES_CACHE_KEY);
+                            _cache.Remove(ENTITIES_HASH_CACHE_KEY);
+                        }
+                    }
+                }
 
                 response.Object = entity;
                 response.Success = true;
@@ -587,18 +606,35 @@ namespace WebVellaErp.EntityManagement.Services
             {
                 _logger.LogInformation("ReadEntity by id started. Id={EntityId}", entityId);
 
-                // Delegate to ReadEntities and filter by ID (source pattern)
+                // Try cache first via ReadEntities (source pattern)
                 var allResponse = await ReadEntities();
-                if (!allResponse.Success)
+                Entity? entity = null;
+                if (allResponse.Success && allResponse.Object != null)
                 {
-                    response.Success = false;
-                    response.Message = allResponse.Message;
-                    response.Errors = allResponse.Errors;
-                    return response;
+                    entity = allResponse.Object.FirstOrDefault(e => e.Id == entityId);
                 }
 
-                var entity = allResponse.Object?
-                    .FirstOrDefault(e => e.Id == entityId);
+                // Cache miss: query DynamoDB directly by PK — handles cross-Lambda
+                // cache staleness (entity created by one Lambda, read by another whose
+                // 1-hour IMemoryCache hasn't expired yet).
+                if (entity == null)
+                {
+                    _logger.LogInformation(
+                        "ReadEntity cache miss for Id={EntityId}, querying DynamoDB directly.", entityId);
+
+                    entity = await _entityRepository.GetEntityById(entityId);
+
+                    // If found, invalidate the stale cache so subsequent list calls
+                    // pick up the newly discovered entity.
+                    if (entity != null)
+                    {
+                        lock (_lockObj)
+                        {
+                            _cache.Remove(ENTITIES_CACHE_KEY);
+                            _cache.Remove(ENTITIES_HASH_CACHE_KEY);
+                        }
+                    }
+                }
 
                 response.Object = entity;
                 response.Success = true;
@@ -626,37 +662,13 @@ namespace WebVellaErp.EntityManagement.Services
             var response = new EntityListResponse();
             try
             {
-                // Check cache first (source: EntityManager.ReadEntities line 433)
-                if (_cache.TryGetValue<List<Entity>>(ENTITIES_CACHE_KEY, out var cachedEntities)
-                    && cachedEntities != null)
-                {
-                    response.Object = cachedEntities;
-                    response.Success = true;
-                    if (_cache.TryGetValue<string>(ENTITIES_HASH_CACHE_KEY, out var cachedHash))
-                    {
-                        response.Hash = cachedHash;
-                    }
-                    return response;
-                }
-
-                // Double-check lock pattern for cache population (source: EntityManager line 440)
-                lock (_lockObj)
-                {
-                    if (_cache.TryGetValue<List<Entity>>(ENTITIES_CACHE_KEY, out cachedEntities)
-                        && cachedEntities != null)
-                    {
-                        response.Object = cachedEntities;
-                        response.Success = true;
-                        if (_cache.TryGetValue<string>(ENTITIES_HASH_CACHE_KEY, out var cachedHash2))
-                        {
-                            response.Hash = cachedHash2;
-                        }
-                        return response;
-                    }
-                }
-
-                // Cache miss — load from repository (source: EntityManager line 445)
-                _logger.LogInformation("ReadEntities cache miss — loading from repository.");
+                // In the serverless microservices architecture, entity mutations (create/update/delete)
+                // may be processed by a different Lambda instance than list queries (GET /v1/entities).
+                // Each Lambda has its own in-process IMemoryCache, so the list Lambda's cache becomes
+                // stale when mutations happen on other Lambda instances. To guarantee strong consistency,
+                // ReadEntities always queries DynamoDB directly (sub-10ms latency per AAP §0.8.2).
+                // Individual entity lookups (ReadEntity by id/name) still use cache-then-fallback.
+                _logger.LogInformation("ReadEntities — loading from repository (no cache for list consistency).");
 
                 var entities = await _entityRepository.GetAllEntities();
                 if (entities == null)

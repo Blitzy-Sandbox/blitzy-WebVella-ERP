@@ -23,7 +23,7 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useEntity, useDeleteField } from '../../hooks/useEntities';
+import { useEntity, useEntityFields, useDeleteField } from '../../hooks/useEntities';
 import { useRoles } from '../../hooks/useUsers';
 import type {
   Entity,
@@ -234,14 +234,21 @@ export default function AdminEntityFieldDetails() {
 
   const { data: rolesData, isLoading: rolesLoading } = useRoles();
 
+  /* --- Fields fetched independently from /entities/{id}/fields ----- */
+  const { data: apiFields, isLoading: fieldsLoading } = useEntityFields(entityId);
+
   /* --- Local state: delete modal ----------------------------------- */
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
 
-  /* --- Derived: locate field from entity's fields array ------------ */
+  /* --- Derived: locate field from the fields list ------------------ */
   const field = useMemo<AnyField | undefined>(() => {
-    if (!entity?.fields || !fieldId) return undefined;
-    return entity.fields.find((f) => f.id === fieldId) as AnyField | undefined;
-  }, [entity, fieldId]);
+    if (!fieldId) return undefined;
+    // Prefer fields from the dedicated API endpoint; fall back to entity.fields
+    const allFields = (apiFields && apiFields.length > 0)
+      ? apiFields
+      : (entity?.fields ?? []);
+    return (allFields as AnyField[]).find((f) => f.id === fieldId);
+  }, [apiFields, entity, fieldId]);
 
   /** Memoised field-type card metadata for the current field. */
   const fieldCard = useMemo<FieldTypeCardInfo>(() => {
@@ -425,6 +432,7 @@ export default function AdminEntityFieldDetails() {
       <div className="mb-6 flex items-center gap-3">
         <Link
           to={`/admin/entities/${entityId}/fields/${fieldId}/manage`}
+          data-testid="edit-field-btn"
           className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
         >
           <i className="fa fa-pencil-alt text-xs" aria-hidden="true" />

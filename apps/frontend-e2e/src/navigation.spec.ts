@@ -67,7 +67,7 @@ const TEST_EMAIL: string = process.env.TEST_EMAIL ?? 'erp@webvella.com';
  * Default system user password — migrated to Cognito user pool.
  * Original monolith used MD5-hashed password for erp@webvella.com.
  */
-const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erp';
+const TEST_PASSWORD: string = process.env.TEST_PASSWORD ?? 'erpadmin';
 
 /** Login page route — replaces login.cshtml Razor Page. */
 const LOGIN_URL = '/login';
@@ -142,7 +142,7 @@ async function loginToApp(
   email: string = TEST_EMAIL,
   password: string = TEST_PASSWORD,
 ): Promise<void> {
-  await page.goto(LOGIN_URL, { waitUntil: 'networkidle' });
+  await page.goto(LOGIN_URL, { waitUntil: 'load' });
 
   // Fill credentials — prefer accessible locators (getByLabel) so tests
   // remain resilient to markup changes.  Login.tsx renders:
@@ -194,7 +194,8 @@ function getTopNav(page: Page) {
     .locator('[data-testid="top-nav"]')
     .or(page.locator('header'))
     .or(page.locator('nav[aria-label*="top" i]'))
-    .or(page.locator('nav[aria-label*="main" i]'));
+    .or(page.locator('nav[aria-label*="main" i]'))
+    .or(page.locator('nav[aria-label*="primary" i]'));
 }
 
 /**
@@ -371,8 +372,9 @@ test.describe('Navigation', () => {
       const navItems = sidebar
         .first()
         .locator('a, [role="menuitem"], [role="treeitem"], li, .nav-item, .sidebar-item');
-      const itemCount = await navItems.count();
-      expect(itemCount).toBeGreaterThan(0);
+      // Use a waiting assertion — the sidebar items are populated
+      // asynchronously after the apps API response is received.
+      await expect(navItems.first()).toBeVisible({ timeout: UI_TIMEOUT });
     });
 
     /**
@@ -390,45 +392,38 @@ test.describe('Navigation', () => {
       // Wait for the layout to adjust.
       await page.waitForTimeout(500);
 
-      // The sidebar may be hidden by default on mobile.
-      const sidebar = getSidebar(page);
-
-      // Look for a sidebar toggle button — commonly a hamburger icon.
-      const toggleButton = page
-        .locator('[data-testid="sidebar-toggle"]')
-        .or(page.locator('[aria-label*="menu" i]'))
-        .or(page.locator('[aria-label*="sidebar" i]'))
-        .or(page.locator('[aria-label*="toggle" i]'))
-        .or(page.locator('button.hamburger'))
-        .or(page.locator('.sidebar-toggle'));
+      // Look for the sidebar toggle button (hamburger icon at bottom-right on mobile).
+      // Use specific data-testid first, then fall back to aria-label for the
+      // navigation menu toggle (NOT the "Site menu" dropdown in the top nav).
+      const toggleButton = page.locator('[data-testid="sidebar-toggle"]');
 
       // If a toggle button exists, click it and verify sidebar visibility.
       const toggleExists = (await toggleButton.count()) > 0;
       if (toggleExists) {
-        // Determine initial state: sidebar may be hidden or visible.
-        const sidebarVisible = await sidebar.first().isVisible().catch(() => false);
+        // On mobile, the desktop sidebar is hidden and the toggle opens
+        // a mobile overlay. Use the mobile-sidebar data-testid or check
+        // for any visible sidebar/nav after toggle.
+        const mobileSidebar = page
+          .locator('[data-testid="mobile-sidebar"]')
+          .or(page.locator('[role="dialog"] nav'))
+          .or(page.locator('[aria-label="Mobile navigation"] nav'));
 
-        // Click toggle — should change sidebar visibility.
+        // Before toggle: no mobile sidebar overlay
+        await expect(mobileSidebar.first()).toBeHidden({ timeout: UI_TIMEOUT }).catch(() => {});
+
+        // Click toggle — should show mobile sidebar overlay.
         await toggleButton.first().click();
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(500);
 
-        if (sidebarVisible) {
-          // Sidebar was visible → toggle should hide it.
-          await expect(sidebar.first()).toBeHidden({ timeout: UI_TIMEOUT });
-        } else {
-          // Sidebar was hidden → toggle should show it.
-          await expect(sidebar.first()).toBeVisible({ timeout: UI_TIMEOUT });
-        }
+        // Mobile overlay sidebar should now be visible
+        await expect(mobileSidebar.first()).toBeVisible({ timeout: UI_TIMEOUT });
 
-        // Click toggle again to restore original state.
+        // Click toggle again to close overlay.
         await toggleButton.first().click();
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(500);
 
-        if (sidebarVisible) {
-          await expect(sidebar.first()).toBeVisible({ timeout: UI_TIMEOUT });
-        } else {
-          await expect(sidebar.first()).toBeHidden({ timeout: UI_TIMEOUT });
-        }
+        // Mobile overlay sidebar should be hidden again
+        await expect(mobileSidebar.first()).toBeHidden({ timeout: UI_TIMEOUT });
       } else {
         // No toggle button — the sidebar itself should adapt responsively.
         // On mobile, at least the main content should be fully visible.
@@ -459,6 +454,16 @@ test.describe('Navigation', () => {
     test('should display application list in app switcher', async ({
       page,
     }) => {
+      // Wait for the apps API response to be reflected in the sidebar
+      // before attempting to open the app switcher dropdown.  The sidebar
+      // and the site-menu (app switcher dropdown) are both populated from
+      // the same API response, so waiting for sidebar links guarantees
+      // the dropdown content is also available.
+      const sidebar = getSidebar(page);
+      await expect(
+        sidebar.first().locator('a').first(),
+      ).toBeVisible({ timeout: UI_TIMEOUT });
+
       // Open the app switcher — in the monolith, the ApplicationMenu
       // was either always visible in the sidebar header or toggled via
       // a dropdown in the top nav.
@@ -486,9 +491,10 @@ test.describe('Navigation', () => {
         );
 
       // There must be at least one application in the list — the seeded
-      // test data always includes the TEST_APP_NAME.
-      const appCount = await appListItems.count();
-      expect(appCount).toBeGreaterThanOrEqual(1);
+      // test data always includes the TEST_APP_NAME.  Use a waiting
+      // assertion because the app list is populated asynchronously after
+      // the apps API response is received from the Lambda handler.
+      await expect(appListItems.first()).toBeVisible({ timeout: UI_TIMEOUT });
     });
 
     /**
@@ -502,7 +508,7 @@ test.describe('Navigation', () => {
       // Navigate to the test app's home route — the React SPA should
       // resolve this to the app's default page, just as
       // ApplicationHomePageModel.OnGet() did.
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
 
       // Wait for the page to settle.
       await page.waitForSelector(
@@ -532,7 +538,7 @@ test.describe('Navigation', () => {
      */
     test('should switch between applications', async ({ page }) => {
       // Navigate to the first app.
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -543,7 +549,7 @@ test.describe('Navigation', () => {
       const initialSidebarText = await sidebar.first().textContent() ?? '';
 
       // Navigate to the alternate app — simulating an app switch.
-      await page.goto(`/${TEST_APP_NAME_ALT}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME_ALT}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -576,7 +582,7 @@ test.describe('Navigation', () => {
       page,
     }) => {
       // Navigate to the test app.
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -618,7 +624,7 @@ test.describe('Navigation', () => {
     test('should navigate between area nodes', async ({ page }) => {
       // Navigate to a specific node within the test app.
       const nodeUrl = `/${TEST_APP_NAME}/${TEST_AREA_NAME}/${TEST_NODE_NAME}`;
-      await page.goto(nodeUrl, { waitUntil: 'networkidle' });
+      await page.goto(nodeUrl, { waitUntil: 'load' });
 
       // Wait for the page content to render.
       await page.waitForSelector(
@@ -650,12 +656,20 @@ test.describe('Navigation', () => {
     test('should display breadcrumb navigation trail', async ({ page }) => {
       // Navigate to a deep node to generate a meaningful breadcrumb.
       const nodeUrl = `/${TEST_APP_NAME}/${TEST_AREA_NAME}/${TEST_NODE_NAME}`;
-      await page.goto(nodeUrl, { waitUntil: 'networkidle' });
+      await page.goto(nodeUrl, { waitUntil: 'load' });
 
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
       );
+
+      // Wait for the apps API response to be reflected in the sidebar,
+      // which indicates the breadcrumb data is also available.
+      // Use NAV_TIMEOUT to accommodate Lambda cold starts against LocalStack.
+      const sidebar = getSidebar(page);
+      await expect(
+        sidebar.first().locator('a').first(),
+      ).toBeVisible({ timeout: NAV_TIMEOUT });
 
       // Find the breadcrumb element.
       const breadcrumb = getBreadcrumb(page);
@@ -696,7 +710,7 @@ test.describe('Navigation', () => {
     test('should navigate via breadcrumbs', async ({ page }) => {
       // Navigate to a deep node first.
       const nodeUrl = `/${TEST_APP_NAME}/${TEST_AREA_NAME}/${TEST_NODE_NAME}`;
-      await page.goto(nodeUrl, { waitUntil: 'networkidle' });
+      await page.goto(nodeUrl, { waitUntil: 'load' });
 
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
@@ -752,7 +766,7 @@ test.describe('Navigation', () => {
     test('should highlight active node in sidebar', async ({ page }) => {
       // Navigate to a specific node.
       const nodeUrl = `/${TEST_APP_NAME}/${TEST_AREA_NAME}/${TEST_NODE_NAME}`;
-      await page.goto(nodeUrl, { waitUntil: 'networkidle' });
+      await page.goto(nodeUrl, { waitUntil: 'load' });
 
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
@@ -761,6 +775,14 @@ test.describe('Navigation', () => {
 
       const sidebar = getSidebar(page);
       await expect(sidebar.first()).toBeVisible({ timeout: UI_TIMEOUT });
+
+      // Wait for the sidebar to be fully populated (API response loaded +
+      // auto-expand effect completed).  Sidebar links appear only after
+      // the apps API response is received and parent items are expanded.
+      // Use NAV_TIMEOUT to accommodate Lambda cold starts against LocalStack.
+      await expect(
+        sidebar.first().locator('a').first(),
+      ).toBeVisible({ timeout: NAV_TIMEOUT });
 
       // Look for an active/highlighted item in the sidebar.
       // React Router's NavLink sets aria-current="page" on the active link.
@@ -771,36 +793,15 @@ test.describe('Navigation', () => {
           '[aria-current="page"], [aria-current="true"], .active, [data-active="true"], .nav-item--active, .sidebar-item--active',
         );
 
-      const activeCount = await activeItem.count();
+      // Use a waiting assertion because the active state is set after
+      // the NavLink matches the current route.
+      await expect(activeItem.first()).toBeVisible({ timeout: UI_TIMEOUT });
 
-      if (activeCount > 0) {
-        // At least one sidebar item should be marked active.
-        await expect(activeItem.first()).toBeVisible({ timeout: UI_TIMEOUT });
-
-        // The active item should relate to the current node being viewed.
-        const activeText = (await activeItem.first().textContent()) ?? '';
-        // Don't assert exact text match (the label may differ from the
-        // node name slug) — just confirm the active element is present.
-        expect(activeText.length).toBeGreaterThan(0);
-      } else {
-        // Alternatively, verify that a sidebar link matching the current
-        // URL path has some visual distinction (even without aria-current).
-        const currentPath = new URL(page.url()).pathname.toLowerCase();
-        const allLinks = sidebar.first().locator('a');
-        const linkCount = await allLinks.count();
-
-        let foundMatching = false;
-        for (let i = 0; i < linkCount; i++) {
-          const href = (await allLinks.nth(i).getAttribute('href')) ?? '';
-          if (currentPath.includes(href.toLowerCase()) && href.length > 1) {
-            foundMatching = true;
-            break;
-          }
-        }
-
-        // There should be a sidebar link corresponding to the current route.
-        expect(foundMatching || linkCount > 0).toBeTruthy();
-      }
+      // The active item should relate to the current node being viewed.
+      const activeText = (await activeItem.first().textContent()) ?? '';
+      // Don't assert exact text match (the label may differ from the
+      // node name slug) — just confirm the active element is present.
+      expect(activeText.length).toBeGreaterThan(0);
     });
 
     /**
@@ -809,7 +810,7 @@ test.describe('Navigation', () => {
      */
     test('should navigate by clicking sidebar items', async ({ page }) => {
       // Start from the dashboard or app home.
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -1026,7 +1027,7 @@ test.describe('Navigation', () => {
     }) => {
       // Navigate directly to a specific app page (not through sidebar clicks).
       const deepUrl = `/${TEST_APP_NAME}`;
-      await page.goto(deepUrl, { waitUntil: 'networkidle' });
+      await page.goto(deepUrl, { waitUntil: 'load' });
 
       // The login guard may redirect to /login first — re-authenticate
       // if needed.
@@ -1066,7 +1067,7 @@ test.describe('Navigation', () => {
       page,
     }) => {
       const deepNodeUrl = `/${TEST_APP_NAME}/${TEST_AREA_NAME}/${TEST_NODE_NAME}`;
-      await page.goto(deepNodeUrl, { waitUntil: 'networkidle' });
+      await page.goto(deepNodeUrl, { waitUntil: 'load' });
 
       // Re-authenticate if redirected to login.
       if (page.url().includes('/login')) {
@@ -1076,7 +1077,7 @@ test.describe('Navigation', () => {
           { timeout: AUTH_TIMEOUT },
         );
         // Navigate again after login.
-        await page.goto(deepNodeUrl, { waitUntil: 'networkidle' });
+        await page.goto(deepNodeUrl, { waitUntil: 'load' });
       }
 
       await page.waitForSelector(
@@ -1109,7 +1110,7 @@ test.describe('Navigation', () => {
     }) => {
       // Navigate to a route that should not exist.
       const bogusUrl = '/this-app-does-not-exist-xyz-12345';
-      await page.goto(bogusUrl, { waitUntil: 'networkidle' });
+      await page.goto(bogusUrl, { waitUntil: 'load' });
 
       // Re-authenticate if redirected to login.
       if (page.url().includes('/login')) {
@@ -1119,11 +1120,11 @@ test.describe('Navigation', () => {
           { timeout: AUTH_TIMEOUT },
         );
         // Navigate again after login.
-        await page.goto(bogusUrl, { waitUntil: 'networkidle' });
+        await page.goto(bogusUrl, { waitUntil: 'load' });
       }
 
       // Wait for the page to finish loading.
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('load');
 
       // The SPA should show a not-found / 404 message.
       // Look for common 404 indicators.
@@ -1163,7 +1164,7 @@ test.describe('Navigation', () => {
      */
     test('should support browser back navigation', async ({ page }) => {
       // Navigate to the dashboard.
-      await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle' });
+      await page.goto(DASHBOARD_URL, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -1171,7 +1172,7 @@ test.describe('Navigation', () => {
       const firstUrl = page.url();
 
       // Navigate to an app page.
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -1182,7 +1183,7 @@ test.describe('Navigation', () => {
       expect(secondUrl).not.toEqual(firstUrl);
 
       // Press the browser back button.
-      await page.goBack({ waitUntil: 'networkidle' });
+      await page.goBack({ waitUntil: 'load' });
 
       // Wait for the page to settle.
       await page.waitForSelector(
@@ -1203,13 +1204,13 @@ test.describe('Navigation', () => {
      */
     test('should support browser forward navigation', async ({ page }) => {
       // Build a navigation history stack.
-      await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle' });
+      await page.goto(DASHBOARD_URL, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
       );
 
-      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'networkidle' });
+      await page.goto(`/${TEST_APP_NAME}`, { waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
@@ -1217,14 +1218,14 @@ test.describe('Navigation', () => {
       const forwardTarget = page.url();
 
       // Go back.
-      await page.goBack({ waitUntil: 'networkidle' });
+      await page.goBack({ waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },
       );
 
       // Go forward.
-      await page.goForward({ waitUntil: 'networkidle' });
+      await page.goForward({ waitUntil: 'load' });
       await page.waitForSelector(
         'main, [data-testid="main-content"], [role="main"]',
         { timeout: NAV_TIMEOUT },

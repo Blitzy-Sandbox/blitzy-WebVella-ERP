@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Amazon.Runtime;
 using Amazon.SimpleNotificationService;
@@ -64,6 +65,31 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// </summary>
         private const string DefaultConnectionString =
             "Host=localhost;Port=4510;Database=invoicing_test;Username=test;Password=test;";
+
+        /// <summary>
+        /// Static semaphore to serialize fixture initialization across parallel test classes.
+        /// xUnit creates a separate IClassFixture instance per test class. When test classes
+        /// run in parallel, multiple fixtures attempt InitializeAsync concurrently, racing on
+        /// CREATE DATABASE and CREATE SCHEMA operations. This semaphore ensures only one
+        /// fixture performs database/migration setup at a time.
+        /// </summary>
+        private static readonly SemaphoreSlim _initLock = new(1, 1);
+
+        /// <summary>
+        /// Static flag tracking whether FluentMigrator migrations have been applied.
+        /// Once the first fixture instance successfully runs MigrateUp(), subsequent
+        /// instances skip the migration step to avoid concurrent CREATE SCHEMA conflicts
+        /// (PostgreSQL error 23505 on pg_namespace_nspname_index).
+        /// </summary>
+        private static bool _migrationsCompleted;
+
+        /// <summary>
+        /// Reference count of active fixture instances. Incremented in InitializeAsync,
+        /// decremented in DisposeAsync. The last fixture to dispose performs schema cleanup.
+        /// This prevents early-disposing fixtures from dropping the schema while other
+        /// test classes still depend on it.
+        /// </summary>
+        private static int _activeFixtureCount;
 
         /// <summary>
         /// PostgreSQL connection string for integration tests.
@@ -151,55 +177,94 @@ namespace WebVellaErp.Invoicing.Tests.Integration
             };
             SsmClient = new AmazonSimpleSystemsManagementClient(credentials, ssmConfig);
 
-            // Step 3: Verify PostgreSQL connection with health check.
-            // Pattern from source DbConnection.cs line 42: connection.Open();
-            // If LocalStack PostgreSQL is not running, log a warning and skip DB setup.
-            // Tests decorated with [RdsFact] will be automatically skipped when RDS is unavailable,
-            // so the fixture must NOT throw — it must remain usable for non-RDS test discovery.
+            // Step 3: Serialize database creation and migration execution.
+            // Multiple IClassFixture<LocalStackFixture> instances run InitializeAsync concurrently.
+            // Without serialization, concurrent CREATE DATABASE and CREATE SCHEMA operations
+            // trigger PostgreSQL unique constraint violations (23505 on pg_namespace_nspname_index).
+            // The static semaphore ensures only one fixture performs setup at a time.
+            await _initLock.WaitAsync();
             try
             {
-                await using var healthCheckConnection = new NpgsqlConnection(ConnectionString);
-                await healthCheckConnection.OpenAsync();
-                await using var healthCmd = new NpgsqlCommand("SELECT 1;", healthCheckConnection);
-                var healthResult = await healthCmd.ExecuteScalarAsync();
-                if (healthResult == null || Convert.ToInt32(healthResult) != 1)
+                // Step 3a: Ensure the test database exists by connecting to the default 'postgres'
+                // database and issuing CREATE DATABASE (PostgreSQL lacks IF NOT EXISTS for databases).
+                try
+                {
+                    var adminConnectionString = "Host=localhost;Port=4510;Database=postgres;Username=test;Password=test;Timeout=10";
+                    await using var adminConnection = new NpgsqlConnection(adminConnectionString);
+                    await adminConnection.OpenAsync();
+
+                    await using var checkCmd = new NpgsqlCommand(
+                        $"SELECT 1 FROM pg_database WHERE datname = '{TestDatabaseName}'", adminConnection);
+                    var exists = await checkCmd.ExecuteScalarAsync();
+
+                    if (exists == null)
+                    {
+                        await using var createCmd = new NpgsqlCommand(
+                            $"CREATE DATABASE \"{TestDatabaseName}\"", adminConnection);
+                        await createCmd.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex)
                 {
                     Console.Error.WriteLine(
-                        "[LocalStackFixture] WARNING: PostgreSQL health check returned unexpected result. " +
-                        "RDS-dependent integration tests will be skipped via [RdsFact].");
+                        $"[LocalStackFixture] WARNING: Failed to create test database '{TestDatabaseName}'. " +
+                        $"RDS-dependent integration tests will be skipped via [RdsFact]. Error: {ex.Message}");
                     return;
                 }
+
+                // Step 3b: Verify PostgreSQL connection with health check.
+                // Pattern from source DbConnection.cs line 42: connection.Open();
+                try
+                {
+                    await using var healthCheckConnection = new NpgsqlConnection(ConnectionString);
+                    await healthCheckConnection.OpenAsync();
+                    await using var healthCmd = new NpgsqlCommand("SELECT 1;", healthCheckConnection);
+                    var healthResult = await healthCmd.ExecuteScalarAsync();
+                    if (healthResult == null || Convert.ToInt32(healthResult) != 1)
+                    {
+                        Console.Error.WriteLine(
+                            "[LocalStackFixture] WARNING: PostgreSQL health check returned unexpected result. " +
+                            "RDS-dependent integration tests will be skipped via [RdsFact].");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"[LocalStackFixture] WARNING: Failed to connect to PostgreSQL at '{ConnectionString}'. " +
+                        $"RDS-dependent integration tests will be skipped via [RdsFact]. Error: {ex.Message}");
+                    return;
+                }
+
+                // Step 4: Configure FluentMigrator DI container.
+                // Each fixture instance gets its own ServiceProvider for migration runner resolution.
+                var services = new ServiceCollection()
+                    .AddFluentMigratorCore()
+                    .ConfigureRunner(rb => rb
+                        .AddPostgres()
+                        .WithGlobalConnectionString(ConnectionString)
+                        .ScanIn(typeof(InitialCreate).Assembly).For.Migrations())
+                    .AddLogging(lb => lb.AddFluentMigratorConsole())
+                    .BuildServiceProvider(false);
+
+                ServiceProvider = services;
+
+                // Execute migrations only once across all parallel fixture instances.
+                // FluentMigrator's CREATE SCHEMA is not idempotent — concurrent MigrateUp
+                // calls race on schema creation causing 23505 constraint violations.
+                if (!_migrationsCompleted)
+                {
+                    var runner = ServiceProvider.GetRequiredService<IMigrationRunner>();
+                    runner.MigrateUp();
+                    _migrationsCompleted = true;
+                }
+
+                Interlocked.Increment(ref _activeFixtureCount);
             }
-            catch (Exception ex)
+            finally
             {
-                Console.Error.WriteLine(
-                    $"[LocalStackFixture] WARNING: Failed to connect to PostgreSQL at '{ConnectionString}'. " +
-                    $"RDS-dependent integration tests will be skipped via [RdsFact]. Error: {ex.Message}");
-                return;
+                _initLock.Release();
             }
-
-            // Step 4: Configure and run FluentMigrator.
-            // Build a DI container with FluentMigrator core, PostgreSQL runner,
-            // migration assembly scanning (via typeof(InitialCreate).Assembly),
-            // and console logging for migration output.
-            // Pattern mirrors source DbRepository.CreatePostgresqlExtensions (line 30)
-            // + CreateTable + CreateColumn patterns.
-            var services = new ServiceCollection()
-                .AddFluentMigratorCore()
-                .ConfigureRunner(rb => rb
-                    .AddPostgres()
-                    .WithGlobalConnectionString(ConnectionString)
-                    .ScanIn(typeof(InitialCreate).Assembly).For.Migrations())
-                .AddLogging(lb => lb.AddFluentMigratorConsole())
-                .BuildServiceProvider(false);
-
-            ServiceProvider = services;
-
-            // Execute all discovered migrations (MigrateUp creates the invoicing schema
-            // with invoices, invoice_line_items, and payments tables, including indexes
-            // and constraints defined in InitialCreate).
-            var runner = ServiceProvider.GetRequiredService<IMigrationRunner>();
-            runner.MigrateUp();
 
             // Step 5: Seed SSM parameter for testing SSM retrieval patterns.
             // Per AAP §0.8.6: DB_CONNECTION_STRING stored as SSM SecureString.
@@ -233,20 +298,29 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// </summary>
         public async Task DisposeAsync()
         {
-            // Drop the invoicing schema via direct SQL to ensure clean teardown.
-            // CASCADE removes all tables, indexes, constraints within the schema.
-            try
+            var remaining = Interlocked.Decrement(ref _activeFixtureCount);
+
+            // Only the last fixture to dispose performs schema cleanup.
+            // Earlier-disposing fixtures must NOT drop the schema — other test classes
+            // may still be running against it in parallel.
+            if (remaining <= 0)
             {
-                await using var connection = new NpgsqlConnection(ConnectionString);
-                await connection.OpenAsync();
-                await using var dropCmd = new NpgsqlCommand(
-                    "DROP SCHEMA IF EXISTS invoicing CASCADE;", connection);
-                await dropCmd.ExecuteNonQueryAsync();
-            }
-            catch (Exception)
-            {
-                // Best-effort cleanup — do not throw during disposal
-                // as this could mask the actual test failure.
+                try
+                {
+                    await using var connection = new NpgsqlConnection(ConnectionString);
+                    await connection.OpenAsync();
+                    await using var dropCmd = new NpgsqlCommand(
+                        "DROP SCHEMA IF EXISTS invoicing CASCADE;", connection);
+                    await dropCmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception)
+                {
+                    // Best-effort cleanup — do not throw during disposal
+                    // as this could mask the actual test failure.
+                }
+
+                // Reset migration flag so subsequent test runs re-create the schema.
+                _migrationsCompleted = false;
             }
 
             // Dispose AWS SDK clients to release HTTP connections and resources.
@@ -286,7 +360,7 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         /// <summary>
         /// Truncates all tables in the invoicing schema while preserving schema structure.
         /// Tables are truncated in dependency order with CASCADE for safety:
-        /// payments → invoice_line_items → invoices.
+        /// payments → line_items → invoices.
         ///
         /// Called by individual test classes in their InitializeAsync() for clean test isolation,
         /// ensuring each test class starts with empty tables.
@@ -295,8 +369,38 @@ namespace WebVellaErp.Invoicing.Tests.Integration
         {
             await using var connection = new NpgsqlConnection(ConnectionString);
             await connection.OpenAsync();
+
+            // Check if the invoicing schema exists (it may have been dropped by migration Down tests)
+            await using var checkCmd = new NpgsqlCommand(
+                "SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'invoicing';",
+                connection);
+            var schemaExists = await checkCmd.ExecuteScalarAsync();
+
+            if (schemaExists == null)
+            {
+                // Schema was dropped — re-run migrations to recreate it.
+                // Clear stale FluentMigrator VersionInfo so MigrateUp() recognizes the migration as needed.
+                await using var clearVersionCmd = new NpgsqlCommand(
+                    "DELETE FROM \"VersionInfo\" WHERE \"Version\" IS NOT NULL;", connection);
+                try { await clearVersionCmd.ExecuteNonQueryAsync(); } catch { /* VersionInfo may not exist */ }
+
+                // Build a fresh FluentMigrator runner and re-run migrations
+                var services = new ServiceCollection()
+                    .AddFluentMigratorCore()
+                    .ConfigureRunner(rb => rb
+                        .AddPostgres()
+                        .WithGlobalConnectionString(ConnectionString)
+                        .ScanIn(typeof(WebVellaErp.Invoicing.Migrations.InitialCreate).Assembly).For.Migrations())
+                    .AddLogging(lb => lb.AddFluentMigratorConsole())
+                    .BuildServiceProvider(false);
+
+                var runner = services.GetRequiredService<FluentMigrator.Runner.IMigrationRunner>();
+                runner.MigrateUp();
+                return;
+            }
+
             await using var truncateCmd = new NpgsqlCommand(
-                "TRUNCATE invoicing.payments, invoicing.invoice_line_items, invoicing.invoices CASCADE;",
+                "TRUNCATE invoicing.payments, invoicing.line_items, invoicing.invoices CASCADE;",
                 connection);
             await truncateCmd.ExecuteNonQueryAsync();
         }

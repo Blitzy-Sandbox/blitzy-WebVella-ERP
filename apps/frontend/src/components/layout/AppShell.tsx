@@ -29,10 +29,13 @@
  * @source WebVella.Erp.Web/Components/ScreenMessage/Default.cshtml
  */
 
-import { useState, useCallback, useEffect, type ReactElement } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useState, useCallback, useEffect, useMemo, type ReactElement } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import TopNav from './TopNav';
 import Sidebar from './Sidebar';
+import { useApps } from '../../hooks/useApps';
+import { useAppStore } from '../../stores/appStore';
+import type { App, MenuItem } from '../../types/app';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -357,6 +360,180 @@ function AppShell() {
   }, [addToast]);
 
   // -------------------------------------------------------------------------
+  // App Navigation Data — Fetch apps and populate sidebar/menus
+  // Bridges the useApps query hook to the Zustand appStore so that Sidebar,
+  // TopNav, and other navigation components have data to render.
+  //
+  // This replaces the monolith's BaseErpPageModel.Init() which resolved the
+  // current app/area/node from the URL and built the sidebar MenuItems.
+  // -------------------------------------------------------------------------
+  const { data: appsResponse } = useApps();
+  const location = useLocation();
+  const setSidebarMenu = useAppStore((s) => s.setSidebarMenu);
+  const setCurrentApp = useAppStore((s) => s.setCurrentApp);
+  const setSiteMenu = useAppStore((s) => s.setSiteMenu);
+  const setApplicationMenu = useAppStore((s) => s.setApplicationMenu);
+
+  // Derive the current app name from the URL path.
+  // Routes follow patterns like /:appName/... (e.g. /crm/accounts)
+  const currentAppName = useMemo(() => {
+    const segments = location.pathname.split('/').filter(Boolean);
+    return segments[0] || '';
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const apps: App[] = appsResponse?.object ?? [];
+    if (apps.length === 0) return;
+
+    // Build site menu (top nav app switcher) from all apps
+    const siteMenuItems: MenuItem[] = apps.map((app) => ({
+      id: app.id,
+      content: `<a href="/${app.name}" data-testid="app-list-item" role="menuitem"><i class="${app.iconClass || 'fa fa-cube'}"></i> ${app.label}</a>`,
+      class: app.name === currentAppName ? 'active' : '',
+      isHtml: true,
+      renderWrapper: true,
+      nodes: [],
+      isDropdownRight: false,
+      sortOrder: app.weight ?? 10,
+      parentId: null,
+    }));
+    setSiteMenu(siteMenuItems);
+
+    // Determine the current app from the URL
+    const activeApp = apps.find((a) => a.name === currentAppName) || null;
+    setCurrentApp(activeApp);
+
+    // Build sidebar menu from the active app's sitemap areas + nodes
+    if (activeApp?.sitemap?.areas) {
+      const sidebarItems: MenuItem[] = [];
+      for (const area of activeApp.sitemap.areas) {
+        // Area header item
+        const areaItem: MenuItem = {
+          id: area.id,
+          content: `<i class="${area.iconClass || 'fa fa-folder'}"></i> ${area.label}`,
+          class: '',
+          isHtml: true,
+          renderWrapper: true,
+          nodes: [],
+          isDropdownRight: false,
+          sortOrder: area.weight ?? 10,
+          parentId: null,
+        };
+
+        // Node items under this area
+        if (area.nodes) {
+          for (const node of area.nodes) {
+            const nodeUrl = node.url || `/${activeApp.name}/${area.name}/${node.name}/l`;
+            /* Match active state bidirectionally: current path may be a
+               prefix of the node URL (e.g. /crm/contacts/list matches
+               /crm/contacts/list/l) or vice versa. This covers deep-link
+               navigation to /:appName/:areaName/:nodeName without the
+               /l or /a suffix. */
+            const isNodeActive =
+              location.pathname.startsWith(nodeUrl) ||
+              (location.pathname !== '/' && nodeUrl.startsWith(location.pathname + '/'));
+            areaItem.nodes.push({
+              id: node.id,
+              content: `<a href="${nodeUrl}"><i class="${node.iconClass || 'fa fa-circle'}"></i> ${node.label}</a>`,
+              class: isNodeActive ? 'active' : '',
+              isHtml: true,
+              renderWrapper: true,
+              nodes: [],
+              isDropdownRight: false,
+              sortOrder: node.weight ?? 10,
+              parentId: area.id,
+            });
+          }
+        }
+        sidebarItems.push(areaItem);
+      }
+      setSidebarMenu(sidebarItems);
+    } else if (activeApp) {
+      // App exists but has no sitemap — build from areas array if present
+      if ((activeApp as unknown as Record<string, unknown>).areas) {
+        const areas = (activeApp as unknown as { areas: Array<{ id: string; name: string; label: string; weight: number; iconClass: string; nodes: Array<{ id: string; name: string; label: string; url: string; weight: number; iconClass: string }> }> }).areas;
+        const sidebarItems: MenuItem[] = [];
+        for (const area of areas) {
+          const areaItem: MenuItem = {
+            id: area.id,
+            content: `<i class="${area.iconClass || 'fa fa-folder'}"></i> ${area.label}`,
+            class: '',
+            isHtml: true,
+            renderWrapper: true,
+            nodes: [],
+            isDropdownRight: false,
+            sortOrder: area.weight ?? 10,
+            parentId: null,
+          };
+          if (area.nodes) {
+            for (const node of area.nodes) {
+              const nodeUrl = node.url || `/${activeApp.name}/${area.name}/${node.name}/l`;
+              const isNodeActive =
+                location.pathname.startsWith(nodeUrl) ||
+                (location.pathname !== '/' && nodeUrl.startsWith(location.pathname + '/'));
+              areaItem.nodes.push({
+                id: node.id,
+                content: `<a href="${nodeUrl}"><i class="${node.iconClass || 'fa fa-circle'}"></i> ${node.label}</a>`,
+                class: isNodeActive ? 'active' : '',
+                isHtml: true,
+                renderWrapper: true,
+                nodes: [],
+                isDropdownRight: false,
+                sortOrder: node.weight ?? 10,
+                parentId: area.id,
+              });
+            }
+          }
+          sidebarItems.push(areaItem);
+        }
+        setSidebarMenu(sidebarItems);
+      } else {
+        setSidebarMenu([]);
+      }
+    } else {
+      // No active app — build sidebar from all apps as top-level nav
+      const navItems: MenuItem[] = apps.map((app) => ({
+        id: app.id,
+        content: `<a href="/${app.name}"><i class="${app.iconClass || 'fa fa-cube'}"></i> ${app.label}</a>`,
+        class: '',
+        isHtml: true,
+        renderWrapper: true,
+        nodes: [],
+        isDropdownRight: false,
+        sortOrder: app.weight ?? 10,
+        parentId: null,
+      }));
+      setSidebarMenu(navItems);
+    }
+
+    // Build application menu for TopNav from active app's areas
+    if (activeApp?.sitemap?.areas) {
+      const appMenuItems: MenuItem[] = activeApp.sitemap.areas.map((area) => ({
+        id: area.id,
+        content: `<i class="${area.iconClass || 'fa fa-folder'}"></i> ${area.label}`,
+        class: '',
+        isHtml: true,
+        renderWrapper: true,
+        nodes: area.nodes?.map((node) => ({
+          id: node.id,
+          content: `<a href="${node.url || `/${activeApp.name}/${area.name}/${node.name}/l`}"><i class="${node.iconClass || 'fa fa-circle'}"></i> ${node.label}</a>`,
+          class: '',
+          isHtml: true,
+          renderWrapper: true,
+          nodes: [],
+          isDropdownRight: false,
+          sortOrder: node.weight ?? 10,
+          parentId: area.id,
+        })) ?? [],
+        isDropdownRight: false,
+        sortOrder: area.weight ?? 10,
+        parentId: null,
+      }));
+      setApplicationMenu(appMenuItems);
+    }
+  }, [appsResponse, currentAppName, location.pathname, setSidebarMenu, setCurrentApp, setSiteMenu, setApplicationMenu]);
+
+  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
@@ -366,13 +543,14 @@ function AppShell() {
       {/* Desktop Sidebar — always visible on md+ screens                   */}
       {/* Replaces <div id="sidebar" class="col-auto"> from _AppMaster     */}
       {/* ================================================================= */}
-      <div
+      <aside
         className="hidden md:flex md:shrink-0"
+        data-testid="sidebar"
         role="complementary"
         aria-label="Desktop sidebar"
       >
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-      </div>
+      </aside>
 
       {/* ================================================================= */}
       {/* Mobile Sidebar Overlay — rendered below md breakpoint on toggle   */}
@@ -394,7 +572,7 @@ function AppShell() {
           />
 
           {/* Sidebar panel — renders at full expanded width on mobile */}
-          <div className="relative z-50 w-64 shrink-0">
+          <div className="relative z-50 w-64 shrink-0" data-testid="mobile-sidebar">
             <Sidebar collapsed={false} onToggle={closeMobileMenu} />
           </div>
         </div>
@@ -428,6 +606,7 @@ function AppShell() {
         ].join(' ')}
         onClick={toggleMobileMenu}
         aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        data-testid="sidebar-toggle"
       >
         {mobileMenuOpen ? (
           /* X icon — close */

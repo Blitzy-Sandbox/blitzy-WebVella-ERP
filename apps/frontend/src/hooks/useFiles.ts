@@ -24,6 +24,7 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
+  keepPreviousData,
 } from '@tanstack/react-query';
 import axios from 'axios';
 import { get, post, put, del } from '../api/client';
@@ -295,7 +296,7 @@ export function useFiles(params?: FileListParams) {
   return useQuery({
     queryKey: fileKeys.list(params),
     queryFn: async (): Promise<ApiResponse<FileListResponse>> => {
-      const response = await get<FileListResponse>('/files', params as Record<string, unknown> | undefined);
+      const response = await get<FileListResponse>('/files/list', params as Record<string, unknown> | undefined);
       if (!response.success) {
         const errorMessage =
           response.message ||
@@ -305,6 +306,20 @@ export function useFiles(params?: FileListParams) {
       }
       return response;
     },
+    /* Keep fetched data fresh for 5 seconds — short enough that
+       mutations (upload / delete) followed by invalidateQueries()
+       trigger a visible refetch almost immediately, while still
+       avoiding unnecessary re-fetches on rapid component re-renders. */
+    staleTime: 5_000,
+    /* Disable automatic refetch on window focus — file lists change
+       infrequently and explicit invalidation after mutations handles
+       the common case. */
+    refetchOnWindowFocus: false,
+    /* Preserve previous data while refetching — prevents flash of
+       "No files found" while TanStack Query re-validates after
+       mutations (upload, delete). This mirrors the monolith's
+       synchronous page model where data was always available. */
+    placeholderData: keepPreviousData,
   });
 }
 

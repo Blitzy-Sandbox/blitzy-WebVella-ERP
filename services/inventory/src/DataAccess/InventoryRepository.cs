@@ -1933,10 +1933,10 @@ namespace WebVellaErp.Inventory.DataAccess
                 ["created_on"] = new AttributeValue { S = task.CreatedOn.ToString("O") },
 
                 // Numeric fields
-                ["number"] = new AttributeValue { N = task.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                ["estimated_minutes"] = new AttributeValue { N = task.EstimatedMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                ["x_billable_minutes"] = new AttributeValue { N = task.XBillableMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture) },
-                ["x_nonbillable_minutes"] = new AttributeValue { N = task.XNonBillableMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                ["number"] = new AttributeValue { N = (task.Number ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                ["estimated_minutes"] = new AttributeValue { N = (task.EstimatedMinutes ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                ["x_billable_minutes"] = new AttributeValue { N = (task.XBillableMinutes ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                ["x_nonbillable_minutes"] = new AttributeValue { N = (task.XNonBillableMinutes ?? 0m).ToString(System.Globalization.CultureInfo.InvariantCulture) },
 
                 // Boolean fields
                 ["reserve_time"] = new AttributeValue { BOOL = task.ReserveTime },

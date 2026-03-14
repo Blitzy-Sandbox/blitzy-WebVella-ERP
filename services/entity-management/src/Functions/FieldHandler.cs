@@ -130,6 +130,107 @@ namespace WebVellaErp.EntityManagement.Functions
         /// <param name="request">API Gateway HTTP API v2 proxy request containing InputField JSON in body.</param>
         /// <param name="context">Lambda execution context for logging and request correlation.</param>
         /// <returns>APIGatewayHttpApiV2ProxyResponse with FieldResponse envelope (201 Created or error).</returns>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "POST")
+                return await CreateField(request, context);
+            else if (method == "GET")
+            {
+                // Determine if this is a list-all-fields request or a single field read.
+                // List all: GET /entities/{entityId}/fields  (no fieldId in path)
+                // Read one: GET /entities/{entityId}/fields/{fieldId}
+                var fieldIdStr = GetParam(request, "fieldId");
+                if (string.IsNullOrWhiteSpace(fieldIdStr) || !Guid.TryParse(fieldIdStr, out _))
+                    return await ReadAllFields(request, context);
+                return await ReadField(request, context);
+            }
+            else if (method == "PUT")
+                return await UpdateField(request, context);
+            else if (method == "PATCH")
+                return await PatchField(request, context);
+            else if (method == "DELETE")
+                return await DeleteField(request, context);
+
+            // Default: route to CreateField
+            return await CreateField(request, context);
+        }
+
+        /// <summary>
+        /// Lambda handler for GET /v1/entities/{entityId}/fields (no fieldId).
+        /// Returns all fields defined on the specified entity.
+        /// Replaces EntityManager.ReadEntity() + entity.Fields access pattern
+        /// from fields.cshtml.cs in the SDK plugin.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> ReadAllFields(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var correlationId = ExtractCorrelationId(request, context);
+            _logger.LogInformation(
+                "ReadAllFields started. CorrelationId={CorrelationId}", correlationId);
+
+            try
+            {
+                if (!IsAdminUser(request))
+                {
+                    return BuildErrorResponse(
+                        (int)HttpStatusCode.Forbidden,
+                        "Access denied. Administrator role required.",
+                        correlationId);
+                }
+
+                var entityIdStr = GetParam(request, "entityId");
+                if (string.IsNullOrWhiteSpace(entityIdStr) || !Guid.TryParse(entityIdStr, out var entityId))
+                {
+                    return BuildErrorResponse(
+                        (int)HttpStatusCode.BadRequest,
+                        "Invalid or missing entity ID in route. A valid GUID is required.",
+                        correlationId);
+                }
+
+                var entity = await _entityService.GetEntity(entityId);
+                if (entity == null)
+                {
+                    return BuildErrorResponse(
+                        (int)HttpStatusCode.NotFound,
+                        $"Entity with ID '{entityId}' not found.",
+                        correlationId);
+                }
+
+                var fields = entity.Fields ?? new System.Collections.Generic.List<Field>();
+
+                _logger.LogInformation(
+                    "ReadAllFields completed. EntityId={EntityId}, FieldCount={FieldCount}, CorrelationId={CorrelationId}",
+                    entityId, fields.Count, correlationId);
+
+                return BuildResponse((int)HttpStatusCode.OK, new
+                {
+                    success = true,
+                    timestamp = DateTime.UtcNow,
+                    @object = fields,
+                    message = $"Successfully read {fields.Count} fields."
+                }, correlationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "ReadAllFields unhandled exception. CorrelationId={CorrelationId}", correlationId);
+                return BuildErrorResponse(
+                    (int)HttpStatusCode.InternalServerError,
+                    _isDevelopmentMode ? ex.ToString() : "An unexpected error occurred while reading fields.",
+                    correlationId);
+            }
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> CreateField(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -1178,11 +1279,35 @@ namespace WebVellaErp.EntityManagement.Functions
         /// </summary>
         private static string GetParam(APIGatewayHttpApiV2ProxyRequest request, string key)
         {
-            if (request.PathParameters != null &&
-                request.PathParameters.TryGetValue(key, out var value) &&
-                !string.IsNullOrWhiteSpace(value))
+            if (request.PathParameters != null)
             {
-                return value;
+                if (request.PathParameters.TryGetValue(key, out var value) &&
+                    !string.IsNullOrWhiteSpace(value))
+                    return value;
+                // Fall back to {proxy+} path parameter for HTTP API v2 catch-all routes.
+                // Proxy path: "{entityId}/fields" or "{entityId}/fields/{fieldId}"
+                if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                    !string.IsNullOrEmpty(proxy))
+                {
+                    var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    if (key == "entityId" && segments.Length >= 1)
+                        return segments[0]; // First segment is entityId
+                    if (key == "fieldId")
+                    {
+                        // fieldId is the segment after "fields"
+                        for (var i = 0; i < segments.Length - 1; i++)
+                        {
+                            if (segments[i] == "fields" && Guid.TryParse(segments[i + 1], out _))
+                                return segments[i + 1];
+                        }
+                        // Last GUID segment
+                        for (var i = segments.Length - 1; i >= 0; i--)
+                        {
+                            if (Guid.TryParse(segments[i], out _) && i > 0)
+                                return segments[i];
+                        }
+                    }
+                }
             }
             return string.Empty;
         }
@@ -1230,7 +1355,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     if (claims.TryGetValue("cognito:groups", out var groups) &&
                         !string.IsNullOrWhiteSpace(groups))
                     {
-                        if (groups.Contains("administrator", StringComparison.OrdinalIgnoreCase))
+                        if (groups.Contains("admin", StringComparison.OrdinalIgnoreCase))
                             return true;
                     }
 
@@ -1256,10 +1381,9 @@ namespace WebVellaErp.EntityManagement.Functions
                 {
                     if (authorizer.Lambda.TryGetValue("isAdmin", out var isAdmin))
                     {
-                        if (isAdmin is bool boolVal && boolVal)
-                            return true;
-                        if (isAdmin is string strVal &&
-                            strVal.Equals("true", StringComparison.OrdinalIgnoreCase))
+                        var isAdminStr = isAdmin?.ToString() ?? "";
+                        if (string.Equals(isAdminStr, "true", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(isAdminStr, "True", StringComparison.Ordinal))
                             return true;
                     }
 
@@ -1267,7 +1391,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     {
                         var rolesStr = lambdaRoles?.ToString();
                         if (!string.IsNullOrWhiteSpace(rolesStr) &&
-                            rolesStr.Contains("administrator", StringComparison.OrdinalIgnoreCase))
+                            rolesStr.Contains("admin", StringComparison.OrdinalIgnoreCase))
                             return true;
                     }
                 }

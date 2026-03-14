@@ -80,7 +80,7 @@ interface TestEmailForm {
 // Constants
 // ---------------------------------------------------------------------------
 
-const SMTP_BASE = '/v1/notifications/smtp-services';
+const SMTP_BASE = '/notifications/smtp-configs';
 
 /** Connection security dropdown options (from MailKit SecureSocketOptions enum). */
 const CONNECTION_SECURITY_OPTIONS: { value: string; label: string }[] = [
@@ -315,7 +315,7 @@ function useDeleteSmtpService() {
     mutationFn: (id: string) => del<unknown>(`${SMTP_BASE}/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['smtp-services'] });
-      navigate('/notifications/smtp-services');
+      navigate('/notifications/smtp');
     },
   });
 }
@@ -573,7 +573,7 @@ function SmtpServiceManage(): React.JSX.Element {
           <button
             type="button"
             className="mt-3 inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
-            onClick={() => navigate('/notifications/smtp-services')}
+            onClick={() => navigate('/notifications/smtp')}
           >
             Back to list
           </button>
@@ -599,7 +599,7 @@ function SmtpServiceManage(): React.JSX.Element {
           <button
             type="button"
             className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            onClick={() => navigate('/notifications/smtp-services')}
+            onClick={() => navigate('/notifications/smtp')}
           >
             Cancel
           </button>

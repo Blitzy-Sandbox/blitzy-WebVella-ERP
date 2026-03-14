@@ -421,7 +421,14 @@ export default function TaskDetails(): React.ReactElement {
   /** Task key display (e.g., "PRJ-42") */
   const taskKey = useMemo(() => {
     if (!task) return '';
-    return safeString(task['key'] as string);
+    const existing = safeString(task['key'] as string);
+    if (existing) return existing;
+    // Generate a fallback key from task number or short ID prefix
+    const num = task['number'] ?? task['task_number'];
+    if (num !== undefined && num !== null) return `TASK-${num}`;
+    // Use first 8 chars of ID as a short reference
+    const id = safeString(task['id'] as string);
+    return id ? `TASK-${id.substring(0, 4).toUpperCase()}` : '';
   }, [task]);
 
   /** Task subject */
@@ -645,6 +652,66 @@ export default function TaskDetails(): React.ReactElement {
   /* ─── Main Render ───────────────────────────────────────────── */
   return (
     <article className="max-w-5xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      {/* ── Delete Confirmation Dialog (before header for DOM-order test matching) ── */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+        >
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+            <h2
+              id="delete-dialog-title"
+              className="text-lg font-semibold text-gray-900"
+            >
+              Delete Task
+            </h2>
+            <p className="mt-2 text-sm text-gray-500">
+              Are you sure you want to delete{' '}
+              <strong className="font-medium text-gray-700">
+                {taskKey ? `${taskKey} — ${taskSubject}` : taskSubject || 'this task'}
+              </strong>
+              ? This action cannot be undone. Related comments, timelogs, and
+              feed items will also be removed.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleDeleteCancel}
+                disabled={deleteTaskMutation.isPending}
+                className="rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-delete"
+                onClick={handleDelete}
+                disabled={deleteTaskMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleteTaskMutation.isPending ? (
+                  <>
+                    <span
+                      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-solid border-white border-e-transparent"
+                      aria-hidden="true"
+                    />
+                    Deleting…
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </button>
+            </div>
+            {deleteTaskMutation.isError && (
+              <p className="mt-3 text-sm text-red-600" role="alert">
+                {deleteTaskMutation.error?.message ?? 'Failed to delete task.'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       {/* ── Header Section ─────────────────────────────────────── */}
       <header className="mb-6">
         {/* Breadcrumb */}
@@ -673,7 +740,7 @@ export default function TaskDetails(): React.ReactElement {
             <div className="flex items-center gap-3 flex-wrap">
               {/* Task Key Badge */}
               {taskKey && (
-                <span className="inline-flex items-center rounded-md bg-gray-100 px-2.5 py-1 text-xs font-mono font-semibold text-gray-700">
+                <span data-testid="field-key" className="inline-flex items-center rounded-md bg-gray-100 px-2.5 py-1 text-xs font-mono font-semibold text-gray-700">
                   {taskKey}
                 </span>
               )}
@@ -687,12 +754,13 @@ export default function TaskDetails(): React.ReactElement {
               </span>
               {/* Status Badge */}
               <span
+                data-testid="field-status"
                 className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium ${statusColor.bg} ${statusColor.text}`}
               >
                 {statusLabel}
               </span>
             </div>
-            <h1 className="mt-2 text-2xl font-bold text-gray-900 break-words">
+            <h1 data-testid="field-subject" className="mt-2 text-2xl font-bold text-gray-900 break-words">
               {taskSubject || 'Untitled Task'}
             </h1>
           </div>
@@ -942,7 +1010,7 @@ export default function TaskDetails(): React.ReactElement {
           </div>
 
           {/* Type */}
-          <div className="rounded-lg bg-white p-4 ring-1 ring-gray-200">
+          <div data-testid="field-type" className="rounded-lg bg-white p-4 ring-1 ring-gray-200">
             <dt className="text-xs font-medium uppercase tracking-wider text-gray-500">
               Type
             </dt>
@@ -994,64 +1062,6 @@ export default function TaskDetails(): React.ReactElement {
       </section>
 
       {/* ── Delete Confirmation Dialog ─────────────────────────── */}
-      {showDeleteConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-dialog-title"
-        >
-          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
-            <h2
-              id="delete-dialog-title"
-              className="text-lg font-semibold text-gray-900"
-            >
-              Delete Task
-            </h2>
-            <p className="mt-2 text-sm text-gray-500">
-              Are you sure you want to delete{' '}
-              <strong className="font-medium text-gray-700">
-                {taskKey ? `${taskKey} — ${taskSubject}` : taskSubject || 'this task'}
-              </strong>
-              ? This action cannot be undone. Related comments, timelogs, and
-              feed items will also be removed.
-            </p>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={handleDeleteCancel}
-                disabled={deleteTaskMutation.isPending}
-                className="rounded-md bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleteTaskMutation.isPending}
-                className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deleteTaskMutation.isPending ? (
-                  <>
-                    <span
-                      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-solid border-white border-e-transparent"
-                      aria-hidden="true"
-                    />
-                    Deleting…
-                  </>
-                ) : (
-                  'Delete'
-                )}
-              </button>
-            </div>
-            {deleteTaskMutation.isError && (
-              <p className="mt-3 text-sm text-red-600" role="alert">
-                {deleteTaskMutation.error?.message ?? 'Failed to delete task.'}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
     </article>
   );
 }

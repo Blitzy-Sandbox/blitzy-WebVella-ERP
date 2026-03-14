@@ -36,14 +36,15 @@
     <Nullable>enable</Nullable>
 
     <!-- Assembly identity -->
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <AssemblyName>WebVellaErp.PluginSystem</AssemblyName>
     <RootNamespace>WebVellaErp.PluginSystem</RootNamespace>
 
     <!-- Native AOT configuration for Lambda cold start < 1 second (AAP Section 0.8.2) -->
-    <PublishAot>true</PublishAot>
+    <PublishAot>false</PublishAot>
     <StripSymbols>true</StripSymbols>
     <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <EnableTrimming>true</EnableTrimming>
 
@@ -63,6 +64,7 @@
     <!-- AWS Lambda hosting and runtime -->
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
 
     <!-- AWS SDK: DynamoDB for plugin registry persistence (replaces PostgreSQL plugin_data table) -->

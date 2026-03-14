@@ -162,6 +162,35 @@ namespace WebVellaErp.Invoicing.Functions
         /// (synchronous pre-hook replacement) → delegate to InvoiceService (ACID transaction + event publishing)
         /// → return 201 Created with invoice data.
         /// </summary>
+
+        /// <summary>
+        /// Single entry point for managed .NET Lambda runtime (dotnet9).
+        /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
+        /// based on HTTP method and request path.
+        /// </summary>
+        public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
+            APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
+        {
+            var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
+            var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
+
+            if (method == "POST")
+                return await HandleCreateInvoice(request, context);
+            else if (method == "GET")
+                return await HandleGetInvoice(request, context);
+            else if (method == "PUT")
+                return await HandleUpdateInvoice(request, context);
+            else if (method == "GET")
+                return await HandleListInvoices(request, context);
+            else if (method == "DELETE" && path.Contains("/void"))
+                return await HandleVoidInvoice(request, context);
+            else if (method == "GET" && path.Contains("/health"))
+                return await HandleHealthCheck(request, context);
+
+            // Default: route to HandleCreateInvoice
+            return await HandleCreateInvoice(request, context);
+        }
+
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleCreateInvoice(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
@@ -847,11 +876,22 @@ namespace WebVellaErp.Invoicing.Functions
         private static bool TryGetPathParameter(APIGatewayHttpApiV2ProxyRequest request, string paramName, out Guid value)
         {
             value = Guid.Empty;
-            if (request.PathParameters == null)
-                return false;
-            if (!request.PathParameters.TryGetValue(paramName, out var paramValue))
-                return false;
-            return Guid.TryParse(paramValue, out value) && value != Guid.Empty;
+            if (request.PathParameters == null) return false;
+            if (request.PathParameters.TryGetValue(paramName, out var paramValue) &&
+                Guid.TryParse(paramValue, out value) && value != Guid.Empty)
+                return true;
+            // Fall back to {proxy+} parameter for HTTP API v2 catch-all routes.
+            if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                !string.IsNullOrEmpty(proxy))
+            {
+                var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                for (var i = segments.Length - 1; i >= 0; i--)
+                {
+                    if (Guid.TryParse(segments[i], out value) && value != Guid.Empty)
+                        return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

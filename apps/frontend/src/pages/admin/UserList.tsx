@@ -69,7 +69,7 @@ type UserWithRoles = ErpUser & {
  * Passed to the Identity service API and the DataTable component for
  * consistent pagination behaviour.
  */
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 100;
 
 /** Default sort column — email ascending, matching source `ListModel.OnGet`. */
 const DEFAULT_SORT_BY = 'email';
@@ -231,7 +231,7 @@ export default function UserList(): React.ReactElement {
         },
       },
 
-      // 2. Email column — sortable, 120 px fixed width
+      // 2. Email column — sortable, 120 px fixed width, clickable to details
       {
         id: 'email',
         name: 'email',
@@ -239,6 +239,14 @@ export default function UserList(): React.ReactElement {
         sortable: true,
         width: '120px',
         accessorKey: 'email',
+        cell: (_value: unknown, record: UserRecord) => (
+          <Link
+            to={`/admin/users/${record.id}`}
+            className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            {record.email}
+          </Link>
+        ),
       },
 
       // 3. Username column — sortable, auto width
@@ -252,13 +260,16 @@ export default function UserList(): React.ReactElement {
 
       // 4. Roles column — non-sortable, comma-joined names
       //    Replaces the monolith's `$user_role.name` relation rendering.
+      //    API may return roles as string[] or { name: string }[] — handle both.
       {
         id: 'roles',
         name: 'roles',
         label: 'Role',
         sortable: false,
         accessorFn: (user: UserWithRoles): string =>
-          user.roles?.map((r) => r.name).join(', ') ?? '',
+          user.roles
+            ?.map((r) => (typeof r === 'string' ? r : r.name))
+            .join(', ') ?? '',
       },
     ],
     [],
@@ -310,6 +321,7 @@ export default function UserList(): React.ReactElement {
         <button
           type="button"
           onClick={handleCreateUser}
+          data-testid="create-user-btn"
           className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 motion-safe:transition-colors motion-safe:duration-150"
         >
           {/* Heroicons Mini — plus */}

@@ -223,32 +223,74 @@ interface UpdateAddressVariables {
 // ---------------------------------------------------------------------------
 
 /**
- * Validates an API response envelope and throws a descriptive error when
- * the operation failed (`success === false`).
+ * Validates an API response and throws a descriptive error when the
+ * operation failed.
  *
- * Accepts a response shape matching the monolith's BaseResponseModel
- * members (`success`, `errors`, `message`). The `errors` array mirrors
- * `ErrorModel[]` with `{ key, value, message }` per error, which is
- * structurally identical to the client's error shape.
+ * Handles two response shapes from the CRM Lambda:
+ *  - **Envelope format** (errors): `{ success: false, message, errors }` —
+ *    mirrors BaseResponseModel from `ApiControllerBase.cs`
+ *  - **Raw format** (success): `{ id, name, ... }` or `{ data: [...] }` —
+ *    Lambda returns raw data without an envelope on success
  *
- * @param response - API response with success flag and structured error details
+ * When the response has no explicit `success` field it is treated as a
+ * successful raw Lambda response.
+ *
+ * @param response - API response (may or may not include success flag)
  * @param fallbackMessage - Default error message when no specific errors returned
  * @throws Error with concatenated error messages from the response envelope
  */
 function assertApiSuccess(
-  response: Pick<BaseResponseModel, 'success' | 'errors' | 'message'>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  response: any,
   fallbackMessage: string,
 ): void {
+  // Raw Lambda responses without envelope — treat as success
+  if (typeof response?.success !== 'boolean') {
+    return;
+  }
   if (!response.success) {
-    const errorMessages = response.errors
+    const errorMessages = (response.errors as Array<{ message?: string }> | undefined)
       ?.map((err) => err.message)
       .filter(Boolean);
     throw new Error(
       errorMessages && errorMessages.length > 0
         ? errorMessages.join('; ')
-        : response.message || fallbackMessage,
+        : (response.message as string) || fallbackMessage,
     );
   }
+}
+
+/**
+ * Unwraps the typed payload from a response that may or may not use the
+ * `ApiResponse<T>` envelope.
+ *
+ * - Envelope format:  `{ success, object: T }` → returns `response.object`
+ * - Raw format:       `T` directly                → returns `response` itself
+ */
+function unwrapObject<T>(response: unknown): T {
+  const r = response as Record<string, unknown> | undefined;
+  return ((r?.object ?? r) as T);
+}
+
+/**
+ * Normalises a list response into the standard {@link EntityRecordList}
+ * shape regardless of whether the Lambda returned the envelope format
+ * or a raw `{ data, meta }` shape.
+ *
+ * CRM Lambda list responses: `{ data: EntityRecord[], meta: { page, pageSize, total } }`
+ * Expected frontend shape:   `{ records: EntityRecord[], totalCount: number }`
+ */
+function unwrapRecordList(response: unknown): EntityRecordList {
+  const r = (response as Record<string, unknown> | undefined);
+  const raw = (r?.object ?? r) as Record<string, unknown> | undefined;
+  const records = (
+    (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[]
+  );
+  const meta = raw?.meta as Record<string, number> | undefined;
+  const totalCount = Number(
+    raw?.totalCount ?? meta?.total ?? raw?.total ?? records.length,
+  );
+  return { records, totalCount };
 }
 
 /**
@@ -373,11 +415,7 @@ export function useAccounts(params?: AccountsParams) {
       );
       assertApiSuccess(response, 'Failed to fetch accounts');
 
-      if (!response.object) {
-        throw new Error('Account list response missing data');
-      }
-
-      return response.object;
+      return unwrapRecordList(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -418,11 +456,7 @@ export function useAccount(id: string) {
       );
       assertApiSuccess(response, `Failed to fetch account "${id}"`);
 
-      if (!response.object) {
-        throw new Error(`Account response missing data for "${id}"`);
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -470,11 +504,7 @@ export function useCreateAccount() {
       const response = await post<EntityRecord>('/crm/accounts', data);
       assertApiSuccess(response, 'Failed to create account');
 
-      if (!response.object) {
-        throw new Error('Create account response missing data');
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: () => {
@@ -527,11 +557,7 @@ export function useUpdateAccount() {
       );
       assertApiSuccess(response, `Failed to update account "${id}"`);
 
-      if (!response.object) {
-        throw new Error(`Update account response missing data for "${id}"`);
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: (_data, variables) => {
@@ -592,6 +618,10 @@ export function useDeleteAccount() {
       void queryClient.invalidateQueries({
         queryKey: CRM_QUERY_KEYS.accounts.all,
       });
+      // Also invalidate contacts (account deletion may cascade)
+      void queryClient.invalidateQueries({
+        queryKey: CRM_QUERY_KEYS.contacts.all,
+      });
     },
   });
 }
@@ -648,11 +678,7 @@ export function useContacts(params?: ContactsParams) {
       );
       assertApiSuccess(response, 'Failed to fetch contacts');
 
-      if (!response.object) {
-        throw new Error('Contact list response missing data');
-      }
-
-      return response.object;
+      return unwrapRecordList(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -693,11 +719,7 @@ export function useContact(id: string) {
       );
       assertApiSuccess(response, `Failed to fetch contact "${id}"`);
 
-      if (!response.object) {
-        throw new Error(`Contact response missing data for "${id}"`);
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -748,11 +770,7 @@ export function useCreateContact() {
       const response = await post<EntityRecord>('/crm/contacts', data);
       assertApiSuccess(response, 'Failed to create contact');
 
-      if (!response.object) {
-        throw new Error('Create contact response missing data');
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: () => {
@@ -804,11 +822,7 @@ export function useUpdateContact() {
       );
       assertApiSuccess(response, `Failed to update contact "${id}"`);
 
-      if (!response.object) {
-        throw new Error(`Update contact response missing data for "${id}"`);
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: (_data, variables) => {
@@ -909,22 +923,18 @@ export function useAddresses(parentEntityId: string, parentRecordId: string) {
     queryKey: CRM_QUERY_KEYS.addresses.list(parentEntityId, parentRecordId),
 
     queryFn: async (): Promise<RecordListResponse['object']> => {
-      const params: Record<string, unknown> = {
+      const qp: Record<string, unknown> = {
         parentEntityId,
         parentRecordId,
       };
 
       const response = await get<EntityRecordList>(
         '/crm/addresses',
-        params,
+        qp,
       );
       assertApiSuccess(response, 'Failed to fetch addresses');
 
-      if (!response.object) {
-        throw new Error('Address list response missing data');
-      }
-
-      return response.object;
+      return unwrapRecordList(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -967,11 +977,7 @@ export function useCreateAddress() {
       const response = await post<EntityRecord>('/crm/addresses', data);
       assertApiSuccess(response, 'Failed to create address');
 
-      if (!response.object) {
-        throw new Error('Create address response missing data');
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: () => {
@@ -1018,11 +1024,7 @@ export function useUpdateAddress() {
       );
       assertApiSuccess(response, `Failed to update address "${id}"`);
 
-      if (!response.object) {
-        throw new Error(`Update address response missing data for "${id}"`);
-      }
-
-      return response.object;
+      return unwrapObject<EntityRecord>(response);
     },
 
     onSuccess: () => {
@@ -1089,11 +1091,7 @@ export function useCrmSearch(query: string) {
       );
       assertApiSuccess(response, 'CRM search failed');
 
-      if (!response.object) {
-        throw new Error('CRM search response missing data');
-      }
-
-      return response.object;
+      return unwrapObject<SearchResultList>(response);
     },
 
     staleTime: CRM_DEFAULT_STALE_TIME_MS,
@@ -1149,11 +1147,7 @@ export function useSalutations() {
       const response = await get<EntityRecordList>('/crm/salutations');
       assertApiSuccess(response, 'Failed to fetch salutations');
 
-      if (!response.object) {
-        throw new Error('Salutation list response missing data');
-      }
-
-      return response.object;
+      return unwrapRecordList(response);
     },
 
     // Salutations are reference data that rarely changes — use long stale time

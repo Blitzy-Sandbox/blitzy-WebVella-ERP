@@ -320,6 +320,7 @@ function AdminEntityFieldCreate(): React.JSX.Element {
   const [selectOptionsText, setSelectOptionsText] = useState('');
   const [multiSelectDefaultText, setMultiSelectDefaultText] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [showSuccess, setShowSuccess] = useState(false);
 
   /* --- Field type selection handler ----------------------------------- */
   const handleSelectFieldType = useCallback((ft: FieldType): void => {
@@ -443,7 +444,8 @@ function AdminEntityFieldCreate(): React.JSX.Element {
         { entityId, field: payload as unknown as AnyField },
         {
           onSuccess: () => {
-            navigate(`/admin/entities/${entityId}/fields`);
+            setShowSuccess(true);
+            setTimeout(() => navigate(`/admin/entities/${entityId}/fields`), 1500);
           },
         },
       );
@@ -1489,6 +1491,7 @@ function AdminEntityFieldCreate(): React.JSX.Element {
             <button
               key={card.type}
               type="button"
+              data-testid={`field-type-${card.label.toLowerCase().replace(/[\s-]+/g, '-')}`}
               className={
                 'flex flex-col items-center gap-2 rounded-lg border border-gray-200 bg-white p-5 ' +
                 'text-center shadow-sm transition-all duration-150 ' +
@@ -1523,7 +1526,12 @@ function AdminEntityFieldCreate(): React.JSX.Element {
    * =================================================================== */
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+      <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">Field created successfully. Redirecting…</p>
+        </div>
+      )}
       {/* Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="text-sm text-gray-500">
         <ol className="flex items-center gap-1.5">
@@ -1602,6 +1610,7 @@ function AdminEntityFieldCreate(): React.JSX.Element {
               </label>
               <input
                 id="ff-name"
+                name="name"
                 type="text"
                 className={inputClasses}
                 value={String(fieldData.name ?? '')}
@@ -1623,6 +1632,7 @@ function AdminEntityFieldCreate(): React.JSX.Element {
               </label>
               <input
                 id="ff-label"
+                name="label"
                 type="text"
                 className={inputClasses}
                 value={String(fieldData.label ?? '')}

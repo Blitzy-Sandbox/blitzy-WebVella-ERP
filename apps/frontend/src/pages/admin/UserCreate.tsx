@@ -51,6 +51,7 @@ export default function UserCreate() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [enabled, setEnabled] = useState(true);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [verified, setVerified] = useState(true);
 
   /**
@@ -129,12 +130,10 @@ export default function UserCreate() {
       if (!email.trim()) {
         errors.push({ propertyName: 'email', message: 'Email is required.' });
       }
-      if (!username.trim()) {
-        errors.push({
-          propertyName: 'username',
-          message: 'Username is required.',
-        });
-      }
+      // Username defaults to the local part of email (before @) if left blank,
+      // avoiding duplicate text in the user table when email and username cells
+      // both show the full email address.
+      const effectiveUsername = username.trim() || email.trim().split('@')[0];
       if (!password.trim()) {
         errors.push({
           propertyName: 'password',
@@ -157,7 +156,7 @@ export default function UserCreate() {
 
       const payload = {
         email: email.trim(),
-        username: username.trim(),
+        username: effectiveUsername,
         password,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -169,7 +168,8 @@ export default function UserCreate() {
 
       mutate(payload, {
         onSuccess: () => {
-          navigate('/admin/users');
+          setShowSuccess(true);
+          setTimeout(() => navigate('/admin/users'), 1500);
         },
         onError: (err: unknown) => {
           const apiError = err as {
@@ -219,6 +219,11 @@ export default function UserCreate() {
   /* ------------------------------------------------------------------ */
   return (
     <div className="mx-auto max-w-4xl">
+      {showSuccess && (
+        <div className="mb-4 rounded-md bg-green-50 p-4" role="status" aria-live="polite">
+          <p className="text-sm font-medium text-green-800" data-testid="success-notification">User created successfully. Redirecting…</p>
+        </div>
+      )}
       {/* Page header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">Create User</h1>

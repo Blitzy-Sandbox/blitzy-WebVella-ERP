@@ -1,1652 +1,1580 @@
-openapi: "3.1.0"
+openapi: 3.1.0
 info:
-  title: "WebVella ERP - Invoicing & Billing API"
-  version: "1.0.0"
-  description: >
-    ACID-critical invoicing and billing service backed by RDS PostgreSQL.
-    This bounded-context service owns all invoice, payment, and line-item
-    entities with full transactional guarantees. Unlike other services in
-    the WebVella ERP platform that use DynamoDB, the Invoicing service
-    requires RDS PostgreSQL for ACID compliance on financial operations.
-
-    Key capabilities:
-      - Invoice lifecycle management (draft → sent → paid/overdue/cancelled)
-      - Atomic invoice creation with header + line items in a single transaction
-      - Payment recording with automatic invoice balance recalculation
-      - Line item sub-resource management on draft invoices
-      - Multi-currency support derived from the monolith's CurrencyType model
-      - Domain event publishing via SNS for cross-service integration
-
-    Transaction guarantees:
-      - All write operations execute within PostgreSQL transactions
-        (BeginTransaction / CommitTransaction / RollbackTransaction pattern
-         from the monolith's RecordManager.cs)
-      - Invoice + line items are created/updated atomically
-      - Payment creation atomically updates the associated invoice balance
-      - Idempotency keys are required on all write endpoints to prevent
-        duplicate processing
-
-    Database: RDS PostgreSQL with FluentMigrator-managed schema migrations.
+  title: WebVella ERP - Invoicing & Billing API
+  version: 1.0.0
+  description: "ACID-critical invoicing and billing service backed by RDS PostgreSQL.\
+    \ This bounded-context service owns all invoice, payment, and line-item entities\
+    \ with full transactional guarantees. Unlike other services in the WebVella ERP\
+    \ platform that use DynamoDB, the Invoicing service requires RDS PostgreSQL for\
+    \ ACID compliance on financial operations.\nKey capabilities:\n  - Invoice lifecycle\
+    \ management (draft → sent → paid/overdue/cancelled)\n  - Atomic invoice creation\
+    \ with header + line items in a single transaction\n  - Payment recording with\
+    \ automatic invoice balance recalculation\n  - Line item sub-resource management\
+    \ on draft invoices\n  - Multi-currency support derived from the monolith's CurrencyType\
+    \ model\n  - Domain event publishing via SNS for cross-service integration\n\n\
+    Transaction guarantees:\n  - All write operations execute within PostgreSQL transactions\n\
+    \    (BeginTransaction / CommitTransaction / RollbackTransaction pattern\n   \
+    \  from the monolith's RecordManager.cs)\n  - Invoice + line items are created/updated\
+    \ atomically\n  - Payment creation atomically updates the associated invoice balance\n\
+    \  - Idempotency keys are required on all write endpoints to prevent\n    duplicate\
+    \ processing\n\nDatabase: RDS PostgreSQL with FluentMigrator-managed schema migrations.\n"
   contact:
-    name: "WebVella ERP Team"
-    url: "https://github.com/WebVella/WebVella-ERP"
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
   license:
-    name: "Apache 2.0"
-    url: "https://www.apache.org/licenses/LICENSE-2.0"
-
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 servers:
-  - url: "http://localhost:4566/restapis/{apiId}/v1/_user_request_"
-    description: "LocalStack Development"
-    variables:
-      apiId:
-        default: "local-invoicing-api"
-        description: "API Gateway REST API ID in LocalStack"
-  - url: "https://{apiId}.execute-api.{region}.amazonaws.com/v1"
-    description: "Production AWS"
-    variables:
-      apiId:
-        default: "invoicing-api"
-        description: "API Gateway REST API ID"
-      region:
-        default: "us-east-1"
-        description: "AWS region"
-
+- url: http://localhost:4566/restapis/{apiId}/v1/_user_request_
+  description: LocalStack Development
+  variables:
+    apiId:
+      default: local-invoicing-api
+      description: API Gateway REST API ID in LocalStack
+- url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+  description: Production AWS
+  variables:
+    apiId:
+      default: invoicing-api
+      description: API Gateway REST API ID
+    region:
+      default: us-east-1
+      description: AWS region
 security:
-  - BearerAuth: []
-
+- BearerAuth: []
 tags:
-  - name: "Invoices"
-    description: >
-      Invoice lifecycle management — create, read, update, delete, and
-      status transitions. All write operations are ACID-transactional
-      against RDS PostgreSQL. Derived from the monolith's RecordManager
-      CRUD patterns with BeginTransaction/CommitTransaction semantics.
-  - name: "Payments"
-    description: >
-      Payment recording and management. Creating a payment atomically
-      updates the associated invoice's paid amount and status. Derived
-      from RecordManager transactional CRUD applied to payment entities.
-  - name: "Invoice Line Items"
-    description: >
-      Sub-resource endpoints for managing individual line items on an
-      invoice. Line items can only be modified while the parent invoice
-      is in draft status. All modifications recalculate invoice totals
-      atomically within a PostgreSQL transaction.
+- name: Invoices
+  description: 'Invoice lifecycle management — create, read, update, delete, and status
+    transitions. All write operations are ACID-transactional against RDS PostgreSQL.
+    Derived from the monolith''s RecordManager CRUD patterns with BeginTransaction/CommitTransaction
+    semantics.
 
+    '
+- name: Payments
+  description: 'Payment recording and management. Creating a payment atomically updates
+    the associated invoice''s paid amount and status. Derived from RecordManager transactional
+    CRUD applied to payment entities.
+
+    '
+- name: Invoice Line Items
+  description: 'Sub-resource endpoints for managing individual line items on an invoice.
+    Line items can only be modified while the parent invoice is in draft status. All
+    modifications recalculate invoice totals atomically within a PostgreSQL transaction.
+
+    '
 paths:
-  # ──────────────────────────────────────────────────────────────────────────
-  # Invoice Endpoints
-  # ──────────────────────────────────────────────────────────────────────────
-  /v1/invoices:
+  /v1/invoicing/invoices:
     get:
       operationId: listInvoices
-      summary: "List invoices with filtering and pagination"
-      description: >
-        Returns a paginated list of invoices with optional filtering by status,
-        customer, date range, and search term. Supports sorting by any invoice
-        field. Maps from the monolith's RecordManager.Find() with EQL query
-        translation to direct PostgreSQL queries in the target architecture.
+      summary: List invoices with filtering and pagination
+      description: 'Returns a paginated list of invoices with optional filtering by
+        status, customer, date range, and search term. Supports sorting by any invoice
+        field. Maps from the monolith''s RecordManager.Find() with EQL query translation
+        to direct PostgreSQL queries in the target architecture.
+
+        '
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - name: page
-          in: query
-          description: "Page number (1-based)"
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: pageSize
-          in: query
-          description: "Number of items per page"
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 15
-        - name: search
-          in: query
-          description: "Free-text search across invoice number, customer name, and notes"
-          required: false
-          schema:
-            type: string
-            maxLength: 256
-        - name: status
-          in: query
-          description: "Filter by invoice status"
-          required: false
-          schema:
-            $ref: "#/components/schemas/InvoiceStatus"
-        - name: customerId
-          in: query
-          description: "Filter by customer ID (from CRM service)"
-          required: false
-          schema:
-            type: string
-            format: uuid
-        - name: fromDate
-          in: query
-          description: "Filter invoices created on or after this date (inclusive, ISO 8601)"
-          required: false
-          schema:
-            type: string
-            format: date
-        - name: toDate
-          in: query
-          description: "Filter invoices created on or before this date (inclusive, ISO 8601)"
-          required: false
-          schema:
-            type: string
-            format: date
-        - name: sortField
-          in: query
-          description: "Field name to sort by"
-          required: false
-          schema:
-            type: string
-            enum:
-              - invoiceNumber
-              - customerName
-              - total
-              - dueDate
-              - createdOn
-              - status
-            default: "createdOn"
-        - name: sortOrder
-          in: query
-          description: "Sort direction"
-          required: false
-          schema:
-            type: string
-            enum:
-              - asc
-              - desc
-            default: "desc"
+      - name: page
+        in: query
+        description: Page number (1-based)
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: pageSize
+        in: query
+        description: Number of items per page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 15
+      - name: search
+        in: query
+        description: Free-text search across invoice number, customer name, and notes
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: status
+        in: query
+        description: Filter by invoice status
+        required: false
+        schema:
+          $ref: '#/components/schemas/InvoiceStatus'
+      - name: customerId
+        in: query
+        description: Filter by customer ID (from CRM service)
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: fromDate
+        in: query
+        description: Filter invoices created on or after this date (inclusive, ISO
+          8601)
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: toDate
+        in: query
+        description: Filter invoices created on or before this date (inclusive, ISO
+          8601)
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: sortField
+        in: query
+        description: Field name to sort by
+        required: false
+        schema:
+          type: string
+          enum:
+          - invoiceNumber
+          - customerName
+          - total
+          - dueDate
+          - createdOn
+          - status
+          default: createdOn
+      - name: sortOrder
+        in: query
+        description: Sort direction
+        required: false
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
       responses:
-        "200":
-          description: "Paginated list of invoices retrieved successfully"
+        '200':
+          description: Paginated list of invoices retrieved successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        items:
+                          type: array
                           items:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/Invoice"
-                          pagination:
-                            $ref: "#/components/schemas/PaginationMeta"
-                        required:
-                          - items
-                          - pagination
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                            $ref: '#/components/schemas/Invoice'
+                        pagination:
+                          $ref: '#/components/schemas/PaginationMeta'
+                      required:
+                      - items
+                      - pagination
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       operationId: createInvoice
-      summary: "Create a new invoice with line items"
-      description: >
-        Creates a new invoice in draft status with optional line items.
-        This is an ACID transaction — the invoice header and all line items
-        are persisted atomically within a single PostgreSQL transaction.
-        If any line item validation fails, the entire operation is rolled back.
+      summary: Create a new invoice with line items
+      description: 'Creates a new invoice in draft status with optional line items.
+        This is an ACID transaction — the invoice header and all line items are persisted
+        atomically within a single PostgreSQL transaction. If any line item validation
+        fails, the entire operation is rolled back.
 
-        Mirrors the monolith's RecordManager.CreateRecord() transactional
-        pattern: BeginTransaction → validate → persist header → persist
-        line items → CommitTransaction (or RollbackTransaction on error).
+        Mirrors the monolith''s RecordManager.CreateRecord() transactional pattern:
+        BeginTransaction → validate → persist header → persist line items → CommitTransaction
+        (or RollbackTransaction on error).
 
-        On success, publishes an `invoicing.invoice.created` SNS domain event
-        for consumption by the Reporting service and other subscribers.
+        On success, publishes an `invoicing.invoice.created` SNS domain event for
+        consumption by the Reporting service and other subscribers.
+
+        '
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateInvoiceRequest"
+              $ref: '#/components/schemas/CreateInvoiceRequest'
       responses:
-        "201":
-          description: "Invoice created successfully"
+        '201':
+          description: Invoice created successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Invoice"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/invoices/{invoiceId}:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/invoices/{invoiceId}:
     get:
       operationId: getInvoice
-      summary: "Get invoice by ID"
-      description: >
-        Returns a single invoice with its full line items array, payment
-        summary, and all metadata. Maps from the monolith's
-        RecordManager.Find() with related record expansion.
+      summary: Get invoice by ID
+      description: 'Returns a single invoice with its full line items array, payment
+        summary, and all metadata. Maps from the monolith''s RecordManager.Find()
+        with related record expansion.
+
+        '
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
+      - $ref: '#/components/parameters/InvoiceIdPath'
       responses:
-        "200":
-          description: "Invoice retrieved successfully"
+        '200':
+          description: Invoice retrieved successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Invoice"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       operationId: updateInvoice
-      summary: "Update an existing invoice"
-      description: >
-        Updates an invoice's header fields and optionally replaces its line
-        items. Only invoices in draft status can be updated — attempting to
-        update a sent, paid, or cancelled invoice returns a 409 Conflict.
+      summary: Update an existing invoice
+      description: 'Updates an invoice''s header fields and optionally replaces its
+        line items. Only invoices in draft status can be updated — attempting to update
+        a sent, paid, or cancelled invoice returns a 409 Conflict.
 
-        This is an ACID transaction — header update and line item replacement
-        occur atomically. On success, publishes an `invoicing.invoice.updated`
-        SNS domain event.
+        This is an ACID transaction — header update and line item replacement occur
+        atomically. On success, publishes an `invoicing.invoice.updated` SNS domain
+        event.
+
+        '
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateInvoiceRequest"
+              $ref: '#/components/schemas/UpdateInvoiceRequest'
       responses:
-        "200":
-          description: "Invoice updated successfully"
+        '200':
+          description: Invoice updated successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Invoice"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteInvoice
-      summary: "Delete an invoice"
-      description: >
-        Soft-deletes an invoice. Only invoices in draft status can be deleted.
-        Attempting to delete a sent, paid, or partially paid invoice returns
-        a 409 Conflict. On success, publishes an `invoicing.invoice.deleted`
-        SNS domain event.
+      summary: Delete an invoice
+      description: 'Soft-deletes an invoice. Only invoices in draft status can be
+        deleted. Attempting to delete a sent, paid, or partially paid invoice returns
+        a 409 Conflict. On success, publishes an `invoicing.invoice.deleted` SNS domain
+        event.
+
+        '
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       responses:
-        "200":
-          description: "Invoice deleted successfully"
+        '200':
+          description: Invoice deleted successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseEnvelope"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/invoices/{invoiceId}/send:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/invoices/{invoiceId}/send:
     post:
       operationId: sendInvoice
-      summary: "Send an invoice (transition from draft to sent status)"
-      description: >
-        Transitions the invoice status from draft to sent. This is an
-        irreversible status change — once sent, the invoice can no longer
-        be edited (only payments can be recorded against it).
-
-        On success, publishes two domain events:
-          1. `invoicing.invoice.updated` — status change event for Reporting
-          2. `notifications.email.requested` — triggers email notification
-             to the customer via the Notifications service
+      summary: Send an invoice (transition from draft to sent status)
+      description: "Transitions the invoice status from draft to sent. This is an\
+        \ irreversible status change — once sent, the invoice can no longer be edited\
+        \ (only payments can be recorded against it).\nOn success, publishes two domain\
+        \ events:\n  1. `invoicing.invoice.updated` — status change event for Reporting\n\
+        \  2. `notifications.email.requested` — triggers email notification\n    \
+        \ to the customer via the Notifications service\n"
       tags:
-        - "Invoices"
+      - Invoices
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       responses:
-        "200":
-          description: "Invoice sent successfully"
+        '200':
+          description: Invoice sent successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Invoice"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  # ──────────────────────────────────────────────────────────────────────────
-  # Payment Endpoints
-  # ──────────────────────────────────────────────────────────────────────────
-  /v1/payments:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/payments:
     get:
       operationId: listPayments
-      summary: "List payments with filtering and pagination"
-      description: >
-        Returns a paginated list of payment records. Supports filtering
+      summary: List payments with filtering and pagination
+      description: 'Returns a paginated list of payment records. Supports filtering
         by associated invoice, date range, and payment method.
+
+        '
       tags:
-        - "Payments"
+      - Payments
       parameters:
-        - name: page
-          in: query
-          description: "Page number (1-based)"
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: pageSize
-          in: query
-          description: "Number of items per page"
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 15
-        - name: invoiceId
-          in: query
-          description: "Filter payments by associated invoice ID"
-          required: false
-          schema:
-            type: string
-            format: uuid
-        - name: method
-          in: query
-          description: "Filter payments by payment method"
-          required: false
-          schema:
-            $ref: "#/components/schemas/PaymentMethod"
-        - name: fromDate
-          in: query
-          description: "Filter payments made on or after this date (inclusive, ISO 8601)"
-          required: false
-          schema:
-            type: string
-            format: date
-        - name: toDate
-          in: query
-          description: "Filter payments made on or before this date (inclusive, ISO 8601)"
-          required: false
-          schema:
-            type: string
-            format: date
-        - name: sortField
-          in: query
-          description: "Field name to sort by"
-          required: false
-          schema:
-            type: string
-            enum:
-              - amount
-              - paidOn
-              - createdOn
-              - method
-            default: "createdOn"
-        - name: sortOrder
-          in: query
-          description: "Sort direction"
-          required: false
-          schema:
-            type: string
-            enum:
-              - asc
-              - desc
-            default: "desc"
+      - name: page
+        in: query
+        description: Page number (1-based)
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: pageSize
+        in: query
+        description: Number of items per page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 15
+      - name: invoiceId
+        in: query
+        description: Filter payments by associated invoice ID
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: method
+        in: query
+        description: Filter payments by payment method
+        required: false
+        schema:
+          $ref: '#/components/schemas/PaymentMethod'
+      - name: fromDate
+        in: query
+        description: Filter payments made on or after this date (inclusive, ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: toDate
+        in: query
+        description: Filter payments made on or before this date (inclusive, ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date
+      - name: sortField
+        in: query
+        description: Field name to sort by
+        required: false
+        schema:
+          type: string
+          enum:
+          - amount
+          - paidOn
+          - createdOn
+          - method
+          default: createdOn
+      - name: sortOrder
+        in: query
+        description: Sort direction
+        required: false
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
       responses:
-        "200":
-          description: "Paginated list of payments retrieved successfully"
+        '200':
+          description: Paginated list of payments retrieved successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        items:
+                          type: array
                           items:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/Payment"
-                          pagination:
-                            $ref: "#/components/schemas/PaginationMeta"
-                        required:
-                          - items
-                          - pagination
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                            $ref: '#/components/schemas/Payment'
+                        pagination:
+                          $ref: '#/components/schemas/PaginationMeta'
+                      required:
+                      - items
+                      - pagination
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       operationId: createPayment
-      summary: "Record a payment against an invoice"
-      description: >
-        Records a payment against an existing invoice. This is an ACID
-        transaction — the payment record is created and the associated
-        invoice's paid amount and status are updated atomically within
-        a single PostgreSQL transaction.
-
-        Business rules:
-          - The invoice must be in sent, partially_paid, or overdue status
-          - Payment amount must not exceed the remaining balance
-          - If the total paid equals the invoice total, status transitions
-            to paid automatically
-          - If partial, status transitions to partially_paid
-
-        On success, publishes:
-          1. `invoicing.payment.created` — domain event for Reporting
-          2. `invoicing.invoice.updated` — if invoice status changed
+      summary: Record a payment against an invoice
+      description: "Records a payment against an existing invoice. This is an ACID\
+        \ transaction — the payment record is created and the associated invoice's\
+        \ paid amount and status are updated atomically within a single PostgreSQL\
+        \ transaction.\nBusiness rules:\n  - The invoice must be in sent, partially_paid,\
+        \ or overdue status\n  - Payment amount must not exceed the remaining balance\n\
+        \  - If the total paid equals the invoice total, status transitions\n    to\
+        \ paid automatically\n  - If partial, status transitions to partially_paid\n\
+        \nOn success, publishes:\n  1. `invoicing.payment.created` — domain event\
+        \ for Reporting\n  2. `invoicing.invoice.updated` — if invoice status changed\n"
       tags:
-        - "Payments"
+      - Payments
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePaymentRequest"
+              $ref: '#/components/schemas/CreatePaymentRequest'
       responses:
-        "201":
-          description: "Payment recorded successfully"
+        '201':
+          description: Payment recorded successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Payment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/payments/{paymentId}:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/payments/{paymentId}:
     get:
       operationId: getPayment
-      summary: "Get payment by ID"
-      description: >
-        Returns a single payment record with all its details including
+      summary: Get payment by ID
+      description: 'Returns a single payment record with all its details including
         the associated invoice reference.
+
+        '
       tags:
-        - "Payments"
+      - Payments
       parameters:
-        - $ref: "#/components/parameters/PaymentIdPath"
+      - $ref: '#/components/parameters/PaymentIdPath'
       responses:
-        "200":
-          description: "Payment retrieved successfully"
+        '200':
+          description: Payment retrieved successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Payment"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       operationId: updatePayment
-      summary: "Update a payment record"
-      description: >
-        Updates payment details such as reference, method, or notes.
-        The payment amount cannot be changed after creation — to correct
-        an amount, delete the payment and create a new one. Updating a
-        payment recalculates the invoice balance atomically within a
-        PostgreSQL transaction.
+      summary: Update a payment record
+      description: 'Updates payment details such as reference, method, or notes. The
+        payment amount cannot be changed after creation — to correct an amount, delete
+        the payment and create a new one. Updating a payment recalculates the invoice
+        balance atomically within a PostgreSQL transaction.
 
         On success, publishes an `invoicing.payment.updated` SNS event.
+
+        '
       tags:
-        - "Payments"
+      - Payments
       parameters:
-        - $ref: "#/components/parameters/PaymentIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/PaymentIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdatePaymentRequest"
+              $ref: '#/components/schemas/UpdatePaymentRequest'
       responses:
-        "200":
-          description: "Payment updated successfully"
+        '200':
+          description: Payment updated successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/Payment"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  # ──────────────────────────────────────────────────────────────────────────
-  # Invoice Line Item Sub-resource Endpoints
-  # ──────────────────────────────────────────────────────────────────────────
-  /v1/invoices/{invoiceId}/line-items:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/invoices/{invoiceId}/line-items:
     get:
       operationId: listInvoiceLineItems
-      summary: "List line items for an invoice"
-      description: >
-        Returns all line items associated with the specified invoice,
-        ordered by their creation sequence. Includes computed amount
-        fields (quantity × unitPrice) and tax calculations.
+      summary: List line items for an invoice
+      description: 'Returns all line items associated with the specified invoice,
+        ordered by their creation sequence. Includes computed amount fields (quantity
+        × unitPrice) and tax calculations.
+
+        '
       tags:
-        - "Invoice Line Items"
+      - Invoice Line Items
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
+      - $ref: '#/components/parameters/InvoiceIdPath'
       responses:
-        "200":
-          description: "Line items retrieved successfully"
+        '200':
+          description: Line items retrieved successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        items:
+                          type: array
                           items:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/InvoiceLineItem"
-                        required:
-                          - items
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                            $ref: '#/components/schemas/InvoiceLineItem'
+                      required:
+                      - items
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       operationId: addInvoiceLineItem
-      summary: "Add a line item to an invoice"
-      description: >
-        Adds a new line item to an existing invoice. The invoice must be
-        in draft status. This is an ACID transaction — the line item is
-        created and the invoice subtotal, tax amount, and total are
-        recalculated atomically within a single PostgreSQL transaction.
+      summary: Add a line item to an invoice
+      description: 'Adds a new line item to an existing invoice. The invoice must
+        be in draft status. This is an ACID transaction — the line item is created
+        and the invoice subtotal, tax amount, and total are recalculated atomically
+        within a single PostgreSQL transaction.
 
-        On success, publishes an `invoicing.invoice.updated` SNS event
-        with the recalculated totals.
+        On success, publishes an `invoicing.invoice.updated` SNS event with the recalculated
+        totals.
+
+        '
       tags:
-        - "Invoice Line Items"
+      - Invoice Line Items
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateLineItemRequest"
+              $ref: '#/components/schemas/CreateLineItemRequest'
       responses:
-        "201":
-          description: "Line item added successfully"
+        '201':
+          description: Line item added successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/InvoiceLineItem"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /v1/invoices/{invoiceId}/line-items/{lineItemId}:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InvoiceLineItem'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/invoicing/invoices/{invoiceId}/line-items/{lineItemId}:
     put:
       operationId: updateInvoiceLineItem
-      summary: "Update a line item on an invoice"
-      description: >
-        Updates an existing line item's quantity, unit price, description,
-        or tax rate. The parent invoice must be in draft status. Invoice
-        totals are recalculated atomically within a PostgreSQL transaction.
+      summary: Update a line item on an invoice
+      description: 'Updates an existing line item''s quantity, unit price, description,
+        or tax rate. The parent invoice must be in draft status. Invoice totals are
+        recalculated atomically within a PostgreSQL transaction.
 
         On success, publishes an `invoicing.invoice.updated` SNS event.
+
+        '
       tags:
-        - "Invoice Line Items"
+      - Invoice Line Items
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/LineItemIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/LineItemIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateLineItemRequest"
+              $ref: '#/components/schemas/UpdateLineItemRequest'
       responses:
-        "200":
-          description: "Line item updated successfully"
+        '200':
+          description: Line item updated successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ApiResponseEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        $ref: "#/components/schemas/InvoiceLineItem"
-        "400":
-          $ref: "#/components/responses/ValidationError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InvoiceLineItem'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteInvoiceLineItem
-      summary: "Remove a line item from an invoice"
-      description: >
-        Removes a line item from the invoice. The parent invoice must be
-        in draft status. Invoice totals are recalculated atomically within
-        a PostgreSQL transaction after the line item is removed.
+      summary: Remove a line item from an invoice
+      description: 'Removes a line item from the invoice. The parent invoice must
+        be in draft status. Invoice totals are recalculated atomically within a PostgreSQL
+        transaction after the line item is removed.
 
         On success, publishes an `invoicing.invoice.updated` SNS event.
+
+        '
       tags:
-        - "Invoice Line Items"
+      - Invoice Line Items
       parameters:
-        - $ref: "#/components/parameters/InvoiceIdPath"
-        - $ref: "#/components/parameters/LineItemIdPath"
-        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      - $ref: '#/components/parameters/InvoiceIdPath'
+      - $ref: '#/components/parameters/LineItemIdPath'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       responses:
-        "200":
-          description: "Line item removed successfully"
+        '200':
+          description: Line item removed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiResponseEnvelope"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "409":
-          $ref: "#/components/responses/ConflictError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-# ════════════════════════════════════════════════════════════════════════════
-# Components
-# ════════════════════════════════════════════════════════════════════════════
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 components:
-  # ────────────────────────────────────────────────────────────────────────
-  # Security Schemes
-  # ────────────────────────────────────────────────────────────────────────
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: >
-        Cognito JWT token obtained via the Identity service
-        POST /v1/auth/login endpoint. For LocalStack development,
-        tokens are issued by the custom Lambda authorizer.
+      description: 'Cognito JWT token obtained via the Identity service POST /v1/auth/login
+        endpoint. For LocalStack development, tokens are issued by the custom Lambda
+        authorizer.
 
-  # ────────────────────────────────────────────────────────────────────────
-  # Reusable Parameters
-  # ────────────────────────────────────────────────────────────────────────
+        '
   parameters:
     InvoiceIdPath:
       name: invoiceId
       in: path
-      description: "Unique invoice identifier"
+      description: Unique invoice identifier
       required: true
       schema:
         type: string
         format: uuid
-
     PaymentIdPath:
       name: paymentId
       in: path
-      description: "Unique payment identifier"
+      description: Unique payment identifier
       required: true
       schema:
         type: string
         format: uuid
-
     LineItemIdPath:
       name: lineItemId
       in: path
-      description: "Unique line item identifier"
+      description: Unique line item identifier
       required: true
       schema:
         type: string
         format: uuid
-
     IdempotencyKeyHeader:
       name: X-Idempotency-Key
       in: header
-      description: >
-        Client-generated unique key for idempotent write operations.
-        The server guarantees that repeated requests with the same
-        idempotency key produce the same result without side effects.
-        Keys are valid for 24 hours. Required on all write endpoints
-        per AAP §0.8.5.
+      description: 'Client-generated unique key for idempotent write operations. The
+        server guarantees that repeated requests with the same idempotency key produce
+        the same result without side effects. Keys are valid for 24 hours. Required
+        on all write endpoints per AAP §0.8.5.
+
+        '
       required: true
       schema:
         type: string
         format: uuid
-        example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-
-  # ────────────────────────────────────────────────────────────────────────
-  # Reusable Responses
-  # ────────────────────────────────────────────────────────────────────────
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
   responses:
     UnauthorizedError:
-      description: "Authentication required. Provide a valid JWT Bearer token."
+      description: Authentication required. Provide a valid JWT Bearer token.
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  message:
-                    type: string
-                    example: "Authentication required"
-                  errors:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ErrorModel"
-
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Authentication required
+                errors:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ErrorModel'
     ForbiddenError:
-      description: "Insufficient permissions for this operation."
+      description: Insufficient permissions for this operation.
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  message:
-                    type: string
-                    example: "Insufficient permissions"
-
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Insufficient permissions
     NotFoundError:
-      description: "The requested resource was not found."
+      description: The requested resource was not found.
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  message:
-                    type: string
-                    example: "Resource not found"
-
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Resource not found
     ValidationError:
-      description: "Request validation failed. Check the errors array for details."
+      description: Request validation failed. Check the errors array for details.
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  errors:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ErrorModel"
-                    minItems: 1
-
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                errors:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ErrorModel'
+                  minItems: 1
     ConflictError:
-      description: >
-        Operation conflicts with the current state of the resource.
-        Common causes: attempting to modify a non-draft invoice,
-        duplicate idempotency key with different payload, or payment
-        amount exceeding remaining invoice balance.
+      description: 'Operation conflicts with the current state of the resource. Common
+        causes: attempting to modify a non-draft invoice, duplicate idempotency key
+        with different payload, or payment amount exceeding remaining invoice balance.
+
+        '
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  message:
-                    type: string
-                    example: "Invoice is not in draft status and cannot be modified"
-                  errors:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ErrorModel"
-
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Invoice is not in draft status and cannot be modified
+                errors:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ErrorModel'
     InternalServerError:
-      description: "An unexpected internal error occurred."
+      description: An unexpected internal error occurred.
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ApiResponseEnvelope"
-              - type: object
-                properties:
-                  success:
-                    type: boolean
-                    const: false
-                  message:
-                    type: string
-                    example: "An internal error occurred"
-
-  # ────────────────────────────────────────────────────────────────────────
-  # Schema Definitions
-  # ────────────────────────────────────────────────────────────────────────
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: An internal error occurred
   schemas:
-    # ── Shared Envelope Schemas ──────────────────────────────────────────
-
     ApiResponseEnvelope:
       type: object
-      description: >
-        Standard API response envelope matching the monolith's BaseResponseModel
-        (BaseModels.cs lines 8-38). All responses are wrapped in this structure
-        for consistency across all bounded-context services.
+      description: 'Standard API response envelope matching the monolith''s BaseResponseModel
+        (BaseModels.cs lines 8-38). All responses are wrapped in this structure for
+        consistency across all bounded-context services.
+
+        '
       properties:
         timestamp:
           type: string
           format: date-time
-          description: "Server timestamp when the response was generated (UTC)"
-          example: "2025-01-15T10:30:00.000Z"
+          description: Server timestamp when the response was generated (UTC)
+          example: '2025-01-15T10:30:00.000Z'
         success:
           type: boolean
-          description: "Indicates whether the request was processed successfully"
+          description: Indicates whether the request was processed successfully
           example: true
         message:
           type: string
-          description: "Human-readable status message"
+          description: Human-readable status message
           nullable: true
-          example: "Operation completed successfully"
+          example: Operation completed successfully
         hash:
           type: string
-          description: "Response hash for cache validation (optional)"
+          description: Response hash for cache validation (optional)
           nullable: true
         errors:
           type: array
-          description: "List of error details if success is false"
+          description: List of error details if success is false
           items:
-            $ref: "#/components/schemas/ErrorModel"
+            $ref: '#/components/schemas/ErrorModel'
           default: []
         accessWarnings:
           type: array
-          description: "List of access-related warnings"
+          description: List of access-related warnings
           items:
-            $ref: "#/components/schemas/AccessWarningModel"
+            $ref: '#/components/schemas/AccessWarningModel'
           default: []
       required:
-        - timestamp
-        - success
-
+      - timestamp
+      - success
     ErrorModel:
       type: object
-      description: >
-        Error detail model matching the monolith's ErrorModel
-        (BaseModels.cs lines 62-83). Provides structured error information
-        with a field key, value context, and human-readable message.
+      description: 'Error detail model matching the monolith''s ErrorModel (BaseModels.cs
+        lines 62-83). Provides structured error information with a field key, value
+        context, and human-readable message.
+
+        '
       properties:
         key:
           type: string
-          description: "Field or context key that the error relates to"
-          example: "invoiceId"
+          description: Field or context key that the error relates to
+          example: invoiceId
         value:
           type: string
-          description: "The invalid value that triggered the error"
+          description: The invalid value that triggered the error
           nullable: true
-          example: ""
+          example: ''
         message:
           type: string
-          description: "Human-readable error message"
-          example: "Invoice not found"
+          description: Human-readable error message
+          example: Invoice not found
       required:
-        - key
-        - message
-
+      - key
+      - message
     AccessWarningModel:
       type: object
-      description: >
-        Access warning model matching the monolith's AccessWarningModel.
+      description: 'Access warning model matching the monolith''s AccessWarningModel.
         Used to communicate non-fatal permission issues.
+
+        '
       properties:
         key:
           type: string
-          description: "Warning key identifier"
+          description: Warning key identifier
         code:
           type: string
-          description: "Warning code for programmatic handling"
+          description: Warning code for programmatic handling
         message:
           type: string
-          description: "Human-readable warning message"
-
+          description: Human-readable warning message
     PaginationMeta:
       type: object
-      description: "Pagination metadata for paginated list responses"
+      description: Pagination metadata for paginated list responses
       properties:
         page:
           type: integer
-          description: "Current page number (1-based)"
+          description: Current page number (1-based)
           minimum: 1
           example: 1
         pageSize:
           type: integer
-          description: "Number of items per page"
+          description: Number of items per page
           minimum: 1
           example: 15
         totalCount:
           type: integer
-          description: "Total number of items matching the query"
+          description: Total number of items matching the query
           minimum: 0
           example: 42
         totalPages:
           type: integer
-          description: "Total number of pages"
+          description: Total number of pages
           minimum: 0
           example: 3
       required:
-        - page
-        - pageSize
-        - totalCount
-        - totalPages
-
-    # ── Invoice Schemas ──────────────────────────────────────────────────
-
+      - page
+      - pageSize
+      - totalCount
+      - totalPages
     Invoice:
       type: object
-      description: >
-        Full invoice representation including header, line items, totals,
-        and audit metadata. The invoice entity is the core domain object
-        of the Invoicing bounded context, backed by RDS PostgreSQL for
-        ACID transactional guarantees.
+      description: 'Full invoice representation including header, line items, totals,
+        and audit metadata. The invoice entity is the core domain object of the Invoicing
+        bounded context, backed by RDS PostgreSQL for ACID transactional guarantees.
+
+        '
       properties:
         id:
           type: string
           format: uuid
-          description: "Unique invoice identifier"
-          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          description: Unique invoice identifier
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
         invoiceNumber:
           type: string
-          description: >
-            Auto-generated, sequential invoice number (e.g., INV-00001).
+          description: 'Auto-generated, sequential invoice number (e.g., INV-00001).
             Unique within the system and immutable once assigned.
-          example: "INV-00042"
+
+            '
+          example: INV-00042
         customerId:
           type: string
           format: uuid
-          description: "Reference to the customer in the CRM service"
-          example: "c1d2e3f4-a5b6-7890-cdef-1234567890ab"
+          description: Reference to the customer in the CRM service
+          example: c1d2e3f4-a5b6-7890-cdef-1234567890ab
         customerName:
           type: string
-          description: "Denormalized customer name for display purposes"
-          example: "Acme Corporation"
+          description: Denormalized customer name for display purposes
+          example: Acme Corporation
         status:
-          $ref: "#/components/schemas/InvoiceStatus"
+          $ref: '#/components/schemas/InvoiceStatus'
         lineItems:
           type: array
-          description: "Ordered list of invoice line items"
+          description: Ordered list of invoice line items
           items:
-            $ref: "#/components/schemas/InvoiceLineItem"
+            $ref: '#/components/schemas/InvoiceLineItem'
         subtotal:
           type: number
           format: double
-          description: "Sum of all line item amounts before tax"
-          example: 1500.00
+          description: Sum of all line item amounts before tax
+          example: 1500.0
         taxAmount:
           type: number
           format: double
-          description: "Total tax amount across all line items"
-          example: 315.00
+          description: Total tax amount across all line items
+          example: 315.0
         total:
           type: number
           format: double
-          description: "Grand total (subtotal + taxAmount)"
-          example: 1815.00
+          description: Grand total (subtotal + taxAmount)
+          example: 1815.0
         paidAmount:
           type: number
           format: double
-          description: "Total amount paid so far across all payments"
-          example: 500.00
+          description: Total amount paid so far across all payments
+          example: 500.0
         balanceDue:
           type: number
           format: double
-          description: "Remaining balance (total - paidAmount)"
-          example: 1315.00
+          description: Remaining balance (total - paidAmount)
+          example: 1315.0
         currency:
-          $ref: "#/components/schemas/CurrencyType"
+          $ref: '#/components/schemas/CurrencyType'
         dueDate:
           type: string
           format: date
-          description: "Payment due date (ISO 8601 date)"
-          example: "2025-02-15"
+          description: Payment due date (ISO 8601 date)
+          example: '2025-02-15'
         paidDate:
           type: string
           format: date
-          description: "Date when the invoice was fully paid (null if unpaid)"
+          description: Date when the invoice was fully paid (null if unpaid)
           nullable: true
           example: null
         notes:
           type: string
-          description: "Free-text notes or terms attached to the invoice"
+          description: Free-text notes or terms attached to the invoice
           nullable: true
           maxLength: 4000
-          example: "Payment terms: Net 30"
+          example: 'Payment terms: Net 30'
         createdOn:
           type: string
           format: date-time
-          description: "Timestamp when the invoice was created (UTC)"
-          example: "2025-01-15T10:30:00.000Z"
+          description: Timestamp when the invoice was created (UTC)
+          example: '2025-01-15T10:30:00.000Z'
         createdBy:
           type: string
           format: uuid
-          description: "ID of the user who created the invoice"
-          example: "eabd66fd-8de1-4d79-9674-447ee89921c2"
+          description: ID of the user who created the invoice
+          example: eabd66fd-8de1-4d79-9674-447ee89921c2
         lastModifiedOn:
           type: string
           format: date-time
-          description: "Timestamp of the last modification (UTC)"
-          example: "2025-01-16T14:22:00.000Z"
+          description: Timestamp of the last modification (UTC)
+          example: '2025-01-16T14:22:00.000Z'
         lastModifiedBy:
           type: string
           format: uuid
-          description: "ID of the user who last modified the invoice"
+          description: ID of the user who last modified the invoice
           nullable: true
-          example: "eabd66fd-8de1-4d79-9674-447ee89921c2"
+          example: eabd66fd-8de1-4d79-9674-447ee89921c2
       required:
-        - id
-        - invoiceNumber
-        - customerId
-        - customerName
-        - status
-        - lineItems
-        - subtotal
-        - taxAmount
-        - total
-        - paidAmount
-        - balanceDue
-        - currency
-        - dueDate
-        - createdOn
-        - createdBy
-
+      - id
+      - invoiceNumber
+      - customerId
+      - customerName
+      - status
+      - lineItems
+      - subtotal
+      - taxAmount
+      - total
+      - paidAmount
+      - balanceDue
+      - currency
+      - dueDate
+      - createdOn
+      - createdBy
     InvoiceLineItem:
       type: object
-      description: >
-        A single line item on an invoice representing a product, service,
-        or charge. The amount field is computed as quantity × unitPrice.
-        Tax is computed as amount × (taxRate / 100).
+      description: 'A single line item on an invoice representing a product, service,
+        or charge. The amount field is computed as quantity × unitPrice. Tax is computed
+        as amount × (taxRate / 100).
+
+        '
       properties:
         id:
           type: string
           format: uuid
-          description: "Unique line item identifier"
-          example: "d290f1ee-6c54-4b01-90e6-d701748f0851"
+          description: Unique line item identifier
+          example: d290f1ee-6c54-4b01-90e6-d701748f0851
         invoiceId:
           type: string
           format: uuid
-          description: "Parent invoice identifier"
-          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          description: Parent invoice identifier
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
         productId:
           type: string
           format: uuid
-          description: "Optional reference to a product in the Inventory service"
+          description: Optional reference to a product in the Inventory service
           nullable: true
-          example: "b1c2d3e4-f5a6-7890-bcde-f12345678901"
+          example: b1c2d3e4-f5a6-7890-bcde-f12345678901
         description:
           type: string
-          description: "Line item description (product name, service detail, etc.)"
+          description: Line item description (product name, service detail, etc.)
           maxLength: 1000
-          example: "Web Development Services - January 2025"
+          example: Web Development Services - January 2025
         quantity:
           type: number
           format: double
-          description: "Quantity of items or units"
+          description: Quantity of items or units
           minimum: 0.0001
           example: 40.0
         unitPrice:
           type: number
           format: double
-          description: "Price per unit in the invoice's currency"
+          description: Price per unit in the invoice's currency
           minimum: 0
-          example: 37.50
+          example: 37.5
         amount:
           type: number
           format: double
-          description: "Computed line total: quantity × unitPrice"
-          example: 1500.00
+          description: 'Computed line total: quantity × unitPrice'
+          example: 1500.0
         taxRate:
           type: number
           format: double
-          description: "Tax rate as a percentage (e.g., 21.0 for 21%)"
+          description: Tax rate as a percentage (e.g., 21.0 for 21%)
           minimum: 0
           maximum: 100
           example: 21.0
         taxAmount:
           type: number
           format: double
-          description: "Computed tax: amount × (taxRate / 100)"
-          example: 315.00
+          description: 'Computed tax: amount × (taxRate / 100)'
+          example: 315.0
         sortOrder:
           type: integer
-          description: "Display order of the line item within the invoice"
+          description: Display order of the line item within the invoice
           minimum: 0
           example: 1
       required:
-        - id
-        - invoiceId
-        - description
-        - quantity
-        - unitPrice
-        - amount
-        - taxRate
-        - taxAmount
-
+      - id
+      - invoiceId
+      - description
+      - quantity
+      - unitPrice
+      - amount
+      - taxRate
+      - taxAmount
     Payment:
       type: object
-      description: >
-        A payment recorded against an invoice. Payments are immutable
-        in amount — to correct an amount, the payment must be deleted
-        and re-created. Creating a payment triggers an ACID transaction
-        that atomically updates the parent invoice's paid amount and
-        status.
+      description: 'A payment recorded against an invoice. Payments are immutable
+        in amount — to correct an amount, the payment must be deleted and re-created.
+        Creating a payment triggers an ACID transaction that atomically updates the
+        parent invoice''s paid amount and status.
+
+        '
       properties:
         id:
           type: string
           format: uuid
-          description: "Unique payment identifier"
-          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          description: Unique payment identifier
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         invoiceId:
           type: string
           format: uuid
-          description: "Associated invoice identifier"
-          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          description: Associated invoice identifier
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
         invoiceNumber:
           type: string
-          description: "Denormalized invoice number for display purposes"
-          example: "INV-00042"
+          description: Denormalized invoice number for display purposes
+          example: INV-00042
         amount:
           type: number
           format: double
-          description: "Payment amount in the invoice's currency"
+          description: Payment amount in the invoice's currency
           minimum: 0.01
-          example: 500.00
+          example: 500.0
         method:
-          $ref: "#/components/schemas/PaymentMethod"
+          $ref: '#/components/schemas/PaymentMethod'
         reference:
           type: string
-          description: "External payment reference (check number, transaction ID, etc.)"
+          description: External payment reference (check number, transaction ID, etc.)
           nullable: true
           maxLength: 500
-          example: "CHK-12345"
+          example: CHK-12345
         notes:
           type: string
-          description: "Optional notes about the payment"
+          description: Optional notes about the payment
           nullable: true
           maxLength: 2000
-          example: "Partial payment for January invoice"
+          example: Partial payment for January invoice
         paidOn:
           type: string
           format: date
-          description: "Date the payment was received (ISO 8601 date)"
-          example: "2025-01-20"
+          description: Date the payment was received (ISO 8601 date)
+          example: '2025-01-20'
         createdOn:
           type: string
           format: date-time
-          description: "Timestamp when the payment record was created (UTC)"
-          example: "2025-01-20T15:45:00.000Z"
+          description: Timestamp when the payment record was created (UTC)
+          example: '2025-01-20T15:45:00.000Z'
         createdBy:
           type: string
           format: uuid
-          description: "ID of the user who recorded the payment"
-          example: "eabd66fd-8de1-4d79-9674-447ee89921c2"
+          description: ID of the user who recorded the payment
+          example: eabd66fd-8de1-4d79-9674-447ee89921c2
         lastModifiedOn:
           type: string
           format: date-time
-          description: "Timestamp of the last modification (UTC)"
+          description: Timestamp of the last modification (UTC)
           nullable: true
-          example: "2025-01-21T09:00:00.000Z"
+          example: '2025-01-21T09:00:00.000Z'
         lastModifiedBy:
           type: string
           format: uuid
-          description: "ID of the user who last modified the payment"
+          description: ID of the user who last modified the payment
           nullable: true
       required:
-        - id
-        - invoiceId
-        - amount
-        - method
-        - paidOn
-        - createdOn
-        - createdBy
-
-    # ── Enum Schemas ─────────────────────────────────────────────────────
-
+      - id
+      - invoiceId
+      - amount
+      - method
+      - paidOn
+      - createdOn
+      - createdBy
     InvoiceStatus:
       type: string
-      description: >
-        Invoice lifecycle status. Transitions follow these rules:
-          draft → sent (via /send endpoint)
-          sent → partially_paid (automatic on partial payment)
-          sent → paid (automatic on full payment)
-          sent → overdue (automatic when due date passes, via scheduled check)
-          partially_paid → paid (automatic on remaining payment)
-          partially_paid → overdue (automatic when due date passes)
-          overdue → partially_paid (on partial payment)
-          overdue → paid (on full payment)
-          draft → cancelled (via delete/cancel)
-          sent → cancelled (admin override only)
+      description: "Invoice lifecycle status. Transitions follow these rules:\n  draft\
+        \ → sent (via /send endpoint)\n  sent → partially_paid (automatic on partial\
+        \ payment)\n  sent → paid (automatic on full payment)\n  sent → overdue (automatic\
+        \ when due date passes, via scheduled check)\n  partially_paid → paid (automatic\
+        \ on remaining payment)\n  partially_paid → overdue (automatic when due date\
+        \ passes)\n  overdue → partially_paid (on partial payment)\n  overdue → paid\
+        \ (on full payment)\n  draft → cancelled (via delete/cancel)\n  sent → cancelled\
+        \ (admin override only)\n"
       enum:
-        - draft
-        - sent
-        - paid
-        - partially_paid
-        - overdue
-        - cancelled
-      example: "draft"
-
+      - draft
+      - sent
+      - paid
+      - partially_paid
+      - overdue
+      - cancelled
+      example: draft
     PaymentMethod:
       type: string
-      description: "Method used to make the payment"
+      description: Method used to make the payment
       enum:
-        - cash
-        - card
-        - bank_transfer
-        - check
-        - wire
-        - online
-        - other
-      example: "bank_transfer"
-
+      - cash
+      - card
+      - bank_transfer
+      - check
+      - wire
+      - online
+      - other
+      example: bank_transfer
     CurrencyType:
       type: object
-      description: >
-        Currency definition derived from the monolith's CurrencyType class
-        (Definitions.cs lines 64-90). Represents a full currency specification
+      description: 'Currency definition derived from the monolith''s CurrencyType
+        class (Definitions.cs lines 64-90). Represents a full currency specification
         with symbol, name, ISO code, decimal precision, and display placement.
+
+        '
       properties:
         symbol:
           type: string
-          description: "International currency symbol"
-          example: "$"
+          description: International currency symbol
+          example: $
         symbolNative:
           type: string
-          description: "Native currency symbol as used in the currency's locale"
-          example: "$"
+          description: Native currency symbol as used in the currency's locale
+          example: $
         name:
           type: string
-          description: "Full currency name (singular)"
-          example: "US Dollar"
+          description: Full currency name (singular)
+          example: US Dollar
         namePlural:
           type: string
-          description: "Full currency name (plural)"
-          example: "US dollars"
+          description: Full currency name (plural)
+          example: US dollars
         code:
           type: string
-          description: "ISO 4217 currency code"
-          pattern: "^[A-Z]{3}$"
+          description: ISO 4217 currency code
+          pattern: ^[A-Z]{3}$
           minLength: 3
           maxLength: 3
-          example: "USD"
+          example: USD
         decimalDigits:
           type: integer
-          description: "Number of decimal places for the currency"
+          description: Number of decimal places for the currency
           minimum: 0
           maximum: 4
           example: 2
         rounding:
           type: integer
-          description: "Rounding increment (0 for no special rounding)"
+          description: Rounding increment (0 for no special rounding)
           minimum: 0
           example: 0
         symbolPlacement:
           type: string
-          description: "Position of the currency symbol relative to the amount"
+          description: Position of the currency symbol relative to the amount
           enum:
-            - before
-            - after
-          example: "before"
+          - before
+          - after
+          example: before
       required:
-        - symbol
-        - name
-        - code
-        - decimalDigits
-        - symbolPlacement
-
-    # ── Request Schemas ──────────────────────────────────────────────────
-
+      - symbol
+      - name
+      - code
+      - decimalDigits
+      - symbolPlacement
     CreateInvoiceRequest:
       type: object
-      description: >
-        Request body for creating a new invoice. The invoice is created
-        in draft status. Line items are optional at creation time and
-        can be added later via the line-items sub-resource endpoints.
+      description: 'Request body for creating a new invoice. The invoice is created
+        in draft status. Line items are optional at creation time and can be added
+        later via the line-items sub-resource endpoints.
+
+        '
       properties:
         customerId:
           type: string
           format: uuid
-          description: "Customer ID from the CRM service"
-          example: "c1d2e3f4-a5b6-7890-cdef-1234567890ab"
+          description: Customer ID from the CRM service
+          example: c1d2e3f4-a5b6-7890-cdef-1234567890ab
         customerName:
           type: string
-          description: "Customer display name (denormalized for invoice rendering)"
+          description: Customer display name (denormalized for invoice rendering)
           maxLength: 500
-          example: "Acme Corporation"
+          example: Acme Corporation
         dueDate:
           type: string
           format: date
-          description: "Payment due date (ISO 8601 date)"
-          example: "2025-02-15"
+          description: Payment due date (ISO 8601 date)
+          example: '2025-02-15'
         currency:
-          $ref: "#/components/schemas/CurrencyType"
+          $ref: '#/components/schemas/CurrencyType'
         lineItems:
           type: array
-          description: "Optional initial line items to include in the invoice"
+          description: Optional initial line items to include in the invoice
           items:
-            $ref: "#/components/schemas/CreateLineItemRequest"
+            $ref: '#/components/schemas/CreateLineItemRequest'
         notes:
           type: string
-          description: "Free-text notes or payment terms"
+          description: Free-text notes or payment terms
           nullable: true
           maxLength: 4000
-          example: "Payment terms: Net 30"
+          example: 'Payment terms: Net 30'
       required:
-        - customerId
-        - customerName
-        - dueDate
-        - currency
-
+      - customerId
+      - customerName
+      - dueDate
+      - currency
     UpdateInvoiceRequest:
       type: object
-      description: >
-        Request body for updating an existing draft invoice.
-        Only invoices in draft status can be updated.
+      description: 'Request body for updating an existing draft invoice. Only invoices
+        in draft status can be updated.
+
+        '
       properties:
         customerName:
           type: string
-          description: "Updated customer display name"
+          description: Updated customer display name
           maxLength: 500
-          example: "Acme Corp International"
+          example: Acme Corp International
         dueDate:
           type: string
           format: date
-          description: "Updated payment due date"
-          example: "2025-03-01"
+          description: Updated payment due date
+          example: '2025-03-01'
         currency:
-          $ref: "#/components/schemas/CurrencyType"
+          $ref: '#/components/schemas/CurrencyType'
         lineItems:
           type: array
-          description: >
-            If provided, replaces all existing line items atomically.
+          description: 'If provided, replaces all existing line items atomically.
             Omit this field to keep existing line items unchanged.
+
+            '
           items:
-            $ref: "#/components/schemas/CreateLineItemRequest"
+            $ref: '#/components/schemas/CreateLineItemRequest'
         notes:
           type: string
-          description: "Updated notes or payment terms"
+          description: Updated notes or payment terms
           nullable: true
           maxLength: 4000
-
     CreateLineItemRequest:
       type: object
-      description: "Request body for adding a line item to an invoice"
+      description: Request body for adding a line item to an invoice
       properties:
         productId:
           type: string
           format: uuid
-          description: "Optional product reference from the Inventory service"
+          description: Optional product reference from the Inventory service
           nullable: true
-          example: "b1c2d3e4-f5a6-7890-bcde-f12345678901"
+          example: b1c2d3e4-f5a6-7890-bcde-f12345678901
         description:
           type: string
-          description: "Line item description"
+          description: Line item description
           maxLength: 1000
-          example: "Web Development Services - January 2025"
+          example: Web Development Services - January 2025
         quantity:
           type: number
           format: double
-          description: "Quantity of items or units"
+          description: Quantity of items or units
           minimum: 0.0001
           example: 40.0
         unitPrice:
           type: number
           format: double
-          description: "Price per unit"
+          description: Price per unit
           minimum: 0
-          example: 37.50
+          example: 37.5
         taxRate:
           type: number
           format: double
-          description: "Tax rate as a percentage (e.g., 21.0 for 21%)"
+          description: Tax rate as a percentage (e.g., 21.0 for 21%)
           minimum: 0
           maximum: 100
           default: 0
           example: 21.0
         sortOrder:
           type: integer
-          description: "Display order within the invoice"
+          description: Display order within the invoice
           minimum: 0
           example: 1
       required:
-        - description
-        - quantity
-        - unitPrice
-
+      - description
+      - quantity
+      - unitPrice
     UpdateLineItemRequest:
       type: object
-      description: "Request body for updating an existing line item"
+      description: Request body for updating an existing line item
       properties:
         productId:
           type: string
           format: uuid
-          description: "Updated product reference"
+          description: Updated product reference
           nullable: true
         description:
           type: string
-          description: "Updated line item description"
+          description: Updated line item description
           maxLength: 1000
         quantity:
           type: number
           format: double
-          description: "Updated quantity"
+          description: Updated quantity
           minimum: 0.0001
         unitPrice:
           type: number
           format: double
-          description: "Updated price per unit"
+          description: Updated price per unit
           minimum: 0
         taxRate:
           type: number
           format: double
-          description: "Updated tax rate percentage"
+          description: Updated tax rate percentage
           minimum: 0
           maximum: 100
         sortOrder:
           type: integer
-          description: "Updated display order"
+          description: Updated display order
           minimum: 0
-
     CreatePaymentRequest:
       type: object
-      description: >
-        Request body for recording a payment against an invoice. The
-        payment amount must not exceed the invoice's remaining balance.
-        This operation executes within an ACID transaction that atomically
-        updates the invoice's paid amount and status.
+      description: 'Request body for recording a payment against an invoice. The payment
+        amount must not exceed the invoice''s remaining balance. This operation executes
+        within an ACID transaction that atomically updates the invoice''s paid amount
+        and status.
+
+        '
       properties:
         invoiceId:
           type: string
           format: uuid
-          description: "Invoice to record the payment against"
-          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+          description: Invoice to record the payment against
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
         amount:
           type: number
           format: double
-          description: "Payment amount in the invoice's currency"
+          description: Payment amount in the invoice's currency
           minimum: 0.01
-          example: 500.00
+          example: 500.0
         method:
-          $ref: "#/components/schemas/PaymentMethod"
+          $ref: '#/components/schemas/PaymentMethod'
         reference:
           type: string
-          description: "External payment reference (check number, transaction ID)"
+          description: External payment reference (check number, transaction ID)
           nullable: true
           maxLength: 500
-          example: "CHK-12345"
+          example: CHK-12345
         notes:
           type: string
-          description: "Optional payment notes"
+          description: Optional payment notes
           nullable: true
           maxLength: 2000
         paidOn:
           type: string
           format: date
-          description: "Date the payment was received (defaults to today if omitted)"
-          example: "2025-01-20"
+          description: Date the payment was received (defaults to today if omitted)
+          example: '2025-01-20'
       required:
-        - invoiceId
-        - amount
-        - method
-
+      - invoiceId
+      - amount
+      - method
     UpdatePaymentRequest:
       type: object
-      description: >
-        Request body for updating a payment record. The amount cannot
-        be changed — to correct an amount, delete and re-create the
-        payment. Only reference, method, notes, and paidOn can be updated.
+      description: 'Request body for updating a payment record. The amount cannot
+        be changed — to correct an amount, delete and re-create the payment. Only
+        reference, method, notes, and paidOn can be updated.
+
+        '
       properties:
         method:
-          $ref: "#/components/schemas/PaymentMethod"
+          $ref: '#/components/schemas/PaymentMethod'
         reference:
           type: string
-          description: "Updated external payment reference"
+          description: Updated external payment reference
           nullable: true
           maxLength: 500
         notes:
           type: string
-          description: "Updated payment notes"
+          description: Updated payment notes
           nullable: true
           maxLength: 2000
         paidOn:
           type: string
           format: date
-          description: "Updated payment date"
+          description: Updated payment date

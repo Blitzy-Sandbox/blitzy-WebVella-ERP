@@ -56,7 +56,7 @@ interface ValidationErrors {
 /* ------------------------------------------------------------------ */
 
 /** API base path for SMTP service operations */
-const SMTP_BASE = '/v1/notifications/smtp-services';
+const SMTP_BASE = '/notifications/smtp-configs';
 
 /** Connection security options matching SecureSocketOptions enum */
 const CONNECTION_SECURITY_OPTIONS = [
@@ -235,9 +235,9 @@ export default function SmtpServiceCreate(): React.JSX.Element {
         /* Navigate to the newly created service's manage page */
         const createdId = response.object?.id;
         if (createdId) {
-          navigate(`/notifications/smtp-services/${createdId}`);
+          navigate(`/notifications/smtp/${createdId}/manage`);
         } else {
-          navigate('/notifications/smtp-services');
+          navigate('/notifications/smtp');
         }
       } else {
         /* API returned success: false with validation errors */
@@ -356,7 +356,7 @@ export default function SmtpServiceCreate(): React.JSX.Element {
   /* ---------- Cancel navigation ---------- */
 
   const handleCancel = useCallback(() => {
-    navigate('/notifications/smtp-services');
+    navigate('/notifications/smtp');
   }, [navigate]);
 
   /* ---------- Shared Tailwind class sets ---------- */

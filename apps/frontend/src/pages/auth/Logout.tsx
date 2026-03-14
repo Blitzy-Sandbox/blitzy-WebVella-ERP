@@ -42,9 +42,9 @@
  * @module pages/auth/Logout
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { logout } from '../../api/auth';
+import { logout, clearAllTokens } from '../../api/auth';
 import { useAuthStore } from '../../stores/authStore';
 
 /**
@@ -63,47 +63,42 @@ export default function Logout(): React.JSX.Element {
   const [isLoggingOut, setIsLoggingOut] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ── SYNCHRONOUS pre-paint cleanup ────────────────────────────────────
+  // Clear all tokens from memory AND localStorage BEFORE the first paint
+  // and before AuthProvider's initializeAuth() can read them. This prevents
+  // a race where AuthProvider re-authenticates from localStorage tokens
+  // before the async logout flow below has a chance to clear them.
+  // useLayoutEffect fires synchronously before browser paint.
+  useLayoutEffect(() => {
+    clearAllTokens();
+    logoutSuccess();
+  }, [logoutSuccess]);
+
   useEffect(() => {
     /**
      * Asynchronous logout sequence replicating `LogoutModel.OnGet`:
-     *  1. Call Cognito GlobalSignOutCommand + clear in-memory tokens
-     *  2. Reset Zustand auth store (isAuthenticated, currentUser, etc.)
-     *  3. Redirect to "/" with history replacement
+     *  1. Call Cognito GlobalSignOutCommand (server-side invalidation)
+     *  2. Navigate to "/" with history replacement
      *
-     * The catch block ensures local state is ALWAYS cleared even if the
-     * Cognito call fails (e.g. network error, already-revoked token).
-     * This matches the monolith where `AuthService.Logout()` is called
-     * without error propagation — the user is always sent to "/".
+     * Client-side tokens were already cleared synchronously above.
+     * The catch block ensures the redirect always fires even if the
+     * Cognito call fails (network error, already-revoked token, etc.).
      */
     let isMounted = true;
 
     const performLogout = async (): Promise<void> => {
       try {
-        // Step 1: Invalidate Cognito tokens server-side
-        // Replaces: authService.Logout() → HttpContext.SignOutAsync(Cookie)
+        // Invalidate Cognito tokens server-side (best-effort)
         await logout();
+      } catch {
+        // Silent failure — tokens already cleared locally.
+      }
 
-        // Step 2: Clear client-side auth state
-        // Replaces: ErpMiddleware clearing SecurityContext on next request
-        logoutSuccess();
-
-        // Step 3: Navigate to home page
-        // Replaces: return new LocalRedirectResult("/")
+      try {
         navigate('/', { replace: true });
       } catch {
-        // Even if Cognito sign-out fails (network, revoked token, etc.),
-        // always clear local state and redirect. The monolith's logout
-        // handler does not surface errors — it always redirects to "/".
-        logoutSuccess();
-
-        try {
-          navigate('/', { replace: true });
-        } catch {
-          // If navigation itself fails (extremely unlikely), show error UI
-          // so the user is not stuck on a blank page.
-          if (isMounted) {
-            setError('Logout completed. Please navigate to the home page.');
-          }
+        if (isMounted) {
+          setError('Logout completed. Please navigate to the home page.');
         }
       } finally {
         if (isMounted) {
@@ -114,7 +109,6 @@ export default function Logout(): React.JSX.Element {
 
     performLogout();
 
-    // Cleanup flag to prevent state updates on unmounted component
     return () => {
       isMounted = false;
     };

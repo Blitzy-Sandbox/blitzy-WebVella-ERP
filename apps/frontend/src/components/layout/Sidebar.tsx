@@ -18,7 +18,7 @@
  *         WebVella.Erp.Web/Components/SidebarMenu/SidebarMenu.cshtml
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAppStore } from '../../stores/appStore';
 import type { MenuItem } from '../../types/app';
@@ -126,9 +126,13 @@ function SidebarMenuItem({
 
   /* Determine active state from the class field or path matching. */
   const isActiveFromClass = item.class.includes('active');
+  /* Match bidirectionally: current path may be a prefix of the node URL
+     (e.g. /crm/contacts/list matches /crm/contacts/list/l) or vice versa.
+     Handles deep-link navigation without the /l or /a page-type suffix. */
   const isActiveFromPath = linkHref
     ? currentPath === linkHref ||
-      (linkHref !== '/' && currentPath.startsWith(linkHref))
+      (linkHref !== '/' && currentPath.startsWith(linkHref)) ||
+      (currentPath !== '/' && linkHref.startsWith(currentPath + '/'))
     : false;
   const isActive = isActiveFromClass || isActiveFromPath;
 
@@ -255,13 +259,15 @@ function SidebarMenuItem({
           to={linkHref}
           end={linkHref === '/'}
           className={({ isActive: navActive }) => {
-            const activeStyle = navActive || isActive
-              ? 'bg-gray-900 text-white font-medium'
+            const effectiveActive = navActive || isActive;
+            const activeStyle = effectiveActive
+              ? 'bg-gray-900 text-white font-medium active'
               : 'text-gray-300 hover:bg-gray-700 hover:text-white';
             return `${baseClasses} ${nestingClasses} ${activeStyle} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400`;
           }}
           title={collapsed ? plainLabel : undefined}
           aria-current={isActive ? 'page' : undefined}
+          data-active={isActive ? 'true' : undefined}
         >
           {renderIcon(iconClass)}
           {!collapsed && (
@@ -385,6 +391,53 @@ function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const sidebarMenu = useAppStore((state) => state.sidebarMenu);
   const location = useLocation();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  /**
+   * Auto-expand parent items whose children have links matching the current path.
+   * This ensures the sidebar highlights the active node on initial load and
+   * whenever the route changes — replicating the monolith's SidebarMenu
+   * ViewComponent which rendered child nodes expanded when active.
+   */
+  useEffect(() => {
+    const currentPath = location.pathname.toLowerCase();
+    const idsToExpand = new Set<string>();
+
+    for (const item of sidebarMenu) {
+      if (item.nodes.length > 0) {
+        for (const child of item.nodes) {
+          const childHref = child.isHtml ? extractHref(child.content) : null;
+          if (childHref) {
+            const normalised = childHref.toLowerCase();
+            /* Match bidirectionally: current path may be a prefix of the
+               node URL (e.g. /crm/contacts/list matches /crm/contacts/list/l)
+               or vice versa. This handles deep-link navigation to
+               /:appName/:areaName/:nodeName without the /l or /a suffix. */
+            if (
+              currentPath === normalised ||
+              (normalised !== '/' && currentPath.startsWith(normalised)) ||
+              (currentPath !== '/' && normalised.startsWith(currentPath + '/'))
+            ) {
+              idsToExpand.add(item.id);
+              break;
+            }
+          }
+          /* Also check the class attribute for 'active' marker set by AppShell. */
+          if (child.class.includes('active')) {
+            idsToExpand.add(item.id);
+            break;
+          }
+        }
+      }
+    }
+
+    if (idsToExpand.size > 0) {
+      setExpandedItems((prev) => {
+        const merged = new Set(prev);
+        for (const id of idsToExpand) merged.add(id);
+        return merged;
+      });
+    }
+  }, [location.pathname, sidebarMenu]);
 
   /** Toggle expand/collapse state for a specific menu item by ID. */
   const handleToggleExpand = useCallback((id: string) => {

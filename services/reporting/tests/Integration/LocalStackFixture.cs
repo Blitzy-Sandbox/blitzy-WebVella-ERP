@@ -413,9 +413,9 @@ namespace WebVellaErp.Reporting.Tests.Integration
         private async Task SetupRdsPostgresAsync()
         {
             var masterConnectionString =
-                $"Host=localhost;Port={RdsPostgresPort};Database=postgres;Username=postgres;Password=postgres";
+                $"Host=localhost;Port={RdsPostgresPort};Database=postgres;Username=test;Password=test";
             RdsConnectionString =
-                $"Host=localhost;Port={RdsPostgresPort};Database=reporting_test;Username=postgres;Password=postgres";
+                $"Host=localhost;Port={RdsPostgresPort};Database=reporting_test;Username=test;Password=test";
 
             // First, attempt direct connection to reporting_test database
             try
@@ -431,7 +431,9 @@ namespace WebVellaErp.Reporting.Tests.Integration
                 // Database may not exist yet — attempt creation via master database
             }
 
-            // Connect to master/postgres database and create reporting_test
+            // Connect to master/postgres database and create reporting_test.
+            // Multiple IClassFixture<LocalStackFixture> instances may race on CREATE DATABASE.
+            // Catch PostgresException 23505 (duplicate key) when a concurrent fixture wins the race.
             try
             {
                 await using var masterConn = new NpgsqlConnection(masterConnectionString);
@@ -444,13 +446,21 @@ namespace WebVellaErp.Reporting.Tests.Integration
 
                 if (exists == null)
                 {
-                    await using var createCmd = new NpgsqlCommand(
-                        @"CREATE DATABASE reporting_test", masterConn);
-                    await createCmd.ExecuteNonQueryAsync();
-                    _databaseCreated = true;
+                    try
+                    {
+                        await using var createCmd = new NpgsqlCommand(
+                            @"CREATE DATABASE reporting_test", masterConn);
+                        await createCmd.ExecuteNonQueryAsync();
+                        _databaseCreated = true;
+                    }
+                    catch (PostgresException pgEx) when (pgEx.SqlState == "23505" || pgEx.SqlState == "42P04")
+                    {
+                        // Database was created by a concurrent fixture instance — expected
+                        // when multiple test classes use IClassFixture<LocalStackFixture> in parallel.
+                    }
                 }
 
-                // Verify connectivity to the newly created database
+                // Verify connectivity to the newly created (or already existing) database
                 await using var testConn = new NpgsqlConnection(RdsConnectionString);
                 await testConn.OpenAsync();
                 await using var selectCmd = new NpgsqlCommand("SELECT 1", testConn);
@@ -748,7 +758,7 @@ namespace WebVellaErp.Reporting.Tests.Integration
                 try
                 {
                     var masterConnectionString =
-                        $"Host=localhost;Port={RdsPostgresPort};Database=postgres;Username=postgres;Password=postgres";
+                        $"Host=localhost;Port={RdsPostgresPort};Database=postgres;Username=test;Password=test";
                     await using var masterConn = new NpgsqlConnection(masterConnectionString);
                     await masterConn.OpenAsync();
 

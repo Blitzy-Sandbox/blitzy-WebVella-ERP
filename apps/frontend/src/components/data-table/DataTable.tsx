@@ -313,6 +313,20 @@ export interface DataTableProps<T = Record<string, unknown>> {
 
   /** URL search-param key for page size (default `"pageSize"`). */
   pageSizeParam?: string;
+
+  /**
+   * Optional `data-testid` value applied to each `<tr>` in the body.
+   * Enables targeted E2E test selectors without coupling tests to
+   * internal class names.
+   */
+  rowTestId?: string;
+
+  /**
+   * Callback fired when a body row is clicked.
+   * Receives the original row data and the row index.
+   * Adds `cursor-pointer` styling to body rows when provided.
+   */
+  onRowClick?: (record: T, index: number) => void;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -360,6 +374,8 @@ export function DataTable<
     sortOrderParam = 'sortOrder',
     pageParam = 'page',
     pageSizeParam = 'pageSize',
+    rowTestId,
+    onRowClick,
   } = props;
 
   /* ── URL search-param state (matches monolith pattern) ───── */
@@ -648,11 +664,27 @@ export function DataTable<
             {table.getRowModel().rows.map((row) => (
               <tr
                 key={row.id}
+                {...(rowTestId ? { 'data-testid': rowTestId } : {})}
+                {...(onRowClick
+                  ? {
+                      onClick: () =>
+                        onRowClick(row.original, row.index),
+                      role: 'button',
+                      tabIndex: 0,
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(row.original, row.index);
+                        }
+                      },
+                    }
+                  : {})}
                 className={cn(
                   'border-b border-gray-100',
                   striped && 'even:bg-gray-50',
                   hover &&
                     'hover:bg-gray-100 motion-safe:transition-colors motion-safe:duration-150',
+                  onRowClick && 'cursor-pointer',
                 )}
               >
                 {row.getVisibleCells().map((cell) => {

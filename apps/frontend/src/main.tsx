@@ -51,6 +51,47 @@ const queryClient = new QueryClient({
 });
 
 /**
+ * History-dedup guard — prevent React Router from creating duplicate
+ * history entries during initial route resolution.
+ *
+ * React Router 6's `createBrowserRouter` internally calls
+ * `history.pushState` during `completeNavigation` for certain route
+ * configurations (e.g. pathless layout routes with `useSearchParams`).
+ * In combination with React 19 StrictMode's double-effect execution,
+ * this can add a spurious history entry on each full-page navigation,
+ * breaking the browser back button.
+ *
+ * This guard converts the first `pushState` after each full-page load
+ * into a `replaceState` when the URL being pushed matches the current
+ * page URL.  This is safe because a push to the SAME URL is always
+ * redundant — no legitimate navigation pushes to the identical path.
+ */
+(() => {
+  const origPush = window.history.pushState.bind(window.history);
+  const origReplace = window.history.replaceState.bind(window.history);
+
+  window.history.pushState = function pushStateGuard(
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ): void {
+    /* If the target URL matches the current location, convert to replace
+       to avoid creating a duplicate history entry. */
+    if (url != null) {
+      const target =
+        typeof url === 'string'
+          ? new URL(url, window.location.origin).pathname
+          : url.pathname;
+      if (target === window.location.pathname) {
+        origReplace(data, unused, url);
+        return;
+      }
+    }
+    origPush(data, unused, url);
+  };
+})();
+
+/**
  * Obtain the root DOM element defined in `index.html`.
  *
  * The `<div id="root"></div>` element is the mount target for the entire

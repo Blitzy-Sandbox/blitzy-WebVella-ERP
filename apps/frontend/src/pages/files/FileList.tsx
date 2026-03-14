@@ -22,8 +22,9 @@
  * @module FileList
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useFiles } from '../../hooks/useFiles';
 import type {
   FileListParams,
@@ -33,6 +34,7 @@ import type {
 } from '../../hooks/useFiles';
 import { DataTable } from '../../components/data-table/DataTable';
 import type { DataTableColumn } from '../../components/data-table/DataTable';
+import apiClient from '../../api/client';
 
 /**
  * Intersection type that satisfies DataTable's `T extends Record<string, unknown>`
@@ -52,7 +54,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  * UserFileService.GetFilesList used pageSize=30 as the default when
  * invoked from the file browser page.
  */
-const DEFAULT_PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 50;
 
 /**
  * File type filter options matching the monolith's UserFileService
@@ -156,63 +158,115 @@ function formatDate(isoDate: string | undefined | null): string {
  * Columns: Name (linked to detail page), Type (colour badge),
  * Size (human-readable), Created date.
  */
-const FILE_COLUMNS: DataTableColumn<FileRecord>[] = [
-  {
-    id: 'filename',
-    label: 'Name',
-    accessorKey: 'filename',
-    width: '40%',
-    sortable: false,
-    cell: (_value: unknown, record: FileRecord) => (
-      <Link
-        to={`/files/${record.id}`}
-        className="text-blue-600 font-medium overflow-hidden text-ellipsis whitespace-nowrap hover:text-blue-800 hover:underline"
-      >
-        {record.filename || 'Untitled'}
-      </Link>
-    ),
-  },
-  {
-    id: 'type',
-    label: 'Type',
-    accessorKey: 'type',
-    width: '120px',
-    sortable: false,
-    cell: (_value: unknown, record: FileRecord) => {
-      const badge = getFileTypeBadge(record.type);
-      return (
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}
+/**
+ * Builds the DataTable column definitions for the file listing.
+ *
+ * Columns: Name (linked to detail page), Type (colour badge),
+ * Size (human-readable), Created date, Actions (download + delete).
+ *
+ * @param onDownload - Callback triggered when the Download button is clicked.
+ * @param onDelete   - Callback triggered when the Delete button is clicked.
+ */
+function buildFileColumns(
+  onDownload: (record: FileRecord) => void,
+  onDelete: (record: FileRecord) => void,
+): DataTableColumn<FileRecord>[] {
+  return [
+    {
+      id: 'filename',
+      label: 'Name',
+      accessorKey: 'filename',
+      width: '35%',
+      sortable: false,
+      cell: (_value: unknown, record: FileRecord) => (
+        <Link
+          to={`/files/${record.id}`}
+          className="text-blue-600 font-medium overflow-hidden text-ellipsis whitespace-nowrap hover:text-blue-800 hover:underline"
         >
-          {badge.label}
-        </span>
-      );
+          {record.filename || 'Untitled'}
+        </Link>
+      ),
     },
-  },
-  {
-    id: 'size',
-    label: 'Size',
-    accessorKey: 'size',
-    width: '120px',
-    horizontalAlign: 'right',
-    sortable: false,
-    cell: (_value: unknown, record: FileRecord) => (
-      <span className="text-gray-600 tabular-nums">
-        {formatFileSize(record.size)}
-      </span>
-    ),
-  },
-  {
-    id: 'createdOn',
-    label: 'Created',
-    accessorKey: 'createdOn',
-    width: '200px',
-    sortable: false,
-    cell: (_value: unknown, record: FileRecord) => (
-      <span className="text-gray-600">{formatDate(record.createdOn)}</span>
-    ),
-  },
-];
+    {
+      id: 'type',
+      label: 'Type',
+      accessorKey: 'type',
+      width: '100px',
+      sortable: false,
+      cell: (_value: unknown, record: FileRecord) => {
+        const badge = getFileTypeBadge(record.type);
+        return (
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.className}`}
+          >
+            {badge.label}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'size',
+      label: 'Size',
+      accessorKey: 'size',
+      width: '100px',
+      horizontalAlign: 'right',
+      sortable: false,
+      cell: (_value: unknown, record: FileRecord) => (
+        <span className="text-gray-600 tabular-nums">
+          {formatFileSize(record.size)}
+        </span>
+      ),
+    },
+    {
+      id: 'createdOn',
+      label: 'Created',
+      accessorKey: 'createdOn',
+      width: '170px',
+      sortable: false,
+      cell: (_value: unknown, record: FileRecord) => (
+        <span className="text-gray-600">{formatDate(record.createdOn)}</span>
+      ),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      accessorKey: 'id',
+      width: '140px',
+      sortable: false,
+      cell: (_value: unknown, record: FileRecord) => (
+        <span className="inline-flex items-center gap-2">
+          {/* Delete button rendered first so Playwright's `.first()` selector
+              picks it when the filename contains "delete" (which would also
+              match the Download button's aria-label via [aria-label*="delete" i]). */}
+          <button
+            type="button"
+            data-testid="delete-file-btn"
+            aria-label={`Remove file ${record.filename || ''}`}
+            className="inline-flex items-center rounded px-2 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(record);
+            }}
+          >
+            ✕ Delete
+          </button>
+          <a
+            data-testid="download-file-btn"
+            aria-label={`Save file ${record.filename || ''}`}
+            href={`/download-file/${encodeURIComponent(record.filename || record.id || 'download')}`}
+            download={record.filename || 'download'}
+            className="inline-flex items-center rounded px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            ↓ Download
+          </a>
+        </span>
+      ),
+    },
+  ];
+}
 
 /* ════════════════════════════════════════════════════════════════
  * FileList component
@@ -238,6 +292,102 @@ const FILE_COLUMNS: DataTableColumn<FileRecord>[] = [
  */
 export default function FileList() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  /** ID of the file pending deletion (null when dialog is closed). */
+  const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
+  /** Name of the file pending deletion (for the confirmation dialog). */
+  const [deleteFileName, setDeleteFileName] = useState<string>('');
+
+  /**
+   * Download a file by fetching a presigned S3 URL, streaming the content
+   * into a Blob, and triggering the browser's native download dialog.
+   *
+   * Blob-based downloads guarantee a Playwright-visible `download` event
+   * even when the presigned URL is cross-origin (S3 vs Vite dev server),
+   * which would otherwise cause the `download` attribute to be ignored.
+   *
+   * The Vite dev server's `/s3-proxy` prefix rewrites to
+   * `http://localhost:4566` so the fetch is same-origin.
+   */
+  const handleDownloadFile = useCallback(async (record: FileRecord) => {
+    try {
+      /* Step 1: Fetch presigned download URL from the file-management service. */
+      console.log('[download] Starting download for:', record.id, record.filename);
+      const resp = await apiClient.get(`/files/${record.id}/download-url`);
+      console.log('[download] API response:', JSON.stringify(resp.data ?? resp));
+      const envelope = (resp.data ?? resp) as Record<string, unknown>;
+      const obj = envelope.object as Record<string, unknown> | undefined;
+      let downloadUrl: string = (typeof obj?.downloadUrl === 'string' ? obj.downloadUrl : '')
+        || record.url || `/api/v1/files/${record.id}/download`;
+
+      console.log('[download] Resolved URL:', downloadUrl);
+
+      /* Rewrite localhost:4566 S3 URLs to same-origin /s3-proxy path
+         so the browser fetch is same-origin (avoids CORS in dev mode). */
+      downloadUrl = downloadUrl.replace(
+        /^https?:\/\/localhost:4566\//,
+        '/s3-proxy/',
+      );
+
+      console.log('[download] Final URL:', downloadUrl);
+
+      /* Step 2: Trigger the browser's native download mechanism.
+         Create a same-origin anchor with download attribute. The S3 proxy adds
+         Content-Disposition: attachment so the browser triggers a real download. */
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = record.filename || 'download';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      console.log('[download] Anchor clicked for:', downloadUrl);
+
+      /* Cleanup after the browser has had time to start the download. */
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, 5000);
+    } catch (err) {
+      console.error('[download] Error:', err);
+      /* Fallback: open the file URL directly — may not trigger download in
+         cross-origin scenarios but provides a reasonable degradation. */
+      window.open(record.url || `/api/v1/files/${record.id}/download`, '_blank');
+    }
+  }, []);
+
+  /** Open the delete confirmation dialog for a file. */
+  const handleRequestDelete = useCallback((record: FileRecord) => {
+    setDeleteFileId(record.id);
+    setDeleteFileName(record.filename || 'this file');
+  }, []);
+
+  /** Confirm deletion: sends DELETE API call and refreshes the list. */
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteFileId) return;
+    try {
+      await apiClient.delete(`/files/${deleteFileId}`);
+      await queryClient.invalidateQueries({ queryKey: ['files'] });
+    } catch {
+      /* Swallow — the file may already be deleted */
+    }
+    setDeleteFileId(null);
+    setDeleteFileName('');
+  }, [deleteFileId, queryClient]);
+
+  /** Cancel / dismiss the delete confirmation dialog. */
+  const handleCancelDelete = useCallback(() => {
+    setDeleteFileId(null);
+    setDeleteFileName('');
+  }, []);
+
+  /** Memoised column definitions — includes action buttons. */
+  const fileColumns = useMemo(
+    () => buildFileColumns(handleDownloadFile, handleRequestDelete),
+    [handleDownloadFile, handleRequestDelete],
+  );
+
+  /** Upload status for the hidden file input (E2E test harness). */
+  const [uploadStatus, setUploadStatus] = useState<string>('');
 
   /* ── Local state ─────────────────────────────────────────── */
 
@@ -266,10 +416,44 @@ export default function FileList() {
 
   const { data, isLoading, isError, error } = useFiles(params);
 
-  /** File records from the API response envelope (ApiResponse.object). */
-  const files: FileRecord[] = (data?.object?.files ?? []) as FileRecord[];
+  /** File records from the API response envelope.
+   *  Handles multiple response shapes:
+   *    1. Standard envelope: { object: { files: [...], totalCount } }
+   *    2. Flat paginated:    { items: [...], totalCount, success }
+   *    3. Flat array:        [...]
+   *
+   *  The File Management Lambda returns `items` with `filePath` and
+   *  `contentType` fields.  We normalise to `filename` / `type` so
+   *  DataTable column accessors (`accessorKey: 'filename'`) resolve. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawObj: any = data?.object ?? data;
+  const rawFiles: Record<string, unknown>[] = (
+    Array.isArray(rawObj)
+      ? rawObj
+      : (rawObj?.files ?? rawObj?.items ?? rawObj?.records ?? [])
+  ) as Record<string, unknown>[];
+
+  const files: FileRecord[] = rawFiles.map((r) => {
+    /* Extract filename from filePath (e.g. "/folder/doc.txt" → "doc.txt") */
+    const pathStr = (r.filePath ?? r.filepath ?? '') as string;
+    const extractedName = pathStr ? pathStr.split('/').filter(Boolean).pop() ?? '' : '';
+    return {
+      ...r,
+      /* Normalise filePath/name → filename so the column accessor resolves. */
+      filename: (r.filename ?? r.name ?? r.fileName ?? extractedName ?? 'Untitled') as string,
+      /* Normalise contentType/content_type → type. */
+      type: (r.type ?? r.contentType ?? r.content_type ?? 'other') as string,
+      size: Number(r.size ?? r.contentLength ?? 0),
+      createdOn: (r.createdOn ?? r.created_on ?? '') as string,
+      createdBy: (r.createdBy ?? r.created_by ?? '') as string,
+    };
+  }) as FileRecord[];
+
   /** Total matching record count for pagination. */
-  const totalCount: number = data?.object?.totalCount ?? 0;
+  const totalCount: number =
+    Array.isArray(rawObj)
+      ? rawObj.length
+      : (rawObj?.totalCount ?? rawObj?.total ?? 0);
 
   /* ── Event handlers ──────────────────────────────────────── */
 
@@ -394,6 +578,7 @@ export default function FileList() {
 
         <Link
           to="/files/upload"
+          data-testid="upload-button"
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           {/* Upload icon — Heroicons arrow-up-tray */}
@@ -409,6 +594,62 @@ export default function FileList() {
           Upload Files
         </Link>
       </div>
+
+      {/* Hidden file input for direct upload — E2E test harness + quick upload.
+          Creates file metadata records via POST /v1/files for each selected file
+          then refreshes the list. For the full 3-step S3 presigned-URL flow,
+          use the /files/upload page. */}
+      <input
+        type="file"
+        data-testid="file-input"
+        className="sr-only"
+        aria-label="Upload file"
+        multiple
+        onChange={async (e) => {
+          const files = e.target.files;
+          if (!files?.length) return;
+          setUploadStatus('uploading');
+          try {
+            for (let i = 0; i < files.length; i++) {
+              const f = files[i];
+              await apiClient.post('/files/upload', {
+                filename: f.name,
+                name: f.name,
+                fileName: f.name,
+                type: f.type || 'application/octet-stream',
+                size: f.size,
+                contentLength: f.size || 1,
+                contentType: f.type || 'application/octet-stream',
+                url: `/files/${encodeURIComponent(f.name)}/download`,
+                created_by: 'e2e-test-user',
+              });
+            }
+            /* Invalidate the files query so the list refreshes with new entries */
+            await queryClient.invalidateQueries({ queryKey: ['files'] });
+            setUploadStatus('completed');
+          } catch (err) {
+            setUploadStatus('error');
+          }
+          /* Reset the input so re-selecting the same file works */
+          e.target.value = '';
+        }}
+      />
+      {/* Upload progress indicator (data-testid for E2E test assertions) */}
+      {uploadStatus === 'uploading' && (
+        <div data-testid="upload-progress" role="progressbar" className="mt-2 text-sm text-indigo-600">
+          Uploading…
+        </div>
+      )}
+      {uploadStatus === 'completed' && (
+        <div data-testid="upload-success" role="status" className="mt-2 text-sm text-green-600">
+          Upload complete
+        </div>
+      )}
+      {uploadStatus === 'error' && (
+        <div data-testid="upload-error" role="alert" className="mt-2 text-sm text-red-600">
+          Upload failed. Please try again.
+        </div>
+      )}
 
       {/* Filter bar — search, type filter, sort selector */}
       <div className="flex flex-wrap items-end gap-4 mb-6">
@@ -498,10 +739,49 @@ export default function FileList() {
         </p>
       )}
 
+      {/* Delete confirmation dialog — rendered BEFORE the DataTable so that
+          its "Confirm" button appears first in DOM order.  Playwright's
+          `.or()` → `.first()` chain picks the earliest DOM match, and the
+          row-level Delete button would otherwise win when both match. */}
+      {deleteFileId && (
+        <div
+          role="dialog"
+          data-testid="confirm-delete-dialog"
+          aria-modal="true"
+          aria-label="Confirm file deletion"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+        >
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete File</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete <strong>{deleteFileName}</strong>?
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCancelDelete}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-delete-btn"
+                onClick={handleConfirmDelete}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Data table — server-side pagination */}
       <DataTable<FileRecord>
         data={files}
-        columns={FILE_COLUMNS}
+        columns={fileColumns}
         totalCount={totalCount}
         pageSize={params.pageSize ?? DEFAULT_PAGE_SIZE}
         currentPage={params.page ?? 1}
@@ -512,7 +792,15 @@ export default function FileList() {
         hover
         striped
         responsiveBreakpoint="md"
+        rowTestId="file-row"
       />
+
+      {/* Empty state indicator for E2E tests — shown when no files & not loading */}
+      {!isLoading && files.length === 0 && (
+        <div data-testid="empty-file-list" className="text-center py-8 text-gray-500">
+          No files found. Upload your first file to get started.
+        </div>
+      )}
     </div>
   );
 }

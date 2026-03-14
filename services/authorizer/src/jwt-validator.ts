@@ -74,7 +74,8 @@ const AWS_ENDPOINT_URL: string = process.env.AWS_ENDPOINT_URL || 'http://localho
  */
 function deriveJwksUri(): string {
   if (IS_LOCAL) {
-    return `${AWS_ENDPOINT_URL}/_aws/cognito-idp/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
+    // LocalStack serves JWKS at /{poolId}/.well-known/jwks.json (no /_aws/cognito-idp/ prefix)
+    return `${AWS_ENDPOINT_URL}/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
   }
   return `https://cognito-idp.${AWS_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
 }
@@ -114,9 +115,9 @@ const EXPECTED_ISSUER: string = deriveIssuer();
  * - rateLimit: true — prevents excessive JWKS endpoint calls
  * - jwksRequestsPerMinute: 10 — reasonable rate limit for key rotation scenarios
  */
-const jwksClient: JwksRsa.JwksClient | null = IS_LOCAL
-  ? null
-  : new JwksRsa.JwksClient({
+// Always initialize the JWKS client — LocalStack Cognito issues RS256 tokens
+// with a real RSA key pair, so we need JWKS key resolution in both modes.
+const jwksClient: JwksRsa.JwksClient = new JwksRsa.JwksClient({
       jwksUri: JWKS_URI,
       cache: true,
       cacheMaxEntries: 5,
@@ -133,9 +134,6 @@ const jwksClient: JwksRsa.JwksClient | null = IS_LOCAL
  * @returns The RSA public key string, or null if key resolution fails
  */
 async function getSigningKey(kid: string): Promise<string | null> {
-  if (!jwksClient) {
-    return null;
-  }
   try {
     const signingKey = await jwksClient.getSigningKey(kid);
     return signingKey.getPublicKey();
@@ -310,7 +308,9 @@ async function validateCognitoToken(token: string): Promise<TokenPayload | null>
     };
 
     // Validate issuer against the expected Cognito issuer URI.
-    if (EXPECTED_ISSUER) {
+    // In LocalStack mode, skip issuer validation because the token issuer
+    // uses localhost.localstack.cloud but the Lambda sees 172.17.0.1.
+    if (EXPECTED_ISSUER && !IS_LOCAL) {
       verifyOptions.issuer = EXPECTED_ISSUER;
     }
 
@@ -391,8 +391,14 @@ export async function validateToken(token: string): Promise<TokenPayload | null>
       return null;
     }
 
-    // Route to the appropriate validation mode
+    // In local mode, LocalStack Cognito issues RS256-signed JWTs (not HS256).
+    // Try Cognito RS256 validation first; fall back to HS256 for legacy/test tokens.
     if (IS_LOCAL) {
+      const cognitoResult = await validateCognitoToken(token);
+      if (cognitoResult) {
+        return cognitoResult;
+      }
+      // Fallback: try HS256 local secret validation for test-issued tokens
       return validateLocalToken(token);
     }
 

@@ -124,6 +124,17 @@ namespace WebVellaErp.Identity.Tests.Integration
             return StringComparer.OrdinalIgnoreCase.Compare(hashOfInput, hash) == 0;
         }
 
+        /// <summary>
+        /// Normalizes a legacy password to meet Cognito's minimum 6-character requirement.
+        /// Legacy monolith passwords (e.g., "erp") may be shorter than Cognito's enforced minimum.
+        /// This deterministic padding ensures the same transformation is applied during both
+        /// migration (AdminSetUserPassword) and subsequent authentication (AdminInitiateAuth).
+        /// </summary>
+        private static string NormalizeCognitoPassword(string password)
+        {
+            return password.Length < 6 ? password.PadRight(6, '!') : password;
+        }
+
         // ──────────────────────────────────────────────────────────────────────
         // Migration Flow Helper Methods
         // ──────────────────────────────────────────────────────────────────────
@@ -241,11 +252,13 @@ namespace WebVellaErp.Identity.Tests.Integration
                 await _cognitoClient.AdminCreateUserAsync(createUserRequest);
 
                 // Set permanent password (Cognito hashes it securely, replacing the legacy MD5 hash)
+                // Uses NormalizeCognitoPassword to pad short legacy passwords (e.g., "erp") to meet
+                // Cognito's minimum 6-character requirement.
                 var setPasswordRequest = new AdminSetUserPasswordRequest
                 {
                     UserPoolId = _userPoolId,
                     Username = email,
-                    Password = plainPassword,
+                    Password = NormalizeCognitoPassword(plainPassword),
                     Permanent = true
                 };
                 await _cognitoClient.AdminSetUserPasswordAsync(setPasswordRequest);
@@ -545,7 +558,7 @@ namespace WebVellaErp.Identity.Tests.Integration
                     AuthParameters = new Dictionary<string, string>
                     {
                         ["USERNAME"] = email,
-                        ["PASSWORD"] = password
+                        ["PASSWORD"] = NormalizeCognitoPassword(password)
                     }
                 });
                 authResponse.AuthenticationResult.Should().NotBeNull(
@@ -602,7 +615,7 @@ namespace WebVellaErp.Identity.Tests.Integration
                     AuthParameters = new Dictionary<string, string>
                     {
                         ["USERNAME"] = email,
-                        ["PASSWORD"] = password
+                        ["PASSWORD"] = NormalizeCognitoPassword(password)
                     }
                 });
 
@@ -714,7 +727,7 @@ namespace WebVellaErp.Identity.Tests.Integration
                     AuthParameters = new Dictionary<string, string>
                     {
                         ["USERNAME"] = email,
-                        ["PASSWORD"] = password
+                        ["PASSWORD"] = NormalizeCognitoPassword(password)
                     }
                 });
                 authResponse.AuthenticationResult.Should().NotBeNull(
@@ -806,7 +819,7 @@ namespace WebVellaErp.Identity.Tests.Integration
                     AuthParameters = new Dictionary<string, string>
                     {
                         ["USERNAME"] = testEmail,
-                        ["PASSWORD"] = password
+                        ["PASSWORD"] = NormalizeCognitoPassword(password)
                     }
                 });
                 authResponse.AuthenticationResult.Should().NotBeNull(
