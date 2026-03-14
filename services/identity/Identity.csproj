@@ -49,7 +49,7 @@
     <!-- AWS Lambda hosting and runtime -->
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
-    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
 
     <!-- AWS SDK: DynamoDB for user/role persistence (replaces PostgreSQL rec_user/rec_role tables) -->

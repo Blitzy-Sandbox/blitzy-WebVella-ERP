@@ -91,7 +91,7 @@
     <!-- Lambda runtime interface: ILambdaContext, ILambdaLogger, LambdaSerializerAttribute.
          Required for all .NET Lambda function handlers in this service. -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
-    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
 
     <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
          DefaultLambdaJsonSerializer and SourceGeneratorLambdaJsonSerializer replace

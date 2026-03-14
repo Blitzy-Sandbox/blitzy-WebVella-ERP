@@ -98,7 +98,7 @@
     <!-- Lambda runtime interface: ILambdaContext, LambdaSerializerAttribute.
          Required for all .NET Lambda function handlers. -->
     <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
-    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.11.1" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
 
     <!-- SQS event types — provides SQSEvent and SQSEvent.SQSMessage used by
          WorkflowHandler.HandleScheduleEvent for EventBridge/SQS-triggered
