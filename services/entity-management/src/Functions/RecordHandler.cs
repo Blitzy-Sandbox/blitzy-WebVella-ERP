@@ -1947,7 +1947,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     var dict = new Dictionary<string, object?>();
                     foreach (var prop in (JObject)token)
                     {
-                        dict[prop.Key] = ConvertJToken(prop.Value);
+                        dict[prop.Key] = prop.Value != null ? ConvertJToken(prop.Value) : null;
                     }
                     return dict;
                 default:

@@ -219,7 +219,7 @@ describe('useNotifications', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications', undefined);
+    expect(mockedGet).toHaveBeenCalledWith('/notifications', undefined);
     expect(result.current.data?.object?.notifications).toHaveLength(2);
     expect(result.current.data?.object?.totalCount).toBe(2);
   });
@@ -240,7 +240,7 @@ describe('useNotifications', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications', { status: 'sent' });
+    expect(mockedGet).toHaveBeenCalledWith('/notifications', { status: 'sent' });
     expect(result.current.data?.object?.notifications).toHaveLength(1);
     expect(result.current.data?.object?.notifications[0].status).toBe('sent');
   });
@@ -261,7 +261,7 @@ describe('useNotifications', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications', { type: 'email' });
+    expect(mockedGet).toHaveBeenCalledWith('/notifications', { type: 'email' });
     expect(result.current.data?.object?.notifications[0].type).toBe('email');
   });
 
@@ -278,7 +278,7 @@ describe('useNotifications', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications', { dateFrom, dateTo });
+    expect(mockedGet).toHaveBeenCalledWith('/notifications', { dateFrom, dateTo });
   });
 
   it('should handle pagination', async () => {
@@ -297,7 +297,7 @@ describe('useNotifications', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications', { page: 2, pageSize: 10 });
+    expect(mockedGet).toHaveBeenCalledWith('/notifications', { page: 2, pageSize: 10 });
     expect(result.current.data?.object?.page).toBe(2);
     expect(result.current.data?.object?.totalCount).toBe(11);
   });
@@ -319,7 +319,7 @@ describe('useNotification', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith(`/v1/notifications/${mockNotification.id}`);
+    expect(mockedGet).toHaveBeenCalledWith(`/notifications/${mockNotification.id}`);
     expect(result.current.data?.object?.id).toBe(mockNotification.id);
     expect(result.current.data?.object?.subject).toBe('New task assigned');
   });
@@ -357,7 +357,7 @@ describe('useEmailTemplates', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications/templates');
+    expect(mockedGet).toHaveBeenCalledWith('/notifications/templates');
     expect(result.current.data?.object?.templates).toHaveLength(1);
     expect(result.current.data?.object?.templates[0].name).toBe('task-assigned');
   });
@@ -402,7 +402,7 @@ describe('useSmtpConfigs', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/notifications/smtp-configs');
+    expect(mockedGet).toHaveBeenCalledWith('/notifications/smtp-configs');
     expect(result.current.data?.object?.configs).toHaveLength(1);
   });
 
@@ -460,8 +460,14 @@ describe('useSendEmail', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPost).toHaveBeenCalledWith(
-      '/v1/notifications/email/send',
-      mockSendRequest,
+      '/notifications/emails/send',
+      expect.objectContaining({
+        recipients: expect.arrayContaining([
+          expect.objectContaining({ address: 'user@webvella.com' }),
+        ]),
+        subject: 'Task Update',
+        html_body: '<p>Your task has been updated</p>',
+      }),
     );
   });
 
@@ -543,8 +549,14 @@ describe('useQueueEmail', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPost).toHaveBeenCalledWith(
-      '/v1/notifications/email/queue',
-      mockQueueRequest,
+      '/notifications/emails/queue',
+      expect.objectContaining({
+        recipients: expect.arrayContaining([
+          expect.objectContaining({ address: 'team@webvella.com' }),
+        ]),
+        subject: 'Weekly Report',
+        html_body: '<p>Attached is the weekly report</p>',
+      }),
     );
   });
 
@@ -623,7 +635,7 @@ describe('useCreateEmailTemplate', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPost).toHaveBeenCalledWith(
-      '/v1/notifications/templates',
+      '/notifications/templates',
       mockCreateRequest,
     );
   });
@@ -684,7 +696,7 @@ describe('useUpdateEmailTemplate', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPut).toHaveBeenCalledWith(
-      `/v1/notifications/templates/${mockEmailTemplate.id}`,
+      `/notifications/templates/${mockEmailTemplate.id}`,
       mockUpdateRequest,
     );
   });
@@ -730,7 +742,7 @@ describe('useDeleteEmailTemplate', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedDel).toHaveBeenCalledWith(
-      `/v1/notifications/templates/${mockEmailTemplate.id}`,
+      `/notifications/templates/${mockEmailTemplate.id}`,
     );
   });
 
@@ -794,7 +806,7 @@ describe('useUpdateSmtpConfig', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPut).toHaveBeenCalledWith(
-      `/v1/notifications/smtp-configs/${mockSmtpConfig.id}`,
+      `/notifications/smtp-configs/${mockSmtpConfig.id}`,
       mockSmtpUpdateRequest,
     );
   });
@@ -877,7 +889,7 @@ describe('useMarkNotificationRead', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPatch).toHaveBeenCalledWith(
-      `/v1/notifications/${mockNotification.id}/read`,
+      `/notifications/${mockNotification.id}/read`,
     );
   });
 

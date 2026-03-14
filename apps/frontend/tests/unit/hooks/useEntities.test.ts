@@ -266,7 +266,7 @@ describe('useEntities', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/entities');
+    expect(mockedGet).toHaveBeenCalledWith('/entities');
     expect(result.current.data).toHaveLength(2);
     expect(result.current.data![0].name).toBe('account');
     expect(result.current.data![1].name).toBe('contact');
@@ -326,7 +326,7 @@ describe('useEntity', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith(`/v1/entities/${entityId}`);
+    expect(mockedGet).toHaveBeenCalledWith(`/entities/${entityId}`);
     expect(result.current.data).toEqual(mockEntity);
   });
 
@@ -339,7 +339,7 @@ describe('useEntity', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/entities/account');
+    expect(mockedGet).toHaveBeenCalledWith('/entities/account');
     expect(result.current.data?.name).toBe('account');
   });
 
@@ -415,7 +415,7 @@ describe('useCreateEntity', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedPost).toHaveBeenCalledWith('/v1/entities', mockInputEntity);
+    expect(mockedPost).toHaveBeenCalledWith('/entities', mockInputEntity);
     expect(result.current.data).toEqual(createdEntity);
   });
 
@@ -516,7 +516,7 @@ describe('useUpdateEntity', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPut).toHaveBeenCalledWith(
-      `/v1/entities/${entityId}`,
+      `/entities/${entityId}`,
       expect.objectContaining({ name: 'account' }),
     );
     expect(result.current.data).toEqual(updatedEntity);
@@ -566,7 +566,7 @@ describe('useDeleteEntity', () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedDel).toHaveBeenCalledWith(`/v1/entities/${entityId}`);
+    expect(mockedDel).toHaveBeenCalledWith(`/entities/${entityId}`);
   });
 
   it('should invalidate entities and records queries (cascade)', async () => {
@@ -628,7 +628,7 @@ describe('useCreateField', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPost).toHaveBeenCalledWith(
-      `/v1/entities/${entityId}/fields`,
+      `/entities/${entityId}/fields`,
       newField,
     );
   });
@@ -708,7 +708,7 @@ describe('useCreateField', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPost).toHaveBeenCalledWith(
-      `/v1/entities/${entityId}/fields`,
+      `/entities/${entityId}/fields`,
       expect.objectContaining({ name: 'amount', fieldType: FIELD_TYPE_NUMBER }),
     );
   });
@@ -738,7 +738,7 @@ describe('useUpdateField', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPut).toHaveBeenCalledWith(
-      `/v1/entities/${entityId}/fields/${fieldId}`,
+      `/entities/${entityId}/fields/${fieldId}`,
       updatedField,
     );
   });
@@ -789,7 +789,7 @@ describe('useDeleteField', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedDel).toHaveBeenCalledWith(
-      `/v1/entities/${entityId}/fields/${fieldId}`,
+      `/entities/${entityId}/fields/${fieldId}`,
     );
   });
 
@@ -832,7 +832,7 @@ describe('useRelations', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith('/v1/relations');
+    expect(mockedGet).toHaveBeenCalledWith('/relations');
     expect(result.current.data).toEqual(relations);
     expect(result.current.data![0].name).toBe('account_contact');
   });
@@ -879,7 +879,7 @@ describe('useRelation', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedGet).toHaveBeenCalledWith(`/v1/relations/${relationId}`);
+    expect(mockedGet).toHaveBeenCalledWith(`/relations/${relationId}`);
     expect(result.current.data).toEqual(mockRelation);
   });
 
@@ -891,7 +891,7 @@ describe('useRelation', () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedGet).toHaveBeenCalledWith('/v1/relations/account_contact');
+    expect(mockedGet).toHaveBeenCalledWith('/relations/account_contact');
   });
 
   it('should not fetch when idOrName is empty string', async () => {
@@ -937,7 +937,7 @@ describe('useCreateRelation', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(mockedPost).toHaveBeenCalledWith('/v1/relations', mockRelation);
+    expect(mockedPost).toHaveBeenCalledWith('/relations', mockRelation);
     expect(result.current.data).toEqual(mockRelation);
   });
 
@@ -1014,7 +1014,7 @@ describe('useUpdateRelation', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(mockedPut).toHaveBeenCalledWith(
-      `/v1/relations/${relationId}`,
+      `/relations/${relationId}`,
       expect.objectContaining({ label: 'Account → Contact (Updated)' }),
     );
   });
@@ -1093,7 +1093,7 @@ describe('useDeleteRelation', () => {
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(mockedDel).toHaveBeenCalledWith(`/v1/relations/${relationId}`);
+    expect(mockedDel).toHaveBeenCalledWith(`/relations/${relationId}`);
   });
 
   it('should invalidate relations and entities (relation→entities cross-invalidation)', async () => {

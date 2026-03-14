@@ -83,12 +83,32 @@ namespace WebVellaErp.Notifications.Tests
             Dictionary<string, string>? pathParameters = null,
             Dictionary<string, string>? headers = null)
         {
+            // Substitute path parameters (e.g., {id} → actual GUID) so that
+            // RawPath contains the resolved URL the handler uses for routing.
+            var resolvedPath = path;
+            if (pathParameters != null)
+            {
+                foreach (var kvp in pathParameters)
+                {
+                    resolvedPath = resolvedPath.Replace($"{{{kvp.Key}}}", kvp.Value);
+                }
+            }
+
             var request = new APIGatewayHttpApiV2ProxyRequest
             {
                 RouteKey = $"{method.ToUpperInvariant()} {path}",
+                RawPath = resolvedPath,
                 Body = body != null ? JsonSerializer.Serialize(body) : null,
                 PathParameters = pathParameters ?? new Dictionary<string, string>(),
-                Headers = headers ?? new Dictionary<string, string>()
+                Headers = headers ?? new Dictionary<string, string>(),
+                RequestContext = new APIGatewayHttpApiV2ProxyRequest.ProxyRequestContext
+                {
+                    Http = new APIGatewayHttpApiV2ProxyRequest.HttpDescription
+                    {
+                        Method = method.ToUpperInvariant(),
+                        Path = resolvedPath
+                    }
+                }
             };
             return request;
         }

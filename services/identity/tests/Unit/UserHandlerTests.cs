@@ -295,9 +295,9 @@ namespace WebVellaErp.Identity.Tests.Unit
 
             var responseBody = JsonSerializer.Deserialize<JsonElement>(response.Body);
             responseBody.GetProperty("success").GetBoolean().Should().BeTrue();
-            responseBody.GetProperty("object").GetProperty("user").GetProperty("id")
+            responseBody.GetProperty("object").GetProperty("id")
                 .GetString().Should().Be(userId.ToString());
-            responseBody.GetProperty("object").GetProperty("user").GetProperty("email")
+            responseBody.GetProperty("object").GetProperty("email")
                 .GetString().Should().Be("existing@example.com");
 
             _mockUserRepository.Verify(

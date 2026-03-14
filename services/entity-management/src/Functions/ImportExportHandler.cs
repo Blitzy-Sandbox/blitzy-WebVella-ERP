@@ -409,7 +409,7 @@ namespace WebVellaErp.EntityManagement.Functions
 
                 csvReader.Read();
                 csvReader.ReadHeader();
-                var headerColumns = csvReader.Context.Reader.HeaderRecord ?? Array.Empty<string>();
+                var headerColumns = csvReader.Context.Reader?.HeaderRecord ?? Array.Empty<string>();
 
                 // Build column-to-field metadata map
                 var columnFieldMap = BuildColumnFieldMap(headerColumns, entity, relations, entityList);
@@ -504,7 +504,7 @@ namespace WebVellaErp.EntityManagement.Functions
 
             response.Success = errors.Count == 0;
             response.Message = $"Import completed. Created: {createdCount}, Updated: {updatedCount}, Errors: {errors.Count}";
-            response.Errors = errors.Count > 0 ? errors : null;
+            response.Errors = errors.Count > 0 ? errors : null!;
             response.Object = new
             {
                 created = createdCount,
@@ -644,7 +644,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 using var csvReader = new CsvReader(textReader, csvConfig);
                 csvReader.Read();
                 csvReader.ReadHeader();
-                var headerColumns = csvReader.Context.Reader.HeaderRecord ?? Array.Empty<string>();
+                var headerColumns = csvReader.Context.Reader?.HeaderRecord ?? Array.Empty<string>();
 
                 // ============================================================
                 // PHASE A: Per-column header analysis
@@ -909,7 +909,7 @@ namespace WebVellaErp.EntityManagement.Functions
                     ? $"Import completed. Created: {stats["created"]}, Updated: {stats["updated"]}."
                     : "Evaluation completed successfully.")
                 : $"Evaluation found {evalErrors.Count} error(s).";
-            response.Errors = evalErrors.Count > 0 ? evalErrors : null;
+            response.Errors = evalErrors.Count > 0 ? evalErrors : null!;
             response.Object = new
             {
                 columns = evalColumns,
@@ -1763,7 +1763,7 @@ namespace WebVellaErp.EntityManagement.Functions
                 Success = false,
                 Timestamp = DateTime.UtcNow,
                 Message = message,
-                Errors = errors,
+                Errors = errors ?? new List<ErrorModel>(),
                 StatusCode = statusCode
             };
             return BuildResponse(statusCode, responseBody, correlationId);

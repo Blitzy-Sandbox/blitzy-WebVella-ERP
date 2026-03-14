@@ -390,12 +390,14 @@ namespace WebVellaErp.EntityManagement.Tests.Unit.Functions
             response.StatusCode.Should().Be(200);
             response.Body.Should().NotBeNullOrEmpty();
 
-            var parsed = JsonSerializer.Deserialize<QueryResponse>(response.Body, _jsonOptions);
-            parsed.Should().NotBeNull();
-            parsed!.Success.Should().BeTrue();
-            parsed.Object.Should().NotBeNull();
-            parsed.Object!.Data.Should().NotBeNull();
-            parsed.Object.Data!.Count.Should().BeGreaterThan(0);
+            // The handler returns { success, object: EntityRecord } (flat record, not QueryResult)
+            using var doc = JsonDocument.Parse(response.Body);
+            var root = doc.RootElement;
+            root.GetProperty("success").GetBoolean().Should().BeTrue();
+            root.TryGetProperty("object", out var objProp).Should().BeTrue();
+            objProp.ValueKind.Should().Be(JsonValueKind.Object);
+            // The object IS the record directly — verify it has the id field
+            objProp.TryGetProperty("id", out _).Should().BeTrue();
 
             _mockRecordService.Verify(
                 s => s.CreateRecord(It.IsAny<Entity>(), It.IsAny<EntityRecord>()),
@@ -1342,12 +1344,14 @@ namespace WebVellaErp.EntityManagement.Tests.Unit.Functions
             response.StatusCode.Should().Be(200);
             response.Body.Should().NotBeNullOrEmpty();
 
-            var parsed = JsonSerializer.Deserialize<QueryResponse>(response.Body, _jsonOptions);
-            parsed.Should().NotBeNull();
-            parsed!.Success.Should().BeTrue();
-            parsed.Object.Should().NotBeNull();
-            parsed.Object!.Data.Should().NotBeNull();
-            parsed.Object.Data!.Count.Should().Be(1);
+            // The handler returns { success, object: EntityRecord } (flat record, not QueryResult)
+            using var doc = JsonDocument.Parse(response.Body);
+            var root = doc.RootElement;
+            root.GetProperty("success").GetBoolean().Should().BeTrue();
+            root.TryGetProperty("object", out var objProp).Should().BeTrue();
+            objProp.ValueKind.Should().Be(JsonValueKind.Object);
+            // The object IS the record directly — verify it has the id field
+            objProp.TryGetProperty("id", out _).Should().BeTrue();
 
             // Verify Find was called with EntityQuery.QueryEQ("id", recordId)
             _mockRecordService.Verify(
@@ -1918,20 +1922,20 @@ namespace WebVellaErp.EntityManagement.Tests.Unit.Functions
             response.StatusCode.Should().Be(200);
             response.Body.Should().NotBeNullOrEmpty();
 
-            var parsed = JsonSerializer.Deserialize<QueryResponse>(response.Body, _jsonOptions);
-            parsed.Should().NotBeNull();
+            // The handler returns { success, timestamp, message, errors, object: EntityRecord }
+            using var doc = JsonDocument.Parse(response.Body);
+            var root = doc.RootElement;
 
             // Verify envelope properties
-            parsed!.Success.Should().BeTrue();
-            parsed.Timestamp.Should().NotBe(default);
-            parsed.Message.Should().NotBeNullOrEmpty();
-            parsed.Errors.Should().NotBeNull();
-            parsed.Errors.Should().BeEmpty();
+            root.GetProperty("success").GetBoolean().Should().BeTrue();
+            root.TryGetProperty("timestamp", out _).Should().BeTrue();
+            root.GetProperty("message").GetString().Should().NotBeNullOrEmpty();
+            root.GetProperty("errors").GetArrayLength().Should().Be(0);
 
-            // Verify object structure: { data: [...], ... }
-            parsed.Object.Should().NotBeNull();
-            parsed.Object!.Data.Should().NotBeNull();
-            parsed.Object.Data!.Should().NotBeEmpty();
+            // Verify object is the flat record (not QueryResult wrapper)
+            root.TryGetProperty("object", out var objProp).Should().BeTrue();
+            objProp.ValueKind.Should().Be(JsonValueKind.Object);
+            objProp.TryGetProperty("id", out _).Should().BeTrue();
 
             // Verify headers
             response.Headers.Should().ContainKey("Content-Type");

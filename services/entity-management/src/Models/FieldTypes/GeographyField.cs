@@ -78,7 +78,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// for no default spatial data.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// Maximum character length for the serialized geography value.
@@ -139,7 +139,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// for no default spatial data.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// Maximum character length for the serialized geography value.

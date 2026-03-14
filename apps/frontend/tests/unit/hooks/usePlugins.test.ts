@@ -4,7 +4,7 @@
  * exported from src/hooks/usePlugins.ts. These hooks replace the monolith's ErpPlugin.cs
  * (abstract plugin base with metadata persistence to the `plugin_data` table), IErpService.cs
  * (plugin initialization contract with reflection-based discovery), and SdkPlugin.cs (SDK admin
- * console plugin) with API calls to the Plugin System microservice at `/v1/plugins/*`.
+ * console plugin) with API calls to the Plugin System microservice at `/plugins/*`.
  *
  * Test suites cover:
  *   - usePlugins        — list all registered plugins
@@ -232,7 +232,7 @@ describe('usePlugins', () => {
     });
 
     // Verify the correct API endpoint was called (replaces reflection-based discovery)
-    expect(mockGet).toHaveBeenCalledWith('/v1/plugins');
+    expect(mockGet).toHaveBeenCalledWith('/plugins');
     expect(mockGet).toHaveBeenCalledTimes(1);
 
     // Verify response data — should contain the full plugin list
@@ -304,7 +304,7 @@ describe('usePlugin', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/v1/plugins/plugin-guid');
+    expect(mockGet).toHaveBeenCalledWith('/plugins/plugin-guid');
     expect(mockGet).toHaveBeenCalledTimes(1);
     expect(result.current.data?.object).toEqual(mockPlugin);
     expect(result.current.data?.success).toBe(true);
@@ -376,7 +376,7 @@ describe('usePluginData', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/v1/plugins/sdk/data');
+    expect(mockGet).toHaveBeenCalledWith('/plugins/sdk/data');
     expect(mockGet).toHaveBeenCalledTimes(1);
     expect(result.current.data?.object).toBe(mockPluginData);
     expect(result.current.data?.success).toBe(true);
@@ -451,7 +451,7 @@ describe('useRegisterPlugin', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockPost).toHaveBeenCalledWith('/v1/plugins', registrationPayload);
+    expect(mockPost).toHaveBeenCalledWith('/plugins', registrationPayload);
     expect(mockPost).toHaveBeenCalledTimes(1);
     expect(result.current.data?.object).toEqual(registeredPlugin);
   });
@@ -511,7 +511,7 @@ describe('useUpdatePlugin', () => {
     });
 
     expect(mockPut).toHaveBeenCalledWith(
-      '/v1/plugins/plugin-guid',
+      '/plugins/plugin-guid',
       updatedPlugin,
     );
     expect(mockPut).toHaveBeenCalledTimes(1);
@@ -570,7 +570,7 @@ describe('useDeletePlugin', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockDel).toHaveBeenCalledWith('/v1/plugins/plugin-guid');
+    expect(mockDel).toHaveBeenCalledWith('/plugins/plugin-guid');
     expect(mockDel).toHaveBeenCalledTimes(1);
   });
 
@@ -630,7 +630,7 @@ describe('useSavePluginData', () => {
     });
 
     // Verify the correct endpoint and body — the data is sent as { data: string }
-    expect(mockPut).toHaveBeenCalledWith('/v1/plugins/sdk/data', {
+    expect(mockPut).toHaveBeenCalledWith('/plugins/sdk/data', {
       data: mockPluginData,
     });
     expect(mockPut).toHaveBeenCalledTimes(1);
@@ -706,7 +706,7 @@ describe('useSavePluginData', () => {
     });
 
     // Verify the large JSON payload was passed through correctly
-    expect(mockPut).toHaveBeenCalledWith('/v1/plugins/sdk/data', {
+    expect(mockPut).toHaveBeenCalledWith('/plugins/sdk/data', {
       data: largeConfig,
     });
 

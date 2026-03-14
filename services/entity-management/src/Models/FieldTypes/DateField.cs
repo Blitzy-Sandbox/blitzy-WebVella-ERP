@@ -51,7 +51,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Controls how the date is rendered in the UI and formatted in exports.
         /// </summary>
         [JsonPropertyName("format")]
-        public string Format { get; set; }
+        public string Format { get; set; } = string.Empty;
 
         /// <summary>
         /// When true, the current date (DateTime.Now.Date) is used as the default
@@ -91,7 +91,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Controls how the date is rendered in the UI and formatted in exports.
         /// </summary>
         [JsonPropertyName("format")]
-        public string Format { get; set; }
+        public string Format { get; set; } = string.Empty;
 
         /// <summary>
         /// When true, the current date (DateTime.Now.Date) is used as the default

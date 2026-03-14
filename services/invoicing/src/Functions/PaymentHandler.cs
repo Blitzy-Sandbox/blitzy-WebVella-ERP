@@ -1022,7 +1022,7 @@ namespace WebVellaErp.Invoicing.Functions
 
             /// <summary>Payment method (BankTransfer, CreditCard, DebitCard, Cash, Check, Other).</summary>
             [JsonPropertyName("payment_method")]
-            [JsonConverter(typeof(JsonStringEnumConverter))]
+            [JsonConverter(typeof(JsonStringEnumConverter<PaymentMethod>))]
             public PaymentMethod PaymentMethod { get; init; } = PaymentMethod.BankTransfer;
 
             /// <summary>Optional external payment reference (check number, wire transfer ID, etc.).</summary>

@@ -419,7 +419,12 @@ export class InvoicingStack extends cdk.Stack {
     // { "host": "...", "port": 5432, "database": "invoicing",
     //   "secretArn": "arn:aws:secretsmanager:..." }
 
-    const dbSecretArn = dbInstance.secret?.secretArn ?? 'secret-not-available';
+    // Use the secret's full ARN for IAM policies. In LocalStack Community,
+    // RDS secret ARNs may resolve to non-ARN physical resource IDs, causing
+    // MalformedPolicyDocument errors. Use a wildcard ARN in LocalStack mode.
+    const dbSecretArn = isLocalStack
+      ? `arn:aws:secretsmanager:${this.region}:${this.account}:secret:webvella-erp/${SERVICE_NAME}/*`
+      : (dbInstance.secret?.secretArn ?? `arn:aws:secretsmanager:${this.region}:${this.account}:secret:webvella-erp/${SERVICE_NAME}/*`);
 
     const dbConnectionStringParam = new ssm.StringParameter(
       this,

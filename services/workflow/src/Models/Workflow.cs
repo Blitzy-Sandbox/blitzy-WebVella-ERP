@@ -17,7 +17,7 @@ namespace WebVellaErp.Workflow.Models
     /// string-based JSON serialization (e.g., <c>"Running"</c> instead of <c>2</c>),
     /// replacing the Newtonsoft.Json default numeric serialization in the source.
     /// </summary>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<WorkflowStatus>))]
     public enum WorkflowStatus
     {
         /// <summary>Workflow is queued and awaiting execution.</summary>

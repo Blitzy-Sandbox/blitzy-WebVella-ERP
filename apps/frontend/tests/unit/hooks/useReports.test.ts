@@ -348,7 +348,7 @@ describe('useReports', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/v1/reports', undefined);
+    expect(mockGet).toHaveBeenCalledWith('/reports', undefined);
     expect(result.current.data).toHaveLength(2);
     expect(result.current.data![0].name).toBe('monthly-sales');
     expect(result.current.data![1].name).toBe('quarterly-revenue');
@@ -397,7 +397,7 @@ describe('useReports', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/v1/reports', params);
+    expect(mockGet).toHaveBeenCalledWith('/reports', params);
     expect(result.current.data).toHaveLength(1);
   });
 });
@@ -427,7 +427,7 @@ describe('useReport', () => {
     });
 
     expect(mockGet).toHaveBeenCalledWith(
-      `/v1/reports/${encodeURIComponent(mockReport.id)}`,
+      `/reports/${encodeURIComponent(mockReport.id)}`,
     );
     expect(result.current.data?.name).toBe('monthly-sales');
     expect(result.current.data?.id).toBe(mockReport.id);
@@ -510,7 +510,7 @@ describe('useReportExecution', () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      `/v1/reports/${encodeURIComponent(mockReport.id)}/execute`,
+      `/reports/${encodeURIComponent(mockReport.id)}/execute`,
       execParams,
     );
   });
@@ -624,7 +624,7 @@ describe('useDataSources', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/v1/datasources');
+    expect(mockGet).toHaveBeenCalledWith('/datasources');
     expect(result.current.data).toHaveLength(2);
   });
 
@@ -706,7 +706,7 @@ describe('useDataSource', () => {
     });
 
     expect(mockGet).toHaveBeenCalledWith(
-      `/v1/datasources/${encodeURIComponent(mockDataSource.id)}`,
+      `/datasources/${encodeURIComponent(mockDataSource.id)}`,
     );
     expect(result.current.data?.name).toBe('account_list');
     expect(result.current.data?.id).toBe(mockDataSource.id);
@@ -793,7 +793,7 @@ describe('useCreateReport', () => {
       await result.current.mutateAsync(payload);
     });
 
-    expect(mockPost).toHaveBeenCalledWith('/v1/reports', payload);
+    expect(mockPost).toHaveBeenCalledWith('/reports', payload);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
@@ -867,7 +867,7 @@ describe('useUpdateReport', () => {
 
     // id is extracted and used in the URL; remaining fields sent as body
     expect(mockPut).toHaveBeenCalledWith(
-      `/v1/reports/${encodeURIComponent(mockCreatedReport.id)}`,
+      `/reports/${encodeURIComponent(mockCreatedReport.id)}`,
       expect.objectContaining({
         name: 'active-tasks-v2',
         eqlText: 'SELECT * FROM task WHERE $status = @status ORDER BY $priority DESC',
@@ -949,7 +949,7 @@ describe('useDeleteReport', () => {
     });
 
     expect(mockDel).toHaveBeenCalledWith(
-      `/v1/reports/${encodeURIComponent(mockReport.id)}`,
+      `/reports/${encodeURIComponent(mockReport.id)}`,
     );
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
@@ -1019,7 +1019,7 @@ describe('useExecuteAdHocQuery', () => {
       await result.current.mutateAsync(queryPayload);
     });
 
-    expect(mockPost).toHaveBeenCalledWith('/v1/reports/query', queryPayload);
+    expect(mockPost).toHaveBeenCalledWith('/reports/query', queryPayload);
     await waitFor(() => {
       expect(result.current.isSuccess).toBe(true);
     });
@@ -1150,7 +1150,7 @@ describe('useGenerateSql', () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      '/v1/datasources/generate-sql',
+      '/datasources/generate-sql',
       payload,
     );
     await waitFor(() => {

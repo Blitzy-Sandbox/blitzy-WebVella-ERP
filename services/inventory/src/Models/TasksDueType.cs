@@ -16,7 +16,7 @@ namespace WebVellaErp.Inventory.Models
     /// Decorated with <see cref="JsonStringEnumConverter"/> for AOT-friendly JSON
     /// serialization of enum names (e.g., <c>"EndTimeOverdue"</c> instead of <c>1</c>).
     /// </remarks>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<TasksDueType>))]
     public enum TasksDueType
     {
         /// <summary>

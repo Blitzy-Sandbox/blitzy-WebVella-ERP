@@ -48,7 +48,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Typically an empty string or a template multi-line text value.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// Maximum number of characters allowed in this multi-line text field.
@@ -87,7 +87,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Retrieved by Field.GetFieldDefaultValue() for record initialization.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// Maximum number of characters allowed in this multi-line text field.

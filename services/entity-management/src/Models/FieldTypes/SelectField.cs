@@ -58,14 +58,14 @@ namespace WebVellaErp.EntityManagement.Models
         /// <see cref="Options"/>, or be empty/null for no default selection.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// The list of selectable options available for this field.
         /// Each option has a value, display label, optional icon class, and color.
         /// </summary>
         [JsonPropertyName("options")]
-        public List<SelectOption> Options { get; set; }
+        public List<SelectOption> Options { get; set; } = new();
     }
 
     /// <summary>
@@ -94,14 +94,14 @@ namespace WebVellaErp.EntityManagement.Models
         /// <see cref="Options"/>, or be empty/null for no default selection.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
 
         /// <summary>
         /// The list of selectable options available for this field.
         /// Each option has a value, display label, optional icon class, and color.
         /// </summary>
         [JsonPropertyName("options")]
-        public List<SelectOption> Options { get; set; }
+        public List<SelectOption> Options { get; set; } = new();
     }
 
     /// <summary>

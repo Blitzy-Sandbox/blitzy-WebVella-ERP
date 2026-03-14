@@ -401,7 +401,12 @@ export class IdentityStack extends cdk.Stack {
         'cognito-idp:AdminListGroupsForUser',
       ],
       resources: [
-        userPool.userPoolArn,
+        // In LocalStack Community (no Cognito), userPoolArn resolves to "unknown"
+        // at deploy time. Use a wildcard ARN fallback in LocalStack mode to
+        // prevent MalformedPolicyDocument errors from IAM.
+        isLocalStack
+          ? `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`
+          : userPool.userPoolArn,
       ],
     });
 

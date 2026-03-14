@@ -11,7 +11,7 @@ namespace WebVellaErp.Identity.Models
     /// evaluate whether a user's roles grant a specific operation on an entity.
     /// Values are implicitly numbered 0-3 matching the original source exactly.
     /// </summary>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<EntityPermission>))]
     public enum EntityPermission
     {
         /// <summary>Permission to read/query records of an entity.</summary>

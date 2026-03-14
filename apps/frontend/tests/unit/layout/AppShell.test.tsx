@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AppShell from '../../../src/components/layout/AppShell';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,14 @@ vi.mock('../../../src/components/layout/TopNav', () => ({
 }));
 
 /**
+ * Mock useApps hook to avoid real API calls. Returns an empty app list
+ * so the AppShell's Zustand store sync receives an empty array.
+ */
+vi.mock('../../../src/hooks/useApps', () => ({
+  useApps: () => ({ data: { success: true, object: [] }, isLoading: false, error: null }),
+}));
+
+/**
  * Mock Sidebar with a component that exposes the `collapsed` prop as a
  * `data-collapsed` attribute and the `onToggle` callback as a clickable
  * button. This isolates AppShell tests while enabling sidebar state
@@ -55,7 +64,7 @@ vi.mock('../../../src/components/layout/Sidebar', () => ({
     onToggle: () => void;
   }) => (
     <div data-testid="mock-sidebar" data-collapsed={collapsed}>
-      <button data-testid="sidebar-toggle" onClick={onToggle}>
+      <button data-testid="mock-sidebar-toggle" onClick={onToggle}>
         Toggle
       </button>
       Sidebar
@@ -113,19 +122,24 @@ Object.defineProperty(window, 'localStorage', {
  * @returns The render result from @testing-library/react.
  */
 function renderAppShell(initialEntries: string[] = ['/']) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route
-            path="*"
-            element={
-              <div data-testid="child-content">Child Page Content</div>
-            }
-          />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route
+              path="*"
+              element={
+                <div data-testid="child-content">Child Page Content</div>
+              }
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -255,7 +269,7 @@ describe('AppShell sidebar collapse/expand state', () => {
     const sidebar = screen.getByTestId('mock-sidebar');
     expect(sidebar.getAttribute('data-collapsed')).toBe('false');
 
-    fireEvent.click(screen.getByTestId('sidebar-toggle'));
+    fireEvent.click(screen.getByTestId('mock-sidebar-toggle'));
 
     expect(sidebar.getAttribute('data-collapsed')).toBe('true');
   });
@@ -268,14 +282,14 @@ describe('AppShell sidebar collapse/expand state', () => {
     renderAppShell();
 
     // First click: expanded → collapsed
-    fireEvent.click(screen.getByTestId('sidebar-toggle'));
+    fireEvent.click(screen.getByTestId('mock-sidebar-toggle'));
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'sidebar-collapsed',
       'true',
     );
 
     // Second click: collapsed → expanded
-    fireEvent.click(screen.getByTestId('sidebar-toggle'));
+    fireEvent.click(screen.getByTestId('mock-sidebar-toggle'));
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'sidebar-collapsed',
       'false',
@@ -289,7 +303,7 @@ describe('AppShell sidebar collapse/expand state', () => {
   it('sidebar toggle is idempotent', () => {
     renderAppShell();
     const sidebar = screen.getByTestId('mock-sidebar');
-    const toggleBtn = screen.getByTestId('sidebar-toggle');
+    const toggleBtn = screen.getByTestId('mock-sidebar-toggle');
 
     // Start: expanded (false)
     expect(sidebar.getAttribute('data-collapsed')).toBe('false');
@@ -334,10 +348,10 @@ describe('AppShell sidebar collapse/expand state', () => {
     const sidebar = screen.getByTestId('mock-sidebar');
     expect(sidebar.getAttribute('data-collapsed')).toBe('false');
 
-    await user.click(screen.getByTestId('sidebar-toggle'));
+    await user.click(screen.getByTestId('mock-sidebar-toggle'));
     expect(sidebar.getAttribute('data-collapsed')).toBe('true');
 
-    await user.click(screen.getByTestId('sidebar-toggle'));
+    await user.click(screen.getByTestId('mock-sidebar-toggle'));
     expect(sidebar.getAttribute('data-collapsed')).toBe('false');
   });
 });
@@ -625,7 +639,7 @@ describe('AppShell integration with child routes', () => {
     );
 
     // Toggle sidebar to collapsed
-    fireEvent.click(screen.getByTestId('sidebar-toggle'));
+    fireEvent.click(screen.getByTestId('mock-sidebar-toggle'));
     expect(screen.getByTestId('mock-sidebar').getAttribute('data-collapsed')).toBe('true');
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'sidebar-collapsed',

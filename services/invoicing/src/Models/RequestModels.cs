@@ -223,7 +223,7 @@ namespace WebVellaErp.Invoicing.Models
         /// </summary>
         [JsonPropertyName("status")]
         [JsonProperty(PropertyName = "status")]
-        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<InvoiceStatus>))]
         public InvoiceStatus? Status { get; set; }
 
         /// <summary>
@@ -405,7 +405,7 @@ namespace WebVellaErp.Invoicing.Models
         /// </summary>
         [JsonPropertyName("payment_method")]
         [JsonProperty(PropertyName = "payment_method")]
-        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+        [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<PaymentMethod>))]
         public PaymentMethod PaymentMethod { get; set; }
 
         /// <summary>

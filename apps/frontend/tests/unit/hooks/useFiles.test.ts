@@ -317,7 +317,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', undefined);
+    expect(mockGet).toHaveBeenCalledWith('/files/list', undefined);
     expect(result.current.data?.object?.files).toHaveLength(2);
     expect(result.current.data?.object?.totalCount).toBe(2);
     expect(result.current.data?.object?.page).toBe(1);
@@ -349,7 +349,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', { type: 'image' });
+    expect(mockGet).toHaveBeenCalledWith('/files/list', { type: 'image' });
     expect(result.current.data?.object?.files).toHaveLength(1);
     expect(result.current.data?.object?.files[0].type).toBe('image');
   });
@@ -381,7 +381,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', { search: 'report' });
+    expect(mockGet).toHaveBeenCalledWith('/files/list', { search: 'report' });
   });
 
   /**
@@ -403,7 +403,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', { sort: 2 });
+    expect(mockGet).toHaveBeenCalledWith('/files/list', { sort: 2 });
   });
 
   /**
@@ -431,7 +431,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', { page: 2, pageSize: 10 });
+    expect(mockGet).toHaveBeenCalledWith('/files/list', { page: 2, pageSize: 10 });
     expect(result.current.data?.object?.page).toBe(2);
     expect(result.current.data?.object?.totalCount).toBe(25);
   });
@@ -461,7 +461,7 @@ describe('useFiles', () => {
       expect(result.current.isSuccess).toBe(true);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/files', params);
+    expect(mockGet).toHaveBeenCalledWith('/files/list', params);
   });
 
   /**

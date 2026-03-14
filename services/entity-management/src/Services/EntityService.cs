@@ -215,11 +215,11 @@ namespace WebVellaErp.EntityManagement.Services
         private const string ENTITIES_HASH_CACHE_KEY = "entities_hash";
         private const string RELATIONS_CACHE_KEY = "relations";
         private const string RELATIONS_HASH_CACHE_KEY = "relations_hash";
-        // Short TTL (5 seconds) to handle cross-Lambda cache staleness.
-        // In a multi-Lambda architecture (EntityHandler vs RecordHandler),
-        // mutations on one Lambda clear its local cache but leave the other
-        // Lambda's cache stale.  A short TTL ensures near-real-time freshness.
-        private static readonly TimeSpan CACHE_TTL = TimeSpan.FromSeconds(5);
+        // 1-hour TTL preserves original Cache.cs behaviour (source: Cache.AddEntities).
+        // Each Lambda instance caches entity metadata for up to 1 hour; mutations
+        // within the same Lambda clear the local cache immediately via ClearCache().
+        // Cross-Lambda staleness is acceptable for metadata that changes infrequently.
+        private static readonly TimeSpan CACHE_TTL = TimeSpan.FromHours(1);
 
         // ─── Thread Safety ────────────────────────────────────────────────
 
@@ -662,13 +662,21 @@ namespace WebVellaErp.EntityManagement.Services
             var response = new EntityListResponse();
             try
             {
-                // In the serverless microservices architecture, entity mutations (create/update/delete)
-                // may be processed by a different Lambda instance than list queries (GET /v1/entities).
-                // Each Lambda has its own in-process IMemoryCache, so the list Lambda's cache becomes
-                // stale when mutations happen on other Lambda instances. To guarantee strong consistency,
-                // ReadEntities always queries DynamoDB directly (sub-10ms latency per AAP §0.8.2).
-                // Individual entity lookups (ReadEntity by id/name) still use cache-then-fallback.
-                _logger.LogInformation("ReadEntities — loading from repository (no cache for list consistency).");
+                // Cache-first with lock-based double-check pattern.
+                // Source: EntityManager.ReadEntities() lines ~720-870, Cache.AddEntities / Cache.GetEntities
+                // The cache is populated on first miss and cleared on any entity/field/relation mutation.
+                if (_cache.TryGetValue<List<Entity>>(ENTITIES_CACHE_KEY, out var cachedEntities)
+                    && cachedEntities != null)
+                {
+                    _logger.LogInformation("ReadEntities — returning {Count} entities from cache.", cachedEntities.Count);
+                    response.Object = cachedEntities;
+                    if (_cache.TryGetValue<string>(ENTITIES_HASH_CACHE_KEY, out var cachedHash))
+                        response.Hash = cachedHash ?? string.Empty;
+                    response.Success = true;
+                    return response;
+                }
+
+                _logger.LogInformation("ReadEntities — cache miss, loading from repository.");
 
                 var entities = await _entityRepository.GetAllEntities();
                 if (entities == null)
@@ -2509,7 +2517,7 @@ namespace WebVellaErp.EntityManagement.Services
 
             if (string.IsNullOrWhiteSpace(label))
             {
-                errors.Add(new ErrorModel(fieldKey, label, "Label is required!"));
+                errors.Add(new ErrorModel(fieldKey, label ?? string.Empty, "Label is required!"));
                 return errors;
             }
 
@@ -2536,7 +2544,7 @@ namespace WebVellaErp.EntityManagement.Services
 
             if (string.IsNullOrWhiteSpace(labelPlural))
             {
-                errors.Add(new ErrorModel(fieldKey, labelPlural, "Plural label is required!"));
+                errors.Add(new ErrorModel(fieldKey, labelPlural ?? string.Empty, "Plural label is required!"));
                 return errors;
             }
 

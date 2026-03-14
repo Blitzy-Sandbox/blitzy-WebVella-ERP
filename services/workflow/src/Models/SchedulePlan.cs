@@ -35,7 +35,7 @@ namespace WebVellaErp.Workflow.Models
     /// DynamoDB persistence and backward-compatible data migration from the
     /// monolith's PostgreSQL <c>schedule_plans.type</c> column.
     /// </summary>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<SchedulePlanType>))]
     public enum SchedulePlanType
     {
         /// <summary>

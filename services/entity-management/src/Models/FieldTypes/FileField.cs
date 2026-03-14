@@ -45,7 +45,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Typically empty or null for file fields, as files are uploaded after record creation.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -72,6 +72,6 @@ namespace WebVellaErp.EntityManagement.Models
         /// default values for new record creation.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public string DefaultValue { get; set; }
+        public string DefaultValue { get; set; } = string.Empty;
     }
 }

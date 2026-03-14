@@ -679,10 +679,13 @@ describe('JWT Validator — jwt-validator.ts', () => {
       expect(result!.sub).toBe('default-mode-user');
     });
 
-    it('IS_LOCAL=true rejects RS256 tokens (algorithm mismatch)', async () => {
+    it('IS_LOCAL=true accepts RS256 tokens via Cognito JWKS fallback', async () => {
+      // LocalStack Cognito issues RS256-signed JWTs, so local mode tries
+      // RS256 JWKS validation first, then falls back to HS256.
+      // When a valid JWKS key is available, RS256 tokens succeed.
+      setupJwksMock();
       const { validateToken } = await importLocalModule(TEST_SECRET);
 
-      // Create an RS256-signed token — in HS256 mode this should fail
       const token = createRS256Token(
         { sub: 'rs256-in-local' },
         rsaPrivateKey,
@@ -690,7 +693,8 @@ describe('JWT Validator — jwt-validator.ts', () => {
       );
 
       const result = await validateToken(token);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result!.sub).toBe('rs256-in-local');
     });
 
     it('IS_LOCAL=false rejects HS256 tokens (no kid for JWKS lookup)', async () => {

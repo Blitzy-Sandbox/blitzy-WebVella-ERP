@@ -86,7 +86,7 @@ export default defineConfig({
       // `Referer` headers so LocalStack treats the request as a
       // non-CORS server-to-server call, avoiding a 403.
       '/aws': {
-        target: 'http://localhost:4566',
+        target: `http://localhost:${process.env.E2E_MOCK_PORT || '4566'}`,
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/aws/, ''),
         configure: (proxy) => {
@@ -101,7 +101,7 @@ export default defineConfig({
       // this proxy allows the fetch to go through the Vite dev server so
       // the browser treats it as same-origin.
       '/s3-proxy': {
-        target: 'http://localhost:4566',
+        target: `http://localhost:${process.env.E2E_MOCK_PORT || '4566'}`,
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/s3-proxy/, ''),
         configure: (proxy) => {
@@ -119,7 +119,7 @@ export default defineConfig({
       // Proxy API Gateway calls with correct Host header for routing.
       // Origin/Referer headers are also stripped for the same reason.
       '/api': {
-        target: 'http://localhost:4566',
+        target: `http://localhost:${process.env.E2E_MOCK_PORT || '4566'}`,
         changeOrigin: true,
         rewrite: (path: string) => {
           // Strip the /api prefix first

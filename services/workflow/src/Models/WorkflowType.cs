@@ -16,7 +16,7 @@ namespace WebVellaErp.Workflow.Models
     /// string-based JSON serialization (e.g., <c>"Medium"</c> instead of <c>2</c>),
     /// replacing the Newtonsoft.Json default numeric serialization in the source.
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<WorkflowPriority>))]
     public enum WorkflowPriority
     {
         /// <summary>

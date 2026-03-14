@@ -496,9 +496,12 @@ namespace WebVellaErp.Notifications.Functions
 
                 // ── List Emails (GET /v1/notifications/emails) ─────────
                 // Must be checked BEFORE Get-by-ID to avoid matching the
-                // list endpoint against the {id} route.
+                // list endpoint against the {id} route.  The path must end
+                // at "/emails" (optionally with trailing slash or query params)
+                // — paths like /emails/{anything} must NOT match here.
                 if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
                     routeKey.Contains("/emails", StringComparison.OrdinalIgnoreCase) &&
+                    !PathHasSegmentAfter(rawPath, "/emails") &&
                     !PathContainsGuid(rawPath) &&
                     !routeKey.Contains("/smtp", StringComparison.OrdinalIgnoreCase) &&
                     !routeKey.Contains("/health", StringComparison.OrdinalIgnoreCase))
@@ -512,6 +515,24 @@ namespace WebVellaErp.Notifications.Functions
                     PathContainsGuid(rawPath))
                 {
                     return await HandleGetEmailAsync(request, correlationId);
+                }
+
+                // ── Invalid GUID on email path (GET /v1/notifications/emails/{non-guid}) ─
+                // If the path has a segment after /emails/ that is NOT a valid GUID,
+                // return 400 instead of falling through to list or 404.
+                if (routeKey.StartsWith("GET ", StringComparison.OrdinalIgnoreCase) &&
+                    routeKey.Contains("/emails/", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/smtp", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/health", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/send", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/queue", StringComparison.OrdinalIgnoreCase) &&
+                    !routeKey.Contains("/test-smtp", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BuildResponse(400, new EmailHandlerResponse
+                    {
+                        Success = false,
+                        Message = "Invalid or missing email ID."
+                    }, correlationId);
                 }
 
                 // ── Create SMTP Service (POST /v1/notifications/smtp-services) ─
@@ -1779,6 +1800,29 @@ namespace WebVellaErp.Notifications.Functions
                 if (Guid.TryParse(seg, out _)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Returns true when the path has a non-empty segment immediately after
+        /// the given <paramref name="anchor"/> (e.g., "/emails/something").
+        /// Used to distinguish collection endpoints (/emails) from member endpoints
+        /// (/emails/{id}) or sub-resource endpoints (/emails/send).
+        /// </summary>
+        private static bool PathHasSegmentAfter(string path, string anchor)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(anchor))
+                return false;
+
+            var idx = path.IndexOf(anchor, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return false;
+
+            var afterAnchor = idx + anchor.Length;
+            if (afterAnchor >= path.Length) return false;
+
+            // The character right after the anchor must be '/' followed by a non-empty segment.
+            if (path[afterAnchor] != '/') return false;
+            var remaining = path.Substring(afterAnchor + 1).TrimEnd('/');
+            return remaining.Length > 0;
         }
 
         /// <summary>

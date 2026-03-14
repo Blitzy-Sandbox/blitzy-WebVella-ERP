@@ -62,7 +62,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// The format string follows standard .NET DateTime format specifiers.
         /// </summary>
         [JsonPropertyName("format")]
-        public string Format { get; set; }
+        public string Format { get; set; } = string.Empty;
 
         /// <summary>
         /// When set to true, the system uses DateTime.Now as the default value for
@@ -107,7 +107,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// The format string follows standard .NET DateTime format specifiers.
         /// </summary>
         [JsonPropertyName("format")]
-        public string Format { get; set; }
+        public string Format { get; set; } = string.Empty;
 
         /// <summary>
         /// When set to true, the system uses DateTime.Now as the default value for

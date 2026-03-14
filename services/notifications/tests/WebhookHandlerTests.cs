@@ -1441,9 +1441,21 @@ namespace WebVellaErp.Notifications.Tests
             Dictionary<string, string>? pathParameters = null,
             Dictionary<string, string>? queryStringParameters = null)
         {
+            var path = routeKey.Contains(' ') ? routeKey.Split(' ')[1] : routeKey;
+            // Substitute path parameters (e.g., {id} → actual GUID) so that
+            // RawPath contains the resolved URL the handler uses for routing.
+            var resolvedPath = path;
+            if (pathParameters != null)
+            {
+                foreach (var kvp in pathParameters)
+                {
+                    resolvedPath = resolvedPath.Replace($"{{{kvp.Key}}}", kvp.Value);
+                }
+            }
             return new APIGatewayHttpApiV2ProxyRequest
             {
                 RouteKey = routeKey,
+                RawPath = resolvedPath,
                 Body = body,
                 PathParameters = pathParameters ?? new Dictionary<string, string>(),
                 QueryStringParameters = queryStringParameters ?? new Dictionary<string, string>(),
@@ -1452,7 +1464,7 @@ namespace WebVellaErp.Notifications.Tests
                     Http = new APIGatewayHttpApiV2ProxyRequest.HttpDescription
                     {
                         Method = routeKey.Split(' ')[0],
-                        Path = routeKey.Contains(' ') ? routeKey.Split(' ')[1] : routeKey
+                        Path = resolvedPath
                     }
                 }
             };

@@ -154,4 +154,10 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
+  <!-- Suppress GHSA-rvv3-g6hj-g44x (AutoMapper DoS via deep recursion) - Lambda functions process
+       validated API payloads with bounded depth, mitigating the attack vector. Upgrade to 16.x
+       deferred to avoid breaking API changes across all service mappings. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
 </Project>

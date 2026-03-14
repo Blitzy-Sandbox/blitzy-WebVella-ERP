@@ -67,14 +67,14 @@ namespace WebVellaErp.EntityManagement.DataAccess
         /// Uses conditional PutItem to prevent overwrites (optimistic create).
         /// Source: DbRecordRepository.Create() (lines 87-140)
         /// </summary>
-        Task CreateRecord(string entityName, IEnumerable<KeyValuePair<string, object>> recordData);
+        Task CreateRecord(string entityName, IEnumerable<KeyValuePair<string, object?>> recordData);
 
         /// <summary>
         /// Updates an existing record for the specified entity.
         /// Uses conditional UpdateItem to ensure record exists.
         /// Source: DbRecordRepository.Update() (lines 141-193)
         /// </summary>
-        Task UpdateRecord(string entityName, IEnumerable<KeyValuePair<string, object>> recordData);
+        Task UpdateRecord(string entityName, IEnumerable<KeyValuePair<string, object?>> recordData);
 
         /// <summary>
         /// Deletes a record by entity name and record ID.
@@ -131,7 +131,7 @@ namespace WebVellaErp.EntityManagement.DataAccess
         /// Respects the 25-item-per-request DynamoDB limit with chunking.
         /// Replaces bulk insert patterns in ImportExportManager.
         /// </summary>
-        Task BatchCreateRecords(string entityName, IEnumerable<IEnumerable<KeyValuePair<string, object>>> records);
+        Task BatchCreateRecords(string entityName, IEnumerable<IEnumerable<KeyValuePair<string, object?>>> records);
     }
 
     // =========================================================================
@@ -227,7 +227,7 @@ namespace WebVellaErp.EntityManagement.DataAccess
         // =====================================================================
 
         /// <inheritdoc />
-        public async Task CreateRecord(string entityName, IEnumerable<KeyValuePair<string, object>> recordData)
+        public async Task CreateRecord(string entityName, IEnumerable<KeyValuePair<string, object?>> recordData)
         {
             if (string.IsNullOrWhiteSpace(entityName))
                 throw new ArgumentNullException(nameof(entityName));
@@ -311,7 +311,7 @@ namespace WebVellaErp.EntityManagement.DataAccess
         // =====================================================================
 
         /// <inheritdoc />
-        public async Task UpdateRecord(string entityName, IEnumerable<KeyValuePair<string, object>> recordData)
+        public async Task UpdateRecord(string entityName, IEnumerable<KeyValuePair<string, object?>> recordData)
         {
             if (string.IsNullOrWhiteSpace(entityName))
                 throw new ArgumentNullException(nameof(entityName));
@@ -697,7 +697,7 @@ namespace WebVellaErp.EntityManagement.DataAccess
         /// <inheritdoc />
         public async Task BatchCreateRecords(
             string entityName,
-            IEnumerable<IEnumerable<KeyValuePair<string, object>>> records)
+            IEnumerable<IEnumerable<KeyValuePair<string, object?>>> records)
         {
             if (string.IsNullOrWhiteSpace(entityName))
                 throw new ArgumentNullException(nameof(entityName));

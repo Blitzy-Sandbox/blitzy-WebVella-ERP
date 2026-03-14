@@ -612,6 +612,7 @@ export function AppRouter(): React.JSX.Element {
                 element={<AccountManage />}
               />
               <Route path="contacts" element={<ContactList />} />
+              <Route path="contacts/list" element={<ContactList />} />
               <Route path="contacts/create" element={<ContactCreate />} />
               <Route
                 path="contacts/:id"

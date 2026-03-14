@@ -752,14 +752,14 @@ namespace WebVellaErp.EntityManagement.Functions
                         {
                             case "label":
                                 inputEntity.Label = prop.Value.ValueKind == JsonValueKind.Null
-                                    ? null
-                                    : prop.Value.GetString();
+                                    ? null!
+                                    : prop.Value.GetString()!;
                                 break;
 
                             case "labelplural":
                                 inputEntity.LabelPlural = prop.Value.ValueKind == JsonValueKind.Null
-                                    ? null
-                                    : prop.Value.GetString();
+                                    ? null!
+                                    : prop.Value.GetString()!;
                                 break;
 
                             case "system":
@@ -772,26 +772,26 @@ namespace WebVellaErp.EntityManagement.Functions
 
                             case "iconname":
                                 inputEntity.IconName = prop.Value.ValueKind == JsonValueKind.Null
-                                    ? null
-                                    : prop.Value.GetString();
+                                    ? null!
+                                    : prop.Value.GetString()!;
                                 break;
 
                             case "color":
                                 inputEntity.Color = prop.Value.ValueKind == JsonValueKind.Null
-                                    ? null
-                                    : prop.Value.GetString();
+                                    ? null!
+                                    : prop.Value.GetString()!;
                                 break;
 
                             case "recordpermissions":
                                 if (prop.Value.ValueKind == JsonValueKind.Null)
                                 {
-                                    inputEntity.RecordPermissions = null;
+                                    inputEntity.RecordPermissions = null!;
                                 }
                                 else
                                 {
                                     inputEntity.RecordPermissions =
                                         System.Text.Json.JsonSerializer.Deserialize<RecordPermissions>(
-                                            prop.Value.GetRawText(), _jsonOptions);
+                                            prop.Value.GetRawText(), _jsonOptions)!;
                                 }
                                 break;
 
@@ -1049,7 +1049,7 @@ namespace WebVellaErp.EntityManagement.Functions
                             CanUpdate = new List<Guid>(source.RecordPermissions.CanUpdate ?? new List<Guid>()),
                             CanDelete = new List<Guid>(source.RecordPermissions.CanDelete ?? new List<Guid>())
                         }
-                        : null,
+                        : null!,
                     RecordScreenIdField = source.RecordScreenIdField
                 };
 

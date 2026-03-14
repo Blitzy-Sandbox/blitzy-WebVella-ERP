@@ -66,7 +66,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// lists, etc.) during deserialization while remaining read-flexible.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public IEnumerable<string> DefaultValue { get; set; }
+        public IEnumerable<string> DefaultValue { get; set; } = Array.Empty<string>();
 
         /// <summary>
         /// The list of selectable options available for this multi-select field.
@@ -75,7 +75,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// Shares the <see cref="SelectOption"/> type with <see cref="InputSelectField"/>.
         /// </summary>
         [JsonPropertyName("options")]
-        public List<SelectOption> Options { get; set; }
+        public List<SelectOption> Options { get; set; } = new();
     }
 
     /// <summary>
@@ -112,7 +112,7 @@ namespace WebVellaErp.EntityManagement.Models
         /// lists, etc.) during deserialization while remaining read-flexible.
         /// </summary>
         [JsonPropertyName("defaultValue")]
-        public IEnumerable<string> DefaultValue { get; set; }
+        public IEnumerable<string> DefaultValue { get; set; } = Array.Empty<string>();
 
         /// <summary>
         /// The list of selectable options available for this multi-select field.
@@ -121,6 +121,6 @@ namespace WebVellaErp.EntityManagement.Models
         /// Shares the <see cref="SelectOption"/> type with <see cref="SelectField"/>.
         /// </summary>
         [JsonPropertyName("options")]
-        public List<SelectOption> Options { get; set; }
+        public List<SelectOption> Options { get; set; } = new();
     }
 }

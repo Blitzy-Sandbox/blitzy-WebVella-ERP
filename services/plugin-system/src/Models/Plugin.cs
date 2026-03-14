@@ -10,7 +10,7 @@ namespace WebVellaErp.PluginSystem.Models
     /// Serialized as string values ("Active", "Inactive") for JSON API compatibility
     /// using System.Text.Json's JsonStringEnumConverter (AOT-compatible).
     /// </summary>
-    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter<PluginStatus>))]
     public enum PluginStatus
     {
         /// <summary>

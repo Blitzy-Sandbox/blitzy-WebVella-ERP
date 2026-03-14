@@ -227,36 +227,53 @@ const playwrightConfig = defineConfig({
    * Uses Nx to serve the frontend app, ensuring correct project resolution
    * and dependency awareness within the monorepo.
    */
-  webServer: {
-    /** Start the frontend Vite dev server (direct invocation for reliability) */
-    command: `VITE_API_URL=/api VITE_COGNITO_ENDPOINT=/aws VITE_IS_LOCAL=true VITE_COGNITO_CLIENT_ID=${process.env.VITE_COGNITO_CLIENT_ID || ''} VITE_API_GATEWAY_ID=${process.env.VITE_API_GATEWAY_ID || 'c7c5a2ed'} cd ../frontend && npx vite --port 5173`,
+  webServer: [
+    {
+      /**
+       * Start the E2E mock API server (handles Cognito + API Gateway mocks).
+       * Required because LocalStack Community Edition does not include
+       * API Gateway v2 or Cognito services. The mock server provides all
+       * necessary backend responses for E2E test execution.
+       */
+      command: 'node ../../tools/scripts/e2e-mock-server.mjs',
+      url: 'http://localhost:3456',
+      reuseExistingServer: true,
+      timeout: 10_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { MOCK_PORT: '3456' },
+    },
+    {
+      /** Start the frontend Vite dev server with proxy targeting the mock API */
+      command: `cd ../frontend && E2E_MOCK_PORT=3456 VITE_API_URL=/api VITE_COGNITO_ENDPOINT=/aws VITE_IS_LOCAL=true VITE_COGNITO_CLIENT_ID=${process.env.VITE_COGNITO_CLIENT_ID || 'mock-client-id'} VITE_API_GATEWAY_ID=${process.env.VITE_API_GATEWAY_ID || 'c7c5a2ed'} npx vite --port 5173`,
 
-    /** URL to poll until the server is ready before running tests */
-    url: 'http://localhost:5173',
+      /** URL to poll until the server is ready before running tests */
+      url: 'http://localhost:5173',
 
-    /**
-     * Reuse an existing dev server when running locally for faster iteration.
-     * In CI, always start a fresh server for reproducibility.
-     */
-    reuseExistingServer: true,
+      /**
+       * Reuse an existing dev server when running locally for faster iteration.
+       * In CI, always start a fresh server for reproducibility.
+       */
+      reuseExistingServer: true,
 
-    /**
-     * Maximum time to wait for the dev server to start (120 seconds).
-     * This covers:
-     *   - Vite initial dependency optimization / pre-bundling
-     *   - TypeScript compilation via @vitejs/plugin-react
-     *   - HMR warmup and module graph construction
-     * AAP §0.8.2 targets Vite production build < 30 seconds;
-     * dev server startup is typically faster but 120s provides headroom.
-     */
-    timeout: 120_000,
+      /**
+       * Maximum time to wait for the dev server to start (120 seconds).
+       * This covers:
+       *   - Vite initial dependency optimization / pre-bundling
+       *   - TypeScript compilation via @vitejs/plugin-react
+       *   - HMR warmup and module graph construction
+       * AAP §0.8.2 targets Vite production build < 30 seconds;
+       * dev server startup is typically faster but 120s provides headroom.
+       */
+      timeout: 120_000,
 
-    /** Capture server stdout for debugging startup issues */
-    stdout: 'pipe',
+      /** Capture server stdout for debugging startup issues */
+      stdout: 'pipe',
 
-    /** Capture server stderr for error diagnostics */
-    stderr: 'pipe',
-  },
+      /** Capture server stderr for error diagnostics */
+      stderr: 'pipe',
+    },
+  ],
 });
 
 export default playwrightConfig;

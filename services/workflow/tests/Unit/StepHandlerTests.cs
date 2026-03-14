@@ -992,7 +992,7 @@ namespace WebVellaErp.Workflow.Tests.Unit
 
             // Assert — only the first record should trigger updates (Running + Finished = 2)
             // The second record should be skipped (terminal status check)
-            updateCount.Should().BeLessOrEqualTo(3,
+            updateCount.Should().BeLessThanOrEqualTo(3,
                 "second duplicate message should be skipped due to terminal status");
         }
 

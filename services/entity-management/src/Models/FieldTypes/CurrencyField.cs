@@ -17,7 +17,7 @@ namespace WebVellaErp.EntityManagement.Models
         public decimal? MaxValue { get; set; }
 
         [JsonPropertyName("currency")]
-        public CurrencyType Currency { get; set; }
+        public CurrencyType Currency { get; set; } = new CurrencyType();
     }
 
     [Serializable]
@@ -36,6 +36,6 @@ namespace WebVellaErp.EntityManagement.Models
         public decimal? MaxValue { get; set; }
 
         [JsonPropertyName("currency")]
-        public CurrencyType Currency { get; set; }
+        public CurrencyType Currency { get; set; } = new CurrencyType();
     }
 }

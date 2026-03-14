@@ -768,7 +768,7 @@ namespace WebVellaErp.Workflow.Tests.Unit
 
             // Assert
             workflows.Should().NotBeNull();
-            totalCount.Should().BeGreaterOrEqualTo(0);
+            totalCount.Should().BeGreaterThanOrEqualTo(0);
         }
 
         [Fact]
@@ -800,7 +800,7 @@ namespace WebVellaErp.Workflow.Tests.Unit
             var (workflows, totalCount) = await _service.GetWorkflowsAsync();
 
             // Assert
-            totalCount.Should().BeGreaterOrEqualTo(0);
+            totalCount.Should().BeGreaterThanOrEqualTo(0);
         }
 
         [Fact]
@@ -1043,7 +1043,7 @@ namespace WebVellaErp.Workflow.Tests.Unit
                 for (int i = 0; i < result.Count - 1; i++)
                 {
                     string.Compare(result[i].Name, result[i + 1].Name, StringComparison.OrdinalIgnoreCase)
-                        .Should().BeLessOrEqualTo(0);
+                        .Should().BeLessThanOrEqualTo(0);
                 }
             }
         }

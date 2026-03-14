@@ -72,6 +72,7 @@ namespace WebVellaErp.PluginSystem.Tests.Unit
             services.AddSingleton(_mockPluginService.Object);
             services.AddSingleton(_mockPluginRepository.Object);
             services.AddSingleton<IAmazonSimpleNotificationService>(_mockSnsClient.Object);
+            services.AddSingleton(new Mock<ISitemapService>().Object);
 
             var mockLoggerFactory = new Mock<ILoggerFactory>();
             mockLoggerFactory
