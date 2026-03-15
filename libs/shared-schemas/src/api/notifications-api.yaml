@@ -1,0 +1,2193 @@
+openapi: 3.1.0
+info:
+  title: WebVella ERP - Notifications API
+  version: 1.0.0
+  description: 'Email, webhook, and in-app notification service for the WebVella ERP
+
+    platform.
+
+
+    This bounded-context service replaces the monolith''s Mail plugin
+
+    (`MailPlugin.cs`, SMTP services, queue processing jobs) and the
+
+    PostgreSQL LISTEN/NOTIFY notification subsystem with Lambda-backed
+
+    email/webhook dispatch via SES stub and SQS queues.
+
+
+    **Owned entities (DynamoDB):** email records, SMTP service
+
+    configurations, webhook registrations, webhook delivery logs, in-app
+
+    notification records.
+
+
+    **Source mapping:**
+
+    - `MailPlugin.cs` — plugin entry, SMTP queue schedule plan
+
+    - `SmtpService.cs` — SMTP service config model + send API
+
+    - `SmtpInternalService.cs` — SMTP validation, queue processing
+
+    - `ProcessSmtpQueueJob.cs` — scheduled queue processor job
+
+    - `NotificationContext.cs` — PostgreSQL LISTEN/NOTIFY dispatcher
+
+    - `BaseModels.cs` — response envelope pattern
+
+
+    **Domain events published:**
+
+    - `notifications.email.queued`
+
+    - `notifications.email.sent`
+
+    - `notifications.email.failed`
+
+    - `notifications.webhook.registered`
+
+    - `notifications.webhook.delivered`
+
+    - `notifications.webhook.failed`
+
+
+    **Dead-letter queue (per AAP §0.8.5):** `notifications-email-dlq`
+
+
+    **Performance targets (per AAP §0.8.2):**
+
+    - API response P95 (warm) < 500 ms
+
+    - DynamoDB read latency P99 < 10 ms
+
+    - Lambda cold start (.NET Native AOT) < 1 second
+
+    - SQS message processing latency < 5 seconds end-to-end
+
+
+    **Third-party integration:** SES stub for email delivery in LocalStack
+
+    mode (per AAP §0.3.1). Production targets real SES.
+
+    '
+  contact:
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+- url: http://localhost:4566/restapis/{apiId}/v1/_user_request_
+  description: LocalStack
+  variables:
+    apiId:
+      default: local
+      description: API Gateway REST API identifier
+- url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+  description: Production AWS
+  variables:
+    apiId:
+      default: ''
+      description: API Gateway REST API identifier
+    region:
+      default: us-east-1
+      description: AWS region
+security:
+- BearerAuth: []
+tags:
+- name: Email
+  description: 'Send and manage email messages.  Replaces the monolith''s `SmtpService.SendEmail`
+    / `QueueEmail` methods and the `ProcessSmtpQueueJob` scheduled processor with
+    Lambda-backed SES dispatch and SQS-triggered queue processing.
+
+    '
+- name: SMTP Configuration
+  description: 'Manage SMTP service configurations.  Replaces the monolith''s `smtp_service`
+    entity records with DynamoDB-persisted configuration objects.  Only administrators
+    may access these endpoints.
+
+    '
+- name: Webhooks
+  description: 'Register, manage, and monitor webhook subscriptions.  Replaces the
+    monolith''s PostgreSQL LISTEN/NOTIFY notification subsystem (`NotificationContext.cs`)
+    with HTTP webhook dispatch triggered by SNS/SQS domain events.
+
+    '
+- name: In-App Notifications
+  description: 'Retrieve and manage in-app notifications for the authenticated user.
+    Provides a notification feed for the React SPA frontend, replacing the monolith''s
+    server-side notification rendering.
+
+    '
+paths:
+  /v1/notifications/emails/send:
+    post:
+      operationId: sendEmail
+      summary: Send an email directly
+      description: 'Sends an email message immediately via SES (or SES stub in
+
+        LocalStack mode).  If delivery fails, the email is marked as
+
+        failed with the server error recorded.
+
+
+        Replaces the monolith''s `SmtpService.SendEmail()` method
+
+        (`SmtpService.cs` line 67) which composed a MimeMessage and
+
+        sent via MailKit SmtpClient.
+
+
+        Triggers the `notifications.email.queued` domain event upon
+
+        acceptance and `notifications.email.sent` or
+
+        `notifications.email.failed` upon delivery completion.
+
+
+        An idempotency key is required to prevent duplicate sends
+
+        (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - Email
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailSendRequest'
+      responses:
+        '200':
+          description: Email accepted for sending
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Email'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/emails/queue:
+    post:
+      operationId: queueEmail
+      summary: Queue an email for later sending
+      description: 'Queues an email for asynchronous delivery.  The email is persisted
+
+        in DynamoDB with status `queued` and an optional `scheduledAt`
+
+        timestamp for deferred sending.
+
+
+        The SQS-triggered queue processor
+
+        (`services/notifications/src/Functions/QueueProcessor.cs`) picks up
+
+        queued emails in priority-then-schedule order, processing them in
+
+        batches of 10 — mirroring the monolith''s `ProcessSmtpQueueJob`
+
+        which ran every 10 minutes via schedule plan.
+
+
+        Replaces the monolith''s `SmtpInternalService.ProcessSmtpQueue()`
+
+        batch processor with an event-driven SQS consumer.
+
+
+        Triggers the `notifications.email.queued` domain event.
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - Email
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailQueueRequest'
+      responses:
+        '200':
+          description: Email queued successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Email'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/emails:
+    get:
+      operationId: listEmails
+      summary: List email history
+      description: 'Returns a paginated list of email records with optional filters
+        for
+
+        status, date range, and recipient.
+
+
+        Replaces the monolith''s email record listing which queried the
+
+        `rec_email` table via `RecordManager.Find()`.
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - Email
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EmailStatus'
+        description: 'Filter by email delivery status.
+
+          '
+      - name: fromDate
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: 'Inclusive start of the date range filter (ISO 8601).
+
+          '
+      - name: toDate
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: 'Inclusive end of the date range filter (ISO 8601).
+
+          '
+      - name: recipient
+        in: query
+        required: false
+        schema:
+          type: string
+          format: email
+        description: 'Filter by recipient email address (exact match).
+
+          '
+      - name: priority
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EmailPriority'
+        description: 'Filter by email priority level.
+
+          '
+      responses:
+        '200':
+          description: Paginated email list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Email'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/emails/{emailId}:
+    get:
+      operationId: getEmail
+      summary: Get email details
+      description: 'Retrieves a single email record by its unique identifier, including
+
+        full delivery status, retry count, and server error details.
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - Email
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EmailIdParam'
+      responses:
+        '200':
+          description: Email details
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Email'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/emails/{emailId}/retry:
+    post:
+      operationId: retryEmail
+      summary: Retry a failed email
+      description: 'Re-queues a failed email for another delivery attempt.  The email
+
+        status is reset to `queued` and the retry count is incremented.
+
+
+        Only emails with status `failed` can be retried.  Mirrors the
+
+        monolith''s retry logic in `SmtpInternalService.ProcessSmtpQueue()`
+
+        which rescheduled failed emails based on `retry_wait_minutes` up
+
+        to `max_retries_count`.
+
+
+        Triggers the `notifications.email.queued` domain event.
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - Email
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EmailIdParam'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: Email re-queued for delivery
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Email'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/smtp-services:
+    get:
+      operationId: listSmtpServices
+      summary: List SMTP service configurations
+      description: 'Returns all SMTP service configurations.  Requires administrator
+
+        role.
+
+
+        Replaces the monolith''s `rec_smtp_service` entity record listing
+
+        created by `MailPlugin` patches.
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - SMTP Configuration
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: List of SMTP service configurations
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/SmtpServiceConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createSmtpService
+      summary: Create an SMTP service configuration
+      description: 'Creates a new SMTP service configuration for email delivery.
+
+        Requires administrator role.
+
+
+        Validation rules (from `SmtpInternalService.cs`):
+
+        - `name` must be unique across all SMTP service configs
+
+        - `port` must be between 1 and 65025
+
+        - `defaultFromEmail` must be a valid email address
+
+        - `defaultReplyToEmail` must be a valid email if provided
+
+        - `maxRetriesCount` must be between 1 and 10
+
+        - `retryWaitMinutes` must be between 1 and 1440
+
+
+        If `isDefault` is true, the previously default service is
+
+        demoted — exactly one service must be the default at all times.
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - SMTP Configuration
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmtpServiceCreateRequest'
+      responses:
+        '201':
+          description: SMTP service configuration created
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SmtpServiceConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate SMTP service name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/smtp-services/{serviceId}:
+    get:
+      operationId: getSmtpService
+      summary: Get an SMTP service configuration
+      description: 'Retrieves a single SMTP service configuration by its unique
+
+        identifier.  Requires administrator role.
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - SMTP Configuration
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/SmtpServiceIdParam'
+      responses:
+        '200':
+          description: SMTP service configuration details
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SmtpServiceConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: updateSmtpService
+      summary: Update an SMTP service configuration
+      description: 'Updates an existing SMTP service configuration.  Requires
+
+        administrator role.  Applies the same validation rules as the
+
+        create endpoint.
+
+
+        If `isDefault` is set to true, the previously default service is
+
+        automatically demoted (mirrors `HandleDefaultServiceSetup` logic
+
+        from `SmtpInternalService.cs`).
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - SMTP Configuration
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/SmtpServiceIdParam'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmtpServiceUpdateRequest'
+      responses:
+        '200':
+          description: SMTP service configuration updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/SmtpServiceConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Duplicate SMTP service name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteSmtpService
+      summary: Delete an SMTP service configuration
+      description: 'Deletes an SMTP service configuration.  Requires administrator
+
+        role.  The default SMTP service cannot be deleted — another
+
+        service must be promoted to default first.
+
+
+        Handled by `services/notifications/src/Functions/EmailHandler.cs`.
+
+        '
+      tags:
+      - SMTP Configuration
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/SmtpServiceIdParam'
+      responses:
+        '200':
+          description: SMTP service configuration deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/webhooks:
+    post:
+      operationId: registerWebhook
+      summary: Register a webhook
+      description: 'Registers a new webhook subscription.  The webhook will receive
+
+        HTTP POST callbacks for the specified event types.
+
+
+        Replaces the monolith''s PostgreSQL LISTEN/NOTIFY based
+
+        `NotificationContext.cs` dispatcher with HTTP webhook delivery.
+
+
+        Each webhook registration includes a shared secret used to sign
+
+        payloads with HMAC-SHA256 (delivered in the `X-Webhook-Signature`
+
+        header) so that recipients can verify message authenticity.
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - Webhooks
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreateRequest'
+      responses:
+        '201':
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WebhookRegistration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      operationId: listWebhooks
+      summary: List webhooks
+      description: 'Returns all webhook registrations for the authenticated user or
+
+        tenant.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - Webhooks
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Paginated webhook list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/WebhookRegistration'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/webhooks/{webhookId}:
+    put:
+      operationId: updateWebhook
+      summary: Update a webhook
+      description: 'Updates an existing webhook registration.  Can modify the target
+
+        URL, subscribed event types, enabled status, or shared secret.
+
+
+        An idempotency key is required (per AAP §0.8.5).
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - Webhooks
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/WebhookIdParam'
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookUpdateRequest'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WebhookRegistration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteWebhook
+      summary: Delete a webhook
+      description: 'Deletes a webhook registration and stops all future deliveries
+
+        for its subscribed event types.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - Webhooks
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/WebhookIdParam'
+      responses:
+        '200':
+          description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/webhooks/{webhookId}/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: List webhook deliveries
+      description: 'Returns a paginated history of delivery attempts for a specific
+
+        webhook.  Includes HTTP status codes, response bodies, and
+
+        timestamps for debugging failed deliveries.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - Webhooks
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/WebhookIdParam'
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/WebhookDeliveryStatus'
+        description: 'Filter deliveries by status.
+
+          '
+      responses:
+        '200':
+          description: Paginated delivery history
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/WebhookDelivery'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/in-app:
+    get:
+      operationId: listNotifications
+      summary: List in-app notifications for current user
+      description: 'Returns a paginated list of in-app notifications for the
+
+        authenticated user, ordered by creation date descending.  Supports
+
+        filtering by read/unread status.
+
+
+        In-app notifications are generated by domain event consumers —
+
+        e.g., when a CRM contact is assigned, a project task is overdue,
+
+        or an invoice payment is received.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - In-App Notifications
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: read
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: 'Filter by read status.  `true` returns only read notifications,
+          `false` returns only unread, omit for all.
+
+          '
+      responses:
+        '200':
+          description: Paginated notification list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/InAppNotification'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/in-app/{notificationId}/read:
+    put:
+      operationId: markNotificationRead
+      summary: Mark a notification as read
+      description: 'Marks a single in-app notification as read for the authenticated
+
+        user.  The notification must belong to the authenticated user.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - In-App Notifications
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/NotificationIdParam'
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/InAppNotification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/notifications/in-app/read-all:
+    put:
+      operationId: markAllNotificationsRead
+      summary: Mark all notifications as read
+      description: 'Marks all unread in-app notifications as read for the
+
+        authenticated user.  Returns the count of notifications that were
+
+        updated.
+
+
+        Handled by `services/notifications/src/Functions/WebhookHandler.cs`.
+
+        '
+      tags:
+      - In-App Notifications
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: All notifications marked as read
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        updatedCount:
+                          type: integer
+                          description: Number of notifications marked as read
+                      required:
+                      - updatedCount
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Cognito-issued JWT token.  Validated by HTTP API Gateway native
+        JWT authorizer in production, or custom Lambda authorizer against LocalStack
+        Cognito.
+
+        '
+  parameters:
+    EmailIdParam:
+      name: emailId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 'Unique email record identifier (UUID).  Maps to the monolith''s
+        `Email.Id` property from `Api/Email.cs`.
+
+        '
+    SmtpServiceIdParam:
+      name: serviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 'Unique SMTP service configuration identifier (UUID).  Maps to
+        the monolith''s `SmtpService.Id` property from `Api/SmtpService.cs`.
+
+        '
+    WebhookIdParam:
+      name: webhookId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 'Unique webhook registration identifier (UUID).
+
+        '
+    NotificationIdParam:
+      name: notificationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 'Unique in-app notification identifier (UUID).
+
+        '
+    IdempotencyKeyHeader:
+      name: X-Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: 'Idempotency key for write operations.  Duplicate requests with
+        the same key within a 24-hour window return the existing result. Required
+        for all mutating endpoints per AAP §0.8.5.
+
+        '
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: 'One-based page number for paginated results.  Defaults to 1.
+
+        '
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 30
+      description: 'Number of items per page.  Defaults to 30, max 500.
+
+        '
+  responses:
+    BadRequest:
+      description: Invalid request — validation errors
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    NotFound:
+      description: Requested resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+  schemas:
+    ApiResponseEnvelope:
+      type: object
+      description: 'Standard response wrapper used by every endpoint.  Mirrors the
+
+        monolith''s `BaseResponseModel` (BaseModels.cs).
+
+        '
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp at response creation
+        success:
+          type: boolean
+          description: Whether the operation completed without errors
+        message:
+          type: string
+          description: Human-readable summary (e.g. "Success")
+        hash:
+          type:
+          - string
+          - 'null'
+          description: Optional cache-validation hash for list endpoints
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorModel'
+          description: Validation or processing errors
+        accessWarnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessWarningModel'
+          description: Non-fatal permission warnings
+      required:
+      - timestamp
+      - success
+      - message
+      - errors
+    ErrorModel:
+      type: object
+      description: 'Structured error detail (from BaseModels.cs ErrorModel).
+
+        '
+      properties:
+        key:
+          type: string
+          description: Field or context key related to the error
+        value:
+          type: string
+          description: Value that caused the error
+        message:
+          type: string
+          description: Human-readable error message
+      required:
+      - key
+      - message
+    AccessWarningModel:
+      type: object
+      description: 'Non-fatal access warning (from BaseModels.cs AccessWarningModel).
+
+        '
+      properties:
+        key:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included in list responses.
+      properties:
+        page:
+          type: integer
+          description: Current one-based page number
+        pageSize:
+          type: integer
+          description: Number of items per page
+        totalCount:
+          type: integer
+          description: Total number of items across all pages
+        totalPages:
+          type: integer
+          description: Total number of pages
+      required:
+      - page
+      - pageSize
+      - totalCount
+      - totalPages
+    EmailStatus:
+      type: string
+      description: 'Email delivery status.  Maps from the monolith''s `EmailStatus`
+
+        enum (Pending=0, Sent=1, Aborted=2) to a richer set reflecting
+
+        the asynchronous SQS-based delivery pipeline.
+
+        '
+      enum:
+      - queued
+      - sending
+      - sent
+      - failed
+    EmailPriority:
+      type: string
+      description: 'Email priority level.  Maps from the monolith''s `EmailPriority`
+
+        enum (Low=0, Normal=1, High=2).  Higher priority emails are
+
+        processed first by the queue processor.
+
+        '
+      enum:
+      - low
+      - normal
+      - high
+    ConnectionSecurity:
+      type: string
+      description: 'SMTP connection security mode.  Maps from the monolith''s
+
+        MailKit `SecureSocketOptions` enum used in `SmtpService.cs`.
+
+        '
+      enum:
+      - none
+      - auto
+      - ssl_on_connect
+      - start_tls
+      - start_tls_when_available
+    WebhookDeliveryStatus:
+      type: string
+      description: 'Webhook delivery attempt status.
+
+        '
+      enum:
+      - pending
+      - delivered
+      - failed
+    NotificationType:
+      type: string
+      description: 'Classification of in-app notification for UI rendering.
+
+        '
+      enum:
+      - info
+      - success
+      - warning
+      - error
+    EmailAddress:
+      type: object
+      description: 'Email address with optional display name.  Derived from the
+
+        monolith''s `EmailAddress` class (`Api/EmailAddress.cs`) which
+
+        wraps MailKit `MailboxAddress`.
+
+        '
+      properties:
+        name:
+          type: string
+          description: Display name (e.g. "John Doe")
+          example: John Doe
+        address:
+          type: string
+          format: email
+          description: Email address (e.g. "john@example.com")
+          example: john@example.com
+      required:
+      - address
+    Email:
+      type: object
+      description: 'Email record stored in DynamoDB.  Derived from the monolith''s
+
+        `Email` class (`Api/Email.cs`) with adaptations for the
+
+        asynchronous SQS/SES delivery pipeline.
+
+
+        Fields map to the monolith''s `rec_email` entity:
+
+        - `id` → `Email.Id`
+
+        - `serviceId` → `Email.ServiceId`
+
+        - `sender` → `Email.Sender`
+
+        - `recipients` → `Email.Recipients` (to/cc/bcc separated)
+
+        - `subject` → `Email.Subject`
+
+        - `contentText` → `Email.ContentText`
+
+        - `contentHtml` → `Email.ContentHtml`
+
+        - `status` → `Email.Status`
+
+        - `priority` → `Email.Priority`
+
+        - `serverError` → `Email.ServerError`
+
+        - `retriesCount` → `Email.RetriesCount`
+
+        - `attachments` → `Email.Attachments`
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique email record identifier
+        serviceId:
+          type: string
+          format: uuid
+          description: 'SMTP service configuration used for delivery.  Maps to `Email.ServiceId`.
+
+            '
+        sender:
+          $ref: '#/components/schemas/EmailAddress'
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: 'Primary recipient addresses.  Maps to `Email.Recipients`.
+
+            '
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: 'Carbon-copy recipient addresses.  The monolith stored CC/BCC
+            as prefixed entries in `Recipients` — the new schema uses separate fields.
+
+            '
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: 'Blind carbon-copy recipient addresses.
+
+            '
+        replyToEmail:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: 'Reply-to email address override.  Maps to `Email.ReplyToEmail`.
+
+            '
+        subject:
+          type: string
+          description: Email subject line
+        contentText:
+          type:
+          - string
+          - 'null'
+          description: 'Plain-text email body.  Maps to `Email.ContentText`.
+
+            '
+        contentHtml:
+          type:
+          - string
+          - 'null'
+          description: 'HTML email body.  Maps to `Email.ContentHtml`.
+
+            '
+        status:
+          $ref: '#/components/schemas/EmailStatus'
+        priority:
+          $ref: '#/components/schemas/EmailPriority'
+        sentOn:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: 'Timestamp when the email was successfully delivered.
+
+            '
+        scheduledOn:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: 'Scheduled delivery timestamp for deferred emails.
+
+            '
+        errorMessage:
+          type:
+          - string
+          - 'null'
+          description: 'Server error message from the last failed delivery attempt.
+            Maps to `Email.ServerError`.
+
+            '
+        retriesCount:
+          type: integer
+          minimum: 0
+          description: 'Number of delivery attempts made.  Maps to `Email.RetriesCount`.
+
+            '
+        attachments:
+          type: array
+          items:
+            type: string
+          description: 'List of attachment file paths or S3 object keys.  Maps to
+            `Email.Attachments`.
+
+            '
+        createdOn:
+          type: string
+          format: date-time
+          description: 'Timestamp when the email record was created.
+
+            '
+      required:
+      - id
+      - serviceId
+      - sender
+      - recipients
+      - subject
+      - status
+      - priority
+      - retriesCount
+      - createdOn
+    EmailSendRequest:
+      type: object
+      description: 'Request body for sending an email directly.  The email is
+
+        dispatched immediately via SES.  Maps to the monolith''s
+
+        `SmtpService.SendEmail()` input parameters.
+
+        '
+      properties:
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          minItems: 1
+          description: Primary recipient addresses (required)
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: Carbon-copy recipient addresses
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: Blind carbon-copy recipient addresses
+        subject:
+          type: string
+          minLength: 1
+          description: Email subject line (required)
+        body:
+          type:
+          - string
+          - 'null'
+          description: Plain-text email body
+        htmlBody:
+          type:
+          - string
+          - 'null'
+          description: HTML email body
+        fromName:
+          type:
+          - string
+          - 'null'
+          description: 'Sender display name override.  Defaults to the SMTP service
+            `defaultFromName`.
+
+            '
+        replyTo:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: 'Reply-to email address override.  Defaults to the SMTP service
+            `defaultReplyToEmail`.
+
+            '
+        attachments:
+          type: array
+          items:
+            type: string
+          description: 'List of file IDs or S3 object keys to attach.
+
+            '
+        priority:
+          $ref: '#/components/schemas/EmailPriority'
+        serviceId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 'SMTP service configuration to use.  Defaults to the default
+            SMTP service if omitted.
+
+            '
+      required:
+      - to
+      - subject
+    EmailQueueRequest:
+      type: object
+      description: 'Request body for queueing an email for asynchronous delivery.
+
+        Extends the send request with an optional `scheduledAt` timestamp
+
+        for deferred sending.
+
+        '
+      properties:
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          minItems: 1
+          description: Primary recipient addresses (required)
+        cc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: Carbon-copy recipient addresses
+        bcc:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          description: Blind carbon-copy recipient addresses
+        subject:
+          type: string
+          minLength: 1
+          description: Email subject line (required)
+        body:
+          type:
+          - string
+          - 'null'
+          description: Plain-text email body
+        htmlBody:
+          type:
+          - string
+          - 'null'
+          description: HTML email body
+        fromName:
+          type:
+          - string
+          - 'null'
+          description: 'Sender display name override.
+
+            '
+        replyTo:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: 'Reply-to email address override.
+
+            '
+        attachments:
+          type: array
+          items:
+            type: string
+          description: 'List of file IDs or S3 object keys to attach.
+
+            '
+        priority:
+          $ref: '#/components/schemas/EmailPriority'
+        serviceId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: 'SMTP service configuration to use.
+
+            '
+        scheduledAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: 'ISO 8601 timestamp for deferred delivery.  If omitted, the
+            email is queued for immediate processing by the next queue processor cycle.
+
+            '
+      required:
+      - to
+      - subject
+    SmtpServiceConfig:
+      type: object
+      description: 'SMTP service configuration stored in DynamoDB.  Derived from the
+
+        monolith''s `SmtpService` class (`Api/SmtpService.cs`).
+
+
+        Field mapping:
+
+        - `id` → `SmtpService.Id`
+
+        - `name` → `SmtpService.Name`
+
+        - `host` → `SmtpService.Server`
+
+        - `port` → `SmtpService.Port`
+
+        - `username` → `SmtpService.Username`
+
+        - `connectionSecurity` → `SmtpService.ConnectionSecurity`
+
+        - `defaultFromEmail` → `SmtpService.DefaultSenderEmail`
+
+        - `defaultFromName` → `SmtpService.DefaultSenderName`
+
+        - `defaultReplyToEmail` → `SmtpService.DefaultReplyToEmail`
+
+        - `maxRetriesCount` → `SmtpService.MaxRetriesCount`
+
+        - `retryWaitMinutes` → `SmtpService.RetryWaitMinutes`
+
+        - `isDefault` → `SmtpService.IsDefault`
+
+        - `enabled` → `SmtpService.IsEnabled`
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique SMTP service configuration identifier
+        name:
+          type: string
+          description: 'Human-readable name for the SMTP service (must be unique).
+
+            '
+        host:
+          type: string
+          description: 'SMTP server hostname or IP.  Maps to `SmtpService.Server`.
+
+            '
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65025
+          description: 'SMTP server port.  Validated per `SmtpInternalService.cs`
+            range 1-65025.
+
+            '
+        username:
+          type:
+          - string
+          - 'null'
+          description: SMTP authentication username
+        connectionSecurity:
+          $ref: '#/components/schemas/ConnectionSecurity'
+        defaultFromEmail:
+          type: string
+          format: email
+          description: 'Default sender email address.  Maps to `SmtpService.DefaultSenderEmail`.
+
+            '
+        defaultFromName:
+          type:
+          - string
+          - 'null'
+          description: 'Default sender display name.  Maps to `SmtpService.DefaultSenderName`.
+
+            '
+        defaultReplyToEmail:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: 'Default reply-to email address.  Maps to `SmtpService.DefaultReplyToEmail`.
+
+            '
+        maxRetriesCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 'Maximum number of delivery retry attempts.  Validated per
+            `SmtpInternalService.cs` range 1-10.
+
+            '
+        retryWaitMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: 'Minutes to wait between retry attempts.  Validated per `SmtpInternalService.cs`
+            range 1-1440.
+
+            '
+        isDefault:
+          type: boolean
+          description: 'Whether this is the default SMTP service.  Exactly one service
+            must be the default at all times.
+
+            '
+        enabled:
+          type: boolean
+          description: 'Whether this SMTP service is active for email delivery.  Maps
+            to `SmtpService.IsEnabled`.
+
+            '
+      required:
+      - id
+      - name
+      - host
+      - port
+      - connectionSecurity
+      - defaultFromEmail
+      - maxRetriesCount
+      - retryWaitMinutes
+      - isDefault
+      - enabled
+    SmtpServiceCreateRequest:
+      type: object
+      description: 'Request body for creating a new SMTP service configuration.
+
+        Validation constraints derived from `SmtpInternalService.cs`.
+
+        '
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Unique name for the SMTP service
+        host:
+          type: string
+          minLength: 1
+          description: SMTP server hostname or IP
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65025
+          description: SMTP server port (1-65025)
+        username:
+          type:
+          - string
+          - 'null'
+          description: SMTP authentication username
+        password:
+          type:
+          - string
+          - 'null'
+          description: 'SMTP authentication password.  Stored as SSM SecureString,
+            never returned in responses (per AAP §0.8.3).
+
+            '
+        connectionSecurity:
+          $ref: '#/components/schemas/ConnectionSecurity'
+        defaultFromEmail:
+          type: string
+          format: email
+          description: Default sender email address
+        defaultFromName:
+          type:
+          - string
+          - 'null'
+          description: Default sender display name
+        defaultReplyToEmail:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: Default reply-to email address
+        maxRetriesCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+          description: Maximum delivery retry attempts (1-10)
+        retryWaitMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          default: 60
+          description: Minutes between retry attempts (1-1440)
+        isDefault:
+          type: boolean
+          default: false
+          description: 'Set as the default SMTP service.  If true, the current default
+            is automatically demoted.
+
+            '
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this service is active for delivery
+      required:
+      - name
+      - host
+      - port
+      - connectionSecurity
+      - defaultFromEmail
+    SmtpServiceUpdateRequest:
+      type: object
+      description: 'Request body for updating an existing SMTP service configuration.
+
+        All fields are optional — only provided fields are updated.
+
+        '
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Unique name for the SMTP service
+        host:
+          type: string
+          minLength: 1
+          description: SMTP server hostname or IP
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65025
+          description: SMTP server port (1-65025)
+        username:
+          type:
+          - string
+          - 'null'
+          description: SMTP authentication username
+        password:
+          type:
+          - string
+          - 'null'
+          description: SMTP authentication password
+        connectionSecurity:
+          $ref: '#/components/schemas/ConnectionSecurity'
+        defaultFromEmail:
+          type: string
+          format: email
+          description: Default sender email address
+        defaultFromName:
+          type:
+          - string
+          - 'null'
+          description: Default sender display name
+        defaultReplyToEmail:
+          type:
+          - string
+          - 'null'
+          format: email
+          description: Default reply-to email address
+        maxRetriesCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Maximum delivery retry attempts (1-10)
+        retryWaitMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+          description: Minutes between retry attempts (1-1440)
+        isDefault:
+          type: boolean
+          description: 'Set as the default SMTP service.  If true, the current default
+            is automatically demoted.
+
+            '
+        enabled:
+          type: boolean
+          description: Whether this service is active for delivery
+    WebhookRegistration:
+      type: object
+      description: 'Webhook subscription stored in DynamoDB.  Replaces the monolith''s
+
+        PostgreSQL LISTEN/NOTIFY notification dispatcher
+
+        (`NotificationContext.cs`) with HTTP callback delivery.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique webhook registration identifier
+        url:
+          type: string
+          format: uri
+          description: 'Target URL to receive HTTP POST callbacks.  Must be HTTPS
+            in production (HTTP allowed in LocalStack mode).
+
+            '
+        events:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: 'List of event type patterns to subscribe to.  Uses the domain
+            event naming convention `{domain}.{entity}.{action}` (e.g. `crm.contact.created`,
+            `invoicing.invoice.paid`). Supports wildcard `*` suffix (e.g. `crm.*`).
+
+            '
+          example:
+          - crm.contact.created
+          - crm.contact.updated
+          - invoicing.invoice.*
+        secret:
+          type: string
+          description: 'Shared secret for HMAC-SHA256 payload signing.  Delivered
+            in the `X-Webhook-Signature` header on each callback.  Write-only — never
+            returned in GET responses.
+
+            '
+          writeOnly: true
+        enabled:
+          type: boolean
+          description: Whether this webhook is active for event delivery
+        createdOn:
+          type: string
+          format: date-time
+          description: Timestamp when the webhook was registered
+        updatedOn:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Timestamp of the last update
+      required:
+      - id
+      - url
+      - events
+      - enabled
+      - createdOn
+    WebhookCreateRequest:
+      type: object
+      description: 'Request body for registering a new webhook subscription.
+
+        '
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Target URL for HTTP POST callbacks
+        events:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: 'Event type patterns to subscribe to (e.g. `crm.contact.created`).
+
+            '
+        secret:
+          type: string
+          minLength: 16
+          description: 'Shared secret for HMAC-SHA256 payload signing (min 16 chars).
+
+            '
+        enabled:
+          type: boolean
+          default: true
+          description: Whether the webhook is active upon creation
+      required:
+      - url
+      - events
+      - secret
+    WebhookUpdateRequest:
+      type: object
+      description: 'Request body for updating an existing webhook.  All fields are
+        optional — only provided fields are updated.
+
+        '
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Target URL for HTTP POST callbacks
+        events:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Event type patterns to subscribe to
+        secret:
+          type: string
+          minLength: 16
+          description: 'New shared secret for HMAC-SHA256 payload signing.
+
+            '
+        enabled:
+          type: boolean
+          description: Whether the webhook is active
+    WebhookDelivery:
+      type: object
+      description: 'Record of a single webhook delivery attempt.  Stored in DynamoDB
+
+        for debugging and monitoring purposes.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique delivery attempt identifier
+        webhookId:
+          type: string
+          format: uuid
+          description: 'Webhook registration that triggered this delivery.
+
+            '
+        eventType:
+          type: string
+          description: 'Full event type string (e.g. `crm.contact.created`).
+
+            '
+        payload:
+          type: object
+          additionalProperties: true
+          description: 'Event payload delivered to the webhook URL.  Encoded as JSON
+            and signed with the webhook secret.
+
+            '
+        status:
+          $ref: '#/components/schemas/WebhookDeliveryStatus'
+        statusCode:
+          type:
+          - integer
+          - 'null'
+          description: 'HTTP response status code from the webhook target.  Null if
+            the request failed before receiving a response (e.g. DNS resolution failure,
+            connection timeout).
+
+            '
+        responseBody:
+          type:
+          - string
+          - 'null'
+          description: 'Truncated response body from the webhook target (max 4 KB).
+            Useful for debugging failed deliveries.
+
+            '
+        errorMessage:
+          type:
+          - string
+          - 'null'
+          description: 'Error message if the delivery failed (e.g. connection refused,
+            timeout).
+
+            '
+        deliveredOn:
+          type: string
+          format: date-time
+          description: Timestamp of the delivery attempt
+        duration:
+          type: integer
+          description: 'Delivery round-trip duration in milliseconds.
+
+            '
+      required:
+      - id
+      - webhookId
+      - eventType
+      - status
+      - deliveredOn
+    InAppNotification:
+      type: object
+      description: 'In-app notification record stored in DynamoDB.  Generated by
+
+        domain event consumers (e.g. task assignment, invoice payment,
+
+        contact creation) and rendered in the React SPA notification feed.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique notification identifier
+        userId:
+          type: string
+          format: uuid
+          description: 'Target user who receives this notification.
+
+            '
+        title:
+          type: string
+          description: Short notification title for display
+        message:
+          type: string
+          description: Notification body text
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        read:
+          type: boolean
+          description: Whether the user has read this notification
+        link:
+          type:
+          - string
+          - 'null'
+          description: 'Optional deep-link path within the React SPA for navigation
+            on click (e.g. `/crm/contacts/abc-123`).
+
+            '
+        sourceEvent:
+          type:
+          - string
+          - 'null'
+          description: 'Domain event type that triggered this notification (e.g. `crm.contact.created`).
+
+            '
+        createdOn:
+          type: string
+          format: date-time
+          description: Timestamp when the notification was created
+      required:
+      - id
+      - userId
+      - title
+      - message
+      - type
+      - read
+      - createdOn

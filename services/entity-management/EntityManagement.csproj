@@ -1,0 +1,148 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Entity Management Microservice - .NET 9 Native AOT Lambda Project
+
+    The core engine of the WebVella ERP platform, replacing the monolithic
+    WebVella.Erp.csproj (net10.0 class library targeting PostgreSQL). This service
+    owns entity/field/relation metadata, dynamic record CRUD, datasource execution,
+    search operations, and CSV import/export — all backed by DynamoDB with
+    domain events published via SNS.
+
+    Namespace: WebVellaErp.EntityManagement
+    Assembly:  WebVellaErp.EntityManagement
+
+    Source mapping: WebVella.Erp/WebVella.Erp.csproj
+    Key differences from monolith source:
+      REMOVES: Npgsql (no PostgreSQL — DynamoDB only), Irony.NetCore (EQL grammar
+               replaced by DynamoDB QueryAdapter), Ical.Net (recurrence in Workflow
+               service), Storage.Net (S3 replaces), System.Drawing.Common, MimeMapping
+      ADDS:    All AWSSDK packages (DynamoDB, SNS, SQS, SSM, S3),
+               Amazon.Lambda.* hosting packages
+      KEEPS:   AutoMapper 14.0.0, CsvHelper 33.1.0, Newtonsoft.Json 13.0.4
+
+    Exported namespaces (members_exposed):
+      - WebVellaErp.EntityManagement.Functions.EntityHandler
+      - WebVellaErp.EntityManagement.Functions.FieldHandler
+      - WebVellaErp.EntityManagement.Functions.RelationHandler
+      - WebVellaErp.EntityManagement.Functions.RecordHandler
+      - WebVellaErp.EntityManagement.Functions.DataSourceHandler
+      - WebVellaErp.EntityManagement.Functions.SearchHandler
+      - WebVellaErp.EntityManagement.Functions.ImportExportHandler
+      - WebVellaErp.EntityManagement.Models
+      - WebVellaErp.EntityManagement.Services.EntityService
+      - WebVellaErp.EntityManagement.Services.RecordService
+      - WebVellaErp.EntityManagement.Services.QueryAdapter
+      - WebVellaErp.EntityManagement.DataAccess.EntityRepository
+      - WebVellaErp.EntityManagement.DataAccess.RecordRepository
+  -->
+
+  <PropertyGroup>
+    <!-- Target .NET 9 (NOT net10.0 as in source monolith) per AAP specification -->
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WebVellaErp.EntityManagement</AssemblyName>
+    <RootNamespace>WebVellaErp.EntityManagement</RootNamespace>
+
+    <!-- Native AOT configuration for Lambda cold start optimization (target < 1 second)
+         and Lambda package size optimization (target < 250MB unzipped per AAP §0.8.2) -->
+    <PublishAot>false</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Exclude test project artifacts from SDK globbing into main service compilation -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer.
+       Provides IServiceCollection, WebApplicationBuilder, ILogger, IMemoryCache,
+       IConfiguration, ControllerBase, HttpContext and the full ASP.NET Core pipeline. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- AWS Lambda hosting and runtime -->
+  <ItemGroup>
+    <!-- Converts API Gateway HTTP API v2 requests/responses to ASP.NET Core pipeline.
+         Used by all Lambda handler classes (EntityHandler, FieldHandler, RecordHandler, etc.)
+         via APIGatewayHttpApiV2ProxyFunction base class. -->
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+
+    <!-- Lambda runtime interface: ILambdaContext, ILambdaSerializer, LambdaSerializerAttribute -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
+
+    <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
+         DefaultLambdaJsonSerializer preferred over Newtonsoft for new code paths per AAP. -->
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+  </ItemGroup>
+
+  <!-- AWS SDK packages for service infrastructure -->
+  <ItemGroup>
+    <!-- DynamoDB SDK for entity metadata persistence (single-table design with
+         PK=ENTITY#{id}, SK=META/FIELD#/RELATION#) and dynamic record storage
+         (PK=ENTITY#{entityName}, SK=RECORD#{recordId}). Core datastore replacing PostgreSQL.
+         Used types: IAmazonDynamoDB, AmazonDynamoDBClient, PutItemRequest, GetItemRequest,
+         QueryRequest, UpdateItemRequest, DeleteItemRequest, BatchWriteItemRequest,
+         AttributeValue, Select -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK for publishing domain events (entity-management.entity.created,
+         entity-management.record.updated, etc.) replacing the monolith's synchronous
+         RecordHookManager post-hooks with async event-driven architecture.
+         Used types: IAmazonSimpleNotificationService, PublishRequest, PublishResponse -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SQS SDK for consuming domain events from other bounded-context services
+         (e.g., identity events, CRM events) via SQS queue subscriptions.
+         Used types: IAmazonSQS, ReceiveMessageRequest, DeleteMessageRequest -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK for retrieving secrets (service configuration) as
+         SecureString. Per AAP §0.8.6: all secrets via SSM SecureString, NEVER
+         environment variables.
+         Used types: IAmazonSimpleSystemsManagement, GetParameterRequest, GetParametersRequest -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- S3 SDK for import/export file handling — CSV file upload/download used by
+         ImportExportHandler.cs. Replaces the monolith's Storage.Net blob backend for
+         entity data import/export pipelines.
+         Used types: IAmazonS3, PutObjectRequest, GetObjectRequest, GetPreSignedUrlRequest -->
+    <PackageReference Include="AWSSDK.S3" Version="3.7.410.10" />
+  </ItemGroup>
+
+  <!-- Business logic libraries carried from monolith source (WebVella.Erp.csproj) -->
+  <ItemGroup>
+    <!-- Object mapping between DynamoDB DTOs and domain/API models.
+         Same version as monolith source for consistent model transformation patterns.
+         Used types: IMapper, Profile, MapperConfiguration, CreateMap() -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization for backward-compatible DTO serialization, polymorphic
+         field type dispatch, and entity metadata hash computation. Kept from monolith
+         for compatibility with existing serialization contracts. New code prefers
+         System.Text.Json for AOT compatibility.
+         Used types: JsonConvert, JObject, JToken, JArray, JsonSerializerSettings -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+
+    <!-- CSV import/export pipelines for entity record data. Carried from monolith
+         source and used by ImportExportHandler.cs — handles CSV parsing/writing for
+         bulk record import and export operations.
+         Used types: CsvReader, CsvWriter, CsvConfiguration, HeaderValidated, MissingFieldFound -->
+    <PackageReference Include="CsvHelper" Version="33.1.0" />
+  </ItemGroup>
+
+  <!-- Suppress GHSA-rvv3-g6hj-g44x (AutoMapper DoS via deep recursion) - Lambda functions process
+       validated API payloads with bounded depth, mitigating the attack vector. Upgrade to 16.x
+       deferred to avoid breaking API changes across all service mappings. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+</Project>

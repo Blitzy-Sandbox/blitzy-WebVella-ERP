@@ -1,0 +1,1413 @@
+openapi: 3.1.0
+info:
+  title: WebVella ERP - Reporting & Analytics API
+  version: 1.0.0
+  description: "Read-optimized analytics and reporting service backed by RDS PostgreSQL.\
+    \ This service implements the CQRS read-side pattern — it consumes domain events\
+    \ from all bounded-context services via SQS queues and builds read-optimized projections\
+    \ in RDS PostgreSQL. It exposes report generation, dashboard aggregation, and\
+    \ system log query endpoints. The event consumer (SQS-triggered Lambda) is internal\
+    \ and not exposed through this API.\nKey capabilities:\n  - Report definition\
+    \ management (CRUD) and parameterized report execution\n  - Dashboard summary\
+    \ and widget data aggregation across all domains\n  - System log querying with\
+    \ filtering and pagination\n  - Event-sourced read model projections (internal,\
+    \ not API-exposed)\n"
+  contact:
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+- url: http://localhost:4566/restapis/{apiId}/v1/_user_request_
+  description: LocalStack Development
+  variables:
+    apiId:
+      default: local-reporting-api
+      description: API Gateway REST API ID in LocalStack
+- url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+  description: Production AWS
+  variables:
+    apiId:
+      default: reporting-api
+      description: API Gateway REST API ID
+    region:
+      default: us-east-1
+      description: AWS region
+security:
+- BearerAuth: []
+tags:
+- name: Reports
+  description: 'Report definition management and parameterized execution. Derived
+    from the monolith''s DataSourceManager (code and database datasources) and EQL-based
+    query execution engine.
+
+    '
+- name: Dashboard
+  description: 'Aggregated analytics and dashboard data from CQRS read-model projections.
+    Provides summary metrics and configurable widget data across all domains.
+
+    '
+- name: System Log
+  description: 'System log query endpoint for administrator diagnostics. Migrated
+    from the monolith''s system_log PostgreSQL table to a CloudWatch-backed read model
+    with API query access.
+
+    '
+paths:
+  /v1/reporting/reports:
+    get:
+      operationId: listReports
+      summary: List available report definitions
+      description: 'Returns a paginated list of report definitions. Each report definition
+        includes its name, description, category, parameter schema, and metadata.
+        Maps from the monolith''s DataSourceManager.GetAll() which returned both code-based
+        and database-based datasources.
+
+        '
+      tags:
+      - Reports
+      parameters:
+      - name: page
+        in: query
+        description: Page number (1-based)
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: pageSize
+        in: query
+        description: Number of items per page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 15
+      - name: search
+        in: query
+        description: Search term to filter reports by name or description
+        required: false
+        schema:
+          type: string
+          maxLength: 256
+      - name: category
+        in: query
+        description: Filter reports by category
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+      responses:
+        '200':
+          description: Paginated list of report definitions
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        items:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/ReportDefinition'
+                        pagination:
+                          $ref: '#/components/schemas/PaginationMeta'
+                      required:
+                      - items
+                      - pagination
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createReport
+      summary: Create a new report definition
+      description: 'Creates a new report definition with a query, parameters, and
+        metadata. Maps from the monolith''s DataSourceManager.Create() which validated
+        EQL, compiled SQL, and persisted datasource records. Only accessible by administrators.
+
+        '
+      tags:
+      - Reports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Report definition created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ReportDefinition'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reporting/reports/{reportId}:
+    get:
+      operationId: getReport
+      summary: Get report definition by ID
+      description: 'Returns a single report definition including its full parameter
+        schema and metadata. Maps from DataSourceManager.Get(id).
+
+        '
+      tags:
+      - Reports
+      parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+      responses:
+        '200':
+          description: Report definition retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ReportDefinition'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: updateReport
+      summary: Update a report definition
+      description: 'Updates an existing report definition. Maps from DataSourceManager.Update()
+        which re-validated EQL, recompiled SQL, and persisted changes. Only accessible
+        by administrators.
+
+        '
+      tags:
+      - Reports
+      parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReportRequest'
+      responses:
+        '200':
+          description: Report definition updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ReportDefinition'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteReport
+      summary: Delete a report definition
+      description: 'Permanently removes a report definition. Maps from DataSourceManager.Delete().
+        Only accessible by administrators.
+
+        '
+      tags:
+      - Reports
+      parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+      responses:
+        '200':
+          description: Report definition deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reporting/reports/{reportId}/execute:
+    post:
+      operationId: executeReport
+      summary: Execute a report with parameters
+      description: 'Executes a report definition against the read-optimized RDS PostgreSQL
+        projections and returns the result set. Maps from the monolith''s DataSourceManager.Execute()
+        and the eql-ds WebApiController endpoint which accepted datasource name and
+        parameter arrays. Parameters are typed (guid, int, decimal, date, text, bool)
+        and support special values (null, now, utc_now, guid.empty, string.empty).
+
+        '
+      tags:
+      - Reports
+      parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteReportRequest'
+      responses:
+        '200':
+          description: Report executed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ReportResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reporting/dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      summary: Get dashboard summary metrics
+      description: 'Returns aggregated summary metrics across all domains for the
+        specified time period. Data is sourced from CQRS read-model projections built
+        by consuming domain events (e.g., crm.account.created, invoicing.invoice.created,
+        inventory.task.created) via SQS. Includes counts, totals, and trend data.
+
+        '
+      tags:
+      - Dashboard
+      parameters:
+      - name: period
+        in: query
+        description: Aggregation period for trend calculations
+        required: false
+        schema:
+          type: string
+          enum:
+          - day
+          - week
+          - month
+          - quarter
+          - year
+          default: month
+      - name: fromDate
+        in: query
+        description: Start date for the reporting period (ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: toDate
+        in: query
+        description: End date for the reporting period (ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Dashboard summary retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/DashboardSummary'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reporting/dashboard/widgets/{widgetId}:
+    get:
+      operationId: getDashboardWidgetData
+      summary: Get data for a specific dashboard widget
+      description: 'Returns data for a specific dashboard widget identified by widgetId.
+        Widgets can render charts, tables, KPIs, or other visualizations. Data is
+        computed from the read-optimized CQRS projections.
+
+        '
+      tags:
+      - Dashboard
+      parameters:
+      - name: widgetId
+        in: path
+        description: Unique widget identifier
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: period
+        in: query
+        description: Aggregation period for widget data
+        required: false
+        schema:
+          type: string
+          enum:
+          - day
+          - week
+          - month
+          - quarter
+          - year
+          default: month
+      - name: fromDate
+        in: query
+        description: Start date for the widget data range (ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: toDate
+        in: query
+        description: End date for the widget data range (ISO 8601)
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Widget data retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/WidgetData'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reporting/system-log:
+    get:
+      operationId: getSystemLog
+      summary: Query system log entries
+      description: 'Returns paginated system log entries with filtering support. Migrated
+        from the monolith''s api/v3/en_US/system-log endpoint (WebApiController.cs
+        line 3817). The original implementation queried the system_log entity table
+        with filters for created_on range, type, source (contains match), message
+        (contains match), and notificationStatus. Results are sorted by created_on
+        descending. Only accessible by administrators.
+
+        '
+      tags:
+      - System Log
+      parameters:
+      - name: fromDate
+        in: query
+        description: Filter entries created after this date (ISO 8601). Maps to created_on
+          > fromDate.
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: untilDate
+        in: query
+        description: Filter entries created before this date (ISO 8601). Maps to created_on
+          < untilDate.
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: type
+        in: query
+        description: 'Filter by log entry type (exact match). Values: Error, Warning,
+          Info.'
+        required: false
+        schema:
+          type: string
+          enum:
+          - Error
+          - Warning
+          - Info
+      - name: source
+        in: query
+        description: Filter by source (contains match). The source field identifies
+          the originating component or service.
+        required: false
+        schema:
+          type: string
+          maxLength: 512
+      - name: message
+        in: query
+        description: Filter by message content (contains match).
+        required: false
+        schema:
+          type: string
+          maxLength: 1024
+      - name: notificationStatus
+        in: query
+        description: Filter by notification status (exact match). Indicates whether
+          an alert was sent for this log entry.
+        required: false
+        schema:
+          type: string
+          maxLength: 64
+      - name: page
+        in: query
+        description: Page number (1-based)
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: pageSize
+        in: query
+        description: Number of items per page
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 15
+      responses:
+        '200':
+          description: System log entries retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        items:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/SystemLogEntry'
+                        pagination:
+                          $ref: '#/components/schemas/PaginationMeta'
+                      required:
+                      - items
+                      - pagination
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Cognito JWT access token. Obtain via POST /v1/auth/login on the
+        Identity & Access Management service. For LocalStack, a custom Lambda authorizer
+        validates the token; in production, the HTTP API Gateway native JWT authorizer
+        is used.
+
+        '
+  parameters:
+    ReportIdPath:
+      name: reportId
+      in: path
+      description: Unique report definition identifier
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    UnauthorizedError:
+      description: Authentication required. Provide a valid JWT Bearer token.
+      content:
+        application/json:
+          schema:
+            allOf:
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Authentication required
+                errors:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ErrorModel'
+    ForbiddenError:
+      description: Insufficient permissions. Administrator role required.
+      content:
+        application/json:
+          schema:
+            allOf:
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Insufficient permissions
+    NotFoundError:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            allOf:
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: Resource not found
+    ValidationError:
+      description: Request validation failed. Check the errors array for details.
+      content:
+        application/json:
+          schema:
+            allOf:
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                errors:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ErrorModel'
+                  minItems: 1
+    InternalServerError:
+      description: An unexpected internal error occurred.
+      content:
+        application/json:
+          schema:
+            allOf:
+            - $ref: '#/components/schemas/ApiResponseEnvelope'
+            - type: object
+              properties:
+                success:
+                  type: boolean
+                  const: false
+                message:
+                  type: string
+                  example: An internal error occurred
+  schemas:
+    ApiResponseEnvelope:
+      type: object
+      description: 'Standard API response envelope matching the monolith''s BaseResponseModel.
+        All responses are wrapped in this structure for consistency.
+
+        '
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Server timestamp when the response was generated (UTC)
+          example: '2025-01-15T10:30:00.000Z'
+        success:
+          type: boolean
+          description: Indicates whether the request was processed successfully
+          example: true
+        message:
+          type: string
+          description: Human-readable status message
+          nullable: true
+          example: Operation completed successfully
+        hash:
+          type: string
+          description: Response hash for cache validation (optional)
+          nullable: true
+        errors:
+          type: array
+          description: List of error details if success is false
+          items:
+            $ref: '#/components/schemas/ErrorModel'
+          default: []
+        accessWarnings:
+          type: array
+          description: List of access-related warnings
+          items:
+            $ref: '#/components/schemas/AccessWarningModel'
+          default: []
+      required:
+      - timestamp
+      - success
+    ErrorModel:
+      type: object
+      description: 'Error detail model matching the monolith''s ErrorModel (BaseModels.cs
+        lines 62-83). Provides structured error information with a field key, value
+        context, and human-readable message.
+
+        '
+      properties:
+        key:
+          type: string
+          description: Field or context key that the error relates to
+          example: query
+        value:
+          type: string
+          description: The invalid value that triggered the error
+          nullable: true
+          example: ''
+        message:
+          type: string
+          description: Human-readable error message
+          example: Query parameter is required
+      required:
+      - key
+      - message
+    AccessWarningModel:
+      type: object
+      description: 'Access warning model matching the monolith''s AccessWarningModel.
+        Used to communicate non-fatal permission issues.
+
+        '
+      properties:
+        key:
+          type: string
+          description: Warning key identifier
+        code:
+          type: string
+          description: Warning code for programmatic handling
+        message:
+          type: string
+          description: Human-readable warning message
+    PaginationMeta:
+      type: object
+      description: Pagination metadata for paginated list responses
+      properties:
+        page:
+          type: integer
+          description: Current page number (1-based)
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of items per page
+          minimum: 1
+          example: 15
+        totalCount:
+          type: integer
+          description: Total number of items matching the query
+          minimum: 0
+          example: 42
+        totalPages:
+          type: integer
+          description: Total number of pages
+          minimum: 0
+          example: 3
+      required:
+      - page
+      - pageSize
+      - totalCount
+      - totalPages
+    ReportDefinition:
+      type: object
+      description: 'A report definition representing a named, parameterized query
+        against the read-optimized RDS PostgreSQL projections. Derived from the monolith''s
+        DatabaseDataSource model (DataSourceManager.cs) which stored name, description,
+        EQL text, compiled SQL, parameters, field metadata, entity name, weight, and
+        return-total flag.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique report definition identifier
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        name:
+          type: string
+          description: Unique report name (used for lookup and execution)
+          minLength: 1
+          maxLength: 256
+          example: monthly_revenue_summary
+        description:
+          type: string
+          description: Human-readable report description
+          nullable: true
+          maxLength: 2048
+          example: Monthly revenue breakdown by product category
+        category:
+          type: string
+          description: Report category for grouping and filtering
+          nullable: true
+          maxLength: 128
+          example: financial
+        weight:
+          type: integer
+          description: Display order weight (lower values appear first)
+          default: 0
+          example: 10
+        query:
+          type: string
+          description: 'The report query definition. In the target architecture this
+            is a SQL query template for the read-optimized RDS PostgreSQL projections.
+            Derived from the monolith''s EQL text field.
+
+            '
+          nullable: true
+          example: SELECT * FROM revenue_projection WHERE period = @period
+        entityName:
+          type: string
+          description: Primary entity name this report operates on (from source datasource
+            model)
+          nullable: true
+          maxLength: 256
+          example: invoice
+        returnTotal:
+          type: boolean
+          description: Whether the report execution should include a total row count
+          default: true
+        parameters:
+          type: array
+          description: Array of parameter definitions for this report
+          items:
+            $ref: '#/components/schemas/ParameterDefinition'
+          default: []
+        fields:
+          type: array
+          description: Field metadata describing the report's output columns
+          items:
+            $ref: '#/components/schemas/ReportFieldMeta'
+          default: []
+        createdOn:
+          type: string
+          format: date-time
+          description: Timestamp when the report was created (UTC)
+          example: '2025-01-10T08:00:00.000Z'
+        createdBy:
+          type: string
+          format: uuid
+          description: User ID of the report creator
+          nullable: true
+          example: b5c6d7e8-f9a0-1234-5678-abcdef012345
+        lastModifiedOn:
+          type: string
+          format: date-time
+          description: Timestamp when the report was last modified (UTC)
+          nullable: true
+          example: '2025-01-12T14:30:00.000Z'
+      required:
+      - id
+      - name
+    ParameterDefinition:
+      type: object
+      description: 'Definition of a single report parameter. Derived from the monolith''s
+        DataSourceParameter model which supported typed parameters (guid, int, decimal,
+        date, text, bool) with default values and parse-error tolerance.
+
+        '
+      properties:
+        name:
+          type: string
+          description: Parameter name (used as placeholder in the query, prefixed
+            with @ at runtime)
+          minLength: 1
+          maxLength: 128
+          example: period
+        type:
+          type: string
+          description: Parameter data type
+          enum:
+          - guid
+          - int
+          - decimal
+          - date
+          - text
+          - bool
+          example: text
+        label:
+          type: string
+          description: Human-readable label for the parameter in UI forms
+          nullable: true
+          maxLength: 256
+          example: Reporting Period
+        required:
+          type: boolean
+          description: Whether this parameter is required for report execution
+          default: false
+        defaultValue:
+          type: string
+          description: 'Default value for the parameter if not supplied at execution
+            time. Supports special values: null, now, utc_now (for date type), guid.empty
+            (for guid type), string.empty (for text type).
+
+            '
+          nullable: true
+          maxLength: 1024
+          example: month
+        ignoreParseErrors:
+          type: boolean
+          description: 'If true, parameter parse failures return null instead of raising
+            an error. Derived from DataSourceParameter.IgnoreParseErrors.
+
+            '
+          default: false
+      required:
+      - name
+      - type
+    ReportFieldMeta:
+      type: object
+      description: 'Metadata describing a single field (column) in the report output.
+        Derived from the monolith''s DataSourceModelFieldMeta which captured field
+        name, type, entity name, and hierarchical children for relation-navigated
+        fields.
+
+        '
+      properties:
+        name:
+          type: string
+          description: Field name. Relation-navigated fields are prefixed with $ (e.g.,
+            $account).
+          example: invoiceTotal
+        type:
+          type: string
+          description: Field type identifier
+          example: CurrencyField
+        entityName:
+          type: string
+          description: Entity that owns this field
+          nullable: true
+          example: invoice
+        children:
+          type: array
+          description: Child fields for relation-navigated columns
+          items:
+            $ref: '#/components/schemas/ReportFieldMeta'
+          default: []
+      required:
+      - name
+    CreateReportRequest:
+      type: object
+      description: Request body for creating a new report definition
+      properties:
+        name:
+          type: string
+          description: Unique report name
+          minLength: 1
+          maxLength: 256
+          example: quarterly_sales_report
+        description:
+          type: string
+          description: Human-readable report description
+          nullable: true
+          maxLength: 2048
+          example: Quarterly sales summary by region
+        category:
+          type: string
+          description: Report category for grouping
+          nullable: true
+          maxLength: 128
+          example: sales
+        weight:
+          type: integer
+          description: Display order weight
+          default: 0
+        query:
+          type: string
+          description: SQL query template for the report
+          minLength: 1
+          example: SELECT region, SUM(amount) as total FROM sales_projection WHERE
+            quarter = @quarter GROUP BY region
+        entityName:
+          type: string
+          description: Primary entity this report targets
+          nullable: true
+          maxLength: 256
+        returnTotal:
+          type: boolean
+          description: Whether to include total row count in results
+          default: true
+        parameters:
+          type: array
+          description: Parameter definitions for this report
+          items:
+            $ref: '#/components/schemas/ParameterDefinition'
+          default: []
+      required:
+      - name
+      - query
+    UpdateReportRequest:
+      type: object
+      description: Request body for updating an existing report definition
+      properties:
+        name:
+          type: string
+          description: Updated report name
+          minLength: 1
+          maxLength: 256
+        description:
+          type: string
+          description: Updated report description
+          nullable: true
+          maxLength: 2048
+        category:
+          type: string
+          description: Updated report category
+          nullable: true
+          maxLength: 128
+        weight:
+          type: integer
+          description: Updated display order weight
+        query:
+          type: string
+          description: Updated SQL query template
+          minLength: 1
+        entityName:
+          type: string
+          description: Updated primary entity name
+          nullable: true
+          maxLength: 256
+        returnTotal:
+          type: boolean
+          description: Updated return-total flag
+        parameters:
+          type: array
+          description: Updated parameter definitions
+          items:
+            $ref: '#/components/schemas/ParameterDefinition'
+      required:
+      - name
+      - query
+    ExecuteReportRequest:
+      type: object
+      description: 'Request body for executing a report. Provides parameter values
+        and optional pagination. Maps from the monolith''s eql-ds endpoint (WebApiController.cs
+        line 97) which accepted a datasource name and an array of name/value parameter
+        pairs.
+
+        '
+      properties:
+        parameters:
+          type: array
+          description: 'Array of parameter name/value pairs. Each parameter value
+            is provided as a string and will be parsed according to the parameter''s
+            declared type in the report definition.
+
+            '
+          items:
+            $ref: '#/components/schemas/ExecuteParameterValue'
+          default: []
+        page:
+          type: integer
+          description: Result page number (1-based)
+          minimum: 1
+          default: 1
+        pageSize:
+          type: integer
+          description: Number of result rows per page
+          minimum: 1
+          maximum: 1000
+          default: 50
+        idempotencyKey:
+          type: string
+          description: Idempotency key to prevent duplicate executions
+          format: uuid
+          nullable: true
+      required:
+      - parameters
+    ExecuteParameterValue:
+      type: object
+      description: 'A single parameter name/value pair for report execution. Matches
+        the monolith''s eql-ds parameter format: { name: string, value: string }.
+
+        '
+      properties:
+        name:
+          type: string
+          description: Parameter name matching a declared parameter in the report
+            definition
+          example: period
+        value:
+          type: string
+          description: 'Parameter value as a string. Parsed according to the parameter
+            type. Special values: null, now, utc_now (date), guid.empty (guid), string.empty
+            (text), true/false (bool).
+
+            '
+          nullable: true
+          example: 2025-Q1
+      required:
+      - name
+    ReportResult:
+      type: object
+      description: 'Result of a report execution including column definitions, data
+        rows, total count, and execution timing. Derived from the monolith''s EntityRecordList
+        response pattern used by DataSourceManager.Execute() which returned { list,
+        total_count }.
+
+        '
+      properties:
+        columns:
+          type: array
+          description: Column definitions describing the result schema
+          items:
+            $ref: '#/components/schemas/ColumnDefinition'
+        rows:
+          type: array
+          description: Result data rows as key-value objects
+          items:
+            type: object
+            additionalProperties: true
+            description: A single result row with column-name keys
+        totalRows:
+          type: integer
+          description: Total number of rows matching the query (before pagination)
+          minimum: 0
+          example: 156
+        executionTimeMs:
+          type: integer
+          description: Report execution time in milliseconds
+          minimum: 0
+          example: 245
+      required:
+      - columns
+      - rows
+      - totalRows
+      - executionTimeMs
+    ColumnDefinition:
+      type: object
+      description: Metadata for a single result column
+      properties:
+        name:
+          type: string
+          description: Column name
+          example: region
+        type:
+          type: string
+          description: Column data type
+          enum:
+          - string
+          - integer
+          - decimal
+          - boolean
+          - date
+          - datetime
+          - uuid
+          - object
+          - array
+          example: string
+        label:
+          type: string
+          description: Human-readable column label
+          nullable: true
+          example: Region
+      required:
+      - name
+      - type
+    DashboardSummary:
+      type: object
+      description: 'Aggregated summary metrics across all bounded-context domains.
+        Built from CQRS read-model projections that consume domain events such as
+        crm.account.created, crm.contact.created, invoicing.invoice.created, invoicing.payment.created,
+        inventory.task.created, etc.
+
+        '
+      properties:
+        totalAccounts:
+          type: integer
+          description: Total number of CRM accounts
+          minimum: 0
+          example: 1250
+        totalContacts:
+          type: integer
+          description: Total number of CRM contacts
+          minimum: 0
+          example: 4580
+        totalInvoices:
+          type: integer
+          description: Total number of invoices
+          minimum: 0
+          example: 892
+        revenue:
+          type: number
+          format: double
+          description: Total revenue from paid invoices in the selected period
+          minimum: 0
+          example: 125750.5
+        activeProjects:
+          type: integer
+          description: Number of active projects/tasks in progress
+          minimum: 0
+          example: 34
+        pendingTasks:
+          type: integer
+          description: Number of pending (not completed) tasks
+          minimum: 0
+          example: 156
+        period:
+          type: string
+          description: The period that these metrics cover
+          enum:
+          - day
+          - week
+          - month
+          - quarter
+          - year
+          example: month
+        fromDate:
+          type: string
+          format: date-time
+          description: Start of the reporting period
+          example: '2025-01-01T00:00:00.000Z'
+        toDate:
+          type: string
+          format: date-time
+          description: End of the reporting period
+          example: '2025-01-31T23:59:59.999Z'
+        trends:
+          $ref: '#/components/schemas/TrendData'
+      required:
+      - totalAccounts
+      - totalContacts
+      - totalInvoices
+      - revenue
+      - activeProjects
+      - pendingTasks
+    TrendData:
+      type: object
+      description: Trend comparisons versus the previous period
+      properties:
+        accountsChange:
+          type: number
+          format: double
+          description: Percentage change in accounts versus previous period
+          example: 5.2
+        contactsChange:
+          type: number
+          format: double
+          description: Percentage change in contacts versus previous period
+          example: 12.8
+        invoicesChange:
+          type: number
+          format: double
+          description: Percentage change in invoices versus previous period
+          example: -3.1
+        revenueChange:
+          type: number
+          format: double
+          description: Percentage change in revenue versus previous period
+          example: 8.7
+        projectsChange:
+          type: number
+          format: double
+          description: Percentage change in active projects versus previous period
+          example: 0.0
+        tasksChange:
+          type: number
+          format: double
+          description: Percentage change in pending tasks versus previous period
+          example: -15.4
+    WidgetData:
+      type: object
+      description: 'Data for a specific dashboard widget. The structure varies by
+        widget type — charts provide series data, tables provide rows, and KPIs provide
+        single-value metrics.
+
+        '
+      properties:
+        widgetId:
+          type: string
+          description: Widget identifier matching the request
+          example: revenue_chart
+        widgetType:
+          type: string
+          description: Widget rendering type
+          enum:
+          - chart
+          - table
+          - kpi
+          - list
+          example: chart
+        title:
+          type: string
+          description: Widget display title
+          example: Revenue Over Time
+        period:
+          type: string
+          description: Period the data covers
+          example: month
+        chartData:
+          type: object
+          description: Chart-specific data (present when widgetType is chart)
+          nullable: true
+          properties:
+            labels:
+              type: array
+              description: X-axis labels
+              items:
+                type: string
+              example:
+              - Jan
+              - Feb
+              - Mar
+            series:
+              type: array
+              description: Data series for the chart
+              items:
+                $ref: '#/components/schemas/ChartSeries'
+        tableData:
+          type: object
+          description: Table-specific data (present when widgetType is table)
+          nullable: true
+          properties:
+            columns:
+              type: array
+              items:
+                $ref: '#/components/schemas/ColumnDefinition'
+            rows:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+        kpiData:
+          type: object
+          description: KPI-specific data (present when widgetType is kpi)
+          nullable: true
+          properties:
+            value:
+              type: number
+              format: double
+              description: Current KPI value
+              example: 125750.5
+            previousValue:
+              type: number
+              format: double
+              description: Previous period KPI value for comparison
+              nullable: true
+              example: 115600.0
+            changePercent:
+              type: number
+              format: double
+              description: Percentage change from previous period
+              nullable: true
+              example: 8.78
+            unit:
+              type: string
+              description: Unit of measurement
+              nullable: true
+              example: USD
+        listData:
+          type: array
+          description: List-specific data (present when widgetType is list)
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
+      required:
+      - widgetId
+      - widgetType
+      - title
+    ChartSeries:
+      type: object
+      description: A single data series in a chart widget
+      properties:
+        name:
+          type: string
+          description: Series label
+          example: Revenue
+        data:
+          type: array
+          description: Numeric data points matching the labels array
+          items:
+            type: number
+            format: double
+          example:
+          - 42000.0
+          - 38500.0
+          - 45250.5
+      required:
+      - name
+      - data
+    SystemLogEntry:
+      type: object
+      description: 'A single system log entry. Migrated from the monolith''s system_log
+        entity table (queried via RecordManager.Find on the system_log entity). The
+        original schema included: id, type, source, message, details, created_on,
+        and notification_status fields.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique log entry identifier
+          example: c1d2e3f4-a5b6-7890-cdef-1234567890ab
+        type:
+          type: string
+          description: Log entry severity level
+          enum:
+          - Error
+          - Warning
+          - Info
+          example: Error
+        source:
+          type: string
+          description: Originating component, service, or module identifier
+          example: reporting-service:ReportHandler
+        message:
+          type: string
+          description: Human-readable log message
+          example: Report execution failed due to invalid query parameters
+        details:
+          type: string
+          description: Detailed information (stack traces, context data)
+          nullable: true
+        notificationStatus:
+          type: string
+          description: Status of any notification triggered by this log entry
+          nullable: true
+          example: sent
+        createdOn:
+          type: string
+          format: date-time
+          description: Timestamp when the log entry was created (UTC)
+          example: '2025-01-15T10:30:45.123Z'
+      required:
+      - id
+      - type
+      - source
+      - message
+      - createdOn

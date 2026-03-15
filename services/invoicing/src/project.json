@@ -1,0 +1,89 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "invoicing",
+  "root": "services/invoicing",
+  "sourceRoot": "services/invoicing/src",
+  "projectType": "application",
+  "tags": [
+    "service:invoicing",
+    "type:backend",
+    "runtime:dotnet",
+    "datastore:rds-postgresql"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/invoicing/bin"
+      ],
+      "options": {
+        "command": "dotnet build",
+        "cwd": "services/invoicing"
+      },
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test",
+        "cwd": "services/invoicing"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/invoicing/bin/Release"
+      ],
+      "options": {
+        "command": "dotnet publish -c Release --self-contained true -r linux-x64",
+        "cwd": "services/invoicing"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format --verify-no-changes",
+        "cwd": "services/invoicing"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project Invoicing.csproj",
+        "cwd": "services/invoicing"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cdklocal deploy InvoicingStack --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/invoicing/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    }
+  }
+}

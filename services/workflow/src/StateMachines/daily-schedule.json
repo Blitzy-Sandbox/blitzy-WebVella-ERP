@@ -1,0 +1,273 @@
+{
+  "Comment": "Daily Schedule State Machine — Replaces SheduleManager SchedulePlanType.Daily (type=2). Implements the Process() daily case (lines 126-145) and FindDailySchedulePlanNextTriggerDate() logic (lines 530-566). Unlike the Interval schedule, Daily does NOT use timespan filtering (StartTimespan/EndTimespan). It uses day-of-week filtering via IsDayUsedInSchedulePlan() with isTimeConnectedToFirstDay=false (line 552). The daily loop: CheckEndDate → CheckDayOfWeek → ExecuteJob → WaitOneDay → CheckEndDate replaces the C# while(true) loop. Daily wait is a FIXED 86400 seconds (24 * 60 * 60). If the current day is not allowed by ScheduledDays flags, WaitNextDay uses a dynamic SecondsPath to skip to the next allowed day.",
+  "StartAt": "ValidateSchedule",
+  "States": {
+    "ValidateSchedule": {
+      "Type": "Task",
+      "Comment": "Validates the daily schedule plan exists, is enabled, and has valid configuration. Evaluates ScheduledDays (SchedulePlanDaysOfWeek — 7 boolean flags for each day of week). Defaults ScheduledDays to empty SchedulePlanDaysOfWeek if null (matching SheduleManager.cs line 532-533: if (dailyPlan.ScheduledDays == null) dailyPlan.ScheduledDays = new SchedulePlanDaysOfWeek()). Also computes hasEndDate and isExpired flags for the CheckEndDate choice state to implement the boundary check from lines 543-548: if (dailyPlan.EndDate.Value < startingDate) return null.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-handler",
+      "Parameters": {
+        "action": "validate-schedule",
+        "scheduleType": "daily",
+        "schedulePlan.$": "$.schedulePlan",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.validation",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "CheckEnabled"
+    },
+    "CheckEnabled": {
+      "Type": "Choice",
+      "Comment": "Checks if the schedule plan is enabled (SchedulePlan.Enabled == true). Disabled schedules terminate gracefully without executing any jobs, exiting to ScheduleDisabled succeed state.",
+      "Choices": [
+        {
+          "Variable": "$.validation.enabled",
+          "BooleanEquals": true,
+          "Next": "CheckEndDate"
+        }
+      ],
+      "Default": "ScheduleDisabled"
+    },
+    "CheckEndDate": {
+      "Type": "Choice",
+      "Comment": "Implements EndDate boundary check from SheduleManager.cs lines 543-548: if (dailyPlan.EndDate.HasValue && dailyPlan.EndDate.Value < startingDate) return null. If endDate is not set, proceed to CheckDayOfWeek (no expiry constraint). If endDate is set and has expired, transition to ScheduleExpired which sets NextTriggerTime to null (matching Process line 141: schedulePlan.NextTriggerTime = null). If endDate is set but not yet expired, proceed to CheckDayOfWeek. This check occurs at the top of each daily cycle to prevent executing jobs after the schedule validity window has closed.",
+      "Choices": [
+        {
+          "Variable": "$.validation.hasEndDate",
+          "BooleanEquals": false,
+          "Next": "CheckDayOfWeek"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.validation.hasEndDate",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.validation.isExpired",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "ScheduleExpired"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.validation.hasEndDate",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.validation.isExpired",
+              "BooleanEquals": false
+            }
+          ],
+          "Next": "CheckDayOfWeek"
+        }
+      ],
+      "Default": "CheckDayOfWeek"
+    },
+    "CheckDayOfWeek": {
+      "Type": "Task",
+      "Comment": "Evaluates IsDayUsedInSchedulePlan() logic from SheduleManager.cs lines 632-702 with isTimeConnectedToFirstDay=false (per line 552). Checks the current UTC day-of-week against the 7 ScheduledDays boolean flags: ScheduledOnSunday, ScheduledOnMonday, ScheduledOnTuesday, ScheduledOnWednesday, ScheduledOnThursday, ScheduledOnFriday, ScheduledOnSaturday. Returns isDayAllowed=true if the current day matches a selected day flag, and secondsUntilNextAllowedDay for the dynamic WaitNextDay state when the current day is not allowed. Unlike the Interval schedule, Daily does NOT apply isTimeConnectedToFirstDay day-shift logic (always false).",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "check-day-of-week",
+        "scheduleType": "daily",
+        "scheduledDays.$": "$.validation.scheduledDays",
+        "isTimeConnectedToFirstDay": false,
+        "schedulePlanId.$": "$.schedulePlan.id",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.dayCheck",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "EvaluateDayResult"
+    },
+    "EvaluateDayResult": {
+      "Type": "Choice",
+      "Comment": "Routes execution based on whether the current day-of-week is allowed by the ScheduledDays flags. If isDayAllowed is true (the current day matches one of the 7 boolean flags), proceed to ExecuteJob. If isDayAllowed is false, skip to WaitNextDay which uses a dynamically calculated wait (secondsUntilNextAllowedDay) to advance to the next scheduled day. This replaces the C# loop logic from lines 552-558 where the code checks IsDayUsedInSchedulePlan and either returns the startingDate or advances by AddDays(1).",
+      "Choices": [
+        {
+          "Variable": "$.dayCheck.isDayAllowed",
+          "BooleanEquals": true,
+          "Next": "ExecuteJob"
+        }
+      ],
+      "Default": "WaitNextDay"
+    },
+    "ExecuteJob": {
+      "Type": "Task",
+      "Comment": "Executes the scheduled job — creates a new job entry in DynamoDB (replacing JobManager.Current.CreateJob() from SheduleManager.cs line 190), sets LastTriggerTime to UtcNow (line 128: if (startNewJob) schedulePlan.LastTriggerTime = DateTime.UtcNow), calculates NextTriggerTime using FindDailySchedulePlanNextTriggerDate logic (line 133-134: startDate.AddMinutes(1) with day-of-week filtering), updates LastStartedJobId (line 191), and publishes workflow.schedule.triggered SNS domain event.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "execute-scheduled-job",
+        "scheduleType": "daily",
+        "schedulePlanId.$": "$.schedulePlan.id",
+        "jobTypeId.$": "$.schedulePlan.jobTypeId",
+        "jobAttributes.$": "$.schedulePlan.jobAttributes",
+        "snsEvent": "workflow.schedule.triggered",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.jobResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "WaitOneDay"
+    },
+    "WaitOneDay": {
+      "Type": "Wait",
+      "Comment": "Waits exactly 86400 seconds (24 hours = 24 * 60 * 60) before the next execution cycle. This replaces the C# AddDays(1) stepping logic from SheduleManager.cs line 558 (FindDailySchedulePlanNextTriggerDate: startingDate = startingDate.AddDays(1)). After the wait, loops back to CheckEndDate to re-verify the schedule has not expired before executing the next day's cycle. A full day wait is used here because the job already executed successfully on the current day.",
+      "Seconds": 86400,
+      "Next": "CheckEndDate"
+    },
+    "WaitNextDay": {
+      "Type": "Wait",
+      "Comment": "Dynamic wait used when the current day-of-week is NOT allowed by the ScheduledDays flags. The CheckDayOfWeek Lambda calculates secondsUntilNextAllowedDay — the exact number of seconds until the next day that has its corresponding ScheduledOn* boolean flag set to true. This replaces the iterative C# loop from lines 552-558 where the code advances one day at a time via AddDays(1) until IsDayUsedInSchedulePlan returns true. The dynamic wait efficiently skips multiple non-scheduled days in a single Wait operation rather than looping day-by-day.",
+      "SecondsPath": "$.dayCheck.secondsUntilNextAllowedDay",
+      "Next": "CheckEndDate"
+    },
+    "HandleError": {
+      "Type": "Task",
+      "Comment": "Handles errors encountered during daily schedule execution. Publishes workflow.schedule.failed SNS event for observability and sends error details to the workflow-daily-schedule-dlq dead-letter queue for investigation and retry per AAP Section 0.8.5 DLQ naming convention.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "handle-schedule-error",
+        "scheduleType": "daily",
+        "error.$": "$.error",
+        "schedulePlan.$": "$.schedulePlan",
+        "snsEvent": "workflow.schedule.failed",
+        "dlqName": "workflow-daily-schedule-dlq",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.errorResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "Failed"
+    },
+    "ScheduleDisabled": {
+      "Type": "Succeed",
+      "Comment": "Terminal state for disabled daily schedules. The schedule plan has Enabled=false, so no job is created and the state machine exits gracefully."
+    },
+    "ScheduleExpired": {
+      "Type": "Task",
+      "Comment": "Marks the daily schedule as expired in DynamoDB. Sets NextTriggerTime to null (matching SheduleManager.cs line 141: schedulePlan.NextTriggerTime = null) when the EndDate boundary has been exceeded (lines 543-548: if (dailyPlan.EndDate.Value < startingDate) return null). Publishes workflow.schedule.expired SNS event for audit and observability.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "expire-schedule",
+        "scheduleType": "daily",
+        "schedulePlanId.$": "$.schedulePlan.id",
+        "snsEvent": "workflow.schedule.expired",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.expirationResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "Succeeded": {
+      "Type": "Succeed",
+      "Comment": "Terminal success state. The daily schedule has completed its lifecycle — either all scheduled executions ran successfully and the schedule expired normally, or the schedule reached its EndDate boundary."
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "DailyScheduleFailed",
+      "Cause": "Daily schedule workflow encountered an error"
+    }
+  }
+}

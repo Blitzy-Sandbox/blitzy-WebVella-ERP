@@ -1,0 +1,1637 @@
+openapi: 3.1.0
+info:
+  title: WebVella ERP - File Management API
+  version: 1.0.0
+  description: 'S3-backed file storage service for the WebVella ERP platform.
+
+
+    This bounded-context service replaces the monolith''s three legacy file
+
+    storage backends — PostgreSQL Large Objects, filesystem storage, and
+
+    Cloud Blob Storage (Storage.Net) — with a unified Amazon S3 storage
+
+    layer.  File metadata is persisted in DynamoDB while binary content
+
+    resides in S3.
+
+
+    Upload operations use S3 presigned PUT URLs so that clients upload
+
+    directly to S3, eliminating Lambda payload size constraints.  A
+
+    backward-compatible direct upload endpoint is retained for small files
+
+    and legacy integrations (CKEditor drop-upload, etc.).
+
+
+    **Owned entities (DynamoDB):** file metadata, user file records.
+
+    **Owned storage (S3):** all binary file content.
+
+
+    **Source mapping:**
+
+    - `DbFileRepository.cs` — file CRUD (LO/filesystem/blob → S3)
+
+    - `DbFile.cs` — file metadata model
+
+    - `UserFileService.cs` — user file list/create logic
+
+    - `WebApiController.cs` lines 3250-3396 — download/upload/move/delete
+
+    - `WebApiController.cs` lines 3888-4136 — user file management
+
+
+    **Domain events published:**
+
+    - `file-management.file.uploaded`
+
+    - `file-management.file.moved`
+
+    - `file-management.file.deleted`
+
+    - `file-management.user-file.created`
+
+
+    **Performance targets (per AAP §0.8.2):**
+
+    - API response P95 (warm) < 500 ms
+
+    - DynamoDB read latency P99 < 10 ms
+
+    - Lambda cold start (.NET Native AOT) < 1 second
+
+
+    **Backward compatibility:** Legacy FSResult response shape is preserved
+
+    for direct upload and move endpoints to maintain API consumer parity
+
+    (per AAP §0.8.1).
+
+    '
+  contact:
+    name: WebVella ERP Team
+    url: https://github.com/WebVella/WebVella-ERP
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+- url: http://localhost:4566/restapis/{apiId}/v1/_user_request_
+  description: LocalStack
+  variables:
+    apiId:
+      default: local
+      description: API Gateway REST API identifier
+- url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+  description: Production AWS
+  variables:
+    apiId:
+      default: ''
+      description: API Gateway REST API identifier
+    region:
+      default: us-east-1
+      description: AWS region
+security:
+- BearerAuth: []
+tags:
+- name: File Upload
+  description: 'Upload files to S3 storage via presigned URLs or direct multipart
+    upload.  Replaces the monolith''s `POST /fs/upload/` and `POST /fs/upload-file-multiple/`
+    endpoints with S3-native patterns.
+
+    '
+- name: File Download
+  description: 'Retrieve file content via S3 presigned GET URLs and file metadata.
+    Replaces the monolith''s `GET /fs/{root*}/{fileName}` route that served file bytes
+    directly from PostgreSQL LO / filesystem storage.
+
+    '
+- name: File Management
+  description: 'Move, delete, and list files.  Replaces the monolith''s `POST /fs/move/`,
+    `DELETE {*filepath}`, and file listing operations from `DbFileRepository.FindAll`.
+
+    '
+- name: User Files
+  description: 'User file management with type classification (image, document, video,
+    audio, other), image dimension extraction, and CKEditor integration support.  Replaces
+    `UserFileService` and the monolith''s `api/v3/en_US/user_file` endpoints plus
+    CKEditor upload routes.
+
+    '
+paths:
+  /v1/file-management/files/upload:
+    post:
+      operationId: requestPresignedUpload
+      summary: Request a presigned S3 upload URL
+      description: 'Generates an S3 presigned PUT URL for direct client-to-S3 upload.
+
+        The client then uploads the file directly to S3 using the returned
+
+        URL, bypassing Lambda payload limits.
+
+
+        Replaces the monolith''s `POST /fs/upload/` endpoint (line 3327 of
+
+        `WebApiController.cs`) which accepted multipart uploads directly.
+
+
+        After the client completes the S3 upload, it must call
+
+        `POST /v1/files/confirm-upload` to finalize the file record and
+
+        trigger the `file-management.file.uploaded` domain event.
+
+
+        An idempotency key is required to prevent duplicate file creation
+
+        (per AAP §0.8.5).
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Upload
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignedUploadRequest'
+      responses:
+        '200':
+          description: Presigned upload URL generated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PresignedUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/upload/direct:
+    post:
+      operationId: uploadFileDirect
+      summary: Upload a file directly via multipart form data
+      description: 'Accepts a file directly as multipart form data for small files
+        or
+
+        legacy integration scenarios (e.g., CKEditor drop-upload).
+
+
+        This endpoint preserves backward compatibility with the monolith''s
+
+        `POST /fs/upload/` endpoint (line 3329 of `WebApiController.cs`)
+
+        which accepted `IFormFile` and created a temp file via
+
+        `DbFileRepository.CreateTempFile`.
+
+
+        The file is uploaded to S3 and a metadata record is created in
+
+        DynamoDB.  Returns the legacy `FSResult` shape (`url`, `filename`)
+
+        for backward compatibility.
+
+
+        Also replaces the monolith''s CKEditor integration endpoints:
+
+        - `POST /ckeditor/drop-upload-url` (line 3962)
+
+        - `POST /ckeditor/image-upload-url` (line 4009)
+
+
+        Triggers the `file-management.file.uploaded` domain event on success.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Upload
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+              required:
+              - file
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/FSResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: File size exceeds the maximum allowed limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/upload/multiple:
+    post:
+      operationId: uploadFilesMultiple
+      summary: Upload multiple files via multipart form data
+      description: 'Accepts multiple files as multipart form data and uploads each
+        to
+
+        S3 with metadata records in DynamoDB.
+
+
+        Replaces the monolith''s `POST /fs/upload-file-multiple/` endpoint
+
+        (line 4136 of `WebApiController.cs`) which accepted `List<IFormFile>`
+
+        and created temporary files via `DbFileRepository.CreateTempFile`,
+
+        returning records with id, name, size, path, type, and dimensions.
+
+
+        Each successfully uploaded file triggers a
+
+        `file-management.file.uploaded` domain event.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Upload
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Array of files to upload
+              required:
+              - files
+      responses:
+        '200':
+          description: All files uploaded successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/UploadedFileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: One or more files exceed the maximum allowed size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/confirm-upload:
+    post:
+      operationId: confirmUpload
+      summary: Confirm completion of a presigned URL upload
+      description: 'Called by the client after successfully uploading a file to S3
+        via
+
+        the presigned PUT URL returned by `POST /v1/files/upload`.
+
+
+        This endpoint verifies the object exists in S3, finalizes the file
+
+        metadata record in DynamoDB (sets status to `confirmed`, captures
+
+        actual content-type and size from S3 HEAD), and triggers the
+
+        `file-management.file.uploaded` SNS domain event.
+
+
+        Must be called within the presigned URL expiry window (default
+
+        15 minutes).  If the S3 object is not found, returns 404.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Upload
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmUploadRequest'
+      responses:
+        '200':
+          description: Upload confirmed and file metadata finalized
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/{fileId}/download:
+    get:
+      operationId: getFileDownloadUrl
+      summary: Get a presigned S3 download URL for a file
+      description: 'Returns an S3 presigned GET URL for downloading the file content.
+
+
+        Replaces the monolith''s `GET /fs/{root*}/{fileName}` route (lines
+
+        3252-3324 of `WebApiController.cs`) which served file bytes directly
+
+        from PostgreSQL Large Objects, filesystem, or Cloud Blob storage.
+
+
+        Supports the same query parameters as the original endpoint:
+
+        - `action` — controls download vs inline disposition
+
+        - `mode` — rendering mode hint (e.g., thumbnail generation)
+
+        - `width` / `height` — requested image dimensions for resizing
+
+
+        Respects `If-Modified-Since` caching semantics from the original
+
+        endpoint (line 3284): if the file has not been modified since the
+
+        provided date, returns HTTP 304 Not Modified.
+
+
+        The presigned URL includes a cache-friendly expiry (default 1 hour).
+
+
+        Handled by `services/file-management/src/Functions/DownloadHandler.cs`.
+
+        '
+      tags:
+      - File Download
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/FileIdParam'
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - download
+          - inline
+        description: 'Controls the Content-Disposition behavior.  `download` forces
+          a file download dialog; `inline` renders in the browser.  Defaults to `inline`.  Maps
+          to the monolith''s `action` query parameter.
+
+          '
+      - name: mode
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 'Rendering mode hint.  For images, `thumbnail` requests a resized
+          version.  Maps to the monolith''s `mode` query parameter.
+
+          '
+      - name: width
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+        description: 'Requested image width in pixels for resize operations.  Maps
+          to the monolith''s `width` query parameter.
+
+          '
+      - name: height
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+        description: 'Requested image height in pixels for resize operations.  Maps
+          to the monolith''s `height` query parameter.
+
+          '
+      - name: If-Modified-Since
+        in: header
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: 'Standard HTTP caching header.  If the file has not been modified
+          since this timestamp, the server returns 304 Not Modified instead of a presigned
+          URL (mirroring line 3284 of WebApiController.cs).
+
+          '
+      responses:
+        '200':
+          description: Presigned download URL generated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/PresignedDownloadResponse'
+        '304':
+          description: 'File not modified since the If-Modified-Since header value.
+            No body is returned.
+
+            '
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/{fileId}:
+    get:
+      operationId: getFileMetadata
+      summary: Get file metadata by ID
+      description: 'Returns the metadata record for a specific file without generating
+
+        a download URL.  Useful for inspecting file properties such as
+
+        content type, size, creation date, and modification date.
+
+
+        The metadata model is derived from the monolith''s `DbFile` class
+
+        (`DbFile.cs`) with properties: Id, FilePath, ContentType, Size,
+
+        CreatedOn, CreatedBy, LastModificationDate.
+
+
+        Handled by `services/file-management/src/Functions/DownloadHandler.cs`.
+
+        '
+      tags:
+      - File Download
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/FileIdParam'
+      responses:
+        '200':
+          description: File metadata retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteFile
+      summary: Delete a file
+      description: 'Deletes a file from S3 storage and removes the metadata record
+
+        from DynamoDB.
+
+
+        Replaces the monolith''s `DELETE {*filepath}` endpoint (line 3370
+
+        of `WebApiController.cs`) which found the file by path and deleted
+
+        it from PostgreSQL LO / filesystem / Cloud Blob storage.
+
+
+        Triggers the `file-management.file.deleted` SNS domain event on
+
+        success.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Management
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/FileIdParam'
+      responses:
+        '200':
+          description: File deleted successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/FSResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files:
+    get:
+      operationId: listFiles
+      summary: List files with optional filtering and pagination
+      description: 'Returns a paginated list of file metadata records.
+
+
+        Replaces the monolith''s `DbFileRepository.FindAll(startsWithPath,
+
+        includeTempFiles, skip, limit)` method which queried the PostgreSQL
+
+        `files` table with optional path prefix filtering and temp file
+
+        exclusion.
+
+
+        Supports filtering by directory path prefix and full-text search
+
+        on filenames.
+
+
+        Handled by `services/file-management/src/Functions/DownloadHandler.cs`.
+
+        '
+      tags:
+      - File Management
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: path
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 'Filter by directory path prefix.  Only files whose `filePath`
+          starts with this value are returned.  Maps to the monolith''s `startsWithPath`
+          parameter in `DbFileRepository.FindAll`. All paths are normalized to lowercase
+          with `/` separator (matching the monolith''s `FOLDER_SEPARATOR` constant).
+
+          '
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 'Full-text search on filenames.  Case-insensitive partial match.
+
+          '
+      - name: includeTempFiles
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: 'Whether to include files in the `tmp` directory.  Defaults to
+          false, matching the monolith''s `DbFileRepository.FindAll` behavior where
+          `includeTempFiles` defaults to exclusion of the `TMP_FOLDER_NAME = "tmp"`
+          directory.
+
+          '
+      responses:
+        '200':
+          description: Paginated file list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/FileMetadata'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/files/move:
+    post:
+      operationId: moveFile
+      summary: Move or rename a file
+      description: 'Moves a file from one path to another within S3 storage.  If the
+
+        target path already exists, the `overwrite` flag controls whether
+
+        to replace it.
+
+
+        Replaces the monolith''s `POST /fs/move/` endpoint (line 3347 of
+
+        `WebApiController.cs`) which accepted a JSON body with `source`,
+
+        `target`, and `overwrite` parameters and delegated to
+
+        `DbFileRepository.Copy` followed by source deletion.
+
+
+        Returns the legacy `FSResult` shape (`url`, `filename`) for
+
+        backward compatibility.
+
+
+        Triggers the `file-management.file.moved` SNS domain event on
+
+        success.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - File Management
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveFileRequest'
+      responses:
+        '200':
+          description: File moved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/FSResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 'Target file already exists and `overwrite` is false
+
+            '
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/user-files:
+    get:
+      operationId: listUserFiles
+      summary: List user files with filtering, sorting, and pagination
+      description: 'Returns a paginated list of user file records.
+
+
+        Replaces the monolith''s `GET api/v3/en_US/user_file` endpoint
+
+        (line 3886 of `WebApiController.cs`) which delegated to
+
+        `UserFileService.GetFilesList(type, search, sort, page, pageSize)`.
+
+
+        Supports filtering by type (image, document, audio, video, other)
+
+        and search (matches against name, alt text, and caption).
+
+
+        Sort options (from `UserFileService.GetFilesList`):
+
+        - 1 = created_on descending (newest first, default)
+
+        - 2 = name ascending (A-Z)
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - User Files
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/UserFileType'
+        description: 'Filter by file type classification.  Maps to the monolith''s
+          `type` query parameter.  The classification logic inspects MIME type (image/*,
+          video/*, audio/*) and file extension (.doc, .pdf, .xls, etc.) as implemented
+          in `UserFileService.CreateUserFile`.
+
+          '
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: 'Full-text search across filename, alt text, and caption fields.
+          Case-insensitive partial match.  Maps to the monolith''s `search` query
+          parameter in `UserFileService.GetFilesList`.
+
+          '
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: integer
+          enum:
+          - 1
+          - 2
+          default: 1
+        description: 'Sort order: 1 = created_on descending (newest first, default),
+          2 = name ascending (A-Z).  Maps to the monolith''s `sort` parameter in `UserFileService.GetFilesList`.
+
+          '
+      responses:
+        '200':
+          description: Paginated user file list
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/UserFile'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createUserFile
+      summary: Register and finalize a user file from a temporary upload
+      description: "Registers a previously uploaded temporary file as a permanent\
+        \ user\nfile with metadata (alt text, caption, type classification).\n\nReplaces\
+        \ the monolith's `POST api/v3/en_US/user_file` endpoint\n(line 3906 of `WebApiController.cs`)\
+        \ which accepted a JSON body\nwith `path`, `alt`, and `caption` properties\
+        \ and delegated to\n`UserFileService.CreateUserFile`.\n\nThe service logic:\n\
+        1. Finds the temporary file at the specified path\n2. Determines file type\
+        \ by MIME type inspection:\n   - MIME starts with \"image/\" → type = \"image\"\
+        \ (extracts width/height)\n   - MIME starts with \"video/\" → type = \"video\"\
+        \n   - MIME starts with \"audio/\" → type = \"audio\"\n   - Extensions .doc/.docx/.odt/.rtf/.txt/.pdf/.html/.htm/.ppt/.pptx\n\
+        \     /.xls/.xlsx/.ods/.odp → type = \"document\"\n   - Everything else →\
+        \ type = \"other\"\n3. Moves file from temp to permanent path `/file/{newFileId}/{filename}`\n\
+        4. Creates `user_file` entity record with metadata\n\nTriggers the `file-management.user-file.created`\
+        \ domain event on\nsuccess.\n\nHandled by `services/file-management/src/Functions/UploadHandler.cs`.\n"
+      tags:
+      - User Files
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserFileRequest'
+      responses:
+        '200':
+          description: User file created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/UserFile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 'Temporary file not found at the specified path
+
+            '
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/file-management/user-files/upload-multiple:
+    post:
+      operationId: uploadUserFilesMultiple
+      summary: Upload and register multiple user files
+      description: 'Accepts multiple files as multipart form data, uploads each to
+        S3,
+
+        determines file type and extracts metadata (image dimensions for
+
+        image types), and creates user file records in DynamoDB.
+
+
+        Replaces the monolith''s `POST /fs/upload-user-file-multiple/`
+
+        endpoint (line 4041 of `WebApiController.cs`) which accepted
+
+        `List<IFormFile>`, created files with user paths in the format
+
+        `/user_file/{userId}/{section}/{filename}`, determined type and
+
+        dimensions, and created `user_file` entity records.
+
+
+        Each successfully created user file triggers a
+
+        `file-management.user-file.created` domain event.
+
+
+        Handled by `services/file-management/src/Functions/UploadHandler.cs`.
+
+        '
+      tags:
+      - User Files
+      security:
+      - BearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Array of user files to upload and register
+              required:
+              - files
+      responses:
+        '200':
+          description: All user files uploaded and registered successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/UserFile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: One or more files exceed the maximum allowed size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Cognito-issued JWT token.  Validated by HTTP API Gateway native
+        JWT authorizer in production, or custom Lambda authorizer against LocalStack
+        Cognito.
+
+        '
+  parameters:
+    FileIdParam:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 'Unique file identifier (UUID).  Maps to the monolith''s `DbFile.Id`
+        property.
+
+        '
+    IdempotencyKeyHeader:
+      name: X-Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: 'Idempotency key for write operations.  Duplicate requests with
+        the same key within a 24-hour window return the existing result. Required
+        for all mutating endpoints per AAP §0.8.5.
+
+        '
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: 'One-based page number for paginated results.  Defaults to 1.
+
+        '
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 30
+      description: 'Number of items per page.  Defaults to 30, max 500.
+
+        '
+  responses:
+    BadRequest:
+      description: Invalid request — validation errors
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    NotFound:
+      description: Requested resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+  schemas:
+    ApiResponseEnvelope:
+      type: object
+      description: 'Standard response wrapper used by every endpoint.  Mirrors the
+
+        monolith''s `BaseResponseModel` (BaseModels.cs).
+
+        '
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Server UTC timestamp at response creation
+        success:
+          type: boolean
+          description: Whether the operation completed without errors
+        message:
+          type: string
+          description: Human-readable summary (e.g. "Success")
+        hash:
+          type: string
+          nullable: true
+          description: Optional cache-validation hash for list endpoints
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorModel'
+          description: Validation or processing errors
+        accessWarnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessWarningModel'
+          description: Non-fatal permission warnings
+      required:
+      - timestamp
+      - success
+      - message
+      - errors
+    ErrorModel:
+      type: object
+      description: 'Structured error detail (from BaseModels.cs ErrorModel).
+
+        '
+      properties:
+        key:
+          type: string
+          description: Field or context key related to the error
+        value:
+          type: string
+          description: Value that caused the error
+        message:
+          type: string
+          description: Human-readable error message
+      required:
+      - key
+      - message
+    AccessWarningModel:
+      type: object
+      description: 'Non-fatal access warning (from BaseModels.cs AccessWarningModel).
+
+        '
+      properties:
+        key:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included in list responses.
+      properties:
+        page:
+          type: integer
+          description: Current one-based page number
+        pageSize:
+          type: integer
+          description: Number of items per page
+        totalCount:
+          type: integer
+          description: Total number of items across all pages
+        totalPages:
+          type: integer
+          description: Total number of pages
+      required:
+      - page
+      - pageSize
+      - totalCount
+      - totalPages
+    FileMetadata:
+      type: object
+      description: 'File metadata record stored in DynamoDB.  Derived from the monolith''s
+
+        `DbFile` class (`DbFile.cs`) with additional fields for S3 storage.
+
+
+        The monolith''s `DbFile` model stored: Id (Guid), ObjectId (uint for
+
+        PostgreSQL LO), FilePath (string), CreatedBy (Guid?), CreatedOn
+
+        (DateTime), LastModifiedBy (Guid?), LastModificationDate (DateTime).
+
+
+        In the new architecture, `ObjectId` is replaced by the S3 object key,
+
+        and `ContentType` / `Size` are tracked explicitly (previously inferred
+
+        from storage backends).
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 'Unique file identifier.  Maps to `DbFile.Id`.
+
+            '
+        filename:
+          type: string
+          description: 'Original filename as uploaded.  Extracted from the filepath.
+
+            '
+        filePath:
+          type: string
+          description: 'Logical file path (e.g. `/file/{id}/{filename}`).  Always
+            lowercase with `/` separator, matching the monolith''s path normalization
+            rules.  Maps to `DbFile.FilePath`.
+
+            '
+        s3Key:
+          type: string
+          description: 'S3 object key where the file content is stored.  Not exposed
+            to external clients; used internally for S3 operations.
+
+            '
+        contentType:
+          type: string
+          description: 'MIME content type (e.g. `image/png`, `application/pdf`). Determined
+            from upload headers or file extension inspection.
+
+            '
+        size:
+          type: integer
+          format: int64
+          description: 'File size in bytes.
+
+            '
+        status:
+          type: string
+          enum:
+          - pending
+          - confirmed
+          - deleted
+          description: 'File lifecycle status.  `pending` = presigned URL issued but
+            upload not yet confirmed; `confirmed` = upload verified and metadata finalized;
+            `deleted` = soft-deleted.
+
+            '
+        lastModificationDate:
+          type: string
+          format: date-time
+          description: 'UTC timestamp of the most recent modification.  Maps to `DbFile.LastModificationDate`.
+
+            '
+        createdOn:
+          type: string
+          format: date-time
+          description: 'UTC timestamp when the file was first uploaded.  Maps to `DbFile.CreatedOn`.
+
+            '
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'UUID of the user who uploaded the file.  Maps to `DbFile.CreatedBy`.
+
+            '
+        lastModifiedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'UUID of the user who last modified the file.  Maps to `DbFile.LastModifiedBy`.
+
+            '
+      required:
+      - id
+      - filename
+      - filePath
+      - contentType
+      - size
+      - status
+      - createdOn
+    FSResult:
+      type: object
+      description: 'Legacy file system operation result.  Preserves the monolith''s
+
+        `FSResult` response shape returned by upload, move, and delete
+
+        endpoints.  The monolith''s `FSResponse` class wraps this model
+
+        as `new ResponseModel { Object = new FSResult { Url, Filename } }`.
+
+        '
+      properties:
+        url:
+          type: string
+          description: 'Publicly accessible URL or S3 presigned URL for the file.
+            In the monolith, this was the `/fs/{filepath}` path.
+
+            '
+        filename:
+          type: string
+          description: 'Filename of the operated-on file.
+
+            '
+      required:
+      - url
+      - filename
+    UserFile:
+      type: object
+      description: "User file record with type classification and optional image\n\
+        dimensions.  Derived from the monolith's `UserFileService`\n`CreateUserFile`\
+        \ method and the `user_file` entity record structure.\n\nType classification\
+        \ logic (from `UserFileService.CreateUserFile`):\n- MIME starts with \"image/\"\
+        \ → \"image\" (width/height extracted)\n- MIME starts with \"video/\" → \"\
+        video\"\n- MIME starts with \"audio/\" → \"audio\"\n- Extensions: .doc, .docx,\
+        \ .odt, .rtf, .txt, .pdf, .html, .htm,\n  .ppt, .pptx, .xls, .xlsx, .ods,\
+        \ .odp → \"document\"\n- Everything else → \"other\"\n"
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique user file identifier
+        filename:
+          type: string
+          description: 'Original filename.  Maps to the `name` field in the monolith''s
+            `user_file` entity record.
+
+            '
+        type:
+          $ref: '#/components/schemas/UserFileType'
+        alt:
+          type: string
+          nullable: true
+          description: 'Alternative text for accessibility.  Maps to the `alt` field
+            in the monolith''s `user_file` entity.
+
+            '
+        caption:
+          type: string
+          nullable: true
+          description: 'Optional caption / description.  Maps to the `caption` field
+            in the monolith''s `user_file` entity.
+
+            '
+        width:
+          type: integer
+          nullable: true
+          description: 'Image width in pixels.  Only populated for `type = image`.
+            Extracted using image processing during upload (mirrors `UserFileService.CreateUserFile`
+            dimension extraction).
+
+            '
+        height:
+          type: integer
+          nullable: true
+          description: 'Image height in pixels.  Only populated for `type = image`.
+
+            '
+        size:
+          type: integer
+          format: int64
+          description: 'File size in bytes.  The monolith stored size in KB in the
+            `user_file` entity; the new API uses bytes for precision.
+
+            '
+        url:
+          type: string
+          description: 'Publicly accessible URL or S3 presigned URL for the user file.
+
+            '
+        path:
+          type: string
+          description: 'Logical file path (e.g. `/file/{id}/{filename}` or `/user_file/{userId}/{section}/{filename}`).
+
+            '
+        createdOn:
+          type: string
+          format: date-time
+          description: UTC timestamp when the user file was created
+        createdBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the user who created the file
+      required:
+      - id
+      - filename
+      - type
+      - size
+      - url
+      - path
+      - createdOn
+    UserFileType:
+      type: string
+      enum:
+      - image
+      - document
+      - video
+      - audio
+      - other
+      description: "User file type classification.  Determined by MIME type inspection\n\
+        and file extension matching:\n- `image` — MIME starts with \"image/\"\n- `video`\
+        \ — MIME starts with \"video/\"\n- `audio` — MIME starts with \"audio/\"\n\
+        - `document` — extensions: .doc, .docx, .odt, .rtf, .txt, .pdf,\n  .html,\
+        \ .htm, .ppt, .pptx, .xls, .xlsx, .ods, .odp\n- `other` — everything else\n"
+    PresignedUploadRequest:
+      type: object
+      description: 'Request body for generating an S3 presigned PUT URL.
+
+        '
+      properties:
+        filename:
+          type: string
+          description: 'Desired filename for the upload.  Used to derive the S3 object
+            key and content type.
+
+            '
+        contentType:
+          type: string
+          description: 'MIME content type of the file to be uploaded (e.g. `image/png`).
+
+            '
+        size:
+          type: integer
+          format: int64
+          description: 'Expected file size in bytes.  Used for pre-validation against
+            upload size limits.
+
+            '
+      required:
+      - filename
+      - contentType
+      - size
+    PresignedUploadResponse:
+      type: object
+      description: 'Response containing the S3 presigned PUT URL for client-side upload.
+
+        '
+      properties:
+        uploadUrl:
+          type: string
+          format: uri
+          description: 'S3 presigned PUT URL.  The client must issue an HTTP PUT to
+            this URL with the file content and the specified `Content-Type` header.
+            Expires after the duration specified in `expiresAt`.
+
+            '
+        fileId:
+          type: string
+          format: uuid
+          description: 'Unique file identifier assigned for this upload.  Must be
+            passed to `POST /v1/files/confirm-upload` after the S3 upload completes.
+
+            '
+        filePath:
+          type: string
+          description: 'Logical file path assigned (e.g. `/file/{fileId}/{filename}`).
+
+            '
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'UTC timestamp when the presigned URL expires (default 15 minutes
+            from generation).
+
+            '
+      required:
+      - uploadUrl
+      - fileId
+      - filePath
+      - expiresAt
+    PresignedDownloadResponse:
+      type: object
+      description: 'Response containing the S3 presigned GET URL for file download.
+
+        '
+      properties:
+        downloadUrl:
+          type: string
+          format: uri
+          description: 'S3 presigned GET URL.  Valid for the duration specified in
+            `expiresAt` (default 1 hour).
+
+            '
+        contentType:
+          type: string
+          description: 'MIME content type of the file.
+
+            '
+        size:
+          type: integer
+          format: int64
+          description: 'File size in bytes.
+
+            '
+        lastModified:
+          type: string
+          format: date-time
+          description: 'UTC timestamp of the file''s last modification.  Can be used
+            by clients for cache validation.  Maps to `DbFile.LastModificationDate`.
+
+            '
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'UTC timestamp when the presigned URL expires.
+
+            '
+      required:
+      - downloadUrl
+      - contentType
+      - lastModified
+      - expiresAt
+    ConfirmUploadRequest:
+      type: object
+      description: 'Request body to confirm that a presigned URL upload has completed.
+
+        '
+      properties:
+        fileId:
+          type: string
+          format: uuid
+          description: 'File identifier returned by `POST /v1/files/upload`.
+
+            '
+      required:
+      - fileId
+    MoveFileRequest:
+      type: object
+      description: 'Request body for moving / renaming a file.  Mirrors the monolith''s
+
+        `POST /fs/move/` JSON body (line 3347 of `WebApiController.cs`)
+
+        which accepted `source`, `target`, and `overwrite` properties.
+
+        '
+      properties:
+        source:
+          type: string
+          description: 'Source file path.  Must be an existing file path in the system.
+            Paths are normalized to lowercase with `/` separator.
+
+            '
+        target:
+          type: string
+          description: 'Target file path.  The file will be moved (copied then source
+            deleted) to this path.
+
+            '
+        overwrite:
+          type: boolean
+          default: false
+          description: 'Whether to overwrite the target if it already exists.  Defaults
+            to false (returns 409 Conflict if target exists).  Maps to the monolith''s
+            `overwrite` parameter.
+
+            '
+      required:
+      - source
+      - target
+    CreateUserFileRequest:
+      type: object
+      description: 'Request body for registering a temporary file as a permanent user
+
+        file.  Mirrors the monolith''s `POST api/v3/en_US/user_file` JSON
+
+        body (line 3906 of `WebApiController.cs`) which accepted `path`,
+
+        `alt`, and `caption` properties.
+
+        '
+      properties:
+        path:
+          type: string
+          description: 'Path to the previously uploaded temporary file that should
+            be finalized as a user file.  The service will find this file, determine
+            its type, extract metadata (image dimensions for images), and move it
+            to the permanent path.
+
+            '
+        alt:
+          type: string
+          nullable: true
+          description: 'Alternative text for accessibility / SEO.
+
+            '
+        caption:
+          type: string
+          nullable: true
+          description: 'Optional caption or description for the file.
+
+            '
+      required:
+      - path
+    UploadedFileResult:
+      type: object
+      description: 'Result record for each file in a multiple-file upload.  Derived
+        from
+
+        the monolith''s `POST /fs/upload-file-multiple/` response (line 4136
+
+        of `WebApiController.cs`) which returned records with id, name, size,
+
+        path, type, width, and height for each uploaded file.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique file identifier assigned to this upload
+        name:
+          type: string
+          description: Original filename
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes
+        path:
+          type: string
+          description: 'Logical file path in S3 (e.g. `/tmp/{fileId}/{filename}`)
+
+            '
+        type:
+          type: string
+          description: 'MIME content type of the uploaded file
+
+            '
+        width:
+          type: integer
+          nullable: true
+          description: 'Image width in pixels (only for image files)
+
+            '
+        height:
+          type: integer
+          nullable: true
+          description: 'Image height in pixels (only for image files)
+
+            '
+      required:
+      - id
+      - name
+      - size
+      - path
+      - type

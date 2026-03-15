@@ -1,0 +1,88 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "entity-management",
+  "root": "services/entity-management",
+  "sourceRoot": "services/entity-management/src",
+  "projectType": "application",
+  "tags": [
+    "service:entity-management",
+    "type:backend",
+    "runtime:dotnet"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/entity-management/bin"
+      ],
+      "options": {
+        "command": "dotnet build",
+        "cwd": "services/entity-management"
+      },
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test",
+        "cwd": "services/entity-management"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/entity-management/bin/Release"
+      ],
+      "options": {
+        "command": "dotnet publish -c Release --self-contained true -r linux-x64",
+        "cwd": "services/entity-management"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format --verify-no-changes",
+        "cwd": "services/entity-management"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project EntityManagement.csproj",
+        "cwd": "services/entity-management"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cdklocal deploy EntityManagementStack --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/entity-management/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    }
+  }
+}

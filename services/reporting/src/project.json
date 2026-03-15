@@ -1,0 +1,99 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "reporting",
+  "root": "services/reporting",
+  "sourceRoot": "services/reporting/src",
+  "projectType": "application",
+  "tags": [
+    "service:reporting",
+    "type:backend",
+    "runtime:dotnet",
+    "datastore:rds-postgresql"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/reporting/bin"
+      ],
+      "options": {
+        "command": "dotnet build",
+        "cwd": "services/reporting"
+      },
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test",
+        "cwd": "services/reporting"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/reporting/bin/Release"
+      ],
+      "options": {
+        "command": "dotnet publish -c Release --self-contained true -r linux-x64",
+        "cwd": "services/reporting"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format --verify-no-changes",
+        "cwd": "services/reporting"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project Reporting.csproj",
+        "cwd": "services/reporting"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cdklocal deploy ReportingStack --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "migrate": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project tools/scripts/run-migrations.sh -- --service reporting",
+        "cwd": "services/reporting"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/reporting/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    }
+  }
+}

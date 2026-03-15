@@ -1,0 +1,1458 @@
+openapi: 3.1.0
+info:
+  title: WebVella ERP - Inventory & Project Management API
+  version: 1.0.0
+  description: 'OpenAPI specification for the Inventory & Project Management bounded-context
+    service. This service absorbs the former Project Management plugin functionality
+    — task CRUD, timelog operations, comment/feed management — and adds new product/inventory
+    management capabilities. Backed by DynamoDB with single-table design; deployed
+    as AWS Lambda handlers behind HTTP API Gateway v2.
+
+    '
+  contact:
+    name: WebVella ERP Team
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+- url: http://localhost:4566/restapis/{apiId}/v1/_user_request_
+  description: LocalStack
+  variables:
+    apiId:
+      default: local
+      description: API Gateway REST API identifier
+- url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+  description: Production AWS
+  variables:
+    apiId:
+      default: ''
+      description: API Gateway REST API identifier
+    region:
+      default: us-east-1
+      description: AWS region
+security:
+- BearerAuth: []
+tags:
+- name: Tasks
+  description: Task management operations (migrated from Project plugin)
+- name: Timelogs
+  description: Time tracking and logging operations
+- name: Comments
+  description: Comment and activity feed operations
+- name: Products
+  description: Product and inventory management
+- name: Users
+  description: User context utilities for inventory/project domain
+paths:
+  /v1/inventory/tasks:
+    get:
+      operationId: listTasks
+      summary: List tasks
+      description: 'Returns a paginated list of tasks with optional filtering by status,
+        priority, assignee, and project. Derived from the monolith''s TaskService.GetTaskQueue
+        query builder which supported project/user filtering, open/closed status exclusion,
+        and priority ordering.
+
+        '
+      tags:
+      - Tasks
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: search
+        in: query
+        required: false
+        description: Free-text search against the task x_search composite field.
+        schema:
+          type: string
+      - name: status
+        in: query
+        required: false
+        description: Filter by task status label (e.g. "open", "in progress", "closed").
+        schema:
+          type: string
+      - name: priority
+        in: query
+        required: false
+        description: Filter by priority level (1 = highest).
+        schema:
+          type: integer
+          minimum: 1
+      - name: assignedTo
+        in: query
+        required: false
+        description: Filter tasks assigned to a specific user.
+        schema:
+          type: string
+          format: uuid
+      - name: projectId
+        in: query
+        required: false
+        description: Filter tasks belonging to a specific project.
+        schema:
+          type: string
+          format: uuid
+      - name: sortField
+        in: query
+        required: false
+        description: Field name to sort by (e.g. "createdOn", "priority", "dueDate").
+        schema:
+          type: string
+          default: createdOn
+      - name: sortOrder
+        in: query
+        required: false
+        description: Sort direction.
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+      responses:
+        '200':
+          description: Paginated list of tasks.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Task'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createTask
+      summary: Create task
+      description: 'Creates a new task record. After creation the service computes
+        derived fields (key, x_search) and publishes an `inventory.task.created` SNS
+        domain event. Mirrors the monolith''s RecordManager.CreateRecord + TaskService.PostCreateApiHookLogic
+        flow.
+
+        '
+      tags:
+      - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreateRequest'
+      responses:
+        '201':
+          description: Task created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/tasks/{taskId}:
+    parameters:
+    - $ref: '#/components/parameters/TaskIdParam'
+    get:
+      operationId: getTask
+      summary: Get task by ID
+      description: 'Retrieves a single task by its identifier, including related project,
+        status, and type data. Equivalent to TaskService.GetTask with relation expansion.
+
+        '
+      tags:
+      - Tasks
+      responses:
+        '200':
+          description: Task details.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: updateTask
+      summary: Update task
+      description: 'Performs a full update of a task record. Publishes an `inventory.task.updated`
+        SNS domain event on success. Validates that the referenced project exists.
+
+        '
+      tags:
+      - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskUpdateRequest'
+      responses:
+        '200':
+          description: Task updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteTask
+      summary: Delete task
+      description: 'Deletes a task record. Publishes an `inventory.task.deleted` SNS
+        domain event on success.
+
+        '
+      tags:
+      - Tasks
+      responses:
+        '200':
+          description: Task deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/tasks/{taskId}/status:
+    parameters:
+    - $ref: '#/components/parameters/TaskIdParam'
+    put:
+      operationId: updateTaskStatus
+      summary: Update task status
+      description: 'Updates only the status of a task. Maps from the monolith''s POST
+        api/v3.0/p/project/task/status endpoint (ProjectController line 362) which
+        accepted taskId and statusId query parameters. Publishes an `inventory.task.updated`
+        SNS domain event.
+
+        '
+      tags:
+      - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - statusId
+              properties:
+                statusId:
+                  type: string
+                  format: uuid
+                  description: The identifier of the target task status record.
+      responses:
+        '200':
+          description: Task status updated.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/tasks/{taskId}/watch:
+    parameters:
+    - $ref: '#/components/parameters/TaskIdParam'
+    post:
+      operationId: toggleTaskWatch
+      summary: Toggle task watch
+      description: 'Adds or removes the current user (or a specified user) from the
+        task''s watcher list. Maps from the monolith''s POST api/v3.0/p/project/task/watch
+        endpoint (ProjectController line 396) which managed the user_nn_task_watchers
+        many-to-many relation.
+
+        '
+      tags:
+      - Tasks
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                  description: 'User to toggle watch for. Defaults to the authenticated
+                    user when omitted.
+
+                    '
+                startWatch:
+                  type: boolean
+                  description: 'When true the user is added as a watcher; when false
+                    the user is removed. Defaults to true.
+
+                    '
+                  default: true
+      responses:
+        '200':
+          description: Watch status toggled successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        taskId:
+                          type: string
+                          format: uuid
+                        userId:
+                          type: string
+                          format: uuid
+                        watching:
+                          type: boolean
+                          description: Current watch state after toggle.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/timelogs:
+    get:
+      operationId: listTimelogs
+      summary: List timelogs
+      description: 'Returns a paginated list of timelog entries with optional filtering
+        by task, user, and date range.
+
+        '
+      tags:
+      - Timelogs
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: taskId
+        in: query
+        required: false
+        description: Filter timelogs for a specific task.
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: query
+        required: false
+        description: Filter timelogs created by a specific user.
+        schema:
+          type: string
+          format: uuid
+      - name: fromDate
+        in: query
+        required: false
+        description: Start of date range filter (inclusive, ISO 8601).
+        schema:
+          type: string
+          format: date-time
+      - name: toDate
+        in: query
+        required: false
+        description: End of date range filter (inclusive, ISO 8601).
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Paginated list of timelogs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Timelog'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createTimelog
+      summary: Create timelog
+      description: 'Records a new time entry against a task. Maps from the monolith''s
+        POST api/v3.0/p/project/pc-timelog-list/create endpoint (ProjectController
+        line 177) which called TimeLogService.Create with minutes, isBillable, loggedOn,
+        and body parameters. Publishes an `inventory.timelog.created` SNS domain event.
+
+        '
+      tags:
+      - Timelogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimelogCreateRequest'
+      responses:
+        '201':
+          description: Timelog created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Timelog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/timelogs/{timelogId}:
+    parameters:
+    - name: timelogId
+      in: path
+      required: true
+      description: Unique identifier of the timelog entry.
+      schema:
+        type: string
+        format: uuid
+    delete:
+      operationId: deleteTimelog
+      summary: Delete timelog
+      description: 'Deletes a timelog entry. Maps from the monolith''s POST api/v3.0/p/project/pc-timelog-list/delete
+        endpoint (ProjectController line 257) which called TimeLogService.Delete.
+        Publishes an `inventory.timelog.deleted` SNS domain event.
+
+        '
+      tags:
+      - Timelogs
+      responses:
+        '200':
+          description: Timelog deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/timelogs/start:
+    post:
+      operationId: startTimer
+      summary: Start timer
+      description: 'Starts a live timer for a task by setting the timelog_started_on
+        timestamp. Maps from the monolith''s POST api/v3.0/p/project/timelog/start
+        endpoint (ProjectController line 295) which validated the task exists and
+        that no timer is already running before calling TaskService.StartTaskTimelog.
+
+        '
+      tags:
+      - Timelogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - taskId
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                  description: The task to start the timer for.
+      responses:
+        '200':
+          description: Timer started.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: object
+                      properties:
+                        taskId:
+                          type: string
+                          format: uuid
+                        startedOn:
+                          type: string
+                          format: date-time
+                          description: Timestamp when the timer was started.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: A timer is already running for this task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/comments:
+    get:
+      operationId: listComments
+      summary: List comments
+      description: 'Returns a paginated list of comments/posts associated with a specific
+        record. The relatedRecordId query parameter is required.
+
+        '
+      tags:
+      - Comments
+      parameters:
+      - name: relatedRecordId
+        in: query
+        required: true
+        description: 'The identifier of the record to which comments are attached
+          (e.g. a task ID).
+
+          '
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Paginated list of comments.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Comment'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createComment
+      summary: Create comment
+      description: 'Creates a new comment or activity-feed post. Maps from the monolith''s
+        POST api/v3.0/p/project/pc-post-list/create endpoint (ProjectController line
+        56) which called CommentService.Create with body, parentId, scope, and relatedRecords
+        parameters. Publishes an `inventory.comment.created` SNS domain event.
+
+        '
+      tags:
+      - Comments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreateRequest'
+      responses:
+        '201':
+          description: Comment created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/comments/{commentId}:
+    parameters:
+    - name: commentId
+      in: path
+      required: true
+      description: Unique identifier of the comment.
+      schema:
+        type: string
+        format: uuid
+    delete:
+      operationId: deleteComment
+      summary: Delete comment
+      description: 'Deletes a comment and all of its child replies (cascade). Maps
+        from the monolith''s POST api/v3.0/p/project/pc-post-list/delete endpoint
+        (ProjectController line 142) which validated author ownership before cascading
+        deletion via CommentService.Delete. Publishes an `inventory.comment.deleted`
+        SNS domain event.
+
+        '
+      tags:
+      - Comments
+      responses:
+        '200':
+          description: Comment deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Caller is not the comment author.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/products:
+    get:
+      operationId: listProducts
+      summary: List products
+      description: 'Returns a paginated list of products in the inventory with optional
+        filtering by category and free-text search.
+
+        '
+      tags:
+      - Products
+      parameters:
+      - $ref: '#/components/parameters/PageParam'
+      - $ref: '#/components/parameters/PageSizeParam'
+      - name: search
+        in: query
+        required: false
+        description: Free-text search against product name, SKU, and description.
+        schema:
+          type: string
+      - name: category
+        in: query
+        required: false
+        description: Filter products by category.
+        schema:
+          type: string
+      - name: sortField
+        in: query
+        required: false
+        description: Field name to sort by (e.g. "name", "price", "createdOn").
+        schema:
+          type: string
+          default: createdOn
+      - name: sortOrder
+        in: query
+        required: false
+        description: Sort direction.
+        schema:
+          type: string
+          enum:
+          - asc
+          - desc
+          default: desc
+      responses:
+        '200':
+          description: Paginated list of products.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Product'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createProduct
+      summary: Create product
+      description: 'Creates a new product in the inventory. Publishes an `inventory.product.created`
+        SNS domain event.
+
+        '
+      tags:
+      - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreateRequest'
+      responses:
+        '201':
+          description: Product created successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/products/{productId}:
+    parameters:
+    - name: productId
+      in: path
+      required: true
+      description: Unique identifier of the product.
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getProduct
+      summary: Get product by ID
+      description: Returns a single product by its identifier.
+      tags:
+      - Products
+      responses:
+        '200':
+          description: Product details.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: updateProduct
+      summary: Update product
+      description: 'Performs a full update of a product record. Publishes an `inventory.product.updated`
+        SNS domain event.
+
+        '
+      tags:
+      - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdateRequest'
+      responses:
+        '200':
+          description: Product updated successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteProduct
+      summary: Delete product
+      description: 'Deletes a product from the inventory. Publishes an `inventory.product.deleted`
+        SNS domain event.
+
+        '
+      tags:
+      - Products
+      responses:
+        '200':
+          description: Product deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/inventory/projects/current-user:
+    get:
+      operationId: getCurrentUser
+      summary: Get current user in project context
+      description: 'Returns the authenticated user''s record within the inventory/project
+        domain. Maps from the monolith''s GET api/v3.0/p/project/user/get-current
+        endpoint (ProjectController line 486) which returned the user record by CurrentUserId.
+
+        '
+      tags:
+      - Users
+      responses:
+        '200':
+          description: Current user record.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/UserContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Cognito JWT token. Obtain via POST /v1/auth/login on the Identity
+        service.
+
+        '
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      description: Page number (1-based).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeParam:
+      name: pageSize
+      in: query
+      required: false
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    TaskIdParam:
+      name: taskId
+      in: path
+      required: true
+      description: Unique identifier of the task.
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Validation or request format error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    Unauthorized:
+      description: Missing or invalid authentication token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponseEnvelope'
+  schemas:
+    ApiResponseEnvelope:
+      type: object
+      description: 'Standard response envelope used by all endpoints. Mirrors the
+        monolith''s BaseResponseModel (timestamp, success, message, errors).
+
+        '
+      required:
+      - timestamp
+      - success
+      - message
+      - errors
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the response.
+        success:
+          type: boolean
+          description: Whether the request completed successfully.
+        message:
+          type: string
+          description: Human-readable summary message.
+        errors:
+          type: array
+          description: List of error details (empty on success).
+          items:
+            $ref: '#/components/schemas/ErrorModel'
+        data:
+          description: Response payload; shape varies per endpoint.
+    ErrorModel:
+      type: object
+      description: 'Individual error descriptor matching the monolith''s ErrorModel
+        (BaseModels.cs lines 62-83).
+
+        '
+      properties:
+        key:
+          type: string
+          description: Machine-readable error key (e.g. field name).
+        value:
+          type: string
+          description: The invalid value that caused the error.
+        message:
+          type: string
+          description: Human-readable error message.
+    PaginationMeta:
+      type: object
+      description: Pagination metadata included with list responses.
+      required:
+      - page
+      - pageSize
+      - totalCount
+      - totalPages
+      properties:
+        page:
+          type: integer
+          description: Current page number (1-based).
+        pageSize:
+          type: integer
+          description: Items per page.
+        totalCount:
+          type: integer
+          description: Total number of matching items.
+        totalPages:
+          type: integer
+          description: Total number of pages.
+    Task:
+      type: object
+      description: 'A task record. Fields derived from the monolith''s task entity
+        (TaskService.cs) including subject, status, priority, owner/assignee, project
+        relation, start/end times, and the composite x_search field.
+
+        '
+      required:
+      - id
+      - subject
+      properties:
+        id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          description: Task title / subject line.
+        body:
+          type: string
+          description: Rich-text description of the task.
+        status:
+          type: string
+          description: Human-readable status label (e.g. "open", "in progress", "closed").
+        statusId:
+          type: string
+          format: uuid
+          description: Identifier of the related task_status record.
+        priority:
+          type: integer
+          description: Priority level (1 = highest).
+          minimum: 0
+        number:
+          type: integer
+          description: Auto-incremented task number within the project.
+        key:
+          type: string
+          description: 'Composite key computed as projectAbbreviation-number (e.g.
+            "PRJ-42"). Derived from TaskService.SetCalculationFields.
+
+            '
+          readOnly: true
+        assignedTo:
+          type: string
+          format: uuid
+          description: User ID of the task owner/assignee.
+        projectId:
+          type: string
+          format: uuid
+          description: Related project identifier.
+        typeId:
+          type: string
+          format: uuid
+          description: Task type record identifier.
+        startDate:
+          type: string
+          format: date-time
+          description: Planned start date (start_time).
+        dueDate:
+          type: string
+          format: date-time
+          description: Planned end/due date (end_time).
+        estimatedMinutes:
+          type: integer
+          description: Estimated effort in minutes.
+          minimum: 0
+        timelogStartedOn:
+          type: string
+          format: date-time
+          description: 'Timestamp when a live timer was started; null when no timer
+            is running. Managed by StartTaskTimelog/StopTaskTimelog.
+
+            '
+        xSearch:
+          type: string
+          description: 'Composite search field built from subject, key, and related
+            entity labels. Read-only; maintained by the service.
+
+            '
+          readOnly: true
+        watchers:
+          type: array
+          description: List of user IDs watching this task.
+          items:
+            type: string
+            format: uuid
+          readOnly: true
+        createdOn:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          format: uuid
+    TaskCreateRequest:
+      type: object
+      description: Request body for creating a new task.
+      required:
+      - subject
+      - projectId
+      properties:
+        subject:
+          type: string
+          maxLength: 500
+        body:
+          type: string
+        statusId:
+          type: string
+          format: uuid
+          description: 'Initial status. If omitted the service assigns the default
+            open status.
+
+            '
+        priority:
+          type: integer
+          minimum: 0
+          default: 2
+        assignedTo:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+          description: Required — each task must belong to a project.
+        typeId:
+          type: string
+          format: uuid
+        startDate:
+          type: string
+          format: date-time
+        dueDate:
+          type: string
+          format: date-time
+        estimatedMinutes:
+          type: integer
+          minimum: 0
+    TaskUpdateRequest:
+      type: object
+      description: Request body for updating a task.
+      properties:
+        subject:
+          type: string
+          maxLength: 500
+        body:
+          type: string
+        statusId:
+          type: string
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+        assignedTo:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        typeId:
+          type: string
+          format: uuid
+        startDate:
+          type: string
+          format: date-time
+        dueDate:
+          type: string
+          format: date-time
+        estimatedMinutes:
+          type: integer
+          minimum: 0
+    Timelog:
+      type: object
+      description: 'A time-tracking entry logged against a task. Fields mirror the
+        monolith''s timelog entity used by ProjectController and TimeLogService.
+
+        '
+      required:
+      - id
+      - taskId
+      - minutes
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+          description: The task this timelog is recorded against.
+        userId:
+          type: string
+          format: uuid
+          description: The user who created the timelog.
+        minutes:
+          type: integer
+          description: Duration in minutes.
+          minimum: 0
+        description:
+          type: string
+          description: Optional description / notes for the time entry.
+        billable:
+          type: boolean
+          description: Whether the time is billable.
+          default: false
+        loggedOn:
+          type: string
+          format: date-time
+          description: The date the work was performed (may differ from createdOn).
+        createdOn:
+          type: string
+          format: date-time
+    TimelogCreateRequest:
+      type: object
+      description: 'Request body for creating a timelog. Matches the parameter set
+        from the monolith''s ProjectController.CreateTimelog (line 177).
+
+        '
+      required:
+      - taskId
+      - minutes
+      - loggedOn
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        minutes:
+          type: integer
+          minimum: 1
+          description: Duration in minutes (must be at least 1).
+        description:
+          type: string
+          description: Optional description / notes.
+        billable:
+          type: boolean
+          default: false
+        loggedOn:
+          type: string
+          format: date-time
+          description: The date the work was performed.
+    Comment:
+      type: object
+      description: 'A comment or activity-feed post attached to a record. Fields derived
+        from the monolith''s comment entity used by CommentService (Create: id, created_by,
+        created_on, body, parent_id, l_scope, l_related_records).
+
+        '
+      required:
+      - id
+      - relatedRecordId
+      - body
+      properties:
+        id:
+          type: string
+          format: uuid
+        relatedRecordId:
+          type: string
+          format: uuid
+          description: The parent record this comment is attached to.
+        parentId:
+          type: string
+          format: uuid
+          description: 'Parent comment ID for threaded replies. Null for top-level
+            comments.
+
+            '
+        subject:
+          type: string
+          description: Optional subject line.
+        body:
+          type: string
+          description: Comment body text (may contain HTML).
+        scope:
+          type: array
+          description: 'Visibility scope labels (e.g. ["projects"]). Defaults to ["projects"]
+            per the monolith controller logic.
+
+            '
+          items:
+            type: string
+        createdOn:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          format: uuid
+    CommentCreateRequest:
+      type: object
+      description: 'Request body for creating a comment. Matches the parameter set
+        from the monolith''s ProjectController.CreateNewPcPostListItem (line 56).
+
+        '
+      required:
+      - relatedRecordId
+      - body
+      properties:
+        relatedRecordId:
+          type: string
+          format: uuid
+          description: The record to attach this comment to (required).
+        parentId:
+          type: string
+          format: uuid
+          description: Parent comment ID for threaded replies.
+        subject:
+          type: string
+          description: Optional subject line.
+        body:
+          type: string
+          description: Comment body text.
+        scope:
+          type: array
+          description: Visibility scope labels. Defaults to ["projects"].
+          items:
+            type: string
+          default:
+          - projects
+    Product:
+      type: object
+      description: 'A product in the inventory. New entity introduced in the serverless
+        architecture to support inventory management.
+
+        '
+      required:
+      - id
+      - name
+      - sku
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Product display name.
+        sku:
+          type: string
+          description: 'Stock Keeping Unit — unique product code for inventory tracking.
+
+            '
+        description:
+          type: string
+          description: Product description.
+        price:
+          type: number
+          format: double
+          description: Unit price.
+          minimum: 0
+        quantity:
+          type: integer
+          description: Quantity currently in stock.
+          minimum: 0
+          default: 0
+        category:
+          type: string
+          description: Product category label.
+        unit:
+          type: string
+          description: Unit of measure (e.g. "pcs", "kg", "m").
+        isActive:
+          type: boolean
+          description: Whether the product is active and available.
+          default: true
+        createdOn:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+          format: uuid
+    ProductCreateRequest:
+      type: object
+      description: Request body for creating a product.
+      required:
+      - name
+      - sku
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        sku:
+          type: string
+          maxLength: 100
+          description: Must be unique across the inventory.
+        description:
+          type: string
+        price:
+          type: number
+          format: double
+          minimum: 0
+          default: 0
+        quantity:
+          type: integer
+          minimum: 0
+          default: 0
+        category:
+          type: string
+        unit:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+    ProductUpdateRequest:
+      type: object
+      description: Request body for updating a product.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        sku:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        price:
+          type: number
+          format: double
+          minimum: 0
+        quantity:
+          type: integer
+          minimum: 0
+        category:
+          type: string
+        unit:
+          type: string
+        isActive:
+          type: boolean
+    UserContext:
+      type: object
+      description: 'Authenticated user''s context within the inventory/project domain.
+        Returned by GET /v1/users/current.
+
+        '
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        image:
+          type: string
+          description: URL or path to the user avatar image.
+        roles:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Role IDs assigned to the user.

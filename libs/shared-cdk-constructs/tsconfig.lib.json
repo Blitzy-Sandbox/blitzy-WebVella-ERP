@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../dist/libs/shared-cdk-constructs",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rootDir": "src",
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests/**/*.test.ts",
+    "tests/**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

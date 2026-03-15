@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/identity.events.json",
+  "title": "Identity - User and Role Events",
+  "description": "JSON Schema definitions for Identity & Access Management domain events. These events are published via SNS when users or roles are created, updated, or deleted through the Identity service. Derived from the monolith's SecurityManager.cs user/role CRUD operations and migrated to Cognito-backed identity management.",
+  "oneOf": [
+    { "$ref": "#/$defs/userCreatedEvent" },
+    { "$ref": "#/$defs/userUpdatedEvent" },
+    { "$ref": "#/$defs/userDeletedEvent" },
+    { "$ref": "#/$defs/roleCreatedEvent" },
+    { "$ref": "#/$defs/roleUpdatedEvent" },
+    { "$ref": "#/$defs/roleDeletedEvent" }
+  ],
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Common event envelope shared by all Identity domain events. Provides tracing, versioning, and source identification for SNS-published messages.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully qualified event type following the naming convention {domain}.{entity}.{action}."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation. Enables idempotent event processing across consumers."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp indicating when the event was produced."
+        },
+        "source": {
+          "type": "string",
+          "const": "identity",
+          "description": "Constant identifying the Identity service as the event source."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version for backward compatibility (e.g., '1.0').",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies by eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    },
+    "userCreatedEvent": {
+      "description": "Published when a new user is created in the Identity service. Derived from SecurityManager.SaveUser which creates a user record with username, email, first_name, last_name, password, role assignments ($user_role.id), and enabled status via RecordManager.CreateRecord.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.user.created"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for user creation events.",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the created user. Corresponds to the record 'id' field in the monolith's user entity."
+                },
+                "username": {
+                  "type": "string",
+                  "description": "Unique username. Enforced by SecurityManager.SaveUser uniqueness validation against existing users."
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "User email address. Validated by IsValidEmail using System.Net.Mail.MailAddress. Must be unique across all users."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "User's first name. Maps to the 'first_name' field in the monolith's user entity."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "User's last name. Maps to the 'last_name' field in the monolith's user entity."
+                },
+                "roleIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "description": "Array of role GUIDs assigned to the user. Derived from the $user_role.id many-to-many relation. Standard roles include AdministratorRoleId, RegularRoleId, and GuestRoleId which map to Cognito groups."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Whether the user account is enabled. Disabled accounts cannot authenticate."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who performed the creation. May be the SystemUserId for automated operations."
+                }
+              },
+              "required": [
+                "userId",
+                "username",
+                "email"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "userUpdatedEvent": {
+      "description": "Published when an existing user is updated in the Identity service. Derived from SecurityManager.SaveUser which conditionally updates only changed fields (username, email, password, enabled, verified, first_name, last_name, image, and role assignments).",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.user.updated"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for user update events.",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the updated user."
+                },
+                "username": {
+                  "type": "string",
+                  "description": "Current username of the updated user."
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Current email of the updated user."
+                },
+                "changedFields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "List of field names that were modified in this update. Possible values include: 'username', 'email', 'password', 'firstName', 'lastName', 'enabled', 'verified', 'image', 'roleIds'."
+                },
+                "updatedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who performed the update."
+                }
+              },
+              "required": [
+                "userId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "userDeletedEvent": {
+      "description": "Published when a user is deleted from the Identity service. Includes identifying information for downstream consumers to clean up references.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.user.deleted"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for user deletion events.",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the deleted user."
+                },
+                "username": {
+                  "type": "string",
+                  "description": "Username of the deleted user at the time of deletion."
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Email of the deleted user at the time of deletion."
+                },
+                "deletedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who performed the deletion."
+                }
+              },
+              "required": [
+                "userId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "roleCreatedEvent": {
+      "description": "Published when a new role is created in the Identity service. Derived from SecurityManager.SaveRole which creates a role record with name and description via RecordManager.CreateRecord. Role names must be unique. System roles (Administrator, Regular, Guest) map to Cognito groups.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.role.created"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for role creation events.",
+              "properties": {
+                "roleId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the created role. System roles: AdministratorRoleId (BDC56420-CAF0-4030-8A0E-D264938E0CDA), RegularRoleId (F16EC6DB-626D-4C27-8DE0-3E7CE542C55F), GuestRoleId (987148B1-AFA8-4B33-8616-55861E5FD065)."
+                },
+                "roleName": {
+                  "type": "string",
+                  "description": "Unique role name. Enforced by SaveRole uniqueness check against all existing roles."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Role description. Normalized to an empty string if null by SaveRole."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who created the role."
+                }
+              },
+              "required": [
+                "roleId",
+                "roleName"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "roleUpdatedEvent": {
+      "description": "Published when an existing role is updated in the Identity service. Derived from SecurityManager.SaveRole which can update the role name (with uniqueness validation) and description.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.role.updated"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for role update events.",
+              "properties": {
+                "roleId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the updated role."
+                },
+                "roleName": {
+                  "type": "string",
+                  "description": "Current role name after update."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Current role description after update."
+                },
+                "updatedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who performed the update."
+                }
+              },
+              "required": [
+                "roleId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "roleDeletedEvent": {
+      "description": "Published when a role is deleted from the Identity service. Downstream consumers should remove role references from their local data stores.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "identity.role.deleted"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for role deletion events.",
+              "properties": {
+                "roleId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the deleted role."
+                },
+                "roleName": {
+                  "type": "string",
+                  "description": "Role name at the time of deletion."
+                },
+                "deletedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who performed the deletion."
+                }
+              },
+              "required": [
+                "roleId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

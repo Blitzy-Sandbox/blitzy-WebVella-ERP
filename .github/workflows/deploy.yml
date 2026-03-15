@@ -1,0 +1,224 @@
+# =============================================================================
+# WebVella ERP — Production CDK Deploy Pipeline
+# =============================================================================
+# Deploys the WebVella ERP platform to AWS environments (dev, staging,
+# production) using CDK.  Triggered automatically on pushes to main (deploys
+# to dev) or manually via workflow_dispatch with an environment selector.
+#
+# Key design decisions:
+#   - Uses `cdk deploy` (NOT `cdklocal`) — this is real AWS deployment.
+#     No `--context localstack=true` flag is ever passed (AAP §0.7.6).
+#   - GitHub Environments gate deployments: staging and production require
+#     manual approval via environment protection rules configured in the
+#     repository settings.
+#   - AWS credentials are obtained via OIDC federation (assume-role) so
+#     that no long-lived IAM access keys need to be stored as secrets.
+#   - Both Node.js 22 and .NET SDK 9.0 are installed because the monorepo
+#     contains TypeScript services (authorizer, infra, frontend, shared libs)
+#     and .NET 9 Lambda services (identity, entity-management, crm, etc.).
+#   - All services are built and tested BEFORE any CDK deployment begins
+#     so that only validated artefacts reach AWS (AAP §0.8.4).
+#   - Post-deployment, FluentMigrator migrations run against RDS PostgreSQL
+#     (Invoicing, Reporting) and the React SPA is synced to S3.
+#
+# References:
+#   AAP §0.4.1  — CDK stacks (13 stacks: shared, identity, entity-management,
+#                  crm, inventory, invoicing, reporting, notifications,
+#                  file-management, workflow, plugin-system, api-gateway,
+#                  frontend)
+#   AAP §0.5.1  — Production CDK deploy pipeline
+#   AAP §0.7.6  — Dual-target CDK: production uses `cdk deploy`
+#   AAP §0.8.1  — `cdk deploy` for production targets
+#   AAP §0.8.3  — Encryption at rest, TLS 1.3, least-privilege IAM
+#   AAP §0.8.6  — AWS_REGION=us-east-1; secrets via SSM SecureString
+# =============================================================================
+
+name: Deploy
+
+# ---------------------------------------------------------------------------
+# Triggers
+# ---------------------------------------------------------------------------
+# 1. Push to main  → automatic deploy to dev environment.
+# 2. Manual dispatch → choose dev / staging / production.
+# ---------------------------------------------------------------------------
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+# ---------------------------------------------------------------------------
+# Permissions — OIDC token for AWS assume-role (AAP §0.8.3)
+# ---------------------------------------------------------------------------
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # -----------------------------------------------------------------------
+    # GitHub Environment — gates deployments via protection rules.
+    # For staging / production, configure required reviewers in the
+    # repository Settings → Environments page.
+    # -----------------------------------------------------------------------
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    # -----------------------------------------------------------------------
+    # Job-level environment variables (AAP §0.8.6)
+    # -----------------------------------------------------------------------
+    env:
+      AWS_REGION: us-east-1
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      # =====================================================================
+      # 1. Checkout repository
+      # =====================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =====================================================================
+      # 2. Setup Node.js 22 LTS — required for Nx, CDK CLI, React frontend,
+      #    and the Node.js 22 Lambda authorizer service.
+      # =====================================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # =====================================================================
+      # 3. Setup .NET SDK 9.0 — required for the 10 .NET Lambda services
+      #    (identity, entity-management, crm, inventory, invoicing,
+      #    reporting, notifications, file-management, workflow, plugin-system)
+      # =====================================================================
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # =====================================================================
+      # 4. Install npm dependencies (deterministic via lockfile)
+      # =====================================================================
+      - name: Install npm dependencies
+        run: npm ci
+
+      # =====================================================================
+      # 5. Configure AWS credentials via OIDC federation
+      #    (AAP §0.8.3 — no long-lived access keys; assume-role with
+      #    least-privilege IAM policy)
+      # =====================================================================
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # =====================================================================
+      # 6. Build all services and applications via Nx
+      #    Compiles every .NET Lambda service and the React frontend so
+      #    that CDK deploy packages only validated artefacts.
+      # =====================================================================
+      - name: Build all services
+        run: npx nx run-many --target=build --all
+
+      # =====================================================================
+      # 7. Run unit tests — deployment gate (AAP §0.8.4)
+      #    No deploy proceeds unless the full test suite passes.
+      # =====================================================================
+      - name: Run unit tests
+        run: npx nx run-many --target=test --all
+
+      # =====================================================================
+      # 8. Run linting — code quality gate
+      # =====================================================================
+      - name: Lint
+        run: npx nx run-many --target=lint --all
+
+      # =====================================================================
+      # 9. Install AWS CDK CLI globally
+      #    Production deployments use `cdk` (NOT `cdklocal`).
+      # =====================================================================
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk
+
+      # =====================================================================
+      # 10. CDK Bootstrap — ensures the CDKToolkit stack exists in the
+      #     target account/region. Idempotent; harmless to re-run.
+      # =====================================================================
+      - name: CDK Bootstrap
+        run: cdk bootstrap aws://${{ secrets.AWS_ACCOUNT_ID }}/${{ env.AWS_REGION }}
+
+      # =====================================================================
+      # 11. CDK Diff — display the planned changeset in the workflow log
+      #     for auditability before deploying.
+      # =====================================================================
+      - name: CDK Diff
+        run: |
+          cd infra
+          cdk diff --all --context environment=${{ github.event.inputs.environment || 'dev' }}
+
+      # =====================================================================
+      # 12. CDK Deploy — deploy all 13 stacks to AWS
+      #     (AAP §0.7.6: production uses `cdk deploy`, NOT `cdklocal`)
+      #     --require-approval never is safe because GitHub Environments
+      #     already provide approval gates for staging/production.
+      #     No --context localstack=true — this is PRODUCTION.
+      # =====================================================================
+      - name: Deploy CDK Stacks
+        run: |
+          cd infra
+          cdk deploy --all \
+            --require-approval never \
+            --context environment=${{ github.event.inputs.environment || 'dev' }}
+
+      # =====================================================================
+      # 13. Run database migrations for RDS PostgreSQL services
+      #     (Invoicing and Reporting use FluentMigrator — AAP §0.4.1)
+      # =====================================================================
+      - name: Run Database Migrations
+        run: ./tools/scripts/run-migrations.sh
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
+
+      # =====================================================================
+      # 14. Deploy React SPA to S3 frontend hosting bucket
+      #     (AAP §0.4.1: frontend-stack creates the S3 bucket)
+      #     --delete removes stale assets from previous deployments.
+      # =====================================================================
+      - name: Deploy Frontend to S3
+        run: |
+          aws s3 sync apps/frontend/dist/ \
+            s3://${{ vars.FRONTEND_BUCKET_NAME }}/ \
+            --delete
+
+      # =====================================================================
+      # 15. Deployment summary — written to the GitHub Step Summary panel
+      #     for quick visibility on the Actions run page.
+      # =====================================================================
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ github.event.inputs.environment || 'dev' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Actor** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Run ID** | [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | ${{ env.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,89 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "notifications",
+  "root": "services/notifications",
+  "sourceRoot": "services/notifications/src",
+  "projectType": "application",
+  "tags": [
+    "service",
+    "backend",
+    "dotnet",
+    "notifications"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/notifications/bin"
+      ],
+      "options": {
+        "command": "dotnet build",
+        "cwd": "services/notifications"
+      },
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test",
+        "cwd": "services/notifications"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/services/notifications/bin/Release"
+      ],
+      "options": {
+        "command": "dotnet publish -c Release --self-contained true -r linux-x64",
+        "cwd": "services/notifications"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet format --verify-no-changes",
+        "cwd": "services/notifications"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet run --project Notifications.csproj",
+        "cwd": "services/notifications"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cdklocal deploy NotificationsStack --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/notifications/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    }
+  }
+}

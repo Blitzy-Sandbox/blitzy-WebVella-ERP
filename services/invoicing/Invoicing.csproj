@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>WebVellaErp.Invoicing</AssemblyName>
+    <RootNamespace>WebVellaErp.Invoicing</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <PublishAot>false</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- AWS Lambda hosting: ASP.NET Core Web API hosted as Lambda function with HTTP API Gateway v2 -->
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+
+    <!-- AWS Lambda runtime interface: ILambdaContext, LambdaSerializer attribute -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
+
+    <!-- AOT-compatible System.Text.Json Lambda serializer for sub-second cold start target -->
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+
+    <!-- HTTP API Gateway v2 event types: APIGatewayHttpApiV2ProxyRequest/Response -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+
+    <!-- SNS SDK for domain events: invoicing.invoice.created/paid/voided, invoicing.payment.processed -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK for DB_CONNECTION_STRING retrieval (SecureString, never env vars) -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- AWS SDK DI integration: AddAWSService<T>() with automatic AWS_ENDPOINT_URL for LocalStack -->
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="3.7.400" />
+
+    <!-- PostgreSQL ADO.NET provider for ACID-critical invoice/payment persistence in RDS PostgreSQL.
+         This is one of only two services (with Reporting) using RDS PostgreSQL; all others use DynamoDB. -->
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+
+    <!-- Database schema migration framework for version-controlled PostgreSQL schema changes -->
+    <PackageReference Include="FluentMigrator" Version="6.2.0" />
+
+    <!-- FluentMigrator execution runner with DI integration -->
+    <PackageReference Include="FluentMigrator.Runner" Version="6.2.0" />
+
+    <!-- PostgreSQL-specific FluentMigrator runner for DDL generation and execution -->
+    <PackageReference Include="FluentMigrator.Runner.Postgres" Version="6.2.0" />
+
+    <!-- JSON serialization for backward compatibility (dynamic invoice metadata, polymorphic line items) -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+
+    <!-- Object mapping between domain models, request/response DTOs, and database entities -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+  </ItemGroup>
+
+  <!-- Suppress GHSA-rvv3-g6hj-g44x (AutoMapper DoS via deep recursion) - Lambda functions process
+       validated API payloads with bounded depth, mitigating the attack vector. Upgrade to 16.x
+       deferred to avoid breaking API changes across all service mappings. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+</Project>

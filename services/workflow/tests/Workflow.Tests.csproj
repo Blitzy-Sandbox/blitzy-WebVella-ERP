@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>WebVellaErp.Workflow.Tests</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.1" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="FluentAssertions" Version="8.0.1" />
+  </ItemGroup>
+  <!-- AWS SDK packages required by Integration tests -->
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+    <PackageReference Include="AWSSDK.StepFunctions" Version="3.7.500" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="3.0.0" />
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="blitzy_adhoc_test_*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Workflow.csproj" />
+  </ItemGroup>
+</Project>
