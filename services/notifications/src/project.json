@@ -4,17 +4,29 @@
   "root": "services/notifications",
   "sourceRoot": "services/notifications/src",
   "projectType": "application",
-  "tags": ["service", "backend", "dotnet", "notifications"],
-  "implicitDependencies": ["shared-schemas", "shared-utils"],
+  "tags": [
+    "service",
+    "backend",
+    "dotnet",
+    "notifications"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",
-      "outputs": ["{workspaceRoot}/services/notifications/bin"],
+      "outputs": [
+        "{workspaceRoot}/services/notifications/bin"
+      ],
       "options": {
         "command": "dotnet build",
         "cwd": "services/notifications"
       },
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
       "executor": "nx:run-commands",
@@ -22,16 +34,22 @@
         "command": "dotnet test",
         "cwd": "services/notifications"
       },
-      "dependsOn": ["build"]
+      "dependsOn": [
+        "build"
+      ]
     },
     "publish": {
       "executor": "nx:run-commands",
-      "outputs": ["{workspaceRoot}/services/notifications/bin/Release"],
+      "outputs": [
+        "{workspaceRoot}/services/notifications/bin/Release"
+      ],
       "options": {
         "command": "dotnet publish -c Release --self-contained true -r linux-x64",
         "cwd": "services/notifications"
       },
-      "dependsOn": ["build"]
+      "dependsOn": [
+        "build"
+      ]
     },
     "lint": {
       "executor": "nx:run-commands",
@@ -53,7 +71,19 @@
         "command": "cdklocal deploy NotificationsStack --context localstack=true --require-approval never",
         "cwd": "infra"
       },
-      "dependsOn": ["publish"]
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/notifications/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
     }
   }
 }

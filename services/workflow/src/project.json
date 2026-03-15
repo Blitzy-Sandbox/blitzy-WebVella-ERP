@@ -4,17 +4,28 @@
   "root": "services/workflow",
   "sourceRoot": "services/workflow/src",
   "projectType": "application",
-  "tags": ["scope:service", "type:backend", "domain:workflow"],
-  "implicitDependencies": ["shared-schemas", "shared-utils"],
+  "tags": [
+    "scope:service",
+    "type:backend",
+    "domain:workflow"
+  ],
+  "implicitDependencies": [
+    "shared-schemas",
+    "shared-utils"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",
-      "outputs": ["{workspaceRoot}/services/workflow/bin"],
+      "outputs": [
+        "{workspaceRoot}/services/workflow/bin"
+      ],
       "options": {
         "command": "dotnet build",
         "cwd": "services/workflow"
       },
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
       "executor": "nx:run-commands",
@@ -22,16 +33,22 @@
         "command": "dotnet test",
         "cwd": "services/workflow"
       },
-      "dependsOn": ["build"]
+      "dependsOn": [
+        "build"
+      ]
     },
     "publish": {
       "executor": "nx:run-commands",
-      "outputs": ["{workspaceRoot}/services/workflow/bin/Release"],
+      "outputs": [
+        "{workspaceRoot}/services/workflow/bin/Release"
+      ],
       "options": {
         "command": "dotnet publish -c Release --self-contained true -r linux-x64",
         "cwd": "services/workflow"
       },
-      "dependsOn": ["build"]
+      "dependsOn": [
+        "build"
+      ]
     },
     "lint": {
       "executor": "nx:run-commands",
@@ -53,7 +70,19 @@
         "command": "cdklocal deploy WorkflowStack --context localstack=true --require-approval never",
         "cwd": "infra"
       },
-      "dependsOn": ["publish"]
+      "dependsOn": [
+        "publish"
+      ]
+    },
+    "integration-test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "dotnet test ../tests/ --configuration Release --logger trx --filter \"FullyQualifiedName~Integration\"",
+        "cwd": "services/workflow/src"
+      },
+      "dependsOn": [
+        "build"
+      ]
     }
   }
 }

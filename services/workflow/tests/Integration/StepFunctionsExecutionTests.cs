@@ -9,7 +9,7 @@
 //   WebVella.Erp/Jobs/Models/SchedulePlan.cs → Interval schedule plan tests
 //   WebVella.Erp/Jobs/Models/JobContext.cs  → StepContext serialization round-trip tests
 //
-// All tests run against LocalStack Step Functions Local sidecar (port 8083) and
+// All tests run against LocalStack Pro Step Functions (port 4566) and
 // LocalStack DynamoDB (port 4566). Per AAP Section 0.8.1, NO mocked AWS SDK calls.
 // Per AAP Section 0.8.2, workflow completion must be < 30 seconds.
 
@@ -36,7 +36,7 @@ namespace WebVellaErp.Workflow.Tests.Integration
     /// Integration tests verifying that the Workflow Engine correctly orchestrates
     /// workflow execution via AWS Step Functions, replacing the monolith's in-process
     /// JobPool (20-thread bounded executor) and ScheduleManager schedule-based triggering.
-    /// Requires LocalStack (port 4566) and Step Functions Local sidecar (port 8083).
+    /// Requires LocalStack Pro (port 4566) with Step Functions service enabled.
     /// </summary>
     public class StepFunctionsExecutionTests : IAsyncLifetime
     {
@@ -57,8 +57,9 @@ namespace WebVellaErp.Workflow.Tests.Integration
         private Guid _testWorkflowTypeId;
 
         // ── Constants ──────────────────────────────────────────────────────────
-        // Step Functions Local sidecar runs on port 8083, NOT 4566
-        private const string StepFunctionsEndpoint = "http://localhost:8083";
+        // LocalStack Pro includes Step Functions on the standard gateway port.
+        // The separate SFN Local sidecar (port 8083) is no longer required.
+        private const string StepFunctionsEndpoint = "http://localhost:4566";
         // Standard LocalStack endpoint for DynamoDB and SNS
         private const string LocalStackEndpoint = "http://localhost:4566";
         private const string TestRegion = "us-east-1";
@@ -77,7 +78,7 @@ namespace WebVellaErp.Workflow.Tests.Integration
             // Unique table name per test run to ensure test isolation
             _tableName = $"workflow-sfn-test-{Guid.NewGuid():N}";
 
-            // ── Configure Step Functions client (port 8083 — SFN Local sidecar) ──
+            // ── Configure Step Functions client (port 4566 — LocalStack Pro) ──
             var sfnConfig = new AmazonStepFunctionsConfig
             {
                 ServiceURL = StepFunctionsEndpoint,
@@ -837,17 +838,17 @@ namespace WebVellaErp.Workflow.Tests.Integration
                 ["entity_type"] = new AttributeValue { S = "Workflow" },
                 ["id"] = new AttributeValue { S = workflowId.ToString() },
                 ["type_id"] = new AttributeValue
-                    { S = _testWorkflowTypeId.ToString() },
+                { S = _testWorkflowTypeId.ToString() },
                 ["type_name"] = new AttributeValue
-                    { S = "TestStepFunctionsWorkflow" },
+                { S = "TestStepFunctionsWorkflow" },
                 ["complete_class_name"] = new AttributeValue
-                    { S = "WebVellaErp.Workflow.Tests.TestStepWorkflow" },
+                { S = "WebVellaErp.Workflow.Tests.TestStepWorkflow" },
                 ["status"] = new AttributeValue { N = statusInt.ToString() },
                 ["priority"] = new AttributeValue
-                    { N = ((int)WorkflowPriority.Low).ToString() },
+                { N = ((int)WorkflowPriority.Low).ToString() },
                 ["created_on"] = new AttributeValue { S = now.ToString("o") },
                 ["last_modified_on"] = new AttributeValue
-                    { S = now.ToString("o") }
+                { S = now.ToString("o") }
             };
 
             await _dynamoDbClient.PutItemAsync(new PutItemRequest
