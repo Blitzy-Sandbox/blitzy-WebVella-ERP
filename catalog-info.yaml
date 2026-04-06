@@ -5,11 +5,9 @@ metadata:
   description: "WebVella ERP monolith decomposition — cloud-native microservices, serverless architecture, and OWASP security audit"
   tags:
     - csharp
-    - typescript
     - web-app
-    - in-progress
+    - refactor
   labels:
-    blitzy.com/status: in-progress
     blitzy.com/language: csharp
   annotations:
     github.com/project-slug: Blitzy-Sandbox/blitzy-WebVella-ERP
