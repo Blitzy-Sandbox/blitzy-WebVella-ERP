@@ -1,0 +1,33 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: blitzy-WebVella-ERP
+  description: "WebVella ERP monolith decomposition — cloud-native microservices, serverless architecture, and OWASP security audit"
+  tags:
+    - csharp
+    - typescript
+    - web-app
+    - in-progress
+  labels:
+    blitzy.com/status: in-progress
+    blitzy.com/language: csharp
+  annotations:
+    github.com/project-slug: Blitzy-Sandbox/blitzy-WebVella-ERP
+    backstage.io/source-location: url:https://github.com/Blitzy-Sandbox/blitzy-WebVella-ERP/tree/master/
+  links:
+    - url: https://github.com/Blitzy-Sandbox/blitzy-WebVella-ERP
+      title: GitHub Repository
+    - url: https://github.com/Blitzy-Sandbox/blitzy-WebVella-ERP/pull/1
+      title: "PR #1: OWASP Security Audit & Remediation"
+      icon: github
+    - url: https://github.com/Blitzy-Sandbox/blitzy-WebVella-ERP/pull/2
+      title: "PR #2: Serverless Microservices Rewrite"
+      icon: github
+    - url: https://github.com/Blitzy-Sandbox/blitzy-WebVella-ERP/tree/master/blitzy/documentation
+      title: Blitzy Documentation
+      icon: docs
+spec:
+  type: website
+  lifecycle: experimental
+  owner: blitzy-sandbox
+  system: blitzy-sandbox-projects
