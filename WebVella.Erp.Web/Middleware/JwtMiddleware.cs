@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using System.Linq;
 using System.Security.Claims;
 using WebVella.Erp.Api;
+using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 
 namespace WebVella.Erp.Web.Middleware
@@ -12,10 +13,12 @@ namespace WebVella.Erp.Web.Middleware
 	public class JwtMiddleware
 	{
 		private readonly RequestDelegate _next;
+		private readonly ILogger<JwtMiddleware> _logger;
 
-		public JwtMiddleware(RequestDelegate next)
+		public JwtMiddleware(RequestDelegate next, ILogger<JwtMiddleware> logger)
 		{
 			_next = next;
+			_logger = logger;
 		}
 
 		public async Task Invoke(HttpContext context)
@@ -53,9 +56,10 @@ namespace WebVella.Erp.Web.Middleware
 						}
 					}
 				}
-				catch
+				catch (Exception ex)
 				{
-					// do nothing if jwt validation fails
+					// SECURITY FIX: Log JWT validation failures (CWE-778 mitigation)
+					_logger.LogWarning(ex, "[Security] JWT validation failed for request to {Path}", context.Request.Path);
 					// user is not attached to context so request won't have access to secure routes
 				}
 

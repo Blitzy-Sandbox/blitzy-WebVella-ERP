@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using System.IO.Compression;
 using WebVella.Erp.Plugins.SDK;
@@ -50,17 +51,18 @@ namespace WebVella.Erp.Site
             services.AddRouting(options => { options.LowercaseUrls = true; });
 
             //CORS policy declaration
-            //services.AddCors(options =>
-            //{
-            //    options.AddPolicy("AllowNodeJsLocalhost",
-            //        builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
-            //});
+            // SECURITY FIX: Configure CORS with explicit allowed origins (CWE-942 mitigation)
+            // Previous vulnerable code used AllowAnyOrigin() which allowed cross-origin attacks
+            var allowedOrigins = Configuration["Settings:AllowedOrigins"]?.Split(',', StringSplitOptions.RemoveEmptyEntries) 
+                ?? new[] { "http://localhost:5000", "https://localhost:5001" };
+
             services.AddCors(options =>
             {
                 options.AddDefaultPolicy(policy =>
-                    policy.AllowAnyOrigin()
-                        .AllowAnyMethod()
-                        .AllowAnyHeader());
+                    policy.WithOrigins(allowedOrigins)
+                        .WithMethods("GET", "POST", "PUT", "DELETE", "PATCH")
+                        .WithHeaders("Content-Type", "Authorization", "X-Requested-With")
+                        .AllowCredentials());
             });
             services.AddDetection();
 
@@ -124,6 +126,24 @@ namespace WebVella.Erp.Site
                   };
               });
 
+            // SECURITY FIX: Validate JWT key is configured and strong (CWE-798 mitigation)
+            // Prevents deployment with weak or default cryptographic keys
+            var jwtKey = Configuration["Settings:Jwt:Key"];
+            if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+            {
+                throw new InvalidOperationException(
+                    "SECURITY ERROR: JWT key must be configured and at least 32 characters. " +
+                    "Set 'Settings:Jwt:Key' in Config.json. Generate using: openssl rand -base64 48");
+            }
+
+            // Reject known weak/default keys
+            var weakKeys = new[] { "ThisIsMySecretKey", "secretkey", "password" };
+            if (weakKeys.Any(weak => jwtKey.IndexOf(weak, StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                throw new InvalidOperationException(
+                    "SECURITY ERROR: JWT key contains known weak pattern. " +
+                    "Generate a cryptographically random key using: openssl rand -base64 48");
+            }
 
             services.AddErp();
         }
@@ -141,6 +161,10 @@ namespace WebVella.Erp.Site
                 // UI strings that we have localized.
                 SupportedUICultures = supportedCultures
             });
+
+            // SECURITY FIX: Add OWASP-recommended security headers (CWE-693 mitigation)
+            // Must be early in pipeline to apply to all responses including error pages
+            app.UseSecurityHeadersMiddleware();
 
             //env.EnvironmentName = EnvironmentName.Production;
             // Add the following to the request pipeline only in development environment.
