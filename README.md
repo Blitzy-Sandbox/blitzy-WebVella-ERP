@@ -273,6 +273,47 @@ All event schemas are defined in `libs/shared-schemas/src/events/` as JSON Schem
 
 > **Important:** All integration and E2E tests run against LocalStack. No mocked AWS SDK calls are used in integration tests.
 
+## PR Approval Process
+
+This repository enforces a mandatory sequential code review process for all large-scale pull requests. No PR may receive an approving review until all six phases in [CODE_REVIEW.md](CODE_REVIEW.md) are completed and signed off in order. A [CODE_REVIEW.md](CODE_REVIEW.md) file is generated at the repository root for qualifying PRs.
+
+### Six-Phase Gate Table
+
+| Phase | Responsible Role | Fail-State Action |
+|-------|------------------|-------------------|
+| 1 — Infrastructure / DevOps | DevOps Engineer | Set `devops: BLOCKED`; PR author fixes; DevOps re-reviews changed files only |
+| 2 — Security | Security Expert | Set `security: BLOCKED`; all HIGH/CRITICAL findings resolved before Phase 3 begins |
+| 3 — Backend Architecture | Backend Lead | Set `backend: BLOCKED`; boundary or contract violations resolved before Phase 4 begins |
+| 4 — QA / Test Integrity | QA Engineer | Set `qa: BLOCKED`; test failures or coverage gaps resolved before Phase 5 begins |
+| 5 — Business / Domain | Domain Expert | Set `business: BLOCKED`; acceptance criteria failures resolved before Phase 6 begins |
+| 6 — Frontend | Frontend Lead | Set `frontend: BLOCKED`; build or accessibility failures resolved; all 6 APPROVED unblocks merge |
+| 7 — Other SMEs (as needed) | Agent-determined based on codebase (e.g., Data Engineer, ML Ops, Compliance Officer, Accessibility Specialist) | Set the corresponding BLOCKED status in [CODE_REVIEW.md](CODE_REVIEW.md); additional frontmatter phase key added when required; resolved before merge |
+
+### Verification Commands
+
+Run these commands from the repository root to inspect review status. They must be executed against the frontmatter of [CODE_REVIEW.md](CODE_REVIEW.md).
+
+```bash
+# Detect any BLOCKED phases in frontmatter — must return no output before merge is permitted
+grep -E "^\s+(devops|security|backend|qa|business|frontend):\s+BLOCKED" CODE_REVIEW.md \
+  && echo "MERGE BLOCKED — resolve findings above" \
+  || echo "No blocked phases in frontmatter"
+
+# Confirm all six phases are APPROVED in frontmatter — must print "All phases approved" before merge
+grep -E "^\s+(devops|security|backend|qa|business|frontend):\s+APPROVED" CODE_REVIEW.md \
+  | wc -l \
+  | xargs -I{} sh -c 'test {} -ge 6 \
+  && echo "All phases approved — merge permitted" \
+  || echo "Incomplete: {}/6 phases approved — do not merge"'
+
+# Inspect per-phase frontmatter status
+grep -A 8 "^phases:" CODE_REVIEW.md
+```
+
+### Partial Sign-Off Clarification
+
+Partial sign-off does not constitute approval. All six phase fields in the [CODE_REVIEW.md](CODE_REVIEW.md) frontmatter MUST read `APPROVED` before any approving review is submitted on the PR.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE.txt](LICENSE.txt) for the full license text.
