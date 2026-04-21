@@ -9,25 +9,117 @@ phases:
   frontend: OPEN
 ---
 
+<!--
+FRONTMATTER CONTRACT — DO NOT EDIT MANUALLY EXCEPT PER THE SEGMENTED PR REVIEW
+RULE BELOW. The YAML block above is the sole authoritative source of review
+status for this PR. Tools (grep, merge bots, CI gates) read these fields to
+decide whether the PR may merge. Valid values per phase field:
+
+    OPEN       — phase not yet started
+    IN_REVIEW  — reviewer is actively auditing this phase
+    BLOCKED    — reviewer documented findings; PR author must remediate
+    APPROVED   — all sign-off criteria verified; phase is closed
+
+The top-level `status:` field MUST equal `OPEN` until every enumerated phase
+field reads `APPROVED`, at which point `status:` is set to `APPROVED`. If any
+enumerated phase transitions to `BLOCKED`, `status:` is set to `BLOCKED` until
+the phase is returned to `APPROVED`.
+
+Adding a Phase 7 (Other SMEs) key is permitted — and required — when the
+domain-scope determination in the Segmented PR Review Rule below concludes an
+additional SME review is warranted. Add the key under `phases:` with initial
+value `OPEN` and include a corresponding "Phase 7 — Other SMEs" section.
+-->
+
 # Code Review — Nx Monorepo Serverless Migration (PR `blitzy-28124201-2161-4a8d-a225-5250ade8f419`)
 
 **PR scope summary:** Complete architectural rewrite of the WebVella ERP monolith (ASP.NET Core 9 + Razor Pages + PostgreSQL) into a serverless Nx monorepo comprising a React 19 SPA, 10 .NET 9 Native AOT Lambda services, a Node.js 22 Lambda authorizer, 4 shared libraries, AWS CDK infrastructure, and LocalStack-based integration tests (748 added/modified files).
 
-All six phases MUST be completed and signed off IN ORDER. No phase may begin until the preceding phase status is APPROVED. Partial sign-off does not constitute approval.
+---
 
-**Frontmatter contract:** The YAML block at the top of this file is the sole authoritative source of review status. Valid values per phase field: `OPEN` | `IN_REVIEW` | `BLOCKED` | `APPROVED`. Phase N+1 field MUST remain `OPEN` until Phase N field reads `APPROVED`.
+## The Segmented PR Review Rule (Authoritative)
+
+This review is governed by the **Segmented PR Review Rule**. The rule is stated in full here so every reviewer, PR author, and automation consumer can verify compliance without consulting any external document.
+
+### R1. Scope Segmentation
+
+A large-scale PR — defined as any PR that crosses two or more architectural boundaries (e.g., frontend + backend + infra, or backend + security + tests) — MUST be segmented into **phases**, where each phase is owned by exactly one subject-matter expert (SME) role. No file may appear as the primary review target of more than one phase. A file may be secondarily consulted by another phase's reviewer for context, but the authoritative sign-off for that file belongs to exactly one phase.
+
+### R2. Sequential Execution (No Parallelization)
+
+Phases MUST be executed in strict sequential order: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7 (when activated). Parallel execution of phases is FORBIDDEN. Phase N+1 is BLOCKED from starting until Phase N's frontmatter field reads `APPROVED`. This ordering exists because each successive phase depends on the invariants established by the preceding phase (e.g., QA cannot validate test reliability until the backend service boundaries have been signed off).
+
+### R3. Explicit Entry and Exit Criteria
+
+Every phase in this document has an **Entry Criteria** subsection and an **Exit Criteria** subsection. The Entry Criteria enumerate the frontmatter states and PR-level preconditions that MUST be satisfied before the reviewer may set the phase's frontmatter field to `IN_REVIEW`. The Exit Criteria enumerate the conditions that MUST all evaluate to true before the reviewer may set the phase's frontmatter field to `APPROVED`. If any Exit Criterion fails, the reviewer MUST set the phase's frontmatter field to `BLOCKED` and follow the FAIL STATE protocol.
+
+### R4. Uniquely Numbered Domain-Specific Checks
+
+Each phase's domain-specific checks are numbered `<phase_number>.<check_number>` (e.g., `1.1`, `1.2`, `2.1`, …). This numbering is stable across the PR's lifetime so that findings may be referenced precisely in commit messages, review comments, and changelog notes (e.g., "Resolved finding 4.3 — Integration tests no longer import `Moq<IAmazonDynamoDB>`").
+
+### R5. FAIL STATE Protocol (Uniform Across All Phases)
+
+If any Exit Criterion for a phase fails, the reviewer MUST:
+
+1. Record every failing check by its unique number in the **Findings** field inside the phase's Sign-Off Block.
+2. Set the phase's frontmatter field to `BLOCKED`.
+3. Set the top-level `status:` frontmatter field to `BLOCKED`.
+4. Notify the PR author with a direct link to the failing checks.
+5. The PR author addresses all recorded findings via new commits on the same branch. Force-pushes to the review branch are FORBIDDEN.
+6. The reviewer re-reviews ONLY the files changed since the `BLOCKED` transition (use `git diff <blocked-commit>..HEAD`), re-evaluates every recorded finding, and — only when every finding is resolved — sets the phase's frontmatter field to `APPROVED` and clears the top-level `status:` to `OPEN` (unless another phase is still blocked).
+7. Phase N+1 MUST NOT begin under any circumstances until the BLOCKED phase returns to `APPROVED`.
+
+### R6. Other SMEs Escalation (Phase 7)
+
+If, during any phase, the reviewer identifies subject matter that lies outside the six standard phases (e.g., data engineering, ML ops, compliance, accessibility, internationalization, licensing), the reviewer MUST:
+
+1. Add a new phase key to the frontmatter (e.g., `accessibility: OPEN`) with initial value `OPEN`.
+2. Append a "Phase 7 — Other SMEs" section following the Phase 7 template below.
+3. Document the scope, assigned SME role, domain-specific checks, and sign-off criteria.
+4. Escalate sequentially: Phase 7 runs after Phase 6 completes; if multiple Phase 7 tracks are required, they also run sequentially (Phase 7a → Phase 7b).
+
+### R7. Partial Sign-Off is Not Approval
+
+A PR is merge-eligible only when every enumerated frontmatter phase field reads `APPROVED` and the top-level `status:` field reads `APPROVED`. Partial sign-off — any non-empty subset of phases in `APPROVED` with others in `OPEN`, `IN_REVIEW`, or `BLOCKED` — does NOT constitute PR approval. Any reviewer who submits an approving review on the PR under partial sign-off is in violation of this rule.
+
+### R8. Gate Verification Commands
+
+The following commands — runnable from the repository root — are the authoritative gate verifiers referenced by `README.md#pr-approval-process`:
+
+```bash
+# Must return no output for merge to be permitted:
+grep -E "^\s+(devops|security|backend|qa|business|frontend):\s+BLOCKED" CODE_REVIEW.md
+
+# Must print at least 6:
+grep -cE "^\s+(devops|security|backend|qa|business|frontend):\s+APPROVED" CODE_REVIEW.md
+
+# Inspect all phase frontmatter fields:
+grep -A 20 "^phases:" CODE_REVIEW.md | head -40
+```
 
 ---
 
 ## Phase 1 — DevOps Engineer
 
+> **Phase Gate:** This phase is the first in the sequence. Entry is permitted unconditionally. All subsequent phases (2–6) are BLOCKED from starting until this phase's frontmatter field `devops` transitions to `APPROVED`.
+
 ### A. Reviewer Role
 
-DevOps Engineer — accountable for CI/CD integrity, Infrastructure-as-Code correctness, container and monorepo configuration, and deployment/bootstrap scripts. Owns the pipeline from source to running environment.
+**Reviewer title:** DevOps Engineer (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Familiarity with GitHub Actions workflow syntax, Docker Compose authoring, AWS CDK v2 in TypeScript, Nx monorepo task graphs, LocalStack Pro Community edition feature matrix, and `localstack/setup-localstack` GitHub Action.
 
-106 files in scope for this phase.
+**Accountability:** CI/CD integrity, Infrastructure-as-Code correctness, container and monorepo configuration, and deployment/bootstrap script safety. Owns the pipeline from source to running environment.
+
+### B. Entry Criteria
+
+1. The PR branch `blitzy-28124201-2161-4a8d-a225-5250ade8f419` is pushed to origin and the Blitzy-generated file inventory (748 files) is complete.
+2. The frontmatter field `devops` reads `OPEN` (no prior review session in progress).
+3. The reviewer has read `README.md#pr-approval-process` and the Segmented PR Review Rule (R1–R8) above.
+
+**Reviewer action on entry:** Set frontmatter `devops: IN_REVIEW`.
+
+### C. Files to Review (106 files)
 
 **CI/CD pipelines (3 files):**
 - `.github/workflows/ci.yml`
@@ -92,8 +184,8 @@ DevOps Engineer — accountable for CI/CD integrity, Infrastructure-as-Code corr
 **Project documentation (58 files):**
 - `README.md`
 - `docs/executive-review.html`
-- `blitzy/documentation/Project`
-- `blitzy/documentation/Technical`
+- `blitzy/documentation/Project Guide.md`
+- `blitzy/documentation/Technical Specifications.md`
 - `blitzy/screenshots/CheckboxListField_all_scenarios_styled.png`
 - `blitzy/screenshots/DataCsvField_runtime_bottom.png`
 - `blitzy/screenshots/DataCsvField_runtime_top.png`
@@ -109,51 +201,76 @@ DevOps Engineer — accountable for CI/CD integrity, Infrastructure-as-Code corr
 - `blitzy/screenshots/admin_entity_relation_manage_form.png`
 - ... (45 additional screenshot assets captured during validation)
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. CI/CD step ordering — tests run before deploy; no deploy job depends on a skipped/failing test job.
-2. Image versions pinned in `docker-compose.yml` and workflow files — no `:latest` tags for LocalStack or any other service image.
-3. No plaintext secrets in any config file (`nx.json`, `package.json`, `docker-compose.yml`, `.github/workflows/*.yml`, `infra/cdk.json`, `infra/cdk.context.json`).
-4. IaC validates without errors — `cd infra && npx tsc --noEmit` returns 0; `npx cdk synth --context localstack=true` produces a valid template without errors.
-5. Build scripts idempotent — `tools/scripts/bootstrap-localstack.sh`, `run-migrations.sh`, and `seed-test-data.sh` can be re-executed safely without corrupting existing state.
-6. Required environment variables documented in `README.md` (`AWS_ENDPOINT_URL`, `AWS_REGION`, `COGNITO_USER_POOL_ID`, `API_GATEWAY_URL`, `IS_LOCAL`, `VITE_API_URL`, `LOCALSTACK_AUTH_TOKEN`).
-7. Nx workspace: `nx.json` defines task pipelines (`build`, `test`, `lint`, `e2e`) with caching; `project.json` files exist for every app, service, and lib.
-8. `.gitignore` / `.blitzyignore` cover `node_modules/`, `.localstack/`, `volume/`, `localstack/`, `cdk.out/`, `*.env`, `.env.*`, `dist/`, `build/`, `coverage/`, `*.tfstate`.
-9. CDK dual-target via `localstack` context flag — LocalStack-only resources (RDS stub, JWT authorizer fallback) are conditional, production-only resources (CloudFront, Route 53, ACM) are conditional.
-10. GitHub Actions workflows reference the `localstack/setup-localstack` action for LocalStack-backed CI runs.
+- **1.1** CI/CD step ordering — tests run before deploy; no deploy job depends on a skipped/failing test job.
+- **1.2** Image versions pinned in `docker-compose.yml` and workflow files — no `:latest` tags for LocalStack or any other service image.
+- **1.3** No plaintext secrets in any config file (`nx.json`, `package.json`, `docker-compose.yml`, `.github/workflows/*.yml`, `infra/cdk.json`, `infra/cdk.context.json`).
+- **1.4** IaC validates without errors — `cd infra && npx tsc --noEmit` returns 0; `npx cdk synth --context localstack=true` produces a valid template without errors.
+- **1.5** Build scripts idempotent — `tools/scripts/bootstrap-localstack.sh`, `run-migrations.sh`, and `seed-test-data.sh` can be re-executed safely without corrupting existing state.
+- **1.6** Required environment variables documented in `README.md` (`AWS_ENDPOINT_URL`, `AWS_REGION`, `COGNITO_USER_POOL_ID`, `API_GATEWAY_URL`, `IS_LOCAL`, `VITE_API_URL`, `LOCALSTACK_AUTH_TOKEN`).
+- **1.7** Nx workspace: `nx.json` defines task pipelines (`build`, `test`, `lint`, `e2e`) with caching; `project.json` files exist for every app, service, and lib.
+- **1.8** `.gitignore` / `.blitzyignore` cover `node_modules/`, `.localstack/`, `volume/`, `localstack/`, `cdk.out/`, `*.env`, `.env.*`, `dist/`, `build/`, `coverage/`, `*.tfstate`.
+- **1.9** CDK dual-target via `localstack` context flag — LocalStack-only resources (RDS stub, JWT authorizer fallback) are conditional, production-only resources (CloudFront, Route 53, ACM) are conditional.
+- **1.10** GitHub Actions workflows reference the `localstack/setup-localstack` action for LocalStack-backed CI runs.
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 10 domain-specific checks pass, `npx tsc --noEmit` succeeds in `infra/` and `libs/shared-cdk-constructs/`, `docker-compose config` validates, and `.github/workflows/*.yml` pass YAML lint with documented LocalStack integration. Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `devops: APPROVED`:
 
-### E. Sign-Off Block
+- E1.A — All 10 domain-specific checks (1.1 through 1.10) passed.
+- E1.B — `cd infra && npx tsc --noEmit` returns 0.
+- E1.C — `cd libs/shared-cdk-constructs && npx tsc --noEmit` returns 0.
+- E1.D — `docker compose -f docker-compose.yml config` validates without errors.
+- E1.E — Every `.github/workflows/*.yml` file is syntactically valid YAML and uses `localstack/setup-localstack` for LocalStack-backed jobs.
+- E1.F — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 1.3, 1.9):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+If this phase is BLOCKED, follow R5 of the Segmented PR Review Rule above. Summary:
+
+1. Record every failing check by its unique number (e.g., `1.3`, `1.9`) in the Findings field above.
+2. Set frontmatter `devops: BLOCKED` and top-level `status: BLOCKED`.
+3. Notify the PR author with a direct link to the failing check numbers.
+4. PR author addresses findings via new commits (no force-push).
+5. Reviewer re-reviews ONLY files changed since the BLOCKED transition and re-evaluates each recorded finding.
+6. When every finding is resolved, set `devops: APPROVED` and clear top-level `status:` per R5.
+7. **Phase 2 MUST NOT begin until `devops` reads `APPROVED`.**
 
 ---
 
 ## Phase 2 — Security Expert
 
+> **Phase Gate:** This phase is BLOCKED from starting until frontmatter field `devops` reads `APPROVED`. Phases 3–6 are BLOCKED from starting until this phase's frontmatter field `security` reads `APPROVED`.
+
 ### A. Reviewer Role
 
-Security Expert — accountable for authentication, authorization, token validation, IAM policies, secrets management, and the attack surface of identity-related Lambda handlers and the JWT authorizer.
+**Reviewer title:** Security Expert (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Familiarity with AWS Cognito user pools and identity providers, OAuth 2.0 / OIDC / JWT (RS256 with JWKS), IAM policy authoring under least-privilege, AWS SSM Parameter Store SecureString, Lambda authorizer request/token authorization flows, OWASP Top 10, and DynamoDB expression-injection hardening.
 
-17 files in scope for this phase.
+**Accountability:** Authentication, authorization, token validation, IAM policies, secrets management, and the attack surface of identity-related Lambda handlers and the JWT authorizer.
+
+### B. Entry Criteria
+
+1. Frontmatter `devops: APPROVED` (Phase 1 complete).
+2. Frontmatter `security: OPEN`.
+3. The reviewer has read the Segmented PR Review Rule (R1–R8) and Phase 1's sign-off findings (to understand any DevOps-level security implications resolved upstream).
+
+**Reviewer action on entry:** Set frontmatter `security: IN_REVIEW`.
+
+### C. Files to Review (17 files)
 
 **Identity service (12 files):**
 - `services/identity/Identity.csproj`
@@ -176,53 +293,70 @@ Security Expert — accountable for authentication, authorization, token validat
 - `services/authorizer/src/project.json`
 - `services/authorizer/tsconfig.json`
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. No `alg:none` path — JWT verifier rejects tokens with algorithm `none`; only `RS256` (Cognito) and `HS256` (LocalStack dev-only) accepted.
-2. Token expiry validated — `exp` claim checked with clock-skew tolerance; expired tokens rejected.
-3. Deny-by-default authorization — authorizer returns `Deny` policy unless a valid JWT is proven; missing or malformed Authorization header rejected.
-4. No wildcard IAM/RBAC grants — `PermissionService.cs` enumerates explicit permissions per role; no `Resource: '*'` or `Action: '*'` grants except for Lambda logs.
-5. Secrets sourced from SSM Parameter Store `SecureString`, not environment variables; `DB_CONNECTION_STRING` and `COGNITO_CLIENT_SECRET` never appear in plaintext.
-6. Unauthenticated routes enumerated and justified — only `/health` and `/v1/auth/login` bypass the authorizer; list explicitly declared in `infra/src/stacks/api-gateway-stack.ts`.
-7. No sensitive fields in response schemas — password hashes, refresh tokens, and session IDs are never returned by `UserHandler`, `RoleHandler`, or `AuthHandler`.
-8. Parameterized queries only — `UserRepository.cs` uses DynamoDB SDK with attribute values; zero string interpolation into DynamoDB expressions or SQL.
-9. User-migration trigger (`services/identity/src/triggers/user-migration/index.js`) validates legacy MD5 hash with constant-time comparison (no timing oracle) and re-issues credentials through Cognito's secure hashing.
-10. `jwt-validator.ts` uses `jwks-rsa` with cache + rate limit; JWKS key rotation supported without service restart.
-11. CORS on identity endpoints locked to the frontend's documented origins (no `*`).
-12. Input validation on `AuthHandler.Login` (email format, password length) and on `RoleHandler` / `UserHandler` POST/PUT bodies.
+- **2.1** No `alg:none` path — JWT verifier rejects tokens with algorithm `none`; only `RS256` (Cognito) and `HS256` (LocalStack dev-only) accepted.
+- **2.2** Token expiry validated — `exp` claim checked with clock-skew tolerance; expired tokens rejected.
+- **2.3** Deny-by-default authorization — authorizer returns `Deny` policy unless a valid JWT is proven; missing or malformed Authorization header rejected.
+- **2.4** No wildcard IAM/RBAC grants — `PermissionService.cs` enumerates explicit permissions per role; no `Resource: '*'` or `Action: '*'` grants except for Lambda logs.
+- **2.5** Secrets sourced from SSM Parameter Store `SecureString`, not environment variables; `DB_CONNECTION_STRING` and `COGNITO_CLIENT_SECRET` never appear in plaintext.
+- **2.6** Unauthenticated routes enumerated and justified — only `/health` and `/v1/auth/login` bypass the authorizer; list explicitly declared in `infra/src/stacks/api-gateway-stack.ts`.
+- **2.7** No sensitive fields in response schemas — password hashes, refresh tokens, and session IDs are never returned by `UserHandler`, `RoleHandler`, or `AuthHandler`.
+- **2.8** Parameterized queries only — `UserRepository.cs` uses DynamoDB SDK with attribute values; zero string interpolation into DynamoDB expressions or SQL.
+- **2.9** User-migration trigger (`services/identity/src/triggers/user-migration/index.js`) validates legacy MD5 hash with constant-time comparison (no timing oracle) and re-issues credentials through Cognito's secure hashing.
+- **2.10** `jwt-validator.ts` uses `jwks-rsa` with cache + rate limit; JWKS key rotation supported without service restart.
+- **2.11** CORS on identity endpoints locked to the frontend's documented origins (no `*`).
+- **2.12** Input validation on `AuthHandler.Login` (email format, password length) and on `RoleHandler` / `UserHandler` POST/PUT bodies.
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 12 domain-specific checks pass, `dotnet build services/identity/Identity.csproj` succeeds with zero warnings, `npm run build` in `services/authorizer` succeeds, unit tests for `jwt-validator` and `CognitoService` achieve ≥ 80% branch coverage, and no HIGH/CRITICAL findings remain from dependency audit (`npm audit --audit-level=high`). Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `security: APPROVED`:
 
-### E. Sign-Off Block
+- E2.A — All 12 domain-specific checks (2.1 through 2.12) passed.
+- E2.B — `dotnet build services/identity/Identity.csproj` succeeds with zero warnings.
+- E2.C — `cd services/authorizer && npm run build` succeeds with zero errors.
+- E2.D — Unit tests for `jwt-validator` and `CognitoService` achieve ≥ 80% branch coverage (verified in Phase 4; pre-checked here that spec files exist: `services/authorizer/tests/jwt-validator.test.ts`, `services/identity/tests/Unit/CognitoServiceTests.cs`).
+- E2.E — No HIGH/CRITICAL findings remain from `npm audit --audit-level=high` on `services/authorizer/package.json`.
+- E2.F — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 2.1, 2.9):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+Follow R5 of the Segmented PR Review Rule. Record failing checks by number (e.g., `2.1`, `2.9`) in the Findings field; set `security: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `security: APPROVED` when resolved. **Phase 3 MUST NOT begin until `security` reads `APPROVED`.**
 
 ---
 
 ## Phase 3 — Backend Lead
 
+> **Phase Gate:** This phase is BLOCKED from starting until frontmatter fields `devops` AND `security` both read `APPROVED`. Phases 4–6 are BLOCKED from starting until this phase's frontmatter field `backend` reads `APPROVED`.
+
 ### A. Reviewer Role
 
-Backend Lead — accountable for service boundaries, handler/business-logic/data-access layering, event schema correctness, API contract conformance, shared cross-service utilities, migration ordering, and correlation-ID propagation across services.
+**Reviewer title:** Backend Lead (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Familiarity with .NET 9 Native AOT Lambda authoring, DynamoDB single-table design, RDS PostgreSQL + Npgsql + FluentMigrator migrations, event-driven architecture (SNS fan-out, SQS consumer patterns, DLQs), OpenAPI 3.1, JSON Schema, idempotency and correlation-ID propagation, and API Gateway v2 HTTP integration.
 
-86 files in scope for this phase.
+**Accountability:** Service boundaries, handler/business-logic/data-access layering, event schema correctness, API contract conformance, shared cross-service utilities, migration ordering, and correlation-ID propagation across services.
+
+### B. Entry Criteria
+
+1. Frontmatter `devops: APPROVED` AND `security: APPROVED`.
+2. Frontmatter `backend: OPEN`.
+3. The reviewer has confirmed no BLOCKED carry-over findings remain from Phase 1 or Phase 2.
+
+**Reviewer action on entry:** Set frontmatter `backend: IN_REVIEW`.
+
+### C. Files to Review (86 files)
 
 **Shared API contracts — OpenAPI 3.1 specs (10 files):**
 - `libs/shared-schemas/src/api/crm-api.yaml`
@@ -322,53 +456,72 @@ Backend Lead — accountable for service boundaries, handler/business-logic/data
 - `services/plugin-system/src/Services/SitemapService.cs`
 - `services/plugin-system/src/project.json`
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. No cross-service internal imports — no `services/X/src/**` file imports from `services/Y/src/**`. Cross-service communication must flow through published OpenAPI endpoints or JSON Schema events only.
-2. Handlers (`services/*/src/Functions/*Handler.cs`) contain zero business logic — handlers deserialize input, call a service method, serialize output, and handle errors. Business rules belong in `Services/`.
-3. Repositories (`services/*/src/DataAccess/*Repository.cs`) contain zero business logic — pure persistence operations (get, put, query, delete, update); validation and rule evaluation occur in `Services/`.
-4. Event payloads published by any service match the corresponding JSON Schema in `libs/shared-schemas/src/events/*.json`; every emitted SNS event validates against its schema.
-5. Migrations ordered and idempotent — `services/invoicing/src/Migrations/InitialCreate.cs` and `services/reporting/src/Migrations/Migration_001_InitialSchema.cs` use FluentMigrator with explicit version numbers and re-runnable statements.
-6. No hardcoded resource IDs or connection strings — all table names, bucket names, queue ARNs, topic ARNs come from environment variables or SSM parameters sourced in `Program.cs`.
-7. Correlation IDs propagated — every outbound call (SNS publish, SQS send, HTTP invoke) includes `X-Correlation-Id` from the incoming Lambda event context via `libs/shared-utils/src/correlation-id.ts`.
-8. OpenAPI specs in `libs/shared-schemas/src/api/*.yaml` match the actual routes declared in API Gateway stack and implemented in Lambda handlers; contract drift detected via contract tests.
-9. Shared utilities (`libs/shared-utils`) are pure and free of service-specific logic — `logger`, `correlation-id`, and `idempotency` modules exported without bleed of domain types.
-10. Entity Management owns all entity/field/relation metadata — no other service reads or writes the entity-metadata DynamoDB table; other services call Entity Management's API.
-11. Plugin System owns plugin registry — plugin metadata persisted in a dedicated DynamoDB table; no cross-service access to plugin data.
-12. 20+ field type classes in `services/entity-management/src/Models/FieldTypes/` preserve behavioral parity with the monolith (`WebVella.Erp/Database/FieldTypes/`).
+- **3.1** No cross-service internal imports — no `services/X/src/**` file imports from `services/Y/src/**`. Cross-service communication must flow through published OpenAPI endpoints or JSON Schema events only.
+- **3.2** Handlers (`services/*/src/Functions/*Handler.cs`) contain zero business logic — handlers deserialize input, call a service method, serialize output, and handle errors. Business rules belong in `Services/`.
+- **3.3** Repositories (`services/*/src/DataAccess/*Repository.cs`) contain zero business logic — pure persistence operations (get, put, query, delete, update); validation and rule evaluation occur in `Services/`.
+- **3.4** Event payloads published by any service match the corresponding JSON Schema in `libs/shared-schemas/src/events/*.json`; every emitted SNS event validates against its schema.
+- **3.5** Migrations ordered and idempotent — `services/invoicing/src/Migrations/InitialCreate.cs` and `services/reporting/src/Migrations/Migration_001_InitialSchema.cs` use FluentMigrator with explicit version numbers and re-runnable statements.
+- **3.6** No hardcoded resource IDs or connection strings — all table names, bucket names, queue ARNs, topic ARNs come from environment variables or SSM parameters sourced in `Program.cs`.
+- **3.7** Correlation IDs propagated — every outbound call (SNS publish, SQS send, HTTP invoke) includes `X-Correlation-Id` from the incoming Lambda event context via `libs/shared-utils/src/correlation-id.ts`.
+- **3.8** OpenAPI specs in `libs/shared-schemas/src/api/*.yaml` match the actual routes declared in API Gateway stack and implemented in Lambda handlers; contract drift detected via contract tests.
+- **3.9** Shared utilities (`libs/shared-utils`) are pure and free of service-specific logic — `logger`, `correlation-id`, and `idempotency` modules exported without bleed of domain types.
+- **3.10** Entity Management owns all entity/field/relation metadata — no other service reads or writes the entity-metadata DynamoDB table; other services call Entity Management's API.
+- **3.11** Plugin System owns plugin registry — plugin metadata persisted in a dedicated DynamoDB table; no cross-service access to plugin data.
+- **3.12** 20+ field type classes in `services/entity-management/src/Models/FieldTypes/` preserve behavioral parity with the monolith (`WebVella.Erp/Database/FieldTypes/`).
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 12 domain-specific checks pass, `dotnet build services/entity-management/EntityManagement.csproj` and `dotnet build services/plugin-system/PluginSystem.csproj` succeed with zero warnings, `npx tsc --noEmit` succeeds in `libs/shared-schemas` and `libs/shared-utils`, all 10 OpenAPI specs validate (`npx @redocly/cli lint libs/shared-schemas/src/api/*.yaml`), and all 10 JSON Schema event documents parse as valid JSON Schema. Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `backend: APPROVED`:
 
-### E. Sign-Off Block
+- E3.A — All 12 domain-specific checks (3.1 through 3.12) passed.
+- E3.B — `dotnet build services/entity-management/EntityManagement.csproj` succeeds with zero warnings.
+- E3.C — `dotnet build services/plugin-system/PluginSystem.csproj` succeeds with zero warnings.
+- E3.D — `cd libs/shared-schemas && npx tsc --noEmit` returns 0.
+- E3.E — `cd libs/shared-utils && npx tsc --noEmit` returns 0.
+- E3.F — All 10 OpenAPI specs validate (`npx @redocly/cli lint libs/shared-schemas/src/api/*.yaml` returns 0).
+- E3.G — All 10 JSON Schema event documents parse as valid JSON Schema (Draft 2020-12).
+- E3.H — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 3.1, 3.8):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+Follow R5. Record failing checks by number (e.g., `3.1`, `3.8`) in the Findings field; set `backend: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `backend: APPROVED` when resolved. **Phase 4 MUST NOT begin until `backend` reads `APPROVED`.**
 
 ---
+
 ## Phase 4 — QA Engineer
+
+> **Phase Gate:** This phase is BLOCKED from starting until frontmatter fields `devops`, `security`, AND `backend` all read `APPROVED`. Phases 5–6 are BLOCKED from starting until this phase's frontmatter field `qa` reads `APPROVED`.
 
 ### A. Reviewer Role
 
-QA Engineer — accountable for test completeness, test correctness, reliability against LocalStack, cross-test isolation, fixture cleanliness, and coverage of new code paths and critical user journeys introduced by this PR.
+**Reviewer title:** QA Engineer (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Familiarity with xUnit + `FluentAssertions` + `Moq`, Vitest + `@testing-library/react`, Playwright 1.x, LocalStack Community vs Pro feature parity (so `CognitoFactAttribute` / `RdsFactAttribute` skip-semantics are understood), fixture lifecycle (`IAsyncLifetime`, `IDisposable`, xUnit `ICollectionFixture`), and code-coverage tooling (`coverlet.collector`, `vitest --coverage`).
 
-190 files in scope for this phase.
+**Accountability:** Test completeness, test correctness, reliability against LocalStack, cross-test isolation, fixture cleanliness, and coverage of new code paths and critical user journeys introduced by this PR.
 
+### B. Entry Criteria
+
+1. Frontmatter `devops`, `security`, `backend` all read `APPROVED`.
+2. Frontmatter `qa: OPEN`.
+3. LocalStack Community is running locally (or in CI) for integration tests, or the reviewer has confirmed that Pro-dependent tests are appropriately skipped via `CognitoFactAttribute` / `RdsFactAttribute` when Pro is unavailable (per the setup-status note documenting LocalStack Pro licence expiry after 2026-03-01).
+
+**Reviewer action on entry:** Set frontmatter `qa: IN_REVIEW`.
+
+### C. Files to Review (190 files)
 
 **Frontend E2E (Playwright) (17 files):**
 - `apps/frontend-e2e/playwright.config.ts`
@@ -555,7 +708,7 @@ QA Engineer — accountable for test completeness, test correctness, reliability
 - `services/reporting/tests/Integration/RdsFactAttribute.cs`
 - `services/reporting/tests/Integration/ReportingIntegrationCollection.cs`
 
-**Service test project files (.csproj) (11 files):**
+**Service test project files (.csproj) (10 files):**
 - `services/crm/tests/Crm.Tests.csproj`
 - `services/entity-management/tests/EntityManagement.Tests.csproj`
 - `services/file-management/tests/FileManagement.Tests.csproj`
@@ -566,7 +719,6 @@ QA Engineer — accountable for test completeness, test correctness, reliability
 - `services/plugin-system/tests/PluginSystem.Tests.csproj`
 - `services/reporting/tests/Reporting.Tests.csproj`
 - `services/workflow/tests/Workflow.Tests.csproj`
-- `services/workflow/tests/WorkflowTests.csproj`
 
 **Test configuration (6 files):**
 - `apps/frontend/tsconfig.spec.json`
@@ -576,56 +728,72 @@ QA Engineer — accountable for test completeness, test correctness, reliability
 - `services/authorizer/vitest.config.ts`
 - `services/entity-management/tests/xunit.runner.json`
 
-_Total: 190 files classified in QA phase._
+_Total: 189 files classified in QA phase. (Previous duplicate `services/workflow/tests/WorkflowTests.csproj` orphan was removed in commit `b8a28e29`; `Workflow.Tests.csproj` is the sole authoritative test project for the workflow service.)_
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. Zero failures and zero skipped tests with CI artifact attached — test run produces a machine-readable report (TRX for .NET, JUnit XML for Vitest/Playwright) uploaded as a CI workflow artifact.
-2. Integration tests hit real dependencies (zero mock/stub matches for infrastructure) — grep for `Mock<IAmazonDynamoDB>`, `Mock<IAmazonS3>`, etc. in `tests/Integration/` returns zero results; real AWS SDK clients instantiated against LocalStack endpoint.
-3. Teardown prevents cross-test state leakage — every `LocalStackFixture.cs` / `DatabaseFixture.cs` implements `IDisposable` or `IAsyncLifetime.DisposeAsync` that cleans up DynamoDB items, S3 objects, SQS queues, SNS topics, Cognito users, and RDS schemas created during tests.
-4. New code paths have coverage — every handler, service method, and repository method added to the services covered in Phases 2, 3, and 5 has at least one unit test and, for integration-critical paths, at least one integration test.
-5. E2E covers critical journeys introduced by PR — login, record CRUD, CRM contact creation, project task workflow, notifications, admin console, navigation — all have Playwright specs in `apps/frontend-e2e/src/` or `apps/frontend/tests/e2e/`.
-6. Test project files (`*.Tests.csproj`) reference correct SDK `Microsoft.NET.Sdk` with `IsPackable=false` and target `net9.0`; both `services/workflow/tests/Workflow.Tests.csproj` and `services/workflow/tests/WorkflowTests.csproj` are disambiguated (per setup-status note, `WorkflowTests.csproj` is authoritative; `dotnet test` must explicitly specify a project file).
-7. Integration tests that require LocalStack Pro services (`cognito-idp`, `rds`) are attributed with `CognitoFactAttribute` / `RdsFactAttribute` so they are skipped (not failed) when the Pro licence is unavailable; tests document the skip reason.
-8. Test fixtures seed deterministic test data — no reliance on unspecified order; tests run correctly under parallel execution or are serialized via xUnit collection fixtures (`IntegrationCollection`).
-9. Frontend unit tests render components with `@testing-library/react` and assert on user-facing behavior, not implementation details. All 61 field/layout/hook/store/util tests pass under Vitest run.
-10. `vitest.config.ts` in each project uses `nxViteTsPaths()` plugin or equivalent path resolution so shared library imports resolve during tests.
-11. No test contains a commented-out assertion, hardcoded production URL, or real AWS credentials.
-12. Contract tests (e.g., `services/crm/tests/ContractTests.cs`) validate request/response schemas against the corresponding OpenAPI definition in `libs/shared-schemas/src/api/`.
+- **4.1** Zero failures and zero skipped tests with CI artifact attached — test run produces a machine-readable report (TRX for .NET, JUnit XML for Vitest/Playwright) uploaded as a CI workflow artifact. Skips permitted only via `CognitoFactAttribute` / `RdsFactAttribute` when LocalStack Pro is unavailable; such skips are documented and do not count as failures.
+- **4.2** Integration tests hit real dependencies (zero mock/stub matches for infrastructure) — grep for `Mock<IAmazonDynamoDB>`, `Mock<IAmazonS3>`, etc. in `tests/Integration/` returns zero results; real AWS SDK clients instantiated against LocalStack endpoint.
+- **4.3** Teardown prevents cross-test state leakage — every `LocalStackFixture.cs` / `DatabaseFixture.cs` implements `IDisposable` or `IAsyncLifetime.DisposeAsync` that cleans up DynamoDB items, S3 objects, SQS queues, SNS topics, Cognito users, and RDS schemas created during tests.
+- **4.4** New code paths have coverage — every handler, service method, and repository method added to the services covered in Phases 2, 3, and 5 has at least one unit test and, for integration-critical paths, at least one integration test.
+- **4.5** E2E covers critical journeys introduced by PR — login, record CRUD, CRM contact creation, project task workflow, notifications, admin console, navigation — all have Playwright specs in `apps/frontend-e2e/src/` or `apps/frontend/tests/e2e/`.
+- **4.6** Test project files (`*.Tests.csproj`) reference correct SDK `Microsoft.NET.Sdk` with `IsPackable=false` and target `net9.0`. The workflow service has exactly one authoritative test project: `services/workflow/tests/Workflow.Tests.csproj` (the duplicate `WorkflowTests.csproj` orphan was removed).
+- **4.7** Integration tests that require LocalStack Pro services (`cognito-idp`, `rds`) are attributed with `CognitoFactAttribute` / `RdsFactAttribute` so they are skipped (not failed) when the Pro licence is unavailable; tests document the skip reason.
+- **4.8** Test fixtures seed deterministic test data — no reliance on unspecified order; tests run correctly under parallel execution or are serialized via xUnit collection fixtures (`IntegrationCollection`).
+- **4.9** Frontend unit tests render components with `@testing-library/react` and assert on user-facing behavior, not implementation details. All 61 field/layout/hook/store/util tests pass under Vitest run.
+- **4.10** `vitest.config.ts` in each project uses `nxViteTsPaths()` plugin or equivalent path resolution so shared library imports resolve during tests.
+- **4.11** No test contains a commented-out assertion, hardcoded production URL, or real AWS credentials.
+- **4.12** Contract tests (e.g., `services/crm/tests/ContractTests.cs`) validate request/response schemas against the corresponding OpenAPI definition in `libs/shared-schemas/src/api/`.
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 12 domain-specific checks pass, `dotnet test` returns `Passed!` for every service test project (unit + integration that do not require Pro services), `npx vitest run` returns 0 failures for `apps/frontend`, `libs/shared-ui`, `libs/shared-schemas`, and `services/authorizer`, `npx playwright test --project=chromium --list` enumerates all declared E2E specs without error, and new-code coverage ≥ 80% (line) for each modified service per `dotnet test /p:CollectCoverage=true`. Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `qa: APPROVED`:
 
-### E. Sign-Off Block
+- E4.A — All 12 domain-specific checks (4.1 through 4.12) passed.
+- E4.B — `dotnet test` returns `Passed!` for every service test project (unit + integration that do not require Pro services).
+- E4.C — `npx vitest run` returns 0 failures for `apps/frontend`, `libs/shared-ui`, `libs/shared-schemas`, and `services/authorizer`.
+- E4.D — `npx playwright test --project=chromium --list` enumerates all declared E2E specs without error.
+- E4.E — New-code coverage ≥ 80% (line) for each modified service (`dotnet test /p:CollectCoverage=true`).
+- E4.F — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 4.2, 4.7):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+Follow R5. Record failing checks by number (e.g., `4.2`, `4.7`) in the Findings field; set `qa: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `qa: APPROVED` when resolved. **Phase 5 MUST NOT begin until `qa` reads `APPROVED`.**
 
 ---
 
 ## Phase 5 — Business / Domain Expert
 
+> **Phase Gate:** This phase is BLOCKED from starting until frontmatter fields `devops`, `security`, `backend`, AND `qa` all read `APPROVED`. Phase 6 is BLOCKED from starting until this phase's frontmatter field `business` reads `APPROVED`.
+
 ### A. Reviewer Role
 
-Business / Domain Expert — accountable for domain correctness of the seven bounded-context services (CRM, Inventory/Project Management, Invoicing, Reporting, Notifications, File Management, Workflow), acceptance-criteria coverage, backward compatibility of model changes, and alignment of implemented workflows with the monolith's behavioral parity requirement.
+**Reviewer title:** Business / Domain Expert (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Subject-matter ownership of at least one of the seven bounded contexts (CRM, Inventory/Project Management, Invoicing, Reporting, Notifications, File Management, Workflow); familiarity with the monolith's behavioral parity requirement (AAP §0.8 — "Full behavioral parity"); comfort reading Step Functions ASL JSON; familiarity with FluentMigrator and schema-level isolation.
 
-98 files in scope for this phase.
+**Accountability:** Domain correctness of the seven bounded-context services, acceptance-criteria coverage, backward compatibility of model changes, and alignment of implemented workflows with the monolith's behavioral parity requirement.
 
+### B. Entry Criteria
+
+1. Frontmatter `devops`, `security`, `backend`, `qa` all read `APPROVED`.
+2. Frontmatter `business: OPEN`.
+3. The reviewer has retrieved the monolith reference code-paths from `WebVella.Erp/*` and `WebVella.Erp.Plugins.*` for behavioral-parity comparison.
+
+**Reviewer action on entry:** Set frontmatter `business: IN_REVIEW`.
+
+### C. Files to Review (98 files)
 
 **CRM service (9 files):**
 - `services/crm/Crm.csproj`
@@ -741,54 +909,69 @@ Business / Domain Expert — accountable for domain correctness of the seven bou
 
 _Total: 98 files._
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. Workflows match PR acceptance criteria — CRM account/contact CRUD, project task creation and timelog recording, invoice creation with line items and tax, payment processing, email queue processor, S3 upload/download with presigned URLs, workflow state machine execution — all implemented end-to-end.
-2. Model changes backward-compatible or migration documented — per-entity field shapes in `Account.cs`, `Contact.cs`, `Invoice.cs`, `Payment.cs`, `Email.cs`, `Task.cs`, `Timelog.cs`, `FileMetadata.cs` preserve the monolith's JSON schema or document a migration path.
-3. Business rules match spec — `InvoiceService`, `LineItemCalculationService`, `TaxCalculationService`, `PaymentService` implement the monolith's invoicing rules (VAT, rounding, currency handling, totals).
-4. UI flows match designs — page-level React components in `apps/frontend/src/pages/crm`, `/projects`, `/invoicing`, `/notifications`, `/files`, `/workflows`, `/reports` invoke the correct domain endpoints with correct payloads.
-5. Deprecated features flagged for sign-off — any monolith feature intentionally omitted (e.g., Bulgarian FTS per AAP §0.3.2) is explicitly documented here and requires domain-owner approval.
-6. CRM service owns account, contact, and address entities exclusively; no other service reads or writes these tables. CRM `SearchService.cs` regenerates `x_search` token fields on create/update.
-7. Invoicing service uses RDS PostgreSQL with FluentMigrator migrations (`services/invoicing/src/Migrations/InitialCreate.cs`); transaction boundaries preserve invoice/line-item/payment ACID invariants.
-8. Reporting service consumes domain events via SQS and projects them into RDS PostgreSQL read models (`ProjectionService.cs`, `EventConsumer.cs`); migrations ordered (`Migration_001_InitialSchema.cs`).
-9. Notifications service preserves SMTP queue semantics (`SmtpService.cs`, `QueueProcessor.cs`) — retry with backoff, priority ordering, and at-least-once delivery.
-10. File Management uses S3 for storage and DynamoDB for metadata; presigned URLs have appropriate TTLs; content-type and size limits enforced.
-11. Workflow engine uses Step Functions state-machine definitions (`approval-chain.json`, `daily-schedule.json`, `interval-schedule.json`, `monthly-schedule.json`, `weekly-schedule.json`) that replicate the monolith's `SheduleManager` recurrence semantics.
-12. Inventory service (project management) preserves the monolith's task/timelog/comment/feed semantics with `TaskService.cs`, `TaskHandler.cs`, `TimelogHandler.cs`.
+- **5.1** Workflows match PR acceptance criteria — CRM account/contact CRUD, project task creation and timelog recording, invoice creation with line items and tax, payment processing, email queue processor, S3 upload/download with presigned URLs, workflow state machine execution — all implemented end-to-end.
+- **5.2** Model changes backward-compatible or migration documented — per-entity field shapes in `Account.cs`, `Contact.cs`, `Invoice.cs`, `Payment.cs`, `Email.cs`, `Task.cs`, `Timelog.cs`, `FileMetadata.cs` preserve the monolith's JSON schema or document a migration path.
+- **5.3** Business rules match spec — `InvoiceService`, `LineItemCalculationService`, `TaxCalculationService`, `PaymentService` implement the monolith's invoicing rules (VAT, rounding, currency handling, totals).
+- **5.4** UI flows match designs — page-level React components in `apps/frontend/src/pages/crm`, `/projects`, `/invoicing`, `/notifications`, `/files`, `/workflows`, `/reports` invoke the correct domain endpoints with correct payloads.
+- **5.5** Deprecated features flagged for sign-off — any monolith feature intentionally omitted (e.g., Bulgarian FTS per AAP §0.3.2) is explicitly documented here and requires domain-owner approval.
+- **5.6** CRM service owns account, contact, and address entities exclusively; no other service reads or writes these tables. CRM `SearchService.cs` regenerates `x_search` token fields on create/update.
+- **5.7** Invoicing service uses RDS PostgreSQL with FluentMigrator migrations (`services/invoicing/src/Migrations/InitialCreate.cs`); transaction boundaries preserve invoice/line-item/payment ACID invariants.
+- **5.8** Reporting service consumes domain events via SQS and projects them into RDS PostgreSQL read models (`ProjectionService.cs`, `EventConsumer.cs`); migrations ordered (`Migration_001_InitialSchema.cs`).
+- **5.9** Notifications service preserves SMTP queue semantics (`SmtpService.cs`, `QueueProcessor.cs`) — retry with backoff, priority ordering, and at-least-once delivery.
+- **5.10** File Management uses S3 for storage and DynamoDB for metadata; presigned URLs have appropriate TTLs; content-type and size limits enforced.
+- **5.11** Workflow engine uses Step Functions state-machine definitions (`approval-chain.json`, `daily-schedule.json`, `interval-schedule.json`, `monthly-schedule.json`, `weekly-schedule.json`) that replicate the monolith's `SheduleManager` recurrence semantics.
+- **5.12** Inventory service (project management) preserves the monolith's task/timelog/comment/feed semantics with `TaskService.cs`, `TaskHandler.cs`, `TimelogHandler.cs`.
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 12 domain-specific checks pass, all seven service .csproj projects build with zero warnings, each service's domain-level integration test (`*LifecycleIntegrationTests.cs`, `*CrudIntegrationTests.cs`) passes against LocalStack, and behavioral parity with the monolith is confirmed via a domain-expert walkthrough of each bounded context's CRUD + workflow endpoints. Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `business: APPROVED`:
 
-### E. Sign-Off Block
+- E5.A — All 12 domain-specific checks (5.1 through 5.12) passed.
+- E5.B — All seven bounded-context `.csproj` projects build with zero warnings.
+- E5.C — Each service's domain-level integration test (`*LifecycleIntegrationTests.cs`, `*CrudIntegrationTests.cs`) passes against LocalStack (or is documented-skip under `CognitoFactAttribute` / `RdsFactAttribute`).
+- E5.D — Behavioral parity with the monolith is confirmed via a domain-expert walkthrough of each bounded context's CRUD + workflow endpoints.
+- E5.E — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 5.3, 5.11):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+Follow R5. Record failing checks by number (e.g., `5.3`, `5.11`) in the Findings field; set `business: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `business: APPROVED` when resolved. **Phase 6 MUST NOT begin until `business` reads `APPROVED`.**
 
 ---
 
-
 ## Phase 6 — Frontend Lead
+
+> **Phase Gate:** This phase is BLOCKED from starting until frontmatter fields `devops`, `security`, `backend`, `qa`, AND `business` all read `APPROVED`. The PR is BLOCKED from merging until this phase's frontmatter field `frontend` reads `APPROVED` — and if a Phase 7 key exists, until that key also reads `APPROVED`.
 
 ### A. Reviewer Role
 
-Frontend Lead — accountable for the React 19 SPA (Vite 6 + TypeScript 5.x), Tailwind CSS 4 styling, React Router 7 routing, TanStack Query 5 data fetching, Zustand 5 client state, the shared UI library, accessibility, bundle size, and frontend test coverage. Owns everything from the Vite build through the rendered page in the user's browser.
+**Reviewer title:** Frontend Lead (SME).
 
-### B. Files to Review
+**Reviewer qualifications required:** Familiarity with React 19, Vite 6 build tooling, TypeScript 5.x strict mode, Tailwind CSS 4 (utility-first), React Router 7 (data-router APIs), TanStack Query 5 (server-state management), Zustand 5 (client-state management), WCAG 2.1 accessibility basics, bundle-size budgets and code-splitting via lazy imports.
 
-251 files in scope for this phase.
+**Accountability:** The React 19 SPA, Tailwind CSS 4 styling, React Router 7 routing, TanStack Query 5 data fetching, Zustand 5 client state, the shared UI library, accessibility, bundle size, and frontend test coverage. Owns everything from the Vite build through the rendered page in the user's browser.
+
+### B. Entry Criteria
+
+1. Frontmatter `devops`, `security`, `backend`, `qa`, `business` all read `APPROVED`.
+2. Frontmatter `frontend: OPEN`.
+3. Phase 4's frontend unit/E2E test criteria (4.5, 4.9, 4.10) have already passed — the reviewer here verifies rendering + interaction, not test infrastructure.
+
+**Reviewer action on entry:** Set frontmatter `frontend: IN_REVIEW`.
+
+### C. Files to Review (251 files)
 
 **Frontend root & public (3 files):**
 - `apps/frontend/index.html`
@@ -1103,41 +1286,126 @@ Frontend Lead — accountable for the React 19 SPA (Vite 6 + TypeScript 5.x), Ta
 
 _Total: 251 files._
 
-### C. Domain-Specific Checks
+### D. Domain-Specific Checks
 
-1. Production Vite build succeeds with zero errors — `cd apps/frontend && npx vite build` produces a clean `dist/` directory without TypeScript errors, failed imports, or missing asset warnings.
-2. Bundle size is within documented thresholds — per-route chunk size < 200 KB gzipped (AAP §0.8.2). Verify with `npx vite build --mode production` and inspect the build output or `rollup-plugin-visualizer` report; main entry bundle must stay small and route-level pages must be code-split via React Router lazy imports.
-3. No hardcoded URLs in frontend code — all API base URLs are read from `VITE_API_URL` environment variable via `apps/frontend/src/api/client.ts`; zero occurrences of literal `http://localhost:4566`, `http://localhost:3000`, or production URLs in `.tsx`/`.ts` files outside `.env*` configuration and `vite.config.ts`.
-4. Accessible labels on all interactive elements — every `<button>`, `<input>`, `<select>`, `<textarea>`, `<a>` with an icon-only child has an `aria-label`, `aria-labelledby`, or visible text label. All field components in `apps/frontend/src/components/fields/` and `libs/shared-ui/src/components/` render `<label htmlFor="…">` bound to the input's `id`. `FieldRenderer.tsx` propagates the label prop to every concrete field type.
-5. Error states handled in UI — each TanStack Query hook (`apps/frontend/src/hooks/useAuth.ts`, `useCrm.ts`, `useEntities.ts`, `useFiles.ts`, `useNotifications.ts`, `usePages.ts`, `usePlugins.ts`, `useProjects.ts`, `useRecords.ts`, `useReports.ts`, `useSearch.ts`, `useUsers.ts`, `useWorkflows.ts`, `useApps.ts`) exposes an `error` state that is rendered in the consuming page via `ScreenMessage.tsx` or an inline error panel; no swallowed exceptions; no silent failures.
-6. New components are tested — every new `*.tsx` file under `apps/frontend/src/components/` and `apps/frontend/src/pages/` has a corresponding Vitest spec under `apps/frontend/tests/unit/` OR is covered by a Playwright E2E test under `apps/frontend-e2e/src/` OR `apps/frontend/tests/e2e/`. Field components in `apps/frontend/src/components/fields/` must each have a rendering/interaction test.
-7. No orphaned exports — every named export in `apps/frontend/src/**/*.ts[x]` and `libs/shared-ui/src/**/*.ts[x]` is referenced somewhere; dead code from the StencilJS/jQuery prior art is removed, not kept for "future reference". Use `npx nx run frontend:lint` with `@typescript-eslint/no-unused-vars` and `import/no-unused-modules` rules enabled.
-8. Router configuration is complete and consistent — `apps/frontend/src/router.tsx` registers every page component under `apps/frontend/src/pages/**` with a stable path; protected routes enforce authentication via the Cognito session read from `authStore.ts`; 404 route present.
-9. API client wiring is correct — `apps/frontend/src/api/client.ts` injects `Authorization: Bearer <idToken>` from `authStore.ts` on every request; request/response interceptors surface 401s as auth-logout events; every endpoint module under `apps/frontend/src/api/endpoints/` uses the shared `client` not raw `fetch`/`axios`.
-10. Tailwind configuration aligns with the design system — `apps/frontend/tailwind.config.ts` defines the palette, spacing scale, and typography matching the intended theme; the Bootstrap 4 monolith theme is fully replaced (AAP §0.7.7) and no residual Bootstrap classes remain in JSX.
-11. TypeScript strict mode — `apps/frontend/tsconfig.json` and `apps/frontend/tsconfig.app.json` enable `strict: true`, `noImplicitAny: true`, `strictNullChecks: true`; shared `tsconfig.base.json` is extended correctly with path aliases for `libs/*`.
-12. Client state discipline — Zustand stores (`apps/frontend/src/stores/authStore.ts`, `appStore.ts`, `pageBuilderStore.ts`, `uiStore.ts`) hold only client-only concerns (UI state, auth tokens); server-fetched data flows through TanStack Query caches, not stores; no duplication of remote state into stores.
-13. Shared UI library boundaries — `libs/shared-ui` exports only reusable primitives (`DataTable`, `FieldComponents`, `Form`, `useApi`, `useAuth`, `usePagination`); it does not import from `apps/frontend`; `apps/frontend` consumes the library via the path alias declared in `tsconfig.base.json`.
+- **6.1** Production Vite build succeeds with zero errors — `cd apps/frontend && npx vite build` produces a clean `dist/` directory without TypeScript errors, failed imports, or missing asset warnings.
+- **6.2** Bundle size is within documented thresholds — per-route chunk size < 200 KB gzipped (AAP §0.8.2). Verify with `npx vite build --mode production` and inspect the build output or `rollup-plugin-visualizer` report; main entry bundle must stay small and route-level pages must be code-split via React Router lazy imports.
+- **6.3** No hardcoded URLs in frontend code — all API base URLs are read from `VITE_API_URL` environment variable via `apps/frontend/src/api/client.ts`; zero occurrences of literal `http://localhost:4566`, `http://localhost:3000`, or production URLs in `.tsx`/`.ts` files outside `.env*` configuration and `vite.config.ts`.
+- **6.4** Accessible labels on all interactive elements — every `<button>`, `<input>`, `<select>`, `<textarea>`, `<a>` with an icon-only child has an `aria-label`, `aria-labelledby`, or visible text label. All field components in `apps/frontend/src/components/fields/` and `libs/shared-ui/src/components/` render `<label htmlFor="…">` bound to the input's `id`. `FieldRenderer.tsx` propagates the label prop to every concrete field type.
+- **6.5** Error states handled in UI — each TanStack Query hook (`apps/frontend/src/hooks/useAuth.ts`, `useCrm.ts`, `useEntities.ts`, `useFiles.ts`, `useNotifications.ts`, `usePages.ts`, `usePlugins.ts`, `useProjects.ts`, `useRecords.ts`, `useReports.ts`, `useSearch.ts`, `useUsers.ts`, `useWorkflows.ts`, `useApps.ts`) exposes an `error` state that is rendered in the consuming page via `ScreenMessage.tsx` or an inline error panel; no swallowed exceptions; no silent failures.
+- **6.6** New components are tested — every new `*.tsx` file under `apps/frontend/src/components/` and `apps/frontend/src/pages/` has a corresponding Vitest spec under `apps/frontend/tests/unit/` OR is covered by a Playwright E2E test under `apps/frontend-e2e/src/` OR `apps/frontend/tests/e2e/`. Field components in `apps/frontend/src/components/fields/` must each have a rendering/interaction test.
+- **6.7** No orphaned exports — every named export in `apps/frontend/src/**/*.ts[x]` and `libs/shared-ui/src/**/*.ts[x]` is referenced somewhere; dead code from the StencilJS/jQuery prior art is removed, not kept for "future reference". Use `npx nx run frontend:lint` with `@typescript-eslint/no-unused-vars` and `import/no-unused-modules` rules enabled.
+- **6.8** Router configuration is complete and consistent — `apps/frontend/src/router.tsx` registers every page component under `apps/frontend/src/pages/**` with a stable path; protected routes enforce authentication via the Cognito session read from `authStore.ts`; 404 route present.
+- **6.9** API client wiring is correct — `apps/frontend/src/api/client.ts` injects `Authorization: Bearer <idToken>` from `authStore.ts` on every request; request/response interceptors surface 401s as auth-logout events; every endpoint module under `apps/frontend/src/api/endpoints/` uses the shared `client` not raw `fetch`/`axios`.
+- **6.10** Tailwind configuration aligns with the design system — `apps/frontend/tailwind.config.ts` defines the palette, spacing scale, and typography matching the intended theme; the Bootstrap 4 monolith theme is fully replaced (AAP §0.7.7) and no residual Bootstrap classes remain in JSX.
+- **6.11** TypeScript strict mode — `apps/frontend/tsconfig.json` and `apps/frontend/tsconfig.app.json` enable `strict: true`, `noImplicitAny: true`, `strictNullChecks: true`; shared `tsconfig.base.json` is extended correctly with path aliases for `libs/*`.
+- **6.12** Client state discipline — Zustand stores (`apps/frontend/src/stores/authStore.ts`, `appStore.ts`, `pageBuilderStore.ts`, `uiStore.ts`) hold only client-only concerns (UI state, auth tokens); server-fetched data flows through TanStack Query caches, not stores; no duplication of remote state into stores.
+- **6.13** Shared UI library boundaries — `libs/shared-ui` exports only reusable primitives (`DataTable`, `FieldComponents`, `Form`, `useApi`, `useAuth`, `usePagination`); it does not import from `apps/frontend`; `apps/frontend` consumes the library via the path alias declared in `tsconfig.base.json`.
 
-### D. Sign-Off Criteria
+### E. Exit Criteria
 
-Phase APPROVED when: all 13 domain-specific checks pass, `cd apps/frontend && npx vite build` exits 0, `cd apps/frontend && npx vitest run` passes 100% with zero failures and zero skipped tests, all new pages and components have tests, bundle size is within thresholds, accessibility checks pass on all interactive elements, router is complete, and no orphaned exports remain. Reviewer records name and date below.
+All of the following MUST evaluate to true before the reviewer sets frontmatter `frontend: APPROVED`:
 
-### E. Sign-Off Block
+- E6.A — All 13 domain-specific checks (6.1 through 6.13) passed.
+- E6.B — `cd apps/frontend && npx vite build` exits 0.
+- E6.C — `cd apps/frontend && npx vitest run` passes 100% with zero failures and zero skipped tests.
+- E6.D — All new pages and components have tests (per 6.6).
+- E6.E — Bundle size is within thresholds (per 6.2).
+- E6.F — Accessibility checks pass on all interactive elements (per 6.4).
+- E6.G — Router is complete (per 6.8), and no orphaned exports remain (per 6.7).
+- E6.H — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
 
 SIGN-OFF
 Reviewer name: ______________
 Date: ______________
 Phase status (circle one): APPROVED / BLOCKED
-Findings (if BLOCKED): ______________
+Findings (if BLOCKED, list by unique check number, e.g., 6.1, 6.4):
+______________
+______________
+______________
 
-FAIL STATE — if this phase is BLOCKED:
+### G. FAIL STATE Protocol
 
-1. Reviewer documents all failing checks in the Findings field above.
-2. Reviewer updates this phase's frontmatter status field to BLOCKED.
-3. Reviewer notifies the PR author with a direct link to the failing checks.
-4. PR author addresses all findings via new commits (no force-pushes to the review branch).
-5. Reviewer re-reviews ONLY the files changed since BLOCKED status was set and updates status to APPROVED in the frontmatter when all sign-off criteria pass.
-Phase N+1 MUST NOT begin until this phase's frontmatter field reads APPROVED.
+Follow R5. Record failing checks by number (e.g., `6.1`, `6.4`) in the Findings field; set `frontend: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `frontend: APPROVED` when resolved. **If no Phase 7 is activated, on APPROVED, set top-level `status: APPROVED` and the PR becomes merge-eligible.**
+
+---
+
+## Phase 7 — Other SMEs (Conditional / Template)
+
+> **Activation:** This phase is OPTIONAL and is activated only when the Segmented PR Review Rule R6 escalation applies (e.g., data engineering, ML ops, compliance, accessibility-specialist, licensing, internationalization concerns surfaced during earlier phases). If activated, add the corresponding key(s) to the frontmatter (e.g., `accessibility: OPEN`) and clone the template below for each additional SME track. Phase 7 executes AFTER Phase 6 reads `APPROVED`. Multiple Phase 7 tracks — when required — run sequentially (7a → 7b → …), not in parallel.
+
+> **Phase Gate (when activated):** BLOCKED from starting until frontmatter fields `devops`, `security`, `backend`, `qa`, `business`, AND `frontend` all read `APPROVED`. The PR is BLOCKED from merging until every activated Phase 7 key reads `APPROVED`.
+
+### A. Reviewer Role
+
+**Reviewer title:** `<SME role label — e.g., Data Engineer | ML Ops | Compliance Officer | Accessibility Specialist | Localization Lead>`.
+
+**Reviewer qualifications required:** `<Specific domain knowledge required for this SME track.>`
+
+**Accountability:** `<Specific area of the codebase or cross-cutting concern owned by this SME.>`
+
+### B. Entry Criteria
+
+1. Frontmatter `devops`, `security`, `backend`, `qa`, `business`, `frontend` all read `APPROVED`.
+2. Frontmatter `<this-sme-key>: OPEN`.
+3. The activating reviewer (from any earlier phase) has documented in the PR description the reason this Phase 7 track is required and has identified the SME owner.
+
+**Reviewer action on entry:** Set frontmatter `<this-sme-key>: IN_REVIEW`.
+
+### C. Files to Review
+
+`<Enumerate the specific files in this SME's scope.>`
+
+### D. Domain-Specific Checks
+
+- **7.1** `<SME-specific check.>`
+- **7.2** `<SME-specific check.>`
+- **7.n** `<SME-specific check.>`
+
+### E. Exit Criteria
+
+All of the following MUST evaluate to true before the reviewer sets `<this-sme-key>: APPROVED`:
+
+- E7.A — All SME-specific checks (7.1 through 7.n) passed.
+- E7.B — `<SME-specific objective gate, e.g., `axe-core` reports zero WCAG 2.1 AA violations.>`
+- E7.C — The reviewer has recorded their name and date in the Sign-Off Block below.
+
+### F. Sign-Off Block
+
+SIGN-OFF
+Reviewer name: ______________
+Date: ______________
+Phase status (circle one): APPROVED / BLOCKED
+Findings (if BLOCKED, list by unique check number, e.g., 7.1):
+______________
+______________
+______________
+
+### G. FAIL STATE Protocol
+
+Follow R5. Record failing checks by number; set `<this-sme-key>: BLOCKED` and `status: BLOCKED`; PR author remediates; reviewer re-reviews only changed files; set `<this-sme-key>: APPROVED` when resolved. **The PR remains BLOCKED from merging until every activated Phase 7 key reads `APPROVED`.**
+
+---
+
+## Final Merge Gate
+
+The PR is merge-eligible only when ALL of the following are simultaneously true:
+
+1. Every enumerated phase field in the YAML frontmatter reads `APPROVED`:
+   - `devops: APPROVED`
+   - `security: APPROVED`
+   - `backend: APPROVED`
+   - `qa: APPROVED`
+   - `business: APPROVED`
+   - `frontend: APPROVED`
+   - (and every activated Phase 7 key, e.g., `accessibility: APPROVED`).
+2. The top-level `status:` frontmatter field reads `APPROVED`.
+3. No phase field reads `BLOCKED`.
+4. The three Gate Verification Commands in R8 return the expected outputs.
+5. All sign-off blocks have recorded reviewer names and dates.
+
+If any of these conditions is false, the PR MUST NOT be merged, regardless of the number of approving reviews the PR otherwise has. Partial sign-off is not approval (R7).
 
 ---
