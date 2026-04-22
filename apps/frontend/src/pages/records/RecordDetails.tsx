@@ -19,6 +19,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 // flushSync is now passed as a navigate option (createBrowserRouter support)
 import { useParams, useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
+import type { NavigateOptions } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecord, useDeleteRecord } from '../../hooks/useRecords';
 import { useEntity } from '../../hooks/useEntities';
@@ -382,12 +383,12 @@ export default function RecordDetails(): React.JSX.Element {
       navigate(`/records/${standaloneEntityName}/${recordId}/edit`, {
         state: navState,
         flushSync: true,
-      } as Parameters<typeof navigate>[1]);
+      } as NavigateOptions);
     } else {
       navigate(`/${appName}/${areaName}/${nodeName}/m/${recordId}`, {
         state: navState,
         flushSync: true,
-      } as Parameters<typeof navigate>[1]);
+      } as NavigateOptions);
     }
   }, [navigate, appName, areaName, nodeName, recordId, isStandalone, standaloneEntityName, entity, record]);
 

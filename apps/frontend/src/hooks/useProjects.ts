@@ -554,7 +554,7 @@ export function useTasks(params?: TasksParams) {
          Normalise both shapes into the canonical RecordListResponse form.
          The Lambda serialises the count as snake_case "total_count" but the
          TypeScript interface uses camelCase "totalCount" — handle both. */
-      const obj = response.object as Record<string, unknown>;
+      const obj = response.object as unknown as Record<string, unknown>;
       if (Array.isArray(obj)) {
         return { records: obj as EntityRecord[], totalCount: obj.length };
       }
@@ -903,7 +903,7 @@ export function useTimelogs(params?: TimelogsParams) {
       }
 
       /* Normalise — API may return plain array or { records, total_count/totalCount } */
-      const obj = response.object as Record<string, unknown>;
+      const obj = response.object as unknown as Record<string, unknown>;
       if (Array.isArray(obj)) {
         return { records: obj as EntityRecord[], totalCount: obj.length };
       }
@@ -1151,7 +1151,7 @@ export function useComments(taskId: string, params?: { page?: number; pageSize?:
       }
 
       /* Normalise — API may return plain array or { records, total_count/totalCount } */
-      const obj = response.object as Record<string, unknown>;
+      const obj = response.object as unknown as Record<string, unknown>;
       if (Array.isArray(obj)) {
         return { records: obj as EntityRecord[], totalCount: obj.length };
       }

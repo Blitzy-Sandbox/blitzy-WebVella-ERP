@@ -30,6 +30,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 // flushSync is now passed as a navigate option (createBrowserRouter support)
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import type { NavigateOptions } from 'react-router-dom';
 
 import { useRecords, useRecordCount } from '../../hooks/useRecords';
 import { useEntity } from '../../hooks/useEntities';
@@ -635,7 +636,7 @@ export default function RecordList(): React.JSX.Element {
               {
                 state: { entity },
                 flushSync: true,
-              } as Parameters<typeof navigate>[1],
+              } as NavigateOptions,
             );
           }}
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors duration-150 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"

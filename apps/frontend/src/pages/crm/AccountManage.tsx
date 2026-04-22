@@ -211,10 +211,15 @@ export default function AccountManage() {
     queryKey: ['lookup', 'countries'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/countries');
-      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
-        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch countries');
+      // ApiResponse<T> has typed `success` and `message` fields — no cast needed
+      if (response.success === false) {
+        throw new Error(response.message || 'Failed to fetch countries');
       }
-      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      // `object` is typed as EntityRecordList | undefined; use intermediate
+      // unknown cast to widen and probe alternative payload shapes for
+      // backward compatibility with legacy backend responses.
+      const raw = ((response.object as unknown) ??
+        (response as unknown)) as Record<string, unknown>;
       const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
       const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
       return { records, totalCount };
@@ -226,10 +231,15 @@ export default function AccountManage() {
     queryKey: ['lookup', 'languages'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/languages');
-      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
-        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch languages');
+      // ApiResponse<T> has typed `success` and `message` fields — no cast needed
+      if (response.success === false) {
+        throw new Error(response.message || 'Failed to fetch languages');
       }
-      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      // `object` is typed as EntityRecordList | undefined; use intermediate
+      // unknown cast to widen and probe alternative payload shapes for
+      // backward compatibility with legacy backend responses.
+      const raw = ((response.object as unknown) ??
+        (response as unknown)) as Record<string, unknown>;
       const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
       const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
       return { records, totalCount };
@@ -241,10 +251,15 @@ export default function AccountManage() {
     queryKey: ['lookup', 'currencies'],
     queryFn: async (): Promise<EntityRecordList> => {
       const response = await get<EntityRecordList>('/crm/currencies');
-      if (typeof (response as Record<string, unknown>)?.success === 'boolean' && !(response as Record<string, unknown>).success) {
-        throw new Error((response as Record<string, unknown>).message as string || 'Failed to fetch currencies');
+      // ApiResponse<T> has typed `success` and `message` fields — no cast needed
+      if (response.success === false) {
+        throw new Error(response.message || 'Failed to fetch currencies');
       }
-      const raw = ((response as Record<string, unknown>)?.object ?? response) as Record<string, unknown>;
+      // `object` is typed as EntityRecordList | undefined; use intermediate
+      // unknown cast to widen and probe alternative payload shapes for
+      // backward compatibility with legacy backend responses.
+      const raw = ((response.object as unknown) ??
+        (response as unknown)) as Record<string, unknown>;
       const records = (raw?.records ?? raw?.data ?? raw?.items ?? []) as EntityRecord[];
       const totalCount = Number(raw?.totalCount ?? (raw?.meta as Record<string, unknown>)?.total ?? records.length);
       return { records, totalCount };

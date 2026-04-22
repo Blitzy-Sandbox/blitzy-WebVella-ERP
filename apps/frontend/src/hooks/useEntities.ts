@@ -276,12 +276,12 @@ export function useEntity(idOrName: string) {
       // The API may return a single Entity or an array of entities.
       // When the backend cannot resolve by name directly, it returns
       // the full entity list — we find the matching entity by name/id.
-      let entity = response.object;
+      let entity: Entity | undefined = response.object;
       if (Array.isArray(entity)) {
         const match = (entity as unknown as Entity[]).find(
           (e) => e.name === idOrName || e.id === idOrName,
         );
-        entity = (match ?? null) as Entity | null;
+        entity = match;
       }
 
       if (!entity) {

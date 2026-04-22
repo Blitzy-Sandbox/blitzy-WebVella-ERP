@@ -286,8 +286,12 @@ export default function ContactCreate() {
 
       try {
         const result = await upload({ file });
-        const raw = (result as Record<string, unknown>)?.object ?? result;
-        const fileUrl = (raw as Record<string, unknown>)?.url ?? '';
+        // `result` is ApiResponse<FileMetadata>; `result.object` is the
+        // typed FileMetadata. Use `unknown` intermediate cast for legacy
+        // payload shapes and probe `.url` defensively.
+        const raw = ((result.object as unknown) ??
+          (result as unknown)) as Record<string, unknown>;
+        const fileUrl = raw?.url ?? '';
         setFormState((prev) => ({ ...prev, photo: String(fileUrl) }));
       } catch {
         setErrors((prev) => ({

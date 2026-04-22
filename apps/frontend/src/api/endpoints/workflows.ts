@@ -201,12 +201,16 @@ export async function getJobs(
  * `ScheduleManager.Current.GetSchedulePlans()` and maps results to
  * `OutputSchedulePlan` DTOs.
  *
+ * Routed to `GET /v1/workflow/schedule-plans` per the OpenAPI contract
+ * (`libs/shared-schemas/src/api/workflow-api.yaml` `listSchedulePlans`).
+ * The `/v1` prefix is applied by the API client's base URL.
+ *
  * @returns All schedule plans wrapped in the standard API envelope.
  */
 export async function getSchedulePlansList(): Promise<
   ApiResponse<OutputSchedulePlan[]>
 > {
-  return get<OutputSchedulePlan[]>('/workflow/schedule-plans/list');
+  return get<OutputSchedulePlan[]>('/workflow/schedule-plans');
 }
 
 /**
@@ -272,12 +276,19 @@ export async function triggerSchedulePlan(
  * creates a plan with all days enabled, Daily type, and a hardcoded
  * test JobTypeId. A new GUID is generated server-side.
  *
+ * Routed to `POST /v1/workflow/schedule-plans/test` per the OpenAPI
+ * contract (`libs/shared-schemas/src/api/workflow-api.yaml`
+ * `createTestSchedulePlan`). Although the monolith's legacy route was
+ * `GET api/v3/en_US/scheduleplan/test`, the refactored OpenAPI contract
+ * uses POST because this endpoint performs a non-idempotent create
+ * operation. The `/v1` prefix is applied by the API client's base URL.
+ *
  * @returns The newly created test schedule plan DTO.
  */
 export async function createTestSchedulePlan(): Promise<
   ApiResponse<OutputSchedulePlan>
 > {
-  return get<OutputSchedulePlan>('/workflow/schedule-plans/test');
+  return post<OutputSchedulePlan>('/workflow/schedule-plans/test');
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +304,14 @@ export async function createTestSchedulePlan(): Promise<
  * date-range filters via `fromDate`/`untilDate`, and sorts results by
  * `created_on` descending.
  *
+ * Routed to `GET /v1/reporting/system-log` per the OpenAPI contract
+ * (`libs/shared-schemas/src/api/reporting-api.yaml`). Ownership of the
+ * system-log read-model moved from the monolith's Workflow area to the
+ * Reporting & Analytics bounded-context service (AAP §0.2.2, §0.4.1 — the
+ * Reporting service owns the CloudWatch-backed read model projected
+ * from domain events). The `/v1` prefix is applied by the API client's
+ * base URL.
+ *
  * Defaults: page = 1, pageSize = 15.
  *
  * @param params - Optional filtering and pagination parameters.
@@ -302,7 +321,7 @@ export async function getSystemLog(
   params?: SystemLogParams,
 ): Promise<ApiResponse<EntityRecord[]>> {
   return get<EntityRecord[]>(
-    '/workflow/system-log',
+    '/reporting/system-log',
     params as Record<string, unknown> | undefined,
   );
 }

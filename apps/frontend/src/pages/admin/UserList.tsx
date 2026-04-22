@@ -239,7 +239,7 @@ export default function UserList(): React.ReactElement {
         sortable: true,
         width: '120px',
         accessorKey: 'email',
-        cell: (_value: unknown, record: UserRecord) => (
+        cell: (_value: unknown, record: UserWithRoles) => (
           <Link
             to={`/admin/users/${record.id}`}
             className="font-medium text-blue-600 hover:text-blue-800 hover:underline"

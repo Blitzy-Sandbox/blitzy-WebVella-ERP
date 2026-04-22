@@ -536,15 +536,22 @@ export function useRecordCount(entityName: string, query?: QueryObject | null) {
 
       // The backend may return a number or an object/array for the count
       // endpoint. Normalise to a plain number.
-      let count = response.object;
-      if (count === undefined || count === null) {
+      // Widened type via `unknown` to keep the narrowing checks meaningful
+      // even when `response.object` is declared as `number`.
+      const rawCount: unknown = response.object;
+      let count: number;
+      if (rawCount === undefined || rawCount === null) {
         // Gracefully default to 0 instead of throwing, so the UI still
         // renders without a count (pagination may be approximate).
-        count = 0 as unknown as number;
-      }
-      if (typeof count !== 'number') {
-        // If the backend returned something unexpected, coerce or default
-        count = (Array.isArray(count) ? count.length : 0) as unknown as number;
+        count = 0;
+      } else if (typeof rawCount === 'number') {
+        count = rawCount;
+      } else if (Array.isArray(rawCount)) {
+        // If the backend returned an array (e.g., list of IDs), use its length
+        count = rawCount.length;
+      } else {
+        // Unknown shape — default to 0
+        count = 0;
       }
 
       return count;
