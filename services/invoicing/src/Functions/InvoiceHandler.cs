@@ -32,13 +32,13 @@ namespace WebVellaErp.Invoicing.Functions
     /// Replaces the monolith's RecordManager CRUD orchestration pattern from
     /// WebVella.Erp/Api/RecordManager.cs, specialized for invoice entities.
     ///
-    /// API Routes:
-    ///   POST   /v1/invoicing/invoices              → HandleCreateInvoice
-    ///   GET    /v1/invoicing/invoices/{invoiceId}   → HandleGetInvoice
-    ///   PUT    /v1/invoicing/invoices/{invoiceId}   → HandleUpdateInvoice
-    ///   GET    /v1/invoicing/invoices               → HandleListInvoices
-    ///   POST   /v1/invoicing/invoices/{id}/void     → HandleVoidInvoice
-    ///   GET    /v1/invoicing/invoices/health        → HandleHealthCheck
+    /// API Routes (authoritative — aligned with libs/shared-schemas/src/api/invoicing-api.yaml):
+    ///   POST   /v1/invoicing/invoices                    → HandleCreateInvoice
+    ///   GET    /v1/invoicing/invoices                    → HandleListInvoices
+    ///   GET    /v1/invoicing/invoices/{invoiceId}        → HandleGetInvoice
+    ///   PUT    /v1/invoicing/invoices/{invoiceId}        → HandleUpdateInvoice
+    ///   DELETE /v1/invoicing/invoices/{invoiceId}        → HandleVoidInvoice (soft-delete via void)
+    ///   GET    /v1/invoicing/invoices/health             → HandleHealthCheck
     /// </summary>
     public class InvoiceHandler
     {
@@ -167,6 +167,23 @@ namespace WebVellaErp.Invoicing.Functions
         /// Single entry point for managed .NET Lambda runtime (dotnet9).
         /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
         /// based on HTTP method and request path.
+        ///
+        /// Dispatch algorithm:
+        ///   1. Health check (GET path ending in /health) short-circuits before auth.
+        ///   2. Determine whether the path contains an invoice ID (GUID segment) via
+        ///      TryGetPathParameter's {proxy+} scan.
+        ///   3. Route based on (method, hasInvoiceId) tuple to the matching handler.
+        ///   4. Any unmatched combination returns HTTP 404 "Route not found." — never
+        ///      silently create an invoice from an unrecognized method, which was the
+        ///      prior default-fallback behavior identified in Phase 4 review.
+        ///
+        /// Route ↔ dispatch mapping (matches OpenAPI invoicing-api.yaml):
+        ///   POST   /v1/invoicing/invoices            (no id)  → HandleCreateInvoice
+        ///   GET    /v1/invoicing/invoices            (no id)  → HandleListInvoices
+        ///   GET    /v1/invoicing/invoices/{id}       (has id) → HandleGetInvoice
+        ///   PUT    /v1/invoicing/invoices/{id}       (has id) → HandleUpdateInvoice
+        ///   DELETE /v1/invoicing/invoices/{id}       (has id) → HandleVoidInvoice
+        ///   GET    /v1/invoicing/invoices/health     (health) → HandleHealthCheck
         /// </summary>
         public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
@@ -174,21 +191,49 @@ namespace WebVellaErp.Invoicing.Functions
             var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
             var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
 
-            if (method == "POST")
-                return await HandleCreateInvoice(request, context);
-            else if (method == "GET")
-                return await HandleGetInvoice(request, context);
-            else if (method == "PUT")
-                return await HandleUpdateInvoice(request, context);
-            else if (method == "GET")
-                return await HandleListInvoices(request, context);
-            else if (method == "DELETE" && path.Contains("/void"))
-                return await HandleVoidInvoice(request, context);
-            else if (method == "GET" && path.Contains("/health"))
+            // 1. Health check — match BEFORE invoice-id dispatch so GET /invoices/health
+            //    is not interpreted as an invoice-detail request.
+            if (method == "GET" && path.EndsWith("/health", StringComparison.OrdinalIgnoreCase))
+            {
                 return await HandleHealthCheck(request, context);
+            }
 
-            // Default: route to HandleCreateInvoice
-            return await HandleCreateInvoice(request, context);
+            // 2. Determine whether the path carries an invoice ID segment.
+            //    TryGetPathParameter handles both the named parameter and the {proxy+} fallback
+            //    (scanning segments right-to-left for a valid GUID).
+            var hasInvoiceId = TryGetPathParameter(request, "invoiceId", out _);
+
+            // 3. Dispatch on (method, hasInvoiceId).
+            switch (method)
+            {
+                case "POST":
+                    return await HandleCreateInvoice(request, context);
+
+                case "GET":
+                    return hasInvoiceId
+                        ? await HandleGetInvoice(request, context)
+                        : await HandleListInvoices(request, context);
+
+                case "PUT" when hasInvoiceId:
+                    return await HandleUpdateInvoice(request, context);
+
+                case "DELETE" when hasInvoiceId:
+                    return await HandleVoidInvoice(request, context);
+
+                default:
+                    // 4. Any unrecognized method/path combination returns 404 rather than
+                    //    silently invoking HandleCreateInvoice (the former fallback behavior
+                    //    could silently create invoices from OPTIONS/HEAD/PATCH/etc.).
+                    _logger.LogWarning(
+                        "Unrouted request: method={Method} path={Path}",
+                        method, path);
+                    return BuildErrorResponse(404, "Route not found.",
+                        new List<ErrorModel>
+                        {
+                            new ErrorModel("route", string.Empty,
+                                $"No handler for {method} {path}.")
+                        });
+            }
         }
 
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleCreateInvoice(

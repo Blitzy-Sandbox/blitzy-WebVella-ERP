@@ -107,6 +107,35 @@ export interface ApiGatewayStackProps extends cdk.StackProps {
   readonly userPool: cognito.IUserPool;
 
   /**
+   * Explicit list of frontend origins allowed by CORS on the HTTP API v2.
+   *
+   * Per AAP §0.8.3 security requirements: "CORS locked to known origins".
+   * Per AAP §0.8.1: "the frontend MUST be a pure static SPA", so the only
+   * legitimate browser origin for cross-origin API calls is the S3 website
+   * URL (LocalStack) or the CloudFront distribution URL (production).
+   *
+   * Contract:
+   * - When provided (non-empty): the exact list is honored verbatim. Wildcard
+   *   entries (`*`) are rejected to prevent accidental over-sharing.
+   * - When omitted and `isLocalStack === true`: a permissive set of localhost
+   *   origins (Vite dev + Vite preview + common ports) plus the LocalStack S3
+   *   website hostname pattern is used. This is safe because LocalStack runs
+   *   only on the developer's machine.
+   * - When omitted and `isLocalStack === false`: the stack FAILS SYNTH. Production
+   *   deployments MUST declare `allowedOrigins` to satisfy the deny-by-default
+   *   principle. This prevents accidentally deploying with `*`.
+   *
+   * The CDK app (`app.ts`) sources this value from the CDK context key
+   * `frontendOrigins` (comma-separated), letting operators inject the actual
+   * CloudFront or custom-domain URL via `--context frontendOrigins=https://erp.example.com`
+   * without editing source code.
+   *
+   * @example ['http://localhost:5173', 'http://localhost:4173']
+   * @example ['https://erp.example.com']
+   */
+  readonly allowedOrigins?: string[];
+
+  /**
    * Identity service Lambda functions from IdentityStack.
    * [0] = AuthHandler (login/logout/refresh/me)
    * [1] = UserHandler (user CRUD)
@@ -215,6 +244,29 @@ export class ApiGatewayStack extends cdk.Stack {
     const { isLocalStack, userPool } = props;
 
     // -------------------------------------------------------------------
+    // 0. Resolve Allowed CORS Origins (Defense-in-Depth)
+    // -------------------------------------------------------------------
+    // Per AAP §0.8.3 security requirements the API MUST NOT reply with
+    // `Access-Control-Allow-Origin: *` in production. We resolve the set of
+    // allowed origins up front so that an invalid / missing configuration
+    // fails synth rather than silently shipping an open CORS policy.
+    //
+    // Resolution order:
+    //   1. Explicit `props.allowedOrigins` (populated from CDK context
+    //      `frontendOrigins` in `app.ts`).
+    //   2. LocalStack defaults (localhost dev/preview ports + LocalStack
+    //      S3 website hostname pattern) — safe because LocalStack only
+    //      binds to 127.0.0.1 on the operator's workstation.
+    //   3. In production, NO defaults — stack synthesis halts with a clear
+    //      error message so the operator must consciously declare the
+    //      frontend origin. This implements deny-by-default.
+
+    const allowedOrigins: string[] = resolveCorsAllowedOrigins(
+      props.allowedOrigins,
+      isLocalStack
+    );
+
+    // -------------------------------------------------------------------
     // 1. CloudWatch Access Log Group
     // -------------------------------------------------------------------
     // Structured JSON request/response logging with correlation-ID
@@ -240,12 +292,15 @@ export class ApiGatewayStack extends cdk.Stack {
     //
     // CORS configuration replaces Startup.cs (lines 52-64):
     //   Original: AllowAnyOrigin(), AllowAnyMethod(), AllowAnyHeader()
-    //   Target: Explicit method/header allowlists with all origins.
-    //   Per AAP section 0.8.3, production deployments should restrict
-    //   origins to the known frontend domain.
+    //   Target: Explicit allowlist of origins / methods / headers per
+    //   AAP §0.8.3 security requirements. `allowCredentials` is intentionally
+    //   OMITTED (defaults to false) because cross-origin cookie forwarding
+    //   is incompatible with a wildcarded or broadly scoped origin policy
+    //   and the SPA authenticates via Authorization header Bearer tokens,
+    //   not cookies (see IdentityStack / authorizer Lambda).
 
     const corsPreflightOptions: apigatewayv2.CorsPreflightOptions = {
-      allowOrigins: ['*'],
+      allowOrigins: allowedOrigins,
       allowMethods: [
         apigatewayv2.CorsHttpMethod.GET,
         apigatewayv2.CorsHttpMethod.POST,
@@ -477,9 +532,19 @@ export class ApiGatewayStack extends cdk.Stack {
         requireAuth: true,
       },
       // User CRUD routes — all standard methods
+      // Legacy paths (kept for backward compatibility):
       ...createCrudRoutes('/v1/users/{proxy+}', props.identityFunctions[1]),
+      // Spec-aligned paths (per OpenAPI identity-api.yaml):
+      //   /v1/identity/users, /v1/identity/users/me, /v1/identity/users/{userId}
+      // UserHandler dispatches internally via substring matching on "/users".
+      ...createCrudRoutes('/v1/identity/users/{proxy+}', props.identityFunctions[1]),
       // Role management routes — all standard methods
+      // Legacy paths (kept for backward compatibility):
       ...createCrudRoutes('/v1/roles/{proxy+}', props.identityFunctions[2]),
+      // Spec-aligned paths (per OpenAPI identity-api.yaml):
+      //   /v1/identity/roles, /v1/identity/roles/{roleId}
+      // RoleHandler dispatches internally via substring matching on "/roles".
+      ...createCrudRoutes('/v1/identity/roles/{proxy+}', props.identityFunctions[2]),
     ];
 
     const identityIntegration = new WebVellaApiIntegration(
@@ -562,6 +627,90 @@ export class ApiGatewayStack extends cdk.Stack {
         '/v1/import-export/{proxy+}',
         props.entityManagementFunctions[6],
       ),
+
+      // ── Spec-aligned /v1/entity-management/* routes ──────────────────────
+      // The frontend SPA (apps/frontend/src/api/endpoints/*.ts) and the
+      // OpenAPI specs (libs/shared-schemas/src/api/entity-management-api.yaml)
+      // both use service-name-prefixed paths. These routes alias the legacy
+      // paths above to the same Lambda handlers. Handlers dispatch internally
+      // via substring matching on "/entities", "/records", "/relations",
+      // "/search", "/query", "/datasource", "/fields".
+      //
+      // Path routing intent:
+      //   /v1/entity-management/entities/* — EntityHandler (includes /fields delegation)
+      //   /v1/entity-management/relations/* — RelationHandler
+      //   /v1/entity-management/records/* — RecordHandler (CSV import/export → delegates internally)
+      //   /v1/entity-management/search, /v1/entity-management/search/{proxy+} — SearchHandler
+      //   /v1/entity-management/query/* — SearchHandler (eql) + DataSourceHandler (datasource)
+      //   /v1/entity-management/datasource/* — DataSourceHandler
+
+      // Entity metadata CRUD (spec path)
+      ...createCrudRoutes(
+        '/v1/entity-management/entities/{proxy+}',
+        props.entityManagementFunctions[0],
+      ),
+
+      // Relation metadata CRUD (spec path)
+      ...createCrudRoutes(
+        '/v1/entity-management/relations/{proxy+}',
+        props.entityManagementFunctions[2],
+      ),
+
+      // Record CRUD (spec path)
+      ...createCrudRoutes(
+        '/v1/entity-management/records/{proxy+}',
+        props.entityManagementFunctions[3],
+      ),
+
+      // Search endpoints (spec path) — catch-all covers bare /search
+      // (via createCrudRoutes' bare-path synthesis for {proxy+} suffixes).
+      ...createCrudRoutes(
+        '/v1/entity-management/search/{proxy+}',
+        props.entityManagementFunctions[5],
+      ),
+
+      // Query endpoints (spec path)
+      // /v1/entity-management/query/eql — SearchHandler (EQL execution)
+      // /v1/entity-management/query/datasource[-select2] — DataSourceHandler
+      // Route all query/* to SearchHandler first; it delegates datasource
+      // queries via the shared _jsonOptions path detection. For deterministic
+      // routing, explicit per-path routes are registered below.
+      {
+        method: 'POST',
+        path: '/v1/entity-management/query/eql',
+        handler: props.entityManagementFunctions[5],
+        requireAuth: true,
+      },
+      {
+        method: 'POST',
+        path: '/v1/entity-management/query/datasource',
+        handler: props.entityManagementFunctions[4],
+        requireAuth: true,
+      },
+      {
+        method: 'POST',
+        path: '/v1/entity-management/query/datasource-select2',
+        handler: props.entityManagementFunctions[4],
+        requireAuth: true,
+      },
+
+      // DataSource CRUD (spec path)
+      ...createCrudRoutes(
+        '/v1/entity-management/datasource/{proxy+}',
+        props.entityManagementFunctions[4],
+      ),
+
+      // Additional spec-declared paths outside /v1/entity-management/* prefix:
+      //   /v1/meta/relations/{relationName} — RelationHandler lookup by name
+      //   /v1/records/{entityName}/with-relation/{relationName}/{relatedRecordId} — relation bridge
+      ...createCrudRoutes(
+        '/v1/meta/relations/{proxy+}',
+        props.entityManagementFunctions[2],
+      ),
+      ...createCrudRoutes(
+        '/v1/records/{proxy+}',
+        props.entityManagementFunctions[3],
+      ),
     ];
 
     const entityManagementIntegration = new WebVellaApiIntegration(
@@ -606,15 +755,36 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'inventory',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/inventory/{proxy+}',
-          props.inventoryFunctions[0],
-        ),
+        routes: [
+          ...createCrudRoutes(
+            '/v1/inventory/{proxy+}',
+            props.inventoryFunctions[0],
+          ),
+          // Spec-declared top-level task endpoints per OpenAPI inventory-api.yaml:
+          //   /v1/tasks/{taskId}/status
+          //   /v1/tasks/{taskId}/watch
+          // InventoryHandler/TaskHandler dispatches via substring matching on
+          // "/tasks" and the action suffix (/status, /watch).
+          ...createCrudRoutes(
+            '/v1/tasks/{proxy+}',
+            props.inventoryFunctions[0],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 
     // --- 6e. Invoicing / Billing Service ---
     // Source: RecordManager invoice workflows with ACID transactions (RDS PG)
+    //
+    // The Invoicing bounded context is deployed as two separate Lambda functions:
+    //   invoicingFunctions[0] = InvoiceHandler  — invoice CRUD + soft-delete (void)
+    //   invoicingFunctions[1] = PaymentHandler  — payment recording, list, get
+    //
+    // API Gateway routes are SPLIT BY URL PATH PREFIX so each function only receives
+    // traffic for its own domain. The prior single `/v1/invoicing/{proxy+}` route
+    // directed ALL invoicing traffic to invoicingFunctions[0] (InvoiceHandler),
+    // which made PaymentHandler unreachable — a production-breaking defect caught
+    // in the Phase 4 QA review of this PR.
 
     const invoicingIntegration = new WebVellaApiIntegration(
       this,
@@ -624,10 +794,28 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'invoicing',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/invoicing/{proxy+}',
-          props.invoicingFunctions[0],
-        ),
+        routes: [
+          // Invoice CRUD + void + line-items → InvoiceHandler
+          //   POST   /v1/invoicing/invoices
+          //   GET    /v1/invoicing/invoices
+          //   GET    /v1/invoicing/invoices/{invoiceId}
+          //   PUT    /v1/invoicing/invoices/{invoiceId}
+          //   DELETE /v1/invoicing/invoices/{invoiceId}
+          //   GET    /v1/invoicing/invoices/health
+          ...createCrudRoutes(
+            '/v1/invoicing/invoices/{proxy+}',
+            props.invoicingFunctions[0],
+          ),
+          // Payment recording + list + get → PaymentHandler
+          //   POST /v1/invoicing/payments
+          //   GET  /v1/invoicing/payments
+          //   GET  /v1/invoicing/payments/{paymentId}
+          //   GET  /v1/invoicing/payments/health
+          ...createCrudRoutes(
+            '/v1/invoicing/payments/{proxy+}',
+            props.invoicingFunctions[1],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 
@@ -644,10 +832,24 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'reporting',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/reports/{proxy+}',
-          props.reportingFunctions[0],
-        ),
+        routes: [
+          // Legacy paths (kept for backward compatibility):
+          ...createCrudRoutes(
+            '/v1/reports/{proxy+}',
+            props.reportingFunctions[0],
+          ),
+          // Spec-aligned paths per OpenAPI reporting-api.yaml and frontend
+          // (apps/frontend/src/api/endpoints/reports.ts).
+          //   /v1/reporting/reports, /v1/reporting/reports/{reportId}[/execute]
+          //   /v1/reporting/dashboard/summary, /v1/reporting/dashboard/widgets/{widgetId}
+          //   /v1/reporting/system-log
+          //   /v1/reporting/datasources, /v1/reporting/datasources/{id}/test, /v1/reporting/datasources/code-compile
+          // ReportHandler dispatches internally via path/method inspection.
+          ...createCrudRoutes(
+            '/v1/reporting/{proxy+}',
+            props.reportingFunctions[0],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 
@@ -683,10 +885,22 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'file-management',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/files/{proxy+}',
-          props.fileManagementFunctions[0],
-        ),
+        routes: [
+          // Legacy paths (kept for backward compatibility):
+          ...createCrudRoutes(
+            '/v1/files/{proxy+}',
+            props.fileManagementFunctions[0],
+          ),
+          // Spec-aligned paths per OpenAPI file-management-api.yaml and frontend
+          // (apps/frontend/src/api/endpoints/files.ts).
+          //   /v1/file-management/files, /v1/file-management/files/{fileId}[/download]
+          //   /v1/file-management/files/confirm-upload, /move, /upload[/direct|/multiple]
+          //   /v1/file-management/user-files[/upload-multiple]
+          ...createCrudRoutes(
+            '/v1/file-management/{proxy+}',
+            props.fileManagementFunctions[0],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 
@@ -703,10 +917,28 @@ export class ApiGatewayStack extends cdk.Stack {
         serviceName: 'workflow',
         authorizer,
         isLocalStack,
-        routes: createCrudRoutes(
-          '/v1/workflows/{proxy+}',
-          props.workflowFunctions[0],
-        ),
+        routes: [
+          // Legacy paths (kept for backward compatibility):
+          ...createCrudRoutes(
+            '/v1/workflows/{proxy+}',
+            props.workflowFunctions[0],
+          ),
+          // Spec-aligned paths per OpenAPI workflow-api.yaml and frontend
+          // (apps/frontend/src/api/endpoints/workflows.ts). The WorkflowHandler
+          // HandleApiRequest method detects the 'workflow' service prefix and
+          // dispatches to RouteWorkflowsAsync / RouteSchedulesAsync /
+          // RouteWorkflowTypesAsync / RouteJobsAsync / RouteSystemLogAsync
+          // based on the resource segment.
+          //   /v1/workflow/workflows, /v1/workflow/workflows/{id}[/cancel]
+          //   /v1/workflow/schedule-plans, /v1/workflow/schedule-plans/{id}[/trigger]
+          //   /v1/workflow/schedule-plans/list, /v1/workflow/schedule-plans/test
+          //   /v1/workflow/jobs
+          //   /v1/workflow/system-log
+          ...createCrudRoutes(
+            '/v1/workflow/{proxy+}',
+            props.workflowFunctions[0],
+          ),
+        ],
       } as WebVellaApiIntegrationProps,
     );
 
@@ -734,6 +966,22 @@ export class ApiGatewayStack extends cdk.Stack {
           // normalized request path.
           ...createCrudRoutes(
             '/v1/apps/{proxy+}',
+            props.pluginSystemFunctions[0],
+          ),
+          // Spec-aligned paths per OpenAPI plugin-system-api.yaml and frontend
+          // (apps/frontend/src/api/endpoints/plugins.ts).
+          //   /v1/plugin-system/plugins, /v1/plugin-system/plugins/{pluginId}
+          //   /v1/plugin-system/sitemap/areas[/{areaId}]
+          //   /v1/plugin-system/sitemap/nodes[/aux-data|/{nodeId}]
+          //   /v1/plugin-system/snippets
+          //   /v1/plugin-system/datasources
+          ...createCrudRoutes(
+            '/v1/plugin-system/{proxy+}',
+            props.pluginSystemFunctions[0],
+          ),
+          // Top-level spec path: /v1/snippets/{name}
+          ...createCrudRoutes(
+            '/v1/snippets/{proxy+}',
             props.pluginSystemFunctions[0],
           ),
         ],
@@ -831,5 +1079,104 @@ export class ApiGatewayStack extends cdk.Stack {
       description: 'CloudWatch log group ARN for API access logging',
       exportName: `${this.stackName}-ApiLogGroupArn`,
     });
+
+    new cdk.CfnOutput(this, 'CorsAllowedOrigins', {
+      value: allowedOrigins.join(','),
+      description:
+        'Comma-separated list of origins allowed by the HTTP API v2 CORS policy',
+      exportName: `${this.stackName}-CorsAllowedOrigins`,
+    });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Module-Private Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Default set of allowed origins used when `props.allowedOrigins` is omitted
+ * AND `isLocalStack === true`.
+ *
+ * Chosen to cover the common Vite dev/preview ports plus the well-known
+ * LocalStack S3 static-website host pattern (`*.s3-website.localhost.localstack.cloud:4566`).
+ *
+ * Rationale — none of these origins are reachable from outside the operator's
+ * workstation (LocalStack binds 127.0.0.1 by default), so permitting them does
+ * not widen the attack surface for a LocalStack-bound deployment.
+ */
+const LOCALSTACK_DEFAULT_ORIGINS: readonly string[] = [
+  'http://localhost:3000', // Historical CRA / generic SPA dev port
+  'http://localhost:4173', // Vite preview default
+  'http://localhost:5173', // Vite dev default
+  'http://localhost:8080', // Common alt dev port
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8080',
+  // LocalStack S3 static-website endpoint pattern — the bucket name is
+  // chosen by FrontendStack; we allowlist the parent domain so that any
+  // S3 website hosted under LocalStack resolves correctly.
+  'http://webvella-erp-frontend.s3-website.localhost.localstack.cloud:4566',
+  'http://webvella-erp-frontend.s3-website-us-east-1.localhost.localstack.cloud:4566',
+];
+
+/**
+ * Resolves the effective list of CORS allowed origins for the HTTP API v2.
+ *
+ * Enforces AAP §0.8.3 ("CORS locked to known origins") at synth time by
+ * preventing wildcard origins from being shipped to API Gateway. Production
+ * deployments that omit `props.allowedOrigins` fail synth with an explicit
+ * error message so the misconfiguration is caught before any resource is
+ * created.
+ *
+ * @param explicit   Origins supplied via `ApiGatewayStackProps.allowedOrigins`
+ *                   (ultimately sourced from CDK context `frontendOrigins`).
+ * @param isLocalStack Whether this stack targets LocalStack.
+ * @returns A non-empty list of fully-qualified origin strings.
+ * @throws Error when `explicit` contains a wildcard, is empty outside
+ *         LocalStack mode, or contains malformed entries.
+ */
+function resolveCorsAllowedOrigins(
+  explicit: string[] | undefined,
+  isLocalStack: boolean
+): string[] {
+  // Case 1: explicit list provided — validate and return.
+  if (explicit !== undefined && explicit.length > 0) {
+    for (const origin of explicit) {
+      if (typeof origin !== 'string' || origin.trim() === '') {
+        throw new Error(
+          `[ApiGatewayStack] Invalid allowedOrigins entry: ${JSON.stringify(origin)}. ` +
+            `All entries must be non-empty strings.`
+        );
+      }
+      const trimmed = origin.trim();
+      if (trimmed === '*') {
+        throw new Error(
+          `[ApiGatewayStack] allowedOrigins must NOT contain the wildcard '*'. ` +
+            `Per AAP §0.8.3 the API Gateway CORS policy must be locked to known origins. ` +
+            `Provide explicit origins via --context frontendOrigins=https://erp.example.com`
+        );
+      }
+      if (!/^https?:\/\//i.test(trimmed)) {
+        throw new Error(
+          `[ApiGatewayStack] allowedOrigins entry '${trimmed}' is malformed. ` +
+            `Each origin must start with 'http://' or 'https://' and not include a path.`
+        );
+      }
+    }
+    // Normalize by trimming whitespace; preserve order for deterministic synth.
+    return explicit.map((o) => o.trim());
+  }
+
+  // Case 2: no explicit list AND LocalStack — use safe localhost defaults.
+  if (isLocalStack) {
+    return [...LOCALSTACK_DEFAULT_ORIGINS];
+  }
+
+  // Case 3: no explicit list AND production — fail closed.
+  throw new Error(
+    '[ApiGatewayStack] Production deployments MUST declare `allowedOrigins` ' +
+      '(for example via CDK context: --context frontendOrigins=https://erp.example.com). ' +
+      'Refusing to synthesize with an implicit wildcard CORS policy (AAP §0.8.3).'
+  );
 }

@@ -49,11 +49,12 @@ namespace WebVellaErp.Invoicing.Functions
     /// AWS Lambda handler for payment processing operations in the Invoicing bounded context.
     /// Provides CRUD operations for payments with ACID transaction guarantees via RDS PostgreSQL.
     ///
-    /// <para><b>Handler Methods:</b></para>
+    /// <para><b>API Routes (authoritative — aligned with libs/shared-schemas/src/api/invoicing-api.yaml
+    /// and API Gateway stack <c>/v1/invoicing/payments/{proxy+}</c> integration):</b></para>
     /// <list type="bullet">
     ///   <item><description><see cref="HandleRecordPayment"/> — POST /v1/invoicing/payments</description></item>
+    ///   <item><description><see cref="HandleListPayments"/> — GET /v1/invoicing/payments (list for invoice via ?invoiceId=)</description></item>
     ///   <item><description><see cref="HandleGetPayment"/> — GET /v1/invoicing/payments/{paymentId}</description></item>
-    ///   <item><description><see cref="HandleListPayments"/> — GET /v1/invoicing/payments?invoiceId=...</description></item>
     ///   <item><description><see cref="HandleHealthCheck"/> — GET /v1/invoicing/payments/health</description></item>
     /// </list>
     ///
@@ -306,23 +307,94 @@ namespace WebVellaErp.Invoicing.Functions
         /// Routes API Gateway HTTP API v2 requests to the appropriate handler method
         /// based on HTTP method and request path.
         /// </summary>
+        /// <summary>
+        /// Dispatches incoming HTTP API v2 requests to the appropriate payment handler
+        /// based on (method, path) tuple. Mirrors InvoiceHandler's path-aware dispatch
+        /// strategy — see that file for the rationale (Phase 4 QA findings).
+        ///
+        /// Route ↔ dispatch mapping (matches OpenAPI invoicing-api.yaml):
+        ///   POST  /v1/invoicing/payments              (no id)  → HandleRecordPayment
+        ///   GET   /v1/invoicing/payments              (no id)  → HandleListPayments
+        ///   GET   /v1/invoicing/payments/{paymentId}  (has id) → HandleGetPayment
+        ///   GET   /v1/invoicing/payments/health       (health) → HandleHealthCheck
+        ///
+        /// Unrecognized combinations return HTTP 404 rather than silently creating a
+        /// payment from an unsupported method.
+        /// </summary>
         public async Task<APIGatewayHttpApiV2ProxyResponse> FunctionHandler(
             APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
         {
             var path = request.RawPath ?? request.RequestContext?.Http?.Path ?? string.Empty;
             var method = request.RequestContext?.Http?.Method?.ToUpperInvariant() ?? "GET";
 
-            if (method == "POST")
-                return await HandleRecordPayment(request, context);
-            else if (method == "GET")
-                return await HandleGetPayment(request, context);
-            else if (method == "GET")
-                return await HandleListPayments(request, context);
-            else if (method == "GET" && path.Contains("/health"))
+            // 1. Health check short-circuit — unauthenticated GET to any path ending in /health.
+            if (method == "GET" && path.EndsWith("/health", StringComparison.OrdinalIgnoreCase))
+            {
                 return await HandleHealthCheck(request, context);
+            }
 
-            // Default: route to HandleRecordPayment
-            return await HandleRecordPayment(request, context);
+            // 2. Detect whether the path carries a payment ID segment.
+            var hasPaymentId = TryExtractPaymentId(request, out _);
+
+            // 3. Dispatch on (method, hasPaymentId).
+            switch (method)
+            {
+                case "POST":
+                    return await HandleRecordPayment(request, context);
+
+                case "GET":
+                    return hasPaymentId
+                        ? await HandleGetPayment(request, context)
+                        : await HandleListPayments(request, context);
+
+                default:
+                    // 4. 404 for unsupported methods — never silently invoke HandleRecordPayment
+                    //    for OPTIONS/HEAD/PATCH/DELETE/etc. (prior fallback behavior was unsafe).
+                    _logger.LogWarning(
+                        "Unrouted payment request: method={Method} path={Path}",
+                        method, path);
+                    return BuildErrorResponse(404, "Route not found.", new List<ErrorModel>
+                    {
+                        new ErrorModel("route", string.Empty,
+                            $"No handler for {method} {path}.")
+                    });
+            }
+        }
+
+        /// <summary>
+        /// Extracts the payment ID GUID from either a named <c>paymentId</c> path parameter
+        /// or, when API Gateway uses the <c>{proxy+}</c> catch-all route, scans segments
+        /// right-to-left for the first valid GUID. Returns <c>true</c> when a payment ID
+        /// is present; <c>false</c> when the path denotes a list or other non-detail route.
+        /// Used by <see cref="FunctionHandler"/> to discriminate detail vs list endpoints.
+        /// </summary>
+        private static bool TryExtractPaymentId(APIGatewayHttpApiV2ProxyRequest request, out Guid paymentId)
+        {
+            paymentId = Guid.Empty;
+            if (request.PathParameters == null) return false;
+
+            if (request.PathParameters.TryGetValue("paymentId", out var named) &&
+                Guid.TryParse(named, out paymentId) &&
+                paymentId != Guid.Empty)
+            {
+                return true;
+            }
+
+            if (request.PathParameters.TryGetValue("proxy", out var proxy) &&
+                !string.IsNullOrEmpty(proxy))
+            {
+                var segments = proxy.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                for (var i = segments.Length - 1; i >= 0; i--)
+                {
+                    if (Guid.TryParse(segments[i], out paymentId) && paymentId != Guid.Empty)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            paymentId = Guid.Empty;
+            return false;
         }
 
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleRecordPayment(
