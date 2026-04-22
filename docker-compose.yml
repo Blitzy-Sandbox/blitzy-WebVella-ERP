@@ -49,7 +49,14 @@ services:
   # ---------------------------------------------------------------------------
   localstack:
     container_name: webvella-localstack
-    image: localstack/localstack-pro:latest
+    # Image tag pinned to a specific release (not :latest) so development,
+    # CI, and production validation all use the same LocalStack version.
+    # 4.14.0 matches the LocalStack CLI pinned in tools/scripts/bootstrap-localstack.sh
+    # and the tested validation baseline documented in
+    # blitzy/documentation/Project Guide.md (sections 7.2 and 19.2).
+    # Bump this version deliberately after confirming compatibility with the
+    # full test suite (see CODE_REVIEW.md check 1.2 — no :latest tags).
+    image: localstack/localstack-pro:4.14.0
     ports:
       - "127.0.0.1:4566:4566"              # LocalStack Gateway (all services)
       - "127.0.0.1:4510-4559:4510-4559"    # External service port range
@@ -128,7 +135,13 @@ services:
   # ---------------------------------------------------------------------------
   stepfunctions-local:
     container_name: webvella-stepfunctions
-    image: amazon/aws-stepfunctions-local:latest
+    # Image tag pinned to a specific release (not :latest) to keep local
+    # development and CI deterministic. 2.0.0 is the most recent stable
+    # Amazon Step Functions Local release and matches the Step Functions
+    # ASL runtime semantics exercised by the Workflow service tests.
+    # Bump deliberately after confirming compatibility with the Workflow
+    # state-machine definitions (see CODE_REVIEW.md check 1.2).
+    image: amazon/aws-stepfunctions-local:2.0.0
     ports:
       - "127.0.0.1:8083:8083"
     environment:

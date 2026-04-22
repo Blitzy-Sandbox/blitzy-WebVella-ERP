@@ -113,6 +113,25 @@ export interface FileManagementStackProps extends cdk.StackProps {
    * lifecycle events from DbFileRepository CRUD operations.
    */
   readonly eventBus: sns.ITopic;
+
+  /**
+   * Explicit list of frontend origins allowed to direct-upload via presigned
+   * URLs to the S3 content bucket.
+   *
+   * Per AAP §0.8.3 security requirements, S3 CORS MUST NOT be wildcarded in
+   * production — presigned PUT URLs are time-limited but a permissive CORS
+   * policy still allows credential-less cross-origin reads of CORS-exposed
+   * response headers (ETag, x-amz-*), which is undesirable for a defense-in-
+   * depth posture.
+   *
+   * Resolution rules (identical to ApiGatewayStack for policy consistency):
+   *   - When supplied: exact list honored; wildcards rejected at synth time.
+   *   - When omitted and `isLocalStack === true`: curated localhost defaults.
+   *   - When omitted and `isLocalStack === false`: synth FAILS (deny-by-default).
+   *
+   * Sourced from CDK context `frontendOrigins` in `app.ts`.
+   */
+  readonly allowedOrigins?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +193,14 @@ export class FileManagementStack extends cdk.Stack {
 
     const { isLocalStack, eventBus } = props;
 
+    // Resolve CORS origins for the S3 content bucket. We fail closed on
+    // production deployments that omit explicit origins to satisfy
+    // AAP §0.8.3 (CORS locked to known origins).
+    const s3AllowedOrigins: string[] = resolveFileBucketCorsAllowedOrigins(
+      props.allowedOrigins,
+      isLocalStack
+    );
+
     // -----------------------------------------------------------------------
     // 1. S3 Bucket — Unified file content storage
     // -----------------------------------------------------------------------
@@ -231,6 +258,10 @@ export class FileManagementStack extends cdk.Stack {
       // Lambda, then uploads directly from the browser to S3.
       // This replaces the monolith's multipart form upload through
       // WebApiController POST /fs/upload/ endpoints.
+      //
+      // Origins are locked down per AAP §0.8.3. Allowed headers are
+      // constrained to only those actually required by presigned PUT/GET
+      // to avoid leaking custom request headers cross-origin.
       cors: [
         {
           allowedMethods: [
@@ -239,9 +270,20 @@ export class FileManagementStack extends cdk.Stack {
             s3.HttpMethods.POST,
             s3.HttpMethods.DELETE,
           ],
-          allowedOrigins: ['*'],
+          allowedOrigins: s3AllowedOrigins,
           allowedHeaders: [
-            '*',
+            'Content-Type',
+            'Content-Length',
+            'Content-Disposition',
+            'Content-Encoding',
+            'Authorization',
+            'X-Correlation-Id',
+            'X-Amz-Acl',
+            'X-Amz-Content-Sha256',
+            'X-Amz-Date',
+            'X-Amz-Meta-*',
+            'X-Amz-Security-Token',
+            'X-Amz-User-Agent',
           ],
           exposedHeaders: [
             'ETag',
@@ -444,6 +486,9 @@ export class FileManagementStack extends cdk.Stack {
       FILE_MANAGEMENT_TABLE_NAME: fileMetadataTable.tableName,
       BUCKET_NAME: fileBucket.bucketName,
       EVENT_TOPIC_ARN: eventBus.topicArn,
+      // UploadHandler.cs line 142, DownloadHandler.cs lines 123/137 read FILE_EVENTS_TOPIC_ARN.
+      // Alias to shared eventBus per AAP §0.7.2 (unified file-management domain topic).
+      FILE_EVENTS_TOPIC_ARN: eventBus.topicArn,
     };
 
     // Inject AWS_ENDPOINT_URL for LocalStack SDK redirect
@@ -483,6 +528,10 @@ export class FileManagementStack extends cdk.Stack {
       TABLE_NAME: fileMetadataTable.tableName,
       FILE_MANAGEMENT_TABLE_NAME: fileMetadataTable.tableName,
       BUCKET_NAME: fileBucket.bucketName,
+      EVENT_TOPIC_ARN: eventBus.topicArn,
+      // DownloadHandler.cs lines 123/137 read FILE_EVENTS_TOPIC_ARN.
+      // Alias to shared eventBus per AAP §0.7.2 (unified file-management domain topic).
+      FILE_EVENTS_TOPIC_ARN: eventBus.topicArn,
     };
 
     // Inject AWS_ENDPOINT_URL for LocalStack SDK redirect
@@ -504,7 +553,11 @@ export class FileManagementStack extends cdk.Stack {
         'file metadata queries. Replaces DbFileRepository.Find() path-based lookup ' +
         'and WebApiController GET /fs/* endpoints.',
       environment: downloadHandlerEnv,
-      additionalPolicies: [s3ReadOnlyPolicy, dynamoDbReadPolicy],
+      // DownloadHandler also performs copy/move/delete operations that publish
+      // domain events (file.copied, file.moved, file.deleted). Grant
+      // snsPublishPolicy so PublishDomainEventAsync (DownloadHandler.cs line 1169)
+      // succeeds rather than silently failing.
+      additionalPolicies: [s3ReadOnlyPolicy, dynamoDbReadPolicy, snsPublishPolicy],
     });
 
     // -----------------------------------------------------------------------
@@ -585,5 +638,92 @@ export class FileManagementStack extends cdk.Stack {
     cdk.Tags.of(this).add('service', 'file-management');
     cdk.Tags.of(this).add('domain', 'file-management');
     cdk.Tags.of(this).add('environment', isLocalStack ? 'localstack' : 'production');
+
+    new cdk.CfnOutput(this, 'BucketCorsAllowedOrigins', {
+      value: s3AllowedOrigins.join(','),
+      description:
+        'Comma-separated list of origins allowed by the S3 content bucket CORS policy',
+      exportName: `${this.stackName}-BucketCorsAllowedOrigins`,
+    });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Module-Private Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Default set of allowed origins used when `props.allowedOrigins` is omitted
+ * AND `isLocalStack === true`.
+ *
+ * These mirror the localhost dev/preview origins used by the ApiGatewayStack
+ * so operators only have to declare origins once (via `--context frontendOrigins`)
+ * to cover both the HTTP API and the S3 direct-upload surface.
+ */
+const FILE_BUCKET_LOCALSTACK_DEFAULT_ORIGINS: readonly string[] = [
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8080',
+  'http://webvella-erp-frontend.s3-website.localhost.localstack.cloud:4566',
+  'http://webvella-erp-frontend.s3-website-us-east-1.localhost.localstack.cloud:4566',
+];
+
+/**
+ * Resolves the effective list of S3 CORS allowed origins for the content bucket.
+ *
+ * Mirrors the validation contract of `resolveCorsAllowedOrigins` in
+ * `api-gateway-stack.ts` so the policy is consistent across the API and S3
+ * direct-upload surfaces. Production deployments that omit `allowedOrigins`
+ * fail synth to prevent an accidental open CORS policy (AAP §0.8.3).
+ *
+ * @param explicit    Origins supplied via `FileManagementStackProps.allowedOrigins`.
+ * @param isLocalStack Whether this stack targets LocalStack.
+ * @returns A non-empty list of fully-qualified origin strings.
+ * @throws Error on wildcard entries, malformed origins, or missing config in
+ *         production.
+ */
+function resolveFileBucketCorsAllowedOrigins(
+  explicit: string[] | undefined,
+  isLocalStack: boolean
+): string[] {
+  if (explicit !== undefined && explicit.length > 0) {
+    for (const origin of explicit) {
+      if (typeof origin !== 'string' || origin.trim() === '') {
+        throw new Error(
+          `[FileManagementStack] Invalid allowedOrigins entry: ${JSON.stringify(origin)}. ` +
+            `All entries must be non-empty strings.`
+        );
+      }
+      const trimmed = origin.trim();
+      if (trimmed === '*') {
+        throw new Error(
+          `[FileManagementStack] allowedOrigins must NOT contain the wildcard '*'. ` +
+            `Per AAP §0.8.3 the S3 content bucket CORS policy must be locked to known origins. ` +
+            `Provide explicit origins via --context frontendOrigins=https://erp.example.com`
+        );
+      }
+      if (!/^https?:\/\//i.test(trimmed)) {
+        throw new Error(
+          `[FileManagementStack] allowedOrigins entry '${trimmed}' is malformed. ` +
+            `Each origin must start with 'http://' or 'https://' and not include a path.`
+        );
+      }
+    }
+    return explicit.map((o) => o.trim());
+  }
+
+  if (isLocalStack) {
+    return [...FILE_BUCKET_LOCALSTACK_DEFAULT_ORIGINS];
+  }
+
+  throw new Error(
+    '[FileManagementStack] Production deployments MUST declare `allowedOrigins` ' +
+      '(for example via CDK context: --context frontendOrigins=https://erp.example.com). ' +
+      'Refusing to synthesize with an implicit wildcard CORS policy (AAP §0.8.3).'
+  );
 }

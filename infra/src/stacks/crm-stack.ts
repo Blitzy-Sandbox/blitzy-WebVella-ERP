@@ -347,6 +347,11 @@ export class CrmStack extends cdk.Stack {
         TABLE_NAME: crmTable.tableName,
         'DynamoDB__CrmTableName': crmTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // AccountHandler.cs line 145 reads CRM_EVENTS_TOPIC_ARN constant.
+        // Alias to shared eventBus per AAP §0.7.2 (single domain event topic
+        // for CRM bounded context) while preserving AAP §0.8.3 compliance
+        // (handler resolves ARN from env at runtime, never hardcoded).
+        CRM_EVENTS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });
@@ -396,6 +401,9 @@ export class CrmStack extends cdk.Stack {
         TABLE_NAME: crmTable.tableName,
         'DynamoDB__CrmTableName': crmTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // ContactHandler.cs line 178 reads CRM_EVENTS_TOPIC_ARN constant.
+        // Alias to shared eventBus per AAP §0.7.2 (unified CRM domain topic).
+        CRM_EVENTS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });

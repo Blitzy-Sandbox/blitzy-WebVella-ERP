@@ -675,6 +675,9 @@ export class ReportingStack extends cdk.Stack {
       environment: {
         SSM_DB_CONNECTION_PATH: SSM_DB_CONNECTION_STRING_PATH,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // ReportService.cs line 326 reads REPORTING_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2.
+        REPORTING_SNS_TOPIC_ARN: eventBus.topicArn,
         SERVICE_NAME: SERVICE_NAME,
       },
       additionalPolicies: [
@@ -744,6 +747,9 @@ export class ReportingStack extends cdk.Stack {
         SSM_DB_CONNECTION_PATH: SSM_DB_CONNECTION_STRING_PATH,
         QUEUE_URL: eventQueue.queueUrl,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // ReportService.cs line 326 reads REPORTING_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (SNS fan-out to shared topic).
+        REPORTING_SNS_TOPIC_ARN: eventBus.topicArn,
         SERVICE_NAME: SERVICE_NAME,
       },
       additionalPolicies: [

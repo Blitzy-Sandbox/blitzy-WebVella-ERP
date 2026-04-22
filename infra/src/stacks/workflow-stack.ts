@@ -281,6 +281,9 @@ export class WorkflowStack extends cdk.Stack {
       TABLE_NAME: workflowTable.tableName,
       DYNAMODB_TABLE_NAME: workflowTable.tableName,
       EVENT_TOPIC_ARN: eventBus.topicArn,
+      // StepHandler.cs line 64 reads SNS_TOPIC_ARN.
+      // Alias to shared eventBus per AAP §0.7.2 (unified workflow domain topic).
+      SNS_TOPIC_ARN: eventBus.topicArn,
     };
 
     if (isLocalStack) {
@@ -584,6 +587,9 @@ export class WorkflowStack extends cdk.Stack {
       DYNAMODB_TABLE_NAME: workflowTable.tableName,
       STATE_MACHINE_ARN: stateMachine.stateMachineArn,
       EVENT_TOPIC_ARN: eventBus.topicArn,
+      // WorkflowHandler.cs line 86 reads SNS_TOPIC_ARN.
+      // Alias to shared eventBus per AAP §0.7.2 (unified workflow domain topic).
+      SNS_TOPIC_ARN: eventBus.topicArn,
     };
 
     if (isLocalStack) {

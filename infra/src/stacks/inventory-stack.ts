@@ -327,6 +327,11 @@ export class InventoryStack extends cdk.Stack {
         TABLE_NAME: inventoryTable.tableName,
         DYNAMODB_TABLE_NAME: inventoryTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // TaskHandler.cs line 1920 reads INVENTORY_EVENTS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (single inventory domain
+        // event topic). Ensures CDK-deployed Lambda finds the ARN via env,
+        // removing the need for the hardcoded LocalStack default fallback.
+        INVENTORY_EVENTS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });
@@ -368,6 +373,9 @@ export class InventoryStack extends cdk.Stack {
         TABLE_NAME: inventoryTable.tableName,
         DYNAMODB_TABLE_NAME: inventoryTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // TimelogHandler.cs line 943 reads INVENTORY_EVENTS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2.
+        INVENTORY_EVENTS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });

@@ -572,6 +572,12 @@ export class InvoicingStack extends cdk.Stack {
       environment: {
         SSM_DB_CONNECTION_PATH: SSM_DB_CONNECTION_STRING_PATH,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // InvoiceEventPublisher (registered in InvoiceHandler.cs line 146) reads
+        // BOTH INVOICE_SNS_TOPIC_ARN (line 160) and PAYMENT_SNS_TOPIC_ARN (line 165)
+        // at construction and throws InvalidOperationException if either is missing.
+        // Alias both to the shared eventBus per AAP §0.7.2 (unified invoicing domain topic).
+        INVOICE_SNS_TOPIC_ARN: eventBus.topicArn,
+        PAYMENT_SNS_TOPIC_ARN: eventBus.topicArn,
         SERVICE_NAME: SERVICE_NAME,
       },
       additionalPolicies: [
@@ -639,6 +645,13 @@ export class InvoicingStack extends cdk.Stack {
       environment: {
         SSM_DB_CONNECTION_PATH: SSM_DB_CONNECTION_STRING_PATH,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // PaymentHandler (line 775) uses PAYMENT_SNS_TOPIC_ARN directly.
+        // PaymentHandler also resolves IInvoiceEventPublisher from DI (line 210),
+        // whose constructor (InvoiceEventPublisher.cs lines 160/165) reads BOTH
+        // INVOICE_SNS_TOPIC_ARN and PAYMENT_SNS_TOPIC_ARN and throws if missing.
+        // Alias both to the shared eventBus per AAP §0.7.2.
+        INVOICE_SNS_TOPIC_ARN: eventBus.topicArn,
+        PAYMENT_SNS_TOPIC_ARN: eventBus.topicArn,
         SERVICE_NAME: SERVICE_NAME,
       },
       additionalPolicies: [

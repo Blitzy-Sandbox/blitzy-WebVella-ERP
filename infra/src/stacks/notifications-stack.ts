@@ -457,6 +457,9 @@ export class NotificationsStack extends cdk.Stack {
         NOTIFICATIONS_TABLE_NAME: notificationsTable.tableName,
         QUEUE_URL: emailQueue.queueUrl,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // SmtpService.cs line 250 reads NOTIFICATIONS_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (unified notifications domain topic).
+        NOTIFICATIONS_SNS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [
         dynamoDbPolicy,
@@ -504,6 +507,9 @@ export class NotificationsStack extends cdk.Stack {
         TABLE_NAME: notificationsTable.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationsTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // SmtpService.cs line 250 reads NOTIFICATIONS_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (unified notifications domain topic).
+        NOTIFICATIONS_SNS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });
@@ -548,6 +554,9 @@ export class NotificationsStack extends cdk.Stack {
         TABLE_NAME: notificationsTable.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationsTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // SmtpService.cs line 250 reads NOTIFICATIONS_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (unified notifications domain topic).
+        NOTIFICATIONS_SNS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [
         dynamoDbPolicy,

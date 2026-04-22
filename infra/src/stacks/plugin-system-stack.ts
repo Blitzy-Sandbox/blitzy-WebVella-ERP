@@ -248,6 +248,9 @@ export class PluginSystemStack extends cdk.Stack {
         TABLE_NAME: pluginTable.tableName,
         PLUGIN_SYSTEM_TABLE_NAME: pluginTable.tableName,
         EVENT_TOPIC_ARN: eventBus.topicArn,
+        // SitemapService.cs line 246 reads PLUGIN_SYSTEM_SNS_TOPIC_ARN.
+        // Alias to shared eventBus per AAP §0.7.2 (unified plugin-system domain topic).
+        PLUGIN_SYSTEM_SNS_TOPIC_ARN: eventBus.topicArn,
       },
       additionalPolicies: [dynamoDbPolicy, snsPublishPolicy],
     });

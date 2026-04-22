@@ -123,6 +123,30 @@ const app = new cdk.App();
 const isLocalStack: boolean = app.node.tryGetContext('localstack') === 'true';
 
 /**
+ * Optional list of allowed frontend origins for the API Gateway CORS policy.
+ *
+ * Per AAP §0.8.3 ("CORS locked to known origins") we never ship a wildcard
+ * CORS policy in production. The `frontendOrigins` context key accepts a
+ * comma-separated list of origins, for example:
+ *
+ *   cdk deploy --context frontendOrigins=https://erp.example.com
+ *   cdk deploy --context frontendOrigins=https://a.example.com,https://b.example.com
+ *
+ * When omitted and `isLocalStack` is true, ApiGatewayStack falls back to a
+ * curated list of localhost dev origins (safe because LocalStack is
+ * developer-local). When omitted and `isLocalStack` is false, synth fails —
+ * operators must consciously declare the production origin(s).
+ */
+const frontendOriginsContext = app.node.tryGetContext('frontendOrigins');
+const allowedFrontendOrigins: string[] | undefined =
+  typeof frontendOriginsContext === 'string' && frontendOriginsContext.trim() !== ''
+    ? frontendOriginsContext
+        .split(',')
+        .map((o: string) => o.trim())
+        .filter((o: string) => o.length > 0)
+    : undefined;
+
+/**
  * AWS environment configuration.
  *
  * LocalStack:
@@ -371,6 +395,7 @@ const fileManagementStack = new FileManagementStack(app, `${STACK_PREFIX}FileMan
   env,
   isLocalStack,
   eventBus: sharedStack.eventBus,
+  allowedOrigins: allowedFrontendOrigins,
   description: 'WebVella ERP — File Management: S3 storage, metadata, presigned URLs',
 });
 fileManagementStack.addDependency(sharedStack);
@@ -454,6 +479,7 @@ const apiGatewayStack = new ApiGatewayStack(app, `${STACK_PREFIX}ApiGateway`, {
   env,
   isLocalStack,
   userPool: sharedStack.userPool,
+  allowedOrigins: allowedFrontendOrigins,
   identityFunctions: identityStack.functions,
   entityManagementFunctions: entityManagementStack.functions,
   crmFunctions: crmStack.functions,

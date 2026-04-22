@@ -477,6 +477,28 @@ export class EntityManagementStack extends cdk.Stack {
       DATASOURCE_TABLE_NAME: metadataTable.tableName,
       SEARCH_TABLE_NAME: metadataTable.tableName,
       EVENT_TOPIC_ARN: eventBus.topicArn,
+      // Domain-specific topic ARN aliases for individual handlers.
+      // All resolve to the same shared eventBus per AAP §0.7.2 (unified domain
+      // event topic with message attributes for routing). Explicit aliases
+      // satisfy handler code's named env var lookups while preserving
+      // AAP §0.8.3 compliance (handlers never hardcode ARNs; all values come
+      // from environment at runtime).
+      //
+      // Handlers:
+      //   EntityHandler.cs line 117          → ENTITY_TOPIC_ARN
+      //   RecordHandler.cs line 151          → RECORD_TOPIC_ARN
+      //   DataSourceHandler.cs line 155      → DATASOURCE_TOPIC_ARN
+      //   RelationHandler.cs line 129        → RELATION_TOPIC_ARN
+      //   FieldHandler.cs line 114           → FIELD_TOPIC_ARN (falls back to ENTITY_TOPIC_ARN)
+      //   ImportExportHandler.cs line 131-132 → IMPORT_TOPIC_ARN (falls back to RECORD_TOPIC_ARN)
+      //   SearchHandler.cs                   → SEARCH_TOPIC_ARN
+      ENTITY_TOPIC_ARN: eventBus.topicArn,
+      RECORD_TOPIC_ARN: eventBus.topicArn,
+      DATASOURCE_TOPIC_ARN: eventBus.topicArn,
+      RELATION_TOPIC_ARN: eventBus.topicArn,
+      FIELD_TOPIC_ARN: eventBus.topicArn,
+      IMPORT_TOPIC_ARN: eventBus.topicArn,
+      SEARCH_TOPIC_ARN: eventBus.topicArn,
     };
 
     // -----------------------------------------------------------------------

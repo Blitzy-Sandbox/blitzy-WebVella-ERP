@@ -240,6 +240,21 @@ export class WebVellaApiIntegration extends Construct {
     this.integrations = new Map<string, apigatewayv2Integrations.HttpLambdaIntegration>();
     let routeCounter = 0;
 
+    // Deduplication map keyed by Lambda handler node address.
+    // When the same Lambda is targeted by multiple routes, we reuse a single
+    // HttpLambdaIntegration instance. CDK's HttpRouteIntegration._bindToRoute()
+    // caches the underlying HttpIntegration (CfnIntegration) resource after the
+    // first route binds it, so subsequent routes share that single AWS::ApiGatewayV2::Integration
+    // resource instead of creating duplicates. This is critical for staying under
+    // CloudFormation's 500-resource-per-stack default limit when a gateway fronts
+    // hundreds of routes across a shared pool of bounded-context Lambdas.
+    //
+    // Reference: node_modules/aws-cdk-lib/aws-apigatewayv2/lib/http/integration.js
+    //   HttpRouteIntegration._bindToRoute(options) checks `if (!this.integration)`
+    //   before creating the HttpIntegration — effectively a one-time-init per
+    //   HttpLambdaIntegration instance per HttpApi.
+    const integrationCache = new Map<string, apigatewayv2Integrations.HttpLambdaIntegration>();
+
     for (const route of routes) {
       // Validate route definition completeness
       this.validateRouteDefinition(route, serviceName);
@@ -247,22 +262,53 @@ export class WebVellaApiIntegration extends Construct {
       // Resolve the HTTP method from string to CDK enum
       const httpMethod = this.resolveHttpMethod(route.method, serviceName);
 
-      // Generate a unique CDK construct ID for this integration
+      // Generate a unique CDK construct ID for this route (distinct from integration ID)
       // Sanitize path for use in construct IDs (remove slashes, braces, hyphens)
       const sanitizedPath = route.path
         .replace(/^\//, '')
         .replace(/\//g, '-')
         .replace(/[{}]/g, '')
         .replace(/--+/g, '-');
-      const integrationId = `${serviceName}-${route.method.toUpperCase()}-${sanitizedPath}`;
+      const routeConstructId = `${serviceName}-${route.method.toUpperCase()}-${sanitizedPath}`;
 
-      // Create the Lambda proxy integration for this route
-      // HttpLambdaIntegration wraps the Lambda function as an API Gateway v2
-      // integration, handling payload format version 2.0 automatically
-      const integration = new apigatewayv2Integrations.HttpLambdaIntegration(
-        `${integrationId}-integration`,
-        route.handler,
-      );
+      // Derive a stable deduplication key from the Lambda handler's construct address.
+      // node.addr is a unique, deterministic SHA-1 hash of the construct's path in
+      // the CDK tree — safe to use across tokens (resolves to the same value at
+      // synthesis time even when the handler's ARN contains CloudFormation tokens).
+      const handlerKey = route.handler.node.addr;
+
+      // Reuse an existing HttpLambdaIntegration for this handler if one was already
+      // created, OR create a new one. The integration ID must be stable and unique
+      // across all service integrations in the construct tree.
+      let integration = integrationCache.get(handlerKey);
+      if (!integration) {
+        // Build a stable per-handler integration ID. Using the handler's addr slice
+        // guarantees uniqueness across different Lambdas without embedding CFN tokens.
+        const handlerShortId = handlerKey.substring(0, 8);
+        const integrationConstructId = `${serviceName}-handler-${handlerShortId}-integration`;
+
+        // Create the Lambda proxy integration ONCE per unique handler.
+        // - payloadFormatVersion defaults to VERSION_2_0 (AAP-compliant HTTP API v2)
+        // - scopePermissionToRoute: false tells CDK to create ONE API-scoped Lambda
+        //   permission with wildcard source ARN `*/*/*` instead of a per-route
+        //   permission, further reducing resource count. The CDK source
+        //   (node_modules/aws-cdk-lib/aws-apigatewayv2-integrations/lib/http/lambda.js
+        //   HttpLambdaIntegration.completeBind) uses `findAll()` to deduplicate
+        //   the permission across multiple bind() calls on the same (scope, handler, api)
+        //   tuple, producing exactly one AWS::Lambda::Permission per (Lambda, API) pair.
+        // - This pattern is safe because all routes served by the same Lambda on the
+        //   same HttpApi are equally trusted; granting one wildcard permission
+        //   preserves the API Gateway → Lambda trust boundary.
+        integration = new apigatewayv2Integrations.HttpLambdaIntegration(
+          integrationConstructId,
+          route.handler,
+          {
+            payloadFormatVersion: apigatewayv2.PayloadFormatVersion.VERSION_2_0,
+            scopePermissionToRoute: false,
+          },
+        );
+        integrationCache.set(handlerKey, integration);
+      }
 
       // Determine whether to apply authorization to this route
       // Default: requireAuth = true (authenticated), matching the monolith's
@@ -274,8 +320,11 @@ export class WebVellaApiIntegration extends Construct {
       const routeKey = apigatewayv2.HttpRouteKey.with(route.path, httpMethod);
 
       // Create the HTTP route on the shared API Gateway
-      // Each route maps a specific method+path combination to a Lambda integration
-      const httpRoute = new apigatewayv2.HttpRoute(this, `${integrationId}-route`, {
+      // Each route maps a specific method+path combination to a Lambda integration.
+      // Multiple routes may reference the same `integration` instance — CDK's
+      // HttpRouteIntegration base class handles this by caching the underlying
+      // HttpIntegration after the first bind.
+      const httpRoute = new apigatewayv2.HttpRoute(this, `${routeConstructId}-route`, {
         httpApi: httpApi,
         routeKey: routeKey,
         integration: integration,
@@ -293,7 +342,9 @@ export class WebVellaApiIntegration extends Construct {
       cdk.Tags.of(httpRoute).add('route-method', route.method.toUpperCase());
       cdk.Tags.of(httpRoute).add('requires-auth', requiresAuth.toString());
 
-      // Store the integration in the map for external reference and testing
+      // Store the integration in the map for external reference and testing.
+      // Note: multiple route keys may map to the same integration instance
+      // (intentional — this documents which routes share a handler).
       const routeKeyString = `${route.method.toUpperCase()} ${route.path}`;
       this.integrations.set(routeKeyString, integration);
 
