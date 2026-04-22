@@ -236,8 +236,9 @@ curl http://localhost:4566/_localstack/health
 | `API_GATEWAY_URL` | — | HTTP API Gateway base URL |
 | `IS_LOCAL` | `true` | Flag indicating LocalStack environment |
 | `VITE_API_URL` | `http://localhost:4566` | Frontend API base URL (Vite env prefix) |
+| `LOCALSTACK_AUTH_TOKEN` | — | LocalStack Pro license token. Required for Pro services (Cognito, RDS) — obtain from <https://app.localstack.cloud>. Stored as a GitHub Actions secret and read by `docker-compose.yml` (`${LOCALSTACK_AUTH_TOKEN:-}`) and the `localstack/setup-localstack` CI action. Community Edition works without it, but Cognito / RDS integration tests will skip via `CognitoFactAttribute` / `RdsFactAttribute` when the token is absent or expired. |
 
-> **Security Note:** Database connection strings (`DB_CONNECTION_STRING`) and Cognito client secrets (`COGNITO_CLIENT_SECRET`) are stored as SSM Parameter Store SecureString values — never as environment variables.
+> **Security Note:** Database connection strings (`DB_CONNECTION_STRING`) and Cognito client secrets (`COGNITO_CLIENT_SECRET`) are stored as SSM Parameter Store SecureString values — never as environment variables. The `LOCALSTACK_AUTH_TOKEN` is a development-time token only — never commit it to the repository and always inject it via CI secrets or local shell environment.
 
 ## API Versioning
 
