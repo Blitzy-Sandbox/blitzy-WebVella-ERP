@@ -424,6 +424,15 @@ export class IdentityStack extends cdk.Stack {
       COGNITO_USER_POOL_ID: userPool.userPoolId,
       COGNITO_CLIENT_ID: userPoolClientId,
       EVENT_TOPIC_ARN: eventBus.topicArn,
+      // Domain-specific aliases for handlers that read scoped env vars
+      // (AuthHandler.cs line 816, RoleHandler.cs line 1002, UserHandler.cs line 183).
+      // All point to the same shared eventBus per AAP §0.7.2 (SNS fan-out to
+      // single domain event topic). Keeping explicit aliases ensures
+      // backward-compat with handler constants while satisfying AAP §0.8.3
+      // (no hardcoded resource IDs — handlers resolve ARN from env at runtime).
+      AUTH_EVENTS_TOPIC_ARN: eventBus.topicArn,
+      ROLE_EVENTS_TOPIC_ARN: eventBus.topicArn,
+      USER_EVENTS_TOPIC_ARN: eventBus.topicArn,
     };
 
     // Only inject AWS_ENDPOINT_URL for LocalStack environments.

@@ -88,15 +88,36 @@ namespace WebVellaErp.Identity.Tests.Integration
                 using var reader = new System.IO.StreamReader(response.Content.ReadAsStream());
                 var body = reader.ReadToEnd();
 
-                // LocalStack returns a specific error message when a service requires Pro
+                // LocalStack returns various error message formats when a service requires Pro.
+                // Match all known patterns (past, present, and anticipated future) to keep
+                // this attribute robust across LocalStack versions:
+                //   * Historical Pro license format:   "not included within your LocalStack license"
+                //   * Legacy Pro-only format:          "not yet supported"
+                //   * Current LocalStack 3.x format:   "not yet implemented or pro feature"
+                //   * Defensive catch-all:             "pro feature" (covers future phrasings)
+                //   * Defensive catch-all:             "requires a pro" (covers future phrasings)
                 if (body.Contains("not included within your LocalStack license", StringComparison.OrdinalIgnoreCase)
-                    || body.Contains("not yet supported", StringComparison.OrdinalIgnoreCase))
+                    || body.Contains("not yet supported", StringComparison.OrdinalIgnoreCase)
+                    || body.Contains("not yet implemented or pro feature", StringComparison.OrdinalIgnoreCase)
+                    || body.Contains("pro feature", StringComparison.OrdinalIgnoreCase)
+                    || body.Contains("requires a pro", StringComparison.OrdinalIgnoreCase))
                 {
                     return "Cognito (cognito-idp) is not available in the current LocalStack environment — requires LocalStack Pro license.";
                 }
 
-                // Any successful response (even an error like ValidationException) means
-                // the service is responding and available
+                // Defensive fallback: A 500-series response with an "InternalFailure" __type
+                // indicator and the cognito-idp service name is a strong signal that the
+                // service is not wired up even if the error message phrasing changes in
+                // future LocalStack releases.
+                if (!response.IsSuccessStatusCode
+                    && body.Contains("InternalFailure", StringComparison.OrdinalIgnoreCase)
+                    && body.Contains("cognito-idp", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Cognito (cognito-idp) is not available in the current LocalStack environment — InternalFailure returned for cognito-idp service.";
+                }
+
+                // Any successful response (even an AWS-style error like ValidationException
+                // or NotAuthorizedException) means the service is responding and available
                 return null;
             }
             catch (HttpRequestException)

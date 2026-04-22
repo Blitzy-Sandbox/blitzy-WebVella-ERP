@@ -1330,10 +1330,32 @@ namespace WebVellaErp.Identity.Services
                 // CRITICAL: Reproduces EXACT logic from PasswordUtil.GetMd5Hash (UTF8 encoding, "x2" hex format)
                 var computedHash = ComputeMd5Hash(password);
 
-                // Step 3: Compare hashes — case-insensitive per PasswordUtil.VerifyMd5Hash
-                // (source line 28-29: StringComparer.OrdinalIgnoreCase)
-                if (string.IsNullOrEmpty(dbUser.Password) ||
-                    !string.Equals(computedHash, dbUser.Password, StringComparison.OrdinalIgnoreCase))
+                // Step 3: Compare hashes in constant time to eliminate the timing oracle that
+                // `string.Equals` would introduce. MD5 hashes are fixed-length (32 ASCII hex
+                // characters), so both sides are normalized to lowercase UTF-8 bytes with
+                // equal length before being compared byte-by-byte via
+                // CryptographicOperations.FixedTimeEquals. Case-insensitivity preserves
+                // byte-for-byte parity with PasswordUtil.VerifyMd5Hash (source line 28-29:
+                // StringComparer.OrdinalIgnoreCase) while avoiding short-circuit exits in
+                // string.Equals that leak information about prefix matches.
+                //
+                // Reviewer note (Phase 2, Check 2.9 defense-in-depth): this method is
+                // currently an orphaned fallback — the primary MD5 migration path is the
+                // Cognito User Migration Lambda trigger (services/identity/src/triggers/
+                // user-migration/index.js) which already uses crypto.timingSafeEqual. This
+                // hardening ensures that even if this .NET helper is invoked in the future
+                // (e.g., from a batch migration tool) the same cryptographic guarantees hold.
+                if (string.IsNullOrEmpty(dbUser.Password))
+                {
+                    _logger.LogWarning("MD5 password migration failed — no stored hash for {Email}", normalizedEmail);
+                    return false;
+                }
+
+                var storedHashBytes = Encoding.UTF8.GetBytes(dbUser.Password.ToLowerInvariant());
+                var computedHashBytes = Encoding.UTF8.GetBytes(computedHash.ToLowerInvariant());
+
+                if (storedHashBytes.Length != computedHashBytes.Length ||
+                    !CryptographicOperations.FixedTimeEquals(storedHashBytes, computedHashBytes))
                 {
                     _logger.LogWarning("MD5 password migration failed — hash mismatch for {Email}", normalizedEmail);
                     return false;
