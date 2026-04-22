@@ -1,0 +1,320 @@
+# =============================================================================
+# WebVella ERP — End-to-End Test Pipeline
+# =============================================================================
+# Runs Playwright E2E tests against a full LocalStack stack to validate all
+# critical user workflows. This workflow deploys the entire infrastructure to
+# LocalStack, builds and deploys all services, seeds test data, serves the
+# React SPA frontend, and executes Playwright browser-based E2E tests.
+#
+# Key design decisions:
+#   - Uses `docker compose up -d` (not the CI-only setup-localstack action)
+#     to start LocalStack Pro, exactly mirroring the local development
+#     experience and the AAP §0.8.1 pattern.
+#   - CDK stacks are deployed via `cdklocal` with `--context localstack=true`
+#     so that ALL AWS resources (Lambda, API Gateway, DynamoDB, S3, Cognito,
+#     SNS, SQS, RDS, SSM, Step Functions) are provisioned in LocalStack
+#     before any E2E test runs.
+#   - Playwright tests target the frontend dev server at http://localhost:4200
+#     which proxies API calls to LocalStack at http://localhost:4566.
+#   - Both Node.js 22 and .NET SDK 9.0 are installed because the monorepo
+#     contains TypeScript services (authorizer, infra, frontend, shared libs)
+#     and .NET 9 Lambda services (identity, entity-management, crm, etc.).
+#   - LocalStack teardown (`docker compose down -v`) runs unconditionally
+#     via `if: always()` to guarantee cleanup even on test failures.
+#
+# Critical AAP compliance:
+#   AAP §0.8.1  — LocalStack-exclusive testing: docker compose up → test → docker compose down
+#   AAP §0.8.1  — LocalStack is a Docker image pull, NEVER a repository clone
+#   AAP §0.8.4  — ALL E2E tests MUST run against LocalStack — no mocked AWS SDK calls
+#   AAP §0.8.6  — AWS_ENDPOINT_URL=http://localhost:4566, AWS_REGION=us-east-1, IS_LOCAL=true
+#   AAP §0.7.6  — Dual-target CDK: cdklocal --context localstack=true
+#   AAP §0.8.4  — Frontend Playwright E2E tests for all user flows
+# =============================================================================
+
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Nightly run at 2 AM UTC — catches regressions not triggered by PRs
+    - cron: '0 2 * * *'
+
+# ---------------------------------------------------------------------------
+# Concurrency: cancel any in-flight E2E run for the same PR / branch so that
+# only the latest push is validated. E2E tests are expensive — avoid wasting
+# runner minutes on superseded commits.
+# ---------------------------------------------------------------------------
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # -----------------------------------------------------------------------
+    # Job-level environment variables
+    # -----------------------------------------------------------------------
+    # These are available to every step in the job. LocalStack default
+    # credentials (test/test) and endpoint are set here so that all SDK
+    # calls, CDK commands, and the frontend build route to the local
+    # emulator automatically.
+    #
+    # AAP §0.8.6: AWS_ENDPOINT_URL, AWS_REGION, IS_LOCAL
+    # AAP §0.8.6: VITE_API_URL — Vite env prefix exposes the LocalStack
+    #             API Gateway URL to the React frontend via import.meta.env
+    # -----------------------------------------------------------------------
+    env:
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      IS_LOCAL: 'true'
+      VITE_API_URL: http://localhost:4566
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      # =====================================================================
+      # Phase 1: Repository Checkout & Tool Setup
+      # =====================================================================
+
+      # --- Step 1: Checkout repository ---
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Step 2: Node.js 22 LTS — matches monorepo engine requirement ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # --- Step 3: .NET SDK 9.0 — required for 10 .NET Lambda services ---
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # --- Step 4: Install npm dependencies (deterministic via lockfile) ---
+      - name: Install npm dependencies
+        run: npm ci
+
+      # --- Step 5: Install Playwright browsers (Chromium only for speed) ---
+      # Playwright is installed via npm ci (root dependency), but browser
+      # binaries must be downloaded separately. --with-deps installs system
+      # libraries required by Chromium on the Ubuntu runner.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # --- Step 6: Install CDK CLI tools globally ---
+      # cdklocal wraps the cdk CLI and routes all CloudFormation/API calls
+      # to LocalStack (AAP §0.7.6 dual-target strategy).
+      - name: Install CDK CLI tools
+        run: npm install -g aws-cdk-local aws-cdk
+
+      # --- Step 7: Install awscli-local (awslocal wrapper) ---
+      # Used by bootstrap and seed scripts to interact with LocalStack
+      # Cognito, DynamoDB, SSM, and other AWS services via CLI.
+      - name: Install awscli-local
+        run: pip install awscli-local
+
+      # =====================================================================
+      # Phase 2: LocalStack Stack Deployment
+      # (CRITICAL PATTERN — AAP §0.8.1, §0.8.4)
+      #
+      # The E2E pattern MUST be:
+      #   docker compose up -d → bootstrap → deploy → test → docker compose down
+      #
+      # LocalStack is a Docker image pull (localstack/localstack-pro:latest),
+      # NEVER a repository clone (AAP §0.8.1).
+      # =====================================================================
+
+      # --- Step 8: Start LocalStack via Docker Compose ---
+      # Starts LocalStack Pro and Step Functions Local sidecar as defined
+      # in docker-compose.yml. The LOCALSTACK_AUTH_TOKEN secret enables
+      # Pro features (Cognito, RDS, Lambda layers).
+      - name: Start LocalStack
+        run: docker compose up -d
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+      # --- Step 9: Wait for LocalStack health ---
+      # Poll the LocalStack health endpoint until core services (DynamoDB,
+      # Lambda, S3, Cognito) report as available. Times out after 120
+      # seconds to handle cold image pulls on first run.
+      - name: Wait for LocalStack
+        run: |
+          echo "Waiting for LocalStack to be ready..."
+          timeout 120 bash -c '
+            until curl -sf http://localhost:4566/_localstack/health | grep -q "\"dynamodb\": \"available\""; do
+              sleep 2
+            done
+          '
+          echo "LocalStack is ready!"
+
+      # --- Step 10: CDK Bootstrap ---
+      # Creates the CDKToolkit CloudFormation stack in LocalStack (S3
+      # staging bucket, IAM roles) required before any CDK deployment.
+      # Account 000000000000 is the LocalStack default mock account.
+      - name: CDK Bootstrap LocalStack
+        run: cdklocal bootstrap --context localstack=true
+
+      # --- Step 11: CDK Deploy all stacks ---
+      # Deploys all 13 CDK stacks to LocalStack in dependency order:
+      # SharedStack, IdentityStack, EntityManagementStack, CrmStack,
+      # InventoryStack, InvoicingStack, ReportingStack, NotificationsStack,
+      # FileManagementStack, WorkflowStack, PluginSystemStack,
+      # ApiGatewayStack, FrontendStack.
+      #
+      # --context localstack=true enables conditional resource selection
+      # (AAP §0.7.6): RDS PostgreSQL (not Aurora), skip CloudFront/ACM/
+      # Route53, S3 website hosting for frontend.
+      # --require-approval never prevents interactive prompts in CI.
+      - name: Deploy CDK Stacks to LocalStack
+        run: |
+          cd infra
+          cdklocal deploy --all --require-approval never --context localstack=true
+
+      # --- Step 12: Run database migrations ---
+      # Executes FluentMigrator migrations for the two RDS PostgreSQL-
+      # backed services: Invoicing and Reporting. All other services use
+      # DynamoDB (no migrations needed).
+      - name: Run Database Migrations
+        run: |
+          if [ -f ./tools/scripts/run-migrations.sh ]; then
+            chmod +x ./tools/scripts/run-migrations.sh
+            ./tools/scripts/run-migrations.sh
+          else
+            echo "⚠️  run-migrations.sh not found — skipping migrations"
+          fi
+
+      # --- Step 13: Seed test data ---
+      # Creates Cognito test users (system@webvella.com, erp@webvella.com
+      # with password 'erp', regular@webvella.com, guest@webvella.com),
+      # Cognito groups (administrator, regular, guest), DynamoDB seed
+      # records for identity/entity-management/plugin-system, and SSM
+      # parameters (encryption-key, lang, locale, timezone).
+      - name: Seed Test Data
+        run: |
+          if [ -f ./tools/scripts/seed-test-data.sh ]; then
+            chmod +x ./tools/scripts/seed-test-data.sh
+            ./tools/scripts/seed-test-data.sh
+          else
+            echo "⚠️  seed-test-data.sh not found — skipping data seeding"
+          fi
+
+      # =====================================================================
+      # Phase 3: Build and Serve
+      # =====================================================================
+
+      # --- Step 14: Build all services ---
+      # Uses Nx to build ALL projects in the monorepo: 10 .NET Lambda
+      # services, TypeScript authorizer, shared libraries, and frontend.
+      # Unlike CI (which uses nx affected), E2E runs the full build because
+      # every service must be deployed for end-to-end validation.
+      - name: Build All Services
+        run: npx nx run-many --target=build --all
+
+      # --- Step 15: Build frontend for production ---
+      # Produces the optimized React SPA bundle in dist/apps/frontend/
+      # with code splitting (vendor, query, state chunks) and Tailwind CSS
+      # purging. VITE_API_URL is baked into the bundle at build time.
+      - name: Build Frontend
+        run: npx nx build frontend
+        env:
+          VITE_API_URL: http://localhost:4566
+
+      # --- Step 16: Serve frontend in background ---
+      # Starts the Vite dev server at http://localhost:4200 in the
+      # background. Playwright will connect to this URL for all E2E tests.
+      # The ampersand (&) backgrounds the process so subsequent steps
+      # can execute while the server remains running.
+      - name: Serve Frontend
+        run: npx nx serve frontend &
+        env:
+          VITE_API_URL: http://localhost:4566
+
+      # --- Step 17: Wait for frontend to be ready ---
+      # Poll the frontend dev server until it responds. The Vite server
+      # needs time for initial compilation on the first request. Times out
+      # after 120 seconds to accommodate cold builds.
+      - name: Wait for Frontend
+        run: |
+          echo "Waiting for frontend dev server to be ready..."
+          timeout 120 bash -c '
+            until curl -sf http://localhost:4200 > /dev/null 2>&1; do
+              sleep 2
+            done
+          '
+          echo "Frontend is ready at http://localhost:4200"
+
+      # =====================================================================
+      # Phase 4: Run Playwright E2E Tests
+      # (AAP §0.8.4 — all E2E tests against full LocalStack stack)
+      # =====================================================================
+
+      # --- Step 18: Execute Playwright E2E test suite ---
+      # Runs the full Playwright test suite defined in apps/frontend-e2e/
+      # against the live frontend + LocalStack stack. Tests cover:
+      #   - Authentication (login/logout via Cognito)
+      #   - Record CRUD (create/read/update/delete via API Gateway → Lambda)
+      #   - Navigation (sidebar, breadcrumbs, app switching)
+      #   - Admin console (entity/field/role management)
+      #   - CRM, Projects, Notifications workflows
+      #
+      # BASE_URL points Playwright to the frontend dev server.
+      # API_URL points direct API calls to LocalStack API Gateway.
+      # No mocked AWS SDK calls — everything hits LocalStack (AAP §0.8.4).
+      - name: Run E2E Tests
+        run: npx nx e2e frontend-e2e
+        env:
+          BASE_URL: http://localhost:4200
+          API_URL: http://localhost:4566
+
+      # =====================================================================
+      # Phase 5: Artifacts and Cleanup
+      # =====================================================================
+
+      # --- Step 19: Upload Playwright report on failure ---
+      # Captures the HTML test report and trace files for debugging failed
+      # E2E tests. Only runs when previous steps fail (if: failure()).
+      # Retained for 7 days to allow investigation before auto-deletion.
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/frontend-e2e/playwright-report/
+            apps/frontend-e2e/test-results/
+          retention-days: 7
+
+      # --- Step 20: Upload Playwright screenshots and videos ---
+      # Captures screenshots and video recordings from test failures for
+      # visual debugging. Separate artifact for easier access.
+      - name: Upload E2E Test Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-artifacts
+          path: |
+            dist/.playwright/apps/frontend-e2e/test-output/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # --- Step 21: Teardown LocalStack (ALWAYS runs) ---
+      # Unconditionally stops and removes LocalStack containers and
+      # associated volumes, regardless of test outcome. This ensures
+      # clean state and prevents resource leaks on the runner.
+      # The -v flag removes named volumes (localstack-data) to avoid
+      # state persistence across workflow runs.
+      - name: Teardown LocalStack
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/notification.events.json",
+  "title": "Notifications - Email and Webhook Events",
+  "description": "JSON Schema definitions for Notifications domain events published via SNS. Covers the email lifecycle (queued, sent, failed) derived from the monolith's SMTP queue processor and SmtpInternalService, plus webhook dispatch events replacing the PostgreSQL LISTEN/NOTIFY pub/sub subsystem.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/emailQueuedEvent"
+    },
+    {
+      "$ref": "#/$defs/emailSentEvent"
+    },
+    {
+      "$ref": "#/$defs/emailFailedEvent"
+    },
+    {
+      "$ref": "#/$defs/webhookDispatchedEvent"
+    }
+  ],
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Common event envelope shared by all Notifications domain events. Provides tracing, versioning, and source identification for SNS/SQS consumers.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully qualified event type following the {domain}.{entity}.{action} naming convention."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique correlation identifier for distributed tracing and idempotency. Consumers use this for deduplication per AAP §0.8.5."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp indicating when the event was emitted."
+        },
+        "source": {
+          "type": "string",
+          "const": "notifications",
+          "description": "The originating bounded-context service name. Always 'notifications' for events in this schema."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version for forward/backward compatibility. Initial version is '1.0'.",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    },
+    "emailQueuedEvent": {
+      "description": "Published when an email is added to the outbound queue. Replaces the monolith's direct INSERT into the email entity with status=Pending and a scheduled_on timestamp. Maps to SmtpInternalService.SaveEmail creating a Pending email with priority and scheduled delivery time.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "notifications.email.queued"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for the email queued event.",
+              "properties": {
+                "emailId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Unique identifier for the email record. Corresponds to the Email.Id GUID in the monolith's email entity."
+                },
+                "recipientEmail": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Primary recipient email address. Derived from the first To recipient in the monolith's Email.Recipients collection."
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "Email subject line."
+                },
+                "templateId": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Optional template identifier used to compose the email body. Null when the email was composed without a template."
+                },
+                "priority": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10,
+                  "description": "Queue processing priority. Higher values are processed first (matches monolith's ORDER BY priority DESC). Range 1-10."
+                },
+                "scheduledAt": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "ISO 8601 timestamp for scheduled delivery. Null means immediate delivery. Derived from the monolith's Email.ScheduledOn field."
+                },
+                "queuedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Identifier of the user or system principal that queued the email."
+                }
+              },
+              "required": [
+                "emailId",
+                "recipientEmail",
+                "subject"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "emailSentEvent": {
+      "description": "Published when an email is successfully sent via the SMTP provider. Maps to SmtpInternalService.SendEmail success path where status is set to EmailStatus.Sent and SentOn is recorded.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "notifications.email.sent"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for the email sent event.",
+              "properties": {
+                "emailId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Unique identifier for the email record."
+                },
+                "recipientEmail": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Primary recipient email address."
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "Email subject line."
+                },
+                "sentAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO 8601 timestamp of when the email was actually sent. Corresponds to Email.SentOn = DateTime.UtcNow in the monolith."
+                },
+                "smtpMessageId": {
+                  "type": "string",
+                  "description": "SMTP message identifier returned by the mail provider. Used for delivery tracking and bounce correlation."
+                }
+              },
+              "required": [
+                "emailId",
+                "recipientEmail",
+                "sentAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "emailFailedEvent": {
+      "description": "Published when an email send attempt fails. Maps to SmtpInternalService.SendEmail catch block where RetriesCount is incremented and status is set to either Pending (will retry) or Aborted (max retries exceeded per service.MaxRetriesCount).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "notifications.email.failed"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for the email failed event.",
+              "properties": {
+                "emailId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Unique identifier for the email record."
+                },
+                "recipientEmail": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Primary recipient email address."
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "Email subject line."
+                },
+                "failureReason": {
+                  "type": "string",
+                  "description": "Error description from the send attempt. Corresponds to ex.Message captured in the monolith's SendEmail catch block and stored in Email.ServerError."
+                },
+                "retryCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Number of retry attempts made so far. Incremented on each failure (Email.RetriesCount++). When retryCount >= service.MaxRetriesCount, the email is aborted."
+                },
+                "failedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO 8601 timestamp of when the failure occurred."
+                },
+                "willRetry": {
+                  "type": "boolean",
+                  "description": "Indicates whether the system will retry sending. True when retryCount < MaxRetriesCount (email rescheduled with RetryWaitMinutes delay). False when max retries exceeded and status transitions to Aborted."
+                }
+              },
+              "required": [
+                "emailId",
+                "failureReason",
+                "failedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "webhookDispatchedEvent": {
+      "description": "Published when a webhook is dispatched to an external endpoint. Replaces the monolith's PostgreSQL LISTEN/NOTIFY pub/sub mechanism (NotificationContext.SendNotification) with HTTP-based webhook delivery tracked as domain events via SNS/SQS.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "notifications.webhook.dispatched"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for the webhook dispatched event.",
+              "properties": {
+                "webhookId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Unique identifier for the webhook dispatch record."
+                },
+                "targetUrl": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "The target URL that the webhook payload was delivered to."
+                },
+                "eventPayload": {
+                  "type": "object",
+                  "description": "The domain event payload that triggered this webhook dispatch. Structure varies depending on the originating domain event.",
+                  "additionalProperties": true
+                },
+                "httpStatus": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "HTTP status code returned by the webhook target endpoint."
+                },
+                "dispatchedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO 8601 timestamp of when the webhook was dispatched."
+                },
+                "responseTimeMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Round-trip response time in milliseconds from the webhook target endpoint."
+                }
+              },
+              "required": [
+                "webhookId",
+                "targetUrl",
+                "httpStatus",
+                "dispatchedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

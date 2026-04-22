@@ -1,0 +1,79 @@
+{
+  "name": "infra",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "infra/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/infra",
+        "tsConfig": "infra/tsconfig.json",
+        "main": "infra/src/app.ts"
+      }
+    },
+    "synth": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdk synth --all",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "synth-local": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdklocal synth --all --context localstack=true",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "deploy-local": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdklocal deploy --all --context localstack=true --require-approval never",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdk deploy --all",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "diff": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdk diff --all",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "diff-local": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx cdklocal diff --all --context localstack=true",
+        "cwd": "infra"
+      },
+      "dependsOn": ["build"]
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["infra/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/infra"],
+      "options": {
+        "jestConfig": "infra/jest.config.ts"
+      }
+    }
+  },
+  "tags": ["scope:infra", "type:infrastructure"]
+}

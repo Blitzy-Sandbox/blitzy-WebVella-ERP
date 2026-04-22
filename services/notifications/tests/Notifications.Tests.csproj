@@ -1,0 +1,161 @@
+<!--
+  Notifications.Tests.csproj — .NET 9 Test Project for Notifications Microservice
+
+  Purpose:
+    Unit tests (Moq-based) and integration tests (LocalStack DynamoDB/SQS/SNS/SES)
+    for the Notifications bounded-context Lambda service.
+
+  Source projects replaced:
+    - WebVella.Erp.Plugins.Mail.csproj (Razor SDK, net10.0, MailKit/MimeKit,
+      project refs to WebVella.Erp.Web and WebVella.Erp)
+    — now a standalone test project for the notifications microservice.
+
+  Test classes provided:
+    - NotificationRepositoryIntegrationTests  — DynamoDB CRUD against LocalStack
+    - SmtpServiceTests                        — SMTP engine validation, send/queue, retry logic
+    - QueueProcessorTests                     — SQS-triggered queue processing, partial batch failure
+    - WebhookHandlerTests                     — Webhook dispatch, channel filtering, CRUD endpoints
+    - EmailHandlerTests                       — Email send/queue HTTP API, SMTP config CRUD, SNS events
+
+  Explicit exclusions (not needed by Notifications):
+    - No Npgsql           — DynamoDB, not PostgreSQL
+    - No FluentMigrator   — No RDS migrations
+    - No MailKit/MimeKit  — SMTP transport replaced by SES stub
+    - No HtmlAgilityPack  — HTML processing uses Regex for AOT compatibility
+    - No Irony.NetCore    — No EQL in Notifications service
+    - No CsvHelper        — No CSV import/export
+    - No Ical.Net         — No recurrence processing
+    - No Storage.Net      — File storage via S3 in File Management service
+    - No PublishAot       — Test projects run on standard CLR
+    - No cross-service project references — self-contained bounded context
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>WebVellaErp.Notifications.Tests</RootNamespace>
+    <AssemblyName>WebVellaErp.Notifications.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Library</OutputType>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════════
+    Test Framework — xUnit + Moq + FluentAssertions + coverlet
+    Per AAP §0.6.1: xunit (.NET unit test framework), Moq (.NET mocking
+    library), FluentAssertions (.NET assertion library), coverlet (>80%
+    coverage per service).
+    ════════════════════════════════════════════════════════════════════════
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="FluentAssertions" Version="7.0.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════════
+    AWS SDK — Integration tests against LocalStack
+    Per AAP §0.8.4: "All integration and E2E tests MUST execute against
+    LocalStack. No mocked AWS SDK calls in integration tests."
+    Pattern: docker compose up -d → test → docker compose down.
+    ════════════════════════════════════════════════════════════════════════
+  -->
+  <ItemGroup>
+    <!-- DynamoDB SDK for NotificationRepositoryIntegrationTests: table create/delete,
+         CRUD verification, single-table design validation (PK/SK, GSI1, GSI2) -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK for verifying domain event publishing:
+         notifications.email.sent, notifications.webhook.dispatched, etc. -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SQS SDK for QueueProcessor integration tests:
+         queue creation, send/receive messages, batch processing -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.400.97" />
+
+    <!-- SES v2 SDK for email sending integration tests via SES stub,
+         and for mocking IAmazonSimpleEmailServiceV2 in SmtpServiceTests -->
+    <PackageReference Include="AWSSDK.SimpleEmailV2" Version="3.7.401.10" />
+  </ItemGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════════
+    Lambda Test Utilities — Mock Lambda context and event types
+    Provides TestLambdaContext, TestLambdaLogger for handler tests and
+    typed event classes for building test payloads.
+    ════════════════════════════════════════════════════════════════════════
+  -->
+  <ItemGroup>
+    <!-- TestLambdaContext and TestLambdaLogger for EmailHandler,
+         WebhookHandler, and QueueProcessor Lambda handler tests -->
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="2.0.0" />
+
+    <!-- APIGatewayHttpApiV2ProxyRequest/Response for building test HTTP
+         requests in EmailHandler and WebhookHandler endpoint tests -->
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.3" />
+
+    <!-- SQSEvent, SQSEvent.SQSMessage, SQSBatchResponse for building
+         test SQS trigger payloads in QueueProcessor and WebhookHandler tests -->
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.1" />
+  </ItemGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════════
+    Configuration and Logging — Test DI setup
+    Used for building IConfiguration with DynamoDB table names and
+    LocalStack endpoint URLs, and for ILogger<T> mock/null instances.
+    ════════════════════════════════════════════════════════════════════════
+  -->
+  <ItemGroup>
+    <!-- IConfiguration / ConfigurationBuilder for test setup with
+         DynamoDB:NotificationsTableName and AWS_ENDPOINT_URL -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
+
+    <!-- JSON configuration provider for loading appsettings.test.json -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+
+    <!-- Environment variable configuration for AWS_ENDPOINT_URL override -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.0" />
+
+    <!-- ILogger<T> for creating mock loggers in unit tests -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+
+    <!-- NullLogger<T>.Instance for integration tests where real logging
+         is not needed but constructor injection requires ILogger<T> -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+
+    <!-- ServiceCollection / ServiceProvider for building test DI
+         containers in integration tests with real AWS clients -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    ════════════════════════════════════════════════════════════════════════
+    Project Reference — Notifications microservice under test
+    Provides all test subjects: Lambda handlers (EmailHandler,
+    WebhookHandler, QueueProcessor), services (ISmtpService, SmtpService),
+    data access (INotificationRepository, NotificationRepository), and
+    models (Email, EmailAddress, EmailStatus, EmailPriority,
+    SmtpServiceConfig, Notification, NotificationEvent, WebhookConfig).
+    ════════════════════════════════════════════════════════════════════════
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../Notifications.csproj" />
+  </ItemGroup>
+
+</Project>

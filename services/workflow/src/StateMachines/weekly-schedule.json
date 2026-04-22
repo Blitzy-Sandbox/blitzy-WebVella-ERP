@@ -1,0 +1,217 @@
+{
+  "Comment": "Weekly Schedule State Machine — Replaces SheduleManager SchedulePlanType.Weekly (type=3). Implements the Process() weekly case (lines 146-165) and FindWeeklySchedulePlanNextTriggerDate() logic (lines 568-598). Next trigger = LastTriggerTime + 7 days (or UtcNow + 7 days). Only boundary check is EndDate — NO day-of-week filtering (ScheduledDays not used), NO timespan filtering. Weekly wait is a FIXED 604800 seconds (7 * 24 * 60 * 60).",
+  "StartAt": "ValidateSchedule",
+  "States": {
+    "ValidateSchedule": {
+      "Type": "Task",
+      "Comment": "Validates the weekly schedule plan exists, is enabled, and calculates the next trigger time (LastTriggerTime + 7 days or UtcNow + 7 days). Replaces the initial validation and nextActivation calculation from SheduleManager.cs lines 146-153. The Lambda evaluates: schedulePlan.LastTriggerTime.HasValue ? schedulePlan.LastTriggerTime.Value.AddDays(7) : DateTime.UtcNow.AddDays(7). Also computes hasEndDate and isExpired flags for the CheckEndDate choice state to implement the boundary check from line 155.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-handler",
+      "Parameters": {
+        "action": "validate-schedule",
+        "scheduleType": "weekly",
+        "schedulePlan.$": "$.schedulePlan",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.validation",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "CheckEnabled"
+    },
+    "CheckEnabled": {
+      "Type": "Choice",
+      "Comment": "Checks if the schedule plan is enabled (SchedulePlan.Enabled == true). Disabled schedules terminate gracefully without executing any jobs, exiting to ScheduleDisabled succeed state.",
+      "Choices": [
+        {
+          "Variable": "$.validation.enabled",
+          "BooleanEquals": true,
+          "Next": "CheckEndDate"
+        }
+      ],
+      "Default": "ScheduleDisabled"
+    },
+    "CheckEndDate": {
+      "Type": "Choice",
+      "Comment": "Implements EndDate boundary check from SheduleManager.cs line 155: (!schedulePlan.EndDate.HasValue) || (nextActivation < schedulePlan.EndDate.Value). If endDate is not set or the next trigger time is before the endDate, proceed to execute. If the schedule has expired past its EndDate, transition to ScheduleExpired which sets NextTriggerTime to null (line 162). This is the ONLY constraint for weekly schedules — no ScheduledDays or timespan checks.",
+      "Choices": [
+        {
+          "Variable": "$.validation.hasEndDate",
+          "BooleanEquals": false,
+          "Next": "ExecuteJob"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.validation.hasEndDate",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.validation.isExpired",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "ScheduleExpired"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.validation.hasEndDate",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.validation.isExpired",
+              "BooleanEquals": false
+            }
+          ],
+          "Next": "ExecuteJob"
+        }
+      ],
+      "Default": "ExecuteJob"
+    },
+    "ExecuteJob": {
+      "Type": "Task",
+      "Comment": "Executes the scheduled job — creates a new job entry in DynamoDB (replacing JobManager.Current.CreateJob() from SheduleManager.cs line 190), sets LastTriggerTime to UtcNow (line 149: schedulePlan.LastTriggerTime = DateTime.UtcNow), calculates NextTriggerTime as LastTriggerTime + 7 days (lines 151-153: schedulePlan.LastTriggerTime.Value.AddDays(7)), updates LastStartedJobId (line 191), and publishes workflow.schedule.triggered SNS domain event.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "execute-scheduled-job",
+        "scheduleType": "weekly",
+        "schedulePlanId.$": "$.schedulePlan.id",
+        "jobTypeId.$": "$.schedulePlan.jobTypeId",
+        "jobAttributes.$": "$.schedulePlan.jobAttributes",
+        "snsEvent": "workflow.schedule.triggered",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.jobResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "WaitOneWeek"
+    },
+    "WaitOneWeek": {
+      "Type": "Wait",
+      "Comment": "Waits exactly 604800 seconds (7 days = 7 * 24 * 60 * 60) before the next execution cycle. This replaces the C# AddDays(7) stepping logic from SheduleManager.cs lines 152-153 (Process: LastTriggerTime.Value.AddDays(7)) and line 590 (FindWeeklySchedulePlanNextTriggerDate: startingDate.AddDays(7)). Unlike the monthly schedule which uses dynamic SecondsPath for variable-length months, weekly always uses a fixed 604800-second interval because a week is always exactly 7 days.",
+      "Seconds": 604800,
+      "Next": "CheckEndDate"
+    },
+    "HandleError": {
+      "Type": "Task",
+      "Comment": "Handles errors encountered during weekly schedule execution. Publishes workflow.schedule.failed SNS event for observability and sends error details to the workflow-weekly-schedule-dlq dead-letter queue for investigation and retry per AAP Section 0.8.5 DLQ naming convention.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "handle-schedule-error",
+        "scheduleType": "weekly",
+        "error.$": "$.error",
+        "schedulePlan.$": "$.schedulePlan",
+        "snsEvent": "workflow.schedule.failed",
+        "dlqName": "workflow-weekly-schedule-dlq",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.errorResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "Failed"
+    },
+    "ScheduleDisabled": {
+      "Type": "Succeed",
+      "Comment": "Terminal state for disabled weekly schedules. The schedule plan has Enabled=false, so no job is created and the state machine exits gracefully."
+    },
+    "ScheduleExpired": {
+      "Type": "Task",
+      "Comment": "Marks the weekly schedule as expired in DynamoDB. Sets NextTriggerTime to null (matching SheduleManager.cs line 162: schedulePlan.NextTriggerTime = null) when the calculated nextActivation exceeds the EndDate boundary (line 155: nextActivation >= schedulePlan.EndDate.Value). Publishes workflow.schedule.expired SNS event for audit and observability.",
+      "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:workflow-step-handler",
+      "Parameters": {
+        "action": "expire-schedule",
+        "scheduleType": "weekly",
+        "schedulePlanId.$": "$.schedulePlan.id",
+        "snsEvent": "workflow.schedule.expired",
+        "idempotencyKey.$": "$.idempotencyKey",
+        "correlationId.$": "$.correlationId"
+      },
+      "ResultPath": "$.expirationResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "Succeeded": {
+      "Type": "Succeed",
+      "Comment": "Terminal success state. The weekly schedule has completed its lifecycle — either all scheduled executions ran successfully and the schedule expired normally, or the schedule reached its EndDate boundary."
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "WeeklyScheduleFailed",
+      "Cause": "Weekly schedule workflow encountered an error"
+    }
+  }
+}

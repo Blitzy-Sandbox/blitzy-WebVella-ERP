@@ -1,0 +1,340 @@
+{
+  "Comment": "Interval Schedule state machine — replaces SheduleManager.FindIntervalSchedulePlanNextTriggerDate() and SchedulePlanType.Interval processing. Orchestrates recurring job execution based on configurable interval (in minutes), allowed time windows (StartTimespan/EndTimespan with overnight wrap support), and day-of-week constraints (SchedulePlanDaysOfWeek). Loops until the schedule EndDate is reached or the schedule is disabled.",
+  "StartAt": "ValidateSchedule",
+  "States": {
+    "ValidateSchedule": {
+      "Type": "Task",
+      "Comment": "Invokes WorkflowHandler Lambda to validate the interval schedule plan. Checks IntervalInMinutes > 0, schedule plan exists in DynamoDB, and schedule is enabled. Replaces the initial validation in FindIntervalSchedulePlanNextTriggerDate lines 414-423.",
+      "Resource": "${WorkflowHandlerFunctionArn}",
+      "Parameters": {
+        "action": "validate-schedule",
+        "scheduleType": "interval",
+        "schedulePlan.$": "$.schedulePlan",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.validation",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "CheckEnabled"
+    },
+
+    "CheckEnabled": {
+      "Type": "Choice",
+      "Comment": "Checks whether the schedule plan is enabled. Maps to the monolith's schedulePlan.Enabled property check. If disabled, exits cleanly without executing any jobs.",
+      "Choices": [
+        {
+          "Variable": "$.validation.enabled",
+          "BooleanEquals": true,
+          "Next": "CheckEndDate"
+        }
+      ],
+      "Default": "ScheduleDisabled"
+    },
+
+    "CheckEndDate": {
+      "Type": "Choice",
+      "Comment": "Checks if the schedule has expired by evaluating EndDate. Replaces the expiry guard in FindIntervalSchedulePlanNextTriggerDate lines 431-437: if EndDate < startingDate return null. The validation Lambda computes 'isExpired' by comparing EndDate against current UTC time.",
+      "Choices": [
+        {
+          "Variable": "$.validation.isExpired",
+          "BooleanEquals": true,
+          "Next": "ScheduleExpired"
+        },
+        {
+          "Variable": "$.validation.isExpired",
+          "BooleanEquals": false,
+          "Next": "CheckDayOfWeek"
+        }
+      ],
+      "Default": "CheckDayOfWeek"
+    },
+
+    "CheckDayOfWeek": {
+      "Type": "Task",
+      "Comment": "Invokes Lambda to evaluate IsDayUsedInSchedulePlan() logic from SheduleManager.cs lines 632-702. Evaluates current day against the 7 ScheduledDays boolean flags (Sunday-Saturday). Handles overnight timespan wrapping via isIntervalConnectedToFirstDay: when StartTimespan > EndTimespan AND current time is between 0 and EndTimespan, the effective day is shifted back by 1 to maintain correct day-boundary semantics.",
+      "Resource": "${StepHandlerFunctionArn}",
+      "Parameters": {
+        "action": "check-day-of-week",
+        "scheduleType": "interval",
+        "scheduledDays.$": "$.validation.scheduledDays",
+        "startTimespan.$": "$.validation.startTimespan",
+        "endTimespan.$": "$.validation.endTimespan",
+        "schedulePlanId.$": "$.validation.schedulePlanId",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.dayCheck",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "EvaluateDayResult"
+    },
+
+    "EvaluateDayResult": {
+      "Type": "Choice",
+      "Comment": "Branches based on the day-of-week check result. If the current day is in the ScheduledDays set (accounting for overnight wrap), proceeds to time window validation. Otherwise waits until the next allowed day. Replaces the if/else branch at lines 449-454 of FindIntervalSchedulePlanNextTriggerDate.",
+      "Choices": [
+        {
+          "Variable": "$.dayCheck.isDayAllowed",
+          "BooleanEquals": true,
+          "Next": "CheckTimeWindow"
+        }
+      ],
+      "Default": "WaitNextDay"
+    },
+
+    "CheckTimeWindow": {
+      "Type": "Task",
+      "Comment": "Invokes Lambda to evaluate IsTimeInTimespanInterval() logic from SheduleManager.cs lines 704-722. Converts current UTC time to minutes-since-midnight (hour*60+minute). Handles three scenarios: (1) No StartTimespan defined → always in window. (2) Normal range: StartTimespan < EndTimespan → check StartTimespan <= time <= EndTimespan. (3) Overnight wrap: StartTimespan >= EndTimespan → check (StartTimespan <= time <= 1440) OR (0 < time <= EndTimespan). Returns isInWindow boolean and secondsUntilWindow for wait calculation.",
+      "Resource": "${StepHandlerFunctionArn}",
+      "Parameters": {
+        "action": "check-time-window",
+        "scheduleType": "interval",
+        "startTimespan.$": "$.validation.startTimespan",
+        "endTimespan.$": "$.validation.endTimespan",
+        "schedulePlanId.$": "$.validation.schedulePlanId",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.timeCheck",
+      "TimeoutSeconds": 15,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "EvaluateTimeResult"
+    },
+
+    "EvaluateTimeResult": {
+      "Type": "Choice",
+      "Comment": "Branches based on the time window check. If current time falls within the allowed StartTimespan-EndTimespan window (or no window is configured), proceeds to job execution. Otherwise waits dynamically until the next window opens. Replaces the conditional at line 447 of FindIntervalSchedulePlanNextTriggerDate.",
+      "Choices": [
+        {
+          "Variable": "$.timeCheck.isInWindow",
+          "BooleanEquals": true,
+          "Next": "ExecuteJob"
+        }
+      ],
+      "Default": "WaitForTimeWindow"
+    },
+
+    "WaitForTimeWindow": {
+      "Type": "Wait",
+      "Comment": "Dynamically waits until the next allowed time window opens. The wait duration is computed by CheckTimeWindow Lambda as the number of seconds until StartTimespan on the current or next day (replacing the C# logic at lines 458-468 that calculates the next StartTimespan occurrence). After waiting, re-evaluates the time window.",
+      "SecondsPath": "$.timeCheck.secondsUntilWindow",
+      "Next": "CheckTimeWindow"
+    },
+
+    "WaitNextDay": {
+      "Type": "Wait",
+      "Comment": "Waits until the next allowed day's StartTimespan. The wait duration is computed by CheckDayOfWeek Lambda as the number of seconds until the next day that has its flag set in ScheduledDays (replacing the startingDate.AddDays(1) logic at line 452). Loops back to CheckEndDate to re-verify schedule validity before proceeding.",
+      "SecondsPath": "$.dayCheck.secondsUntilNextAllowedDay",
+      "Next": "CheckEndDate"
+    },
+
+    "ExecuteJob": {
+      "Type": "Task",
+      "Comment": "Invokes StepHandler Lambda to execute the scheduled job. Replaces JobManager.Current.CreateJob() from SheduleManager.cs line 190. Creates the actual job via DynamoDB, updates LastTriggerTime, LastStartedJobId, and NextTriggerTime in the schedule plan record. Publishes SNS event 'workflow.schedule.triggered' per the domain event naming convention ({domain}.{entity}.{action}).",
+      "Resource": "${StepHandlerFunctionArn}",
+      "Parameters": {
+        "action": "execute-scheduled-job",
+        "scheduleType": "interval",
+        "schedulePlanId.$": "$.validation.schedulePlanId",
+        "jobTypeId.$": "$.validation.jobTypeId",
+        "jobAttributes.$": "$.validation.jobAttributes",
+        "intervalInMinutes.$": "$.validation.intervalInMinutes",
+        "snsEvent": "workflow.schedule.triggered",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.jobResult",
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "WaitInterval"
+    },
+
+    "WaitInterval": {
+      "Type": "Wait",
+      "Comment": "Waits for the configured interval duration before the next execution cycle. Uses intervalInSeconds (IntervalInMinutes * 60) computed by the validation Lambda, replacing the C# AddMinutes(intervalPlan.IntervalInMinutes.Value) logic at line 425. After waiting, loops back to CheckEndDate to re-verify schedule validity, day-of-week, and time window constraints — replicating the while(true) loop structure in FindIntervalSchedulePlanNextTriggerDate.",
+      "SecondsPath": "$.validation.intervalInSeconds",
+      "Next": "CheckEndDate"
+    },
+
+    "HandleError": {
+      "Type": "Task",
+      "Comment": "Invokes Lambda to handle schedule execution errors. Publishes SNS event 'workflow.schedule.failed' per domain event naming convention. Sends the error details to the dead-letter queue 'workflow-interval-schedule-dlq' following the DLQ naming convention ({service}-{queue}-dlq). Replaces the catch block error logging in SheduleManager.Process() lines 202-218.",
+      "Resource": "${StepHandlerFunctionArn}",
+      "Parameters": {
+        "action": "handle-schedule-error",
+        "scheduleType": "interval",
+        "schedulePlanId.$": "$.validation.schedulePlanId",
+        "error.$": "$.error",
+        "dlqName": "workflow-interval-schedule-dlq",
+        "snsEvent": "workflow.schedule.failed",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.errorResult",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.fatalError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+
+    "ScheduleDisabled": {
+      "Type": "Succeed",
+      "Comment": "Terminal state when the schedule plan's Enabled flag is false. Clean exit without executing any jobs. The schedule can be re-enabled via the Workflow API which will start a new state machine execution."
+    },
+
+    "ScheduleExpired": {
+      "Type": "Task",
+      "Comment": "Invokes Lambda to mark the schedule as expired in DynamoDB. Sets NextTriggerTime to null, matching the C# pattern schedulePlan.NextTriggerTime = null from SheduleManager.cs line 121. Publishes SNS event 'workflow.schedule.expired' per domain event naming convention.",
+      "Resource": "${StepHandlerFunctionArn}",
+      "Parameters": {
+        "action": "expire-schedule",
+        "scheduleType": "interval",
+        "schedulePlanId.$": "$.validation.schedulePlanId",
+        "snsEvent": "workflow.schedule.expired",
+        "correlationId.$": "$.correlationId",
+        "idempotencyKey.$": "$.idempotencyKey"
+      },
+      "ResultPath": "$.expiryResult",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+
+    "Succeeded": {
+      "Type": "Succeed",
+      "Comment": "Terminal success state. Reached after the schedule expires normally or completes its lifecycle. The schedule plan's NextTriggerTime has been set to null in DynamoDB."
+    },
+
+    "Failed": {
+      "Type": "Fail",
+      "Error": "IntervalScheduleFailed",
+      "Cause": "Interval schedule workflow encountered an error"
+    }
+  }
+}

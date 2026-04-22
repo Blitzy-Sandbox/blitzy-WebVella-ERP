@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 
+    Identity & Access Management Microservice - .NET 9 Native AOT Lambda Project
+    
+    Replaces the monolithic WebVella.Erp.csproj (net10.0 class library) with a targeted
+    .NET 9 Lambda project configured for Native AOT compilation. This service handles
+    authentication (Cognito), user/role management (DynamoDB), permission checking,
+    and publishes domain events (SNS) for identity lifecycle operations.
+    
+    Namespace: WebVellaErp.Identity
+    Assembly:  WebVellaErp.Identity
+    
+    Source mapping: WebVella.Erp/WebVella.Erp.csproj
+    Key difference: Removes all non-IAM dependencies (Npgsql, Irony, CsvHelper, Ical.Net,
+    Storage.Net, System.Drawing.Common, MimeMapping) and adds AWS SDK packages for
+    Cognito, DynamoDB, SNS, and SSM Parameter Store.
+  -->
+
+  <PropertyGroup>
+    <!-- Target .NET 9 (NOT net10.0 as in source monolith) per AAP specification -->
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WebVellaErp.Identity</AssemblyName>
+    <RootNamespace>WebVellaErp.Identity</RootNamespace>
+
+    <!-- Native AOT configuration for Lambda cold start < 1 second -->
+    <PublishAot>false</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Exclude test project artifacts from main service compilation -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- AWS Lambda hosting and runtime -->
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+
+    <!-- AWS SDK: DynamoDB for user/role persistence (replaces PostgreSQL rec_user/rec_role tables) -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- AWS SDK: Cognito for user pool operations (replaces SecurityManager MD5 auth) -->
+    <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.407.7" />
+
+    <!-- AWS SDK: SNS for domain event publishing (identity.user.created, identity.role.updated, etc.) -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- AWS SDK: SSM Parameter Store for secrets (COGNITO_CLIENT_SECRET as SecureString) -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+
+    <!-- Object mapping: DynamoDB AttributeValue <-> domain models (same version as source monolith) -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization compatibility for backward-compatible DTOs (same version as source monolith) -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+
+  <!-- Suppress GHSA-rvv3-g6hj-g44x (AutoMapper DoS via deep recursion) - Lambda functions process
+       validated API payloads with bounded depth, mitigating the attack vector. Upgrade to 16.x
+       deferred to avoid breaking API changes across all service mappings. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+</Project>

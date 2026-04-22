@@ -1,0 +1,169 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    File Management Microservice — .NET 9 Native AOT Lambda Project
+
+    Replaces the file storage subsystem previously embedded in the WebVella.Erp
+    monolith (DbFileRepository.cs, DbFile.cs, and related file handling in
+    WebVella.Erp.csproj targeting net10.0). The monolith stored file content in
+    PostgreSQL Large Objects (Npgsql LO), the local filesystem, or cloud blob
+    storage via Storage.Net, with file metadata persisted in a single PostgreSQL
+    'files' table.
+
+    This bounded-context service replaces ALL three storage backends with:
+      - Amazon S3 for file content (upload, download, presigned URLs)
+      - Amazon DynamoDB for file metadata persistence (single-table design)
+      - Amazon SNS for domain event publishing (file-management.file.created,
+        file-management.file.deleted, file-management.file.updated)
+
+    Namespace: WebVellaErp.FileManagement
+    Assembly:  WebVellaErp.FileManagement
+
+    Source mapping:
+      - WebVella.Erp/WebVella.Erp.csproj          (project structure, dependency baseline)
+      - WebVella.Erp/Database/DbFileRepository.cs  (file CRUD: LO/filesystem/blob backends)
+      - WebVella.Erp/Database/DbFile.cs            (file metadata model)
+
+    Key differences from monolith source:
+      REMOVES: Npgsql (no PostgreSQL — S3 + DynamoDB), Storage.Net (replaced by
+               AWSSDK.S3), Irony.NetCore (no EQL engine), CsvHelper (not needed),
+               Ical.Net (not needed), System.Drawing.Common (not needed)
+      ADDS:    AWSSDK.S3 (file content storage), AWSSDK.DynamoDBv2 (metadata),
+               AWSSDK.SimpleNotificationService (domain events),
+               AWSSDK.SimpleSystemsManagement (secrets via SSM SecureString),
+               Amazon.Lambda.* hosting packages for Native AOT Lambda execution
+      KEEPS:   AutoMapper 14.0.0 (object mapping), Newtonsoft.Json 13.0.4
+               (backward-compatible serialization), MimeMapping 3.1.0 (MIME type
+               detection carried from source for file type classification)
+
+    Self-contained bounded context: This service has ZERO cross-service project
+    references per AAP rule — each bounded context owns its own datastore, Lambda
+    functions, API routes, and tests.
+
+    Exported namespaces (Lambda handlers and service layer):
+      - WebVellaErp.FileManagement.Functions.UploadHandler
+      - WebVellaErp.FileManagement.Functions.DownloadHandler
+      - WebVellaErp.FileManagement.Models
+      - WebVellaErp.FileManagement.Services.S3Service
+      - WebVellaErp.FileManagement.DataAccess.FileMetadataRepository
+  -->
+
+  <PropertyGroup>
+    <!-- Target .NET 9 (NOT net10.0 as in source monolith) per AAP specification -->
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Assembly identity -->
+    <OutputType>Exe</OutputType>
+    <AssemblyName>WebVellaErp.FileManagement</AssemblyName>
+    <RootNamespace>WebVellaErp.FileManagement</RootNamespace>
+
+    <!-- Native AOT configuration for Lambda cold start optimization (target < 1 second
+         per AAP §0.8.2) and Lambda package size optimization (target < 250MB unzipped).
+         SelfContained + RuntimeIdentifier required for linux-x64 Lambda execution.
+         EnableTrimming reduces deployment package size by removing unused framework code. -->
+    <PublishAot>false</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <EnableTrimming>true</EnableTrimming>
+
+    <!-- Lambda runtime configuration generation for deployment packaging -->
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <AWSProjectType>Lambda</AWSProjectType>
+
+    <!-- Exclude test project artifacts from SDK globbing into main service compilation.
+         Test project lives under tests/ subdirectory with its own .csproj. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core shared framework for Lambda hosting via Amazon.Lambda.AspNetCoreServer.
+       Provides IServiceCollection, WebApplicationBuilder, ILogger, IConfiguration,
+       ControllerBase, HttpContext and the full ASP.NET Core middleware pipeline
+       that is bridged to API Gateway HTTP API v2 events by the Lambda hosting package. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- AWS Lambda hosting and runtime -->
+  <ItemGroup>
+    <!-- Converts API Gateway HTTP API v2 requests/responses to ASP.NET Core pipeline.
+         Used by Lambda handler classes (UploadHandler, DownloadHandler) via
+         APIGatewayHttpApiV2ProxyFunction base class. -->
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer" Version="9.2.1" />
+
+    <!-- Lambda runtime interface: ILambdaContext, ILambdaSerializer, LambdaSerializerAttribute -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.12.0" />
+
+    <!-- System.Text.Json-based Lambda serializer for AOT-compatible JSON serialization.
+         DefaultLambdaJsonSerializer preferred over Newtonsoft for new code paths per AAP.
+         Replaces Newtonsoft.Json-based serialization from the source monolith where possible. -->
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+  </ItemGroup>
+
+  <!-- AWS SDK packages for service infrastructure -->
+  <ItemGroup>
+    <!-- S3 SDK for file content storage — the primary replacement for the monolith's three
+         file storage backends:
+           1. PostgreSQL Large Objects (NpgsqlLargeObjectManager in DbFileRepository.Create/Delete)
+           2. Local filesystem storage (File.Open/Directory.CreateDirectory paths)
+           3. Storage.Net cloud blob storage (IBlobStorage.WriteAsync/OpenReadAsync)
+         All three backends are unified into S3 operations: PutObject for upload,
+         GetObject for download, GetPreSignedUrl for presigned URL generation,
+         DeleteObject for cleanup. Works against LocalStack S3 via AWS_ENDPOINT_URL. -->
+    <PackageReference Include="AWSSDK.S3" Version="3.7.410.10" />
+
+    <!-- DynamoDB SDK for file metadata persistence (replaces the PostgreSQL 'files' table).
+         Single-table design with PK=FILE#{fileId}, SK=META for file metadata items.
+         Stores: Id, FilePath, ContentType, FileSize, S3Key, CreatedOn, ModifiedOn,
+         CreatedBy, ModifiedBy — mapping from the source DbFile model properties.
+         Used types: IAmazonDynamoDB, PutItemRequest, GetItemRequest, QueryRequest,
+         DeleteItemRequest, AttributeValue -->
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.405.38" />
+
+    <!-- SNS SDK for publishing domain events (file-management.file.created,
+         file-management.file.deleted, file-management.file.updated). Replaces the
+         monolith's synchronous in-process hooks with async event-driven architecture
+         per AAP §0.7.2 hook-to-event migration strategy.
+         Used types: IAmazonSimpleNotificationService, PublishRequest, PublishResponse -->
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.400.97" />
+
+    <!-- SSM Parameter Store SDK for retrieving secrets as SecureString. Per AAP §0.8.6:
+         all secrets (e.g., S3 bucket names, encryption keys) via SSM SecureString,
+         NEVER environment variables.
+         Used types: IAmazonSimpleSystemsManagement, GetParameterRequest -->
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.405.18" />
+  </ItemGroup>
+
+  <!-- Business logic and utility libraries -->
+  <ItemGroup>
+    <!-- Object mapping between DynamoDB DTOs and domain/API models.
+         Same version as monolith source (14.0.0) for consistent model transformation.
+         Used for mapping between FileMetadata DynamoDB items and API response DTOs.
+         Used types: IMapper, Profile, MapperConfiguration, CreateMap() -->
+    <PackageReference Include="AutoMapper" Version="14.0.0" />
+
+    <!-- JSON serialization for backward-compatible DTO serialization. Kept from
+         monolith source (13.0.4) for compatibility with existing serialization contracts.
+         New code paths prefer System.Text.Json (included in framework) for AOT compat.
+         Used types: JsonConvert, JObject, JsonSerializerSettings -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+
+    <!-- MIME type detection carried from source monolith (WebVella.Erp.csproj).
+         Used in file upload processing to determine Content-Type for S3 objects from
+         file extensions, replacing the role previously served by UserFileService.cs
+         file type classification logic.
+         Used types: MimeUtility.GetMimeMapping(string filename) -->
+    <PackageReference Include="MimeMapping" Version="3.1.0" />
+  </ItemGroup>
+
+  <!-- Suppress GHSA-rvv3-g6hj-g44x (AutoMapper DoS via deep recursion) - Lambda functions process
+       validated API payloads with bounded depth, mitigating the attack vector. Upgrade to 16.x
+       deferred to avoid breaking API changes across all service mappings. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+</Project>

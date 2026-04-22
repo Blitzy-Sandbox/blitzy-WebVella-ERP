@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/relation.events.json",
+  "title": "Entity Management - Relation Events",
+  "description": "JSON Schema definitions for Entity Management domain events related to many-to-many relation lifecycle operations. These events are published via SNS when many-to-many (NN) relation records are created or deleted. Derived from IErpPostCreateManyToManyRelationHook and IErpPostDeleteManyToManyRelationHook interfaces, orchestrated by RecordHookManager. Only ManyToMany relations emit these events; OneToOne and OneToMany mutations are handled via record update events.",
+  "oneOf": [
+    { "$ref": "#/$defs/relationCreatedEvent" },
+    { "$ref": "#/$defs/relationDeletedEvent" }
+  ],
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Common event envelope shared by all Entity Management relation domain events. Provides tracing, versioning, and source identification for SNS-published messages.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully qualified event type following the naming convention {domain}.{entity}.{action}."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation. Enables idempotent event processing across consumers."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp indicating when the event was produced."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "Constant identifying the Entity Management service as the event source."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version for backward compatibility (e.g., '1.0').",
+          "examples": ["1.0"]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies by eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ]
+    },
+    "relationCreatedEvent": {
+      "description": "Published when a many-to-many relation record is created in the Entity Management service. Derived from IErpPostCreateManyToManyRelationHook.OnPostCreate(string relationName, Guid originId, Guid targetId) which is invoked by RecordHookManager.ExecutePostCreateManyToManyRelationHook after a successful NN relation insert. Both originId and targetId are non-nullable as they are required Guid parameters in the source interface.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "entity-management.relation.created"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for many-to-many relation creation events.",
+              "properties": {
+                "relationName": {
+                  "type": "string",
+                  "maxLength": 63,
+                  "description": "Name of the many-to-many relation. Maximum 63 characters, enforced by EntityRelationManager validation (PostgreSQL column name width limit). Corresponds to the 'relationName' parameter in IErpPostCreateManyToManyRelationHook.OnPostCreate."
+                },
+                "originId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the origin record in the many-to-many relation. Non-nullable, derived from the Guid originId parameter in IErpPostCreateManyToManyRelationHook.OnPostCreate."
+                },
+                "targetId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the target record in the many-to-many relation. Non-nullable, derived from the Guid targetId parameter in IErpPostCreateManyToManyRelationHook.OnPostCreate."
+                },
+                "createdBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who created the relation record. Resolved from the JWT claims in the Lambda event context."
+                }
+              },
+              "required": [
+                "relationName",
+                "originId",
+                "targetId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "relationDeletedEvent": {
+      "description": "Published when a many-to-many relation record is deleted from the Entity Management service. Derived from IErpPostDeleteManyToManyRelationHook.OnPostDelete(string relationName, Guid? originId, Guid? targetId) which is invoked by RecordHookManager.ExecutePostDeleteManyToManyRelationHook after a successful NN relation removal. CRITICAL: originId and targetId are nullable (Guid?) in the source interface, meaning bulk deletes or cascade operations may not identify specific records.",
+      "allOf": [
+        { "$ref": "#/$defs/eventEnvelope" },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "entity-management.relation.deleted"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for many-to-many relation deletion events.",
+              "properties": {
+                "relationName": {
+                  "type": "string",
+                  "maxLength": 63,
+                  "description": "Name of the many-to-many relation. Maximum 63 characters. Corresponds to the 'relationName' parameter in IErpPostDeleteManyToManyRelationHook.OnPostDelete."
+                },
+                "originId": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "GUID of the origin record in the many-to-many relation, or null. Nullable because the source interface uses Guid? originId in IErpPostDeleteManyToManyRelationHook.OnPostDelete, allowing bulk or cascade deletes where the specific origin is not identified."
+                },
+                "targetId": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "GUID of the target record in the many-to-many relation, or null. Nullable because the source interface uses Guid? targetId in IErpPostDeleteManyToManyRelationHook.OnPostDelete, allowing bulk or cascade deletes where the specific target is not identified."
+                },
+                "deletedBy": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "GUID of the user who deleted the relation record. Resolved from the JWT claims in the Lambda event context."
+                }
+              },
+              "required": [
+                "relationName"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

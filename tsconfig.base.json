@@ -1,0 +1,25 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2022",
+    "module": "esnext",
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@webvella-erp/shared-schemas": ["libs/shared-schemas/src/index.ts"],
+      "@webvella-erp/shared-cdk-constructs": ["libs/shared-cdk-constructs/src/index.ts"],
+      "@webvella-erp/shared-ui": ["libs/shared-ui/src/index.ts"],
+      "@webvella-erp/shared-utils": ["libs/shared-utils/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

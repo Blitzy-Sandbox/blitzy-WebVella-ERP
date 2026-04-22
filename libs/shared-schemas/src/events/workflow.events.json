@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/workflow.events.json",
+  "title": "Workflow - Workflow and Step Events",
+  "description": "JSON Schema definitions for Workflow Engine domain events published via SNS. Covers workflow lifecycle events (started, completed, failed) and individual step completion events. Derived from the monolith's job system (JobManager.cs CreateJob/Process, JobPool.cs 20-thread executor, ScheduleManager.cs schedule plans, JobDataService.cs PostgreSQL persistence) which is replaced by AWS Step Functions Local in the target architecture. The Workflow service orchestrates cross-domain sagas (e.g., invoice creation \u2192 inventory update \u2192 notification) per AAP \u00a70.4.2 Saga Pattern. Step Functions workflow completion target is < 30 seconds for standard approval chains per AAP \u00a70.8.2.",
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Standard domain event envelope used across all microservices for asynchronous communication via SNS/SQS. Replaces the monolith's synchronous in-process hook invocations (HookManager/RecordHookManager). All event consumers MUST be idempotent; correlationId enables deduplication per AAP \u00a70.8.5.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Fully-qualified event type following the {domain}.{entity}.{action} naming convention per AAP \u00a70.8.5. For workflow events: workflow.workflow.{started|completed|failed} or workflow.step.completed."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID v4 correlation identifier for distributed request tracing and idempotency enforcement across service boundaries. Propagated through Step Functions execution input/output and all downstream Lambda invocations."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event was produced by the workflow service."
+        },
+        "source": {
+          "type": "string",
+          "const": "workflow",
+          "description": "Service name that emitted the event. Always 'workflow' for events in this schema. Maps to the monolith's JobManager/JobPool/ScheduleManager subsystem, now handled by the Workflow Engine bounded-context service backed by AWS Step Functions."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version string (e.g., '1.0') for consumer version negotiation. Consumers should handle unknown versions gracefully.",
+          "examples": [
+            "1.0"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per eventType."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "scheduleTriggeredEvent": {
+      "description": "Published when a schedule plan is triggered.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "workflow.schedule.triggered"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for workflow.schedule.triggered events.",
+              "properties": {
+                "scheduleId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "scheduleName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "scheduleId",
+                "scheduleName"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "scheduleFailedEvent": {
+      "description": "Published when a scheduled execution fails.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "workflow.schedule.failed"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for workflow.schedule.failed events.",
+              "properties": {
+                "scheduleId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "scheduleId",
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    },
+    "scheduleExpiredEvent": {
+      "description": "Published when a schedule plan expires.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "eventType": {
+              "const": "workflow.schedule.expired"
+            },
+            "data": {
+              "type": "object",
+              "description": "Payload for workflow.schedule.expired events.",
+              "properties": {
+                "scheduleId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "scheduleId"
+              ]
+            }
+          },
+          "required": [
+            "eventType",
+            "data"
+          ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Workflow Started Event",
+      "description": "Published when a workflow execution is initiated via Step Functions. Derived from JobManager.CreateJob which creates a job with typeId, attributes, priority (defaulting to JobType.DefaultPriority), creatorId, and schedulePlanId. In the monolith, CreateJob sets Status=Pending and persists to the PostgreSQL jobs table via JobDataService.CreateJob. In the target architecture, this event is published when StartExecution is called on a Step Functions state machine, replacing the synchronous job creation flow.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "workflow.workflow.started"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Workflow started payload. Maps from JobManager.CreateJob parameters: typeId\u2192workflowType, job.Id\u2192workflowId, priority\u2192priority, creatorId\u2192startedBy, schedulePlanId\u2192schedulePlanId, attributes\u2192input. The stateMachineArn and executionArn are Step Functions-specific fields that replace the monolith's JobType.CompleteClassName reflection-based execution.",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for this workflow execution. Replaces Job.Id (GUID) from the monolith. Generated as UUID v4, matching the monolith's pattern of job.Id = jobId.HasValue ? jobId.Value : Guid.NewGuid()."
+            },
+            "workflowType": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Type/name of the workflow being executed. Replaces JobType.Name from the monolith's reflection-based job type registry (JobManager.RegisterJobTypes discovers ErpJob subclasses via [JobAttribute]). Examples: 'invoice-approval', 'scheduled-email-queue', 'data-migration'."
+            },
+            "stateMachineArn": {
+              "type": "string",
+              "description": "AWS Step Functions state machine ARN. Supports both production AWS format (arn:aws:states:{region}:{account}:stateMachine:{name}) and LocalStack format (arn:aws:states:{region}:000000000000:stateMachine:{name}). Replaces JobType.CompleteClassName which was the fully-qualified .NET class name for reflection-based instantiation."
+            },
+            "executionArn": {
+              "type": "string",
+              "description": "AWS Step Functions execution ARN uniquely identifying this specific execution. Supports both production AWS and LocalStack ARN formats (arn:aws:states:{region}:{account}:execution:{stateMachineName}:{executionName})."
+            },
+            "input": {
+              "type": "object",
+              "description": "Workflow input payload passed to the Step Functions execution. Replaces the monolith's Job.Attributes (dynamic attributes serialized via Newtonsoft.Json with TypeNameHandling.All). In the target architecture, input is a plain JSON object without .NET type metadata.",
+              "additionalProperties": true
+            },
+            "schedulePlanId": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UUID of the schedule plan that triggered this workflow execution, or null if manually initiated. Maps directly from ScheduleManager.Process which calls JobManager.Current.CreateJob(..., schedulePlanId: schedulePlan.Id). Schedule plans support Interval, Daily, Weekly, and Monthly recurrence types."
+            },
+            "startedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID of the user or system principal that initiated the workflow. Maps from JobManager.CreateJob creatorId parameter. When triggered by ScheduleManager, this is the system user ID. Derived from JWT claims in the Lambda event context."
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Execution priority level. Derived from the monolith's JobPriority enum (0=Low to Higher values). In the monolith, if priority is not a defined enum value, it defaults to JobType.DefaultPriority. Used by the workflow service for queue ordering when multiple workflows are pending."
+            }
+          },
+          "required": [
+            "workflowId",
+            "workflowType",
+            "stateMachineArn",
+            "executionArn"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Workflow Completed Event",
+      "description": "Published when a workflow execution completes successfully. Derived from JobPool.Process success path: after instance.Execute(context) completes without exception, the monolith sets job.FinishedOn=DateTime.UtcNow, job.Status=JobStatus.Finished, and optionally captures context.Result. In the target architecture, this event is published when the Step Functions execution reaches a terminal succeed state.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "workflow.workflow.completed"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Workflow completion payload. Maps from JobPool.Process success path: job.Result\u2192output, job.StartedOn\u2192startedAt, job.FinishedOn\u2192completedAt. Duration is computed from the difference between startedAt and completedAt.",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the completed workflow execution. Matches the workflowId from the corresponding workflow.workflow.started event."
+            },
+            "workflowType": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Type/name of the workflow that completed. Matches JobType.Name from the started event."
+            },
+            "executionArn": {
+              "type": "string",
+              "description": "AWS Step Functions execution ARN of the completed execution. Supports both production AWS and LocalStack ARN formats."
+            },
+            "output": {
+              "type": "object",
+              "description": "Workflow output/result data. Replaces the monolith's Job.Result (wrapped in JobResultWrapper and serialized via Newtonsoft.Json with TypeNameHandling.All). In the target architecture, output is a plain JSON object from the final Step Functions state.",
+              "additionalProperties": true
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when the workflow execution started. Maps from the monolith's job.StartedOn which is set to DateTime.UtcNow when JobPool.Process begins execution."
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when the workflow execution completed successfully. Maps from the monolith's job.FinishedOn set to DateTime.UtcNow after successful instance.Execute(context)."
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total execution duration in milliseconds, computed as completedAt minus startedAt. Per AAP \u00a70.8.2, standard approval chain workflows should complete in < 30,000ms (30 seconds)."
+            },
+            "stepCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total number of steps executed in the workflow. In the monolith, a single job was a single execution unit; in the target architecture, a workflow may consist of multiple Step Functions states/steps. Useful for operational metrics and debugging."
+            }
+          },
+          "required": [
+            "workflowId",
+            "workflowType",
+            "executionArn",
+            "completedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Workflow Failed Event",
+      "description": "Published when a workflow execution fails or is aborted. Derived from two monolith failure paths: (1) JobPool.Process catch block \u2014 sets job.Status=JobStatus.Failed, job.ErrorMessage=ex.Message, job.FinishedOn=DateTime.UtcNow when instance.Execute throws an exception; (2) JobManager constructor restart recovery \u2014 finds all running jobs and sets job.Status=JobStatus.Aborted, job.AbortedBy=Guid.Empty (system), job.FinishedOn=DateTime.UtcNow. In the target architecture, this event is published when a Step Functions execution reaches a terminal fail state or times out.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "workflow.workflow.failed"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Workflow failure payload. Maps from JobPool.Process exception handling: ex.Message\u2192cause, job.ErrorMessage\u2192error. Also covers the monolith's restart recovery pattern (running jobs\u2192aborted) and the JobManager.Process catch block for jobs that fail to start.",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the failed workflow execution. Matches the workflowId from the corresponding workflow.workflow.started event."
+            },
+            "workflowType": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Type/name of the workflow that failed. Matches JobType.Name from the started event."
+            },
+            "executionArn": {
+              "type": "string",
+              "description": "AWS Step Functions execution ARN of the failed execution. Supports both production AWS and LocalStack ARN formats."
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Error type or error code describing the failure category. In Step Functions, this corresponds to the Error field of the fail state. In the monolith, this maps to the exception type name from JobPool.Process catch block (logged via Log.Create(LogType.Error, 'JobPool.Process.{context.Type.Name}', ex))."
+            },
+            "cause": {
+              "type": "string",
+              "description": "Detailed error cause or message. In Step Functions, this corresponds to the Cause field of the fail state. In the monolith, maps to job.ErrorMessage (set to ex.Message in the JobPool.Process catch block). Provides human-readable context for debugging and operational alerting."
+            },
+            "failedStepName": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Name of the specific Step Functions state/step that caused the failure, or null if the failure occurred at the workflow level (e.g., timeout, invalid input). In the monolith, there was no step-level granularity since each job was a single execution unit."
+            },
+            "failedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when the failure was detected. Maps from the monolith's job.FinishedOn (set to DateTime.UtcNow in both the JobPool.Process catch block and the JobManager restart recovery)."
+            }
+          },
+          "required": [
+            "workflowId",
+            "workflowType",
+            "executionArn",
+            "error",
+            "failedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "Step Completed Event",
+      "description": "Published when an individual step within a workflow execution completes successfully. In the monolith, the 20-thread JobPool executed each job as a single atomic unit (JobPool.Process \u2192 instance.Execute(context)). In the target Step Functions architecture, a workflow consists of multiple states/steps, each backed by a Lambda handler. This event provides step-level observability that was not available in the monolith's single-execution model. Useful for workflow progress tracking, operational dashboards, and triggering dependent actions at the step level.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventEnvelope"
+        }
+      ],
+      "properties": {
+        "eventType": {
+          "const": "workflow.step.completed"
+        },
+        "correlationId": true,
+        "timestamp": true,
+        "source": true,
+        "version": true,
+        "data": {
+          "type": "object",
+          "description": "Step completion payload providing granular execution details for individual workflow states. Each step corresponds to a Lambda handler invocation within the Step Functions state machine. This level of granularity replaces the monolith's single-execution JobPool.Process with multi-step orchestration.",
+          "properties": {
+            "workflowId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier of the parent workflow execution. Links this step event to its parent workflow.workflow.started event for correlation."
+            },
+            "stepName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the completed Step Functions state/step as defined in the ASL (Amazon States Language) state machine definition. Examples: 'ValidateInvoice', 'UpdateInventory', 'SendNotification'. Corresponds to the state name in the StateMachines/*.json ASL definitions."
+            },
+            "executionArn": {
+              "type": "string",
+              "description": "AWS Step Functions execution ARN of the parent workflow execution. Supports both production AWS and LocalStack ARN formats. Used for querying the execution history via DescribeExecution API."
+            },
+            "stepOutput": {
+              "type": "object",
+              "description": "Output data produced by the completed step's Lambda handler. Structure varies per step type. Passed as input to the next state in the Step Functions execution flow.",
+              "additionalProperties": true
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when the step completed successfully. Used for calculating step duration and identifying performance bottlenecks in multi-step workflows."
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Step execution duration in milliseconds. Includes Lambda cold start time if applicable. Per AAP \u00a70.8.2, .NET Native AOT Lambda cold starts should be < 1 second and Node.js < 3 seconds."
+            }
+          },
+          "required": [
+            "workflowId",
+            "stepName",
+            "executionArn",
+            "completedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "$ref": "#/$defs/scheduleTriggeredEvent"
+    },
+    {
+      "$ref": "#/$defs/scheduleFailedEvent"
+    },
+    {
+      "$ref": "#/$defs/scheduleExpiredEvent"
+    }
+  ]
+}

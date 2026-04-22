@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webvella-erp.com/schemas/events/entity.events.json",
+  "title": "Entity Management - Entity Events",
+  "description": "JSON Schema definitions for Entity Management domain entity metadata CRUD events. These events are published via SNS when entity definitions are created, updated, or deleted in the Entity Management service. Replaces the monolith's synchronous post-hook pattern (IErpPostCreateRecordHook, IErpPostUpdateRecordHook, IErpPostDeleteRecordHook) with asynchronous domain events.",
+  "oneOf": [
+    { "$ref": "#/$defs/entityCreatedEvent" },
+    { "$ref": "#/$defs/entityUpdatedEvent" },
+    { "$ref": "#/$defs/entityDeletedEvent" }
+  ],
+  "$defs": {
+    "eventEnvelope": {
+      "type": "object",
+      "description": "Common event envelope shared by all entity management entity events. Provides correlation, tracing, and versioning metadata for every domain event.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "Event type identifier following the {domain}.{entity}.{action} naming convention."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation. Consumers use this for idempotent event processing and deduplication."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp indicating when the event was emitted."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "The service name that emitted the event. Always 'entity-management' for events in this schema."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version using semver-like major.minor format (e.g., '1.0'). Consumers should check this to handle schema evolution."
+        },
+        "data": {
+          "type": "object",
+          "description": "Domain-specific event payload. Structure varies per event type."
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "entityCreatedEvent": {
+      "type": "object",
+      "description": "Published when a new entity definition is created in the Entity Management service. Derived from EntityManager.CreateEntity() which validates the entity, creates default fields, persists to the datastore, and clears the metadata cache.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.entity.created",
+          "description": "Event type for entity creation."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of event emission."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "Source service identifier."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version (e.g., '1.0')."
+        },
+        "data": {
+          "type": "object",
+          "description": "Entity creation event payload containing metadata of the newly created entity.",
+          "properties": {
+            "entityId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the created entity. Maps to Entity.Id from EntityManager.CreateEntity(). Auto-generated if not provided in the InputEntity."
+            },
+            "entityName": {
+              "type": "string",
+              "maxLength": 63,
+              "description": "Entity system name. Maximum 63 characters per PostgreSQL identifier limit enforced by EntityManager validation. Used as the logical table/collection name."
+            },
+            "label": {
+              "type": "string",
+              "description": "Human-readable entity label for display in the UI."
+            },
+            "labelPlural": {
+              "type": "string",
+              "description": "Plural form of the entity label for list views and bulk operations."
+            },
+            "iconName": {
+              "type": "string",
+              "description": "Icon CSS class for the entity. Defaults to 'fa fa-database' when not specified, as set in EntityManager.ValidateEntity().",
+              "default": "fa fa-database"
+            },
+            "fieldCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of fields defined on the entity at the time of creation. Includes auto-generated default fields (e.g., the primary GUID field)."
+            },
+            "createdBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the user who created the entity. Extracted from the JWT claims in the Lambda request context."
+            }
+          },
+          "required": [
+            "entityId",
+            "entityName",
+            "label"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "entityUpdatedEvent": {
+      "type": "object",
+      "description": "Published when an existing entity definition is updated in the Entity Management service. Derived from EntityManager.UpdateEntity() which validates the entity, applies changes to Label, LabelPlural, IconName, Color, RecordScreenIdField, System flag, and RecordPermissions, then persists and clears the metadata cache.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.entity.updated",
+          "description": "Event type for entity update."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of event emission."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "Source service identifier."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version (e.g., '1.0')."
+        },
+        "data": {
+          "type": "object",
+          "description": "Entity update event payload containing updated metadata and change tracking information.",
+          "properties": {
+            "entityId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the updated entity."
+            },
+            "entityName": {
+              "type": "string",
+              "maxLength": 63,
+              "description": "Entity system name. Included for consumer routing but is immutable — entity name does not change during updates."
+            },
+            "label": {
+              "type": "string",
+              "description": "Updated human-readable entity label."
+            },
+            "labelPlural": {
+              "type": "string",
+              "description": "Updated plural form of the entity label."
+            },
+            "changedFields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of entity metadata property names that were modified in this update (e.g., 'label', 'labelPlural', 'iconName', 'color', 'recordPermissions'). Enables consumers to react only to relevant changes."
+            },
+            "updatedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the user who performed the update. Extracted from the JWT claims in the Lambda request context."
+            }
+          },
+          "required": [
+            "entityId",
+            "entityName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "entityDeletedEvent": {
+      "type": "object",
+      "description": "Published when an entity definition is deleted from the Entity Management service. Derived from EntityManager.DeleteEntity() which reads the entity to verify existence, deletes the entity along with all its records and relations, and clears the metadata cache.",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "const": "entity-management.entity.deleted",
+          "description": "Event type for entity deletion."
+        },
+        "correlationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID for distributed tracing and request correlation."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of event emission."
+        },
+        "source": {
+          "type": "string",
+          "const": "entity-management",
+          "description": "Source service identifier."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version (e.g., '1.0')."
+        },
+        "data": {
+          "type": "object",
+          "description": "Entity deletion event payload. Contains minimal identifying information since the entity and all its data have been removed.",
+          "properties": {
+            "entityId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the deleted entity."
+            },
+            "entityName": {
+              "type": "string",
+              "maxLength": 63,
+              "description": "Entity system name of the deleted entity. Included so consumers can clean up any cached references or derived data."
+            },
+            "deletedBy": {
+              "type": "string",
+              "format": "uuid",
+              "description": "GUID of the user who deleted the entity. Extracted from the JWT claims in the Lambda request context."
+            }
+          },
+          "required": [
+            "entityId",
+            "entityName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "eventType",
+        "correlationId",
+        "timestamp",
+        "source",
+        "version",
+        "data"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

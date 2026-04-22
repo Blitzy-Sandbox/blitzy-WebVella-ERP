@@ -1,0 +1,341 @@
+/**
+ * GuidField — GUID/UUID Display and Input Component
+ *
+ * React replacement for the monolith's PcFieldGuid ViewComponent.
+ * Provides UUID display with monospace font, copy-to-clipboard functionality,
+ * and UUID generation using crypto.randomUUID().
+ *
+ * Modes:
+ *   - display: Monospace read-only GUID with copy button and visual feedback
+ *   - edit:    Text input with Generate and Copy action buttons
+ *
+ * The parent FieldRenderer handles label rendering, access control (forbidden),
+ * visibility, description, and error display. This component focuses on the
+ * field-specific rendering for GUID values.
+ */
+
+import React, { useState, useCallback } from 'react';
+import { ClipboardIcon, CheckIcon } from '../common/ClipboardIcons';
+import type { BaseFieldProps } from './FieldRenderer';
+
+/* ------------------------------------------------------------------ */
+/*  Exported Interface                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Props for the GuidField component.
+ *
+ * Extends BaseFieldProps (minus value/onChange which are overridden with
+ * GUID-specific types) to inherit shared field properties like name, label,
+ * mode, access, disabled, required, etc.
+ */
+export interface GuidFieldProps extends Omit<BaseFieldProps, 'value' | 'onChange'> {
+  /** UUID/GUID string value, or null when empty */
+  value: string | null;
+  /** Callback when the GUID value changes (edit mode) */
+  onChange?: (value: string) => void;
+  /** When true, auto-generates a new UUID if value is null on first render */
+  generateNewId?: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Inline SVG Icons                                                   */
+/* ------------------------------------------------------------------ */
+
+
+
+/**
+ * Refresh/Generate icon — shown on the "Generate" button in edit mode.
+ */
+function GenerateIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+      className="inline-block h-4 w-4"
+    >
+      <path
+        fillRule="evenodd"
+        d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.598a.75.75 0 0 0-.75.75v3.634a.75.75 0 0 0 1.5 0v-2.033l.364.363a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.112-.231Zm-5.937-8.2a7 7 0 0 0-5.687 7.464.75.75 0 0 0 1.112.231A5.5 5.5 0 0 1 14.088 8.42l.312.311h-2.433a.75.75 0 0 0 0 1.5h3.634a.75.75 0 0 0 .75-.75V5.848a.75.75 0 0 0-1.5 0v2.033l-.364-.363a7 7 0 0 0-5.112-4.294Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Duration in milliseconds for the "Copied!" feedback indicator */
+const COPY_FEEDBACK_DURATION_MS = 2000;
+
+/* ------------------------------------------------------------------ */
+/*  GuidField Component                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GuidField renders a GUID/UUID value with copy-to-clipboard and optional
+ * generation capabilities.
+ *
+ * In **display mode** the GUID is shown in a monospace font with a copy button.
+ * In **edit mode** a text input is rendered along with "Generate" and "Copy"
+ * action buttons.
+ *
+ * @param props - GuidFieldProps
+ * @returns JSX element for the GUID field
+ */
+function GuidField(props: GuidFieldProps): React.JSX.Element {
+  const {
+    /* Identity */
+    name,
+    /* eslint-disable @typescript-eslint/no-unused-vars -- destructured for schema compliance */
+    label: _label,
+    labelMode: _labelMode,
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+
+    /* Mode & access */
+    mode = 'edit',
+    access: _access,
+
+    /* Validation */
+    required = false,
+    disabled = false,
+    error,
+
+    /* Appearance */
+    className,
+    placeholder = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    description: _description,
+    isVisible: _isVisible,
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+
+    /* Messages */
+    emptyValueMessage = 'no data',
+    accessDeniedMessage: _accessDeniedMessage,
+
+    /* Locale */
+    locale: _locale,
+
+    /* GUID-specific */
+    value,
+    onChange,
+    generateNewId = false,
+
+    /* Collect remaining props so they are not spread onto DOM elements */
+    ...restProps
+  } = props;
+
+  /* ---- State ---- */
+  const [copied, setCopied] = useState<boolean>(false);
+
+  /* Auto-generate a new UUID on first render if generateNewId is true and
+     there is no existing value. Wrapped in a lazy initialiser via useState
+     to fire only once. */
+  const [hasAutoGenerated] = useState<boolean>(() => {
+    if (generateNewId && !value && onChange) {
+      try {
+        onChange(crypto.randomUUID());
+      } catch {
+        // Fallback: crypto.randomUUID() unavailable in insecure contexts
+      }
+      return true;
+    }
+    return false;
+  });
+
+  // Suppress unused-variable warning — the flag exists to prevent repeat calls.
+  void hasAutoGenerated;
+
+  /* ---- Handlers ---- */
+
+  /**
+   * Copies the current GUID value to the clipboard and shows a brief
+   * "Copied!" indicator for COPY_FEEDBACK_DURATION_MS milliseconds.
+   */
+  const handleCopy = useCallback((): void => {
+    if (!value) return;
+    navigator.clipboard.writeText(value).then(
+      () => {
+        setCopied(true);
+        const timeoutId = window.setTimeout(() => {
+          setCopied(false);
+        }, COPY_FEEDBACK_DURATION_MS);
+        // Cleanup on unmount is handled implicitly — the timeout only
+        // sets state; if the component unmounted React ignores the update.
+        void timeoutId;
+      },
+      () => {
+        // Clipboard write failed (e.g. permissions denied). Silently ignore.
+      },
+    );
+  }, [value]);
+
+  /**
+   * Generates a new UUID using the Web Crypto API and propagates it
+   * via onChange.
+   */
+  const handleGenerate = useCallback((): void => {
+    if (!onChange || disabled) return;
+    try {
+      const newId = crypto.randomUUID();
+      onChange(newId);
+    } catch {
+      // crypto.randomUUID() is unavailable in insecure contexts.
+      // Fall back to a simple pseudo-UUID for development purposes.
+      const hex = (): string =>
+        Math.floor(Math.random() * 16).toString(16);
+      const seg = (len: number): string =>
+        Array.from({ length: len }, hex).join('');
+      const fallbackUuid = `${seg(8)}-${seg(4)}-4${seg(3)}-${seg(1)}${seg(3)}-${seg(12)}`;
+      onChange(fallbackUuid);
+    }
+  }, [onChange, disabled]);
+
+  /**
+   * Handles text input changes and propagates the raw string value.
+   */
+  const handleInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      if (onChange) {
+        onChange(event.target.value);
+      }
+    },
+    [onChange],
+  );
+
+  /* ---- Computed values ---- */
+  const fieldId = props.fieldId ?? `field-${name}`;
+  const hasValue = value !== null && value !== undefined && value !== '';
+  const displayValue = hasValue ? value : '';
+
+  /* ---- Shared button styles ---- */
+  const actionButtonBase =
+    'inline-flex items-center justify-center rounded-md border px-2 py-1.5 text-xs font-medium transition-colors duration-150';
+  const primaryButton = `${actionButtonBase} border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50`;
+
+  /* ================================================================ */
+  /*  DISPLAY MODE                                                     */
+  /* ================================================================ */
+  if (mode === 'display') {
+    return (
+      <div
+        className={`flex items-center gap-2${className ? ` ${className}` : ''}`}
+        data-field-name={name}
+        data-field-mode="display"
+      >
+        {hasValue ? (
+          <>
+            <span
+              className="font-mono text-sm text-gray-900 select-all break-all"
+              title={displayValue}
+            >
+              {displayValue}
+            </span>
+
+            {/* Copy-to-clipboard button */}
+            <button
+              type="button"
+              onClick={handleCopy}
+              className={`${primaryButton} flex-shrink-0`}
+              aria-label={copied ? 'Copied to clipboard' : 'Copy GUID to clipboard'}
+              title={copied ? 'Copied!' : 'Copy'}
+            >
+              {copied ? (
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckIcon />
+                  <span>Copied!</span>
+                </span>
+              ) : (
+                <ClipboardIcon />
+              )}
+            </button>
+          </>
+        ) : (
+          <span className="text-sm italic text-gray-400">
+            {emptyValueMessage}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  /* ================================================================ */
+  /*  EDIT MODE                                                        */
+  /* ================================================================ */
+  return (
+    <div
+      className={`flex flex-col gap-1.5${className ? ` ${className}` : ''}`}
+      data-field-name={name}
+      data-field-mode="edit"
+    >
+      <div className="flex items-stretch gap-1.5">
+        {/* GUID text input */}
+        <input
+          type="text"
+          id={fieldId}
+          name={name}
+          value={displayValue}
+          onChange={handleInputChange}
+          placeholder={placeholder}
+          disabled={disabled}
+          required={required}
+          spellCheck={false}
+          autoComplete="off"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${name}-error` : undefined}
+          className={[
+            'block w-full rounded-md border px-3 py-2 font-mono text-sm shadow-sm',
+            'focus-visible:outline-none focus-visible:ring-1',
+            error
+              ? 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500'
+              : 'border-gray-300 focus-visible:border-blue-500 focus-visible:ring-blue-500',
+            disabled
+              ? 'cursor-not-allowed bg-gray-100 text-gray-500'
+              : 'bg-white text-gray-900',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        />
+
+        {/* Generate new UUID button */}
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={disabled}
+          className={`${primaryButton} flex-shrink-0 gap-1`}
+          aria-label="Generate new UUID"
+          title="Generate"
+        >
+          <GenerateIcon />
+          <span className="hidden sm:inline">Generate</span>
+        </button>
+
+        {/* Copy button (only when a value exists) */}
+        {hasValue && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={disabled}
+            className={`${primaryButton} flex-shrink-0`}
+            aria-label={copied ? 'Copied to clipboard' : 'Copy GUID to clipboard'}
+            title={copied ? 'Copied!' : 'Copy'}
+          >
+            {copied ? (
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckIcon />
+              </span>
+            ) : (
+              <ClipboardIcon />
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default GuidField;
