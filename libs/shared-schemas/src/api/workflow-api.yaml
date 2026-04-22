@@ -802,8 +802,7 @@ components:
           type: string
           description: Human-readable summary (e.g. "Success")
         hash:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Optional cache-validation hash for list endpoints
         errors:
           type: array
@@ -902,9 +901,8 @@ components:
           minLength: 1
           maxLength: 256
         input:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Arbitrary JSON input payload passed to the Step Functions
             execution.  Maps to the monolith''s `Job.Attributes` dynamic property.
 
@@ -932,9 +930,8 @@ components:
 
             '
         schedulePlanId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'Optional reference to the schedule plan that triggered this
             workflow.  Null for manually initiated workflows.
 
@@ -947,8 +944,7 @@ components:
       description: Optional request body for workflow cancellation
       properties:
         reason:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 1024
           description: 'Human-readable reason for cancellation.  Recorded in the execution
             history for audit purposes.
@@ -983,24 +979,21 @@ components:
         status:
           $ref: '#/components/schemas/WorkflowStatus'
         input:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Input payload provided at initiation.  Maps to the monolith''s
             `Job.Attributes`.
 
             '
         output:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Final output of the completed workflow.  Maps to the monolith''s
             `Job.Result`.  Null while the workflow is running.
 
             '
         errorMessage:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Error details if the workflow failed.  Maps to the monolith''s
             `Job.ErrorMessage`.
 
@@ -1018,9 +1011,8 @@ components:
 
             '
         schedulePlanId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'Schedule plan that triggered this execution (null if manual).
 
             '
@@ -1032,9 +1024,8 @@ components:
 
             '
         completedAt:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp when the execution completed (succeeded, failed,
             or cancelled).  Maps to the monolith''s `Job.FinishedOn`. Null while running.
 
@@ -1047,17 +1038,15 @@ components:
 
             '
         createdBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user who initiated the workflow.  Maps to the
             monolith''s `Job.CreatedBy`.
 
             '
         cancelledBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user who cancelled the workflow (null if not cancelled).  Maps
             to the monolith''s `Job.CanceledBy`.
 
@@ -1116,33 +1105,28 @@ components:
           - cancelled
           description: Current status of this individual step
         input:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: Input payload passed to this step
         output:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Output from the step''s Lambda execution.  Null while pending
             or running.
 
             '
         errorMessage:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Error details if the step failed
         startedAt:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp when step execution began.  Null if still pending.
 
             '
         completedAt:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp when step execution completed.  Null while pending
             or running.
 
@@ -1218,8 +1202,7 @@ components:
         defaultPriority:
           $ref: '#/components/schemas/JobPriority'
         completeClassName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Legacy fully-qualified .NET class name.  Retained for backward
             compatibility and migration reference.  In the new architecture this maps
             to a specific Step Functions state machine ARN.
@@ -1271,23 +1254,20 @@ components:
 
             '
         completeClassName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Legacy fully-qualified .NET class name of the job implementation
 
             '
         attributes:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Arbitrary JSON attributes passed to the job at creation. Maps
             to the monolith''s `Job.Attributes` dynamic property.
 
             '
         result:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Job execution result payload.  Maps to the monolith''s `Job.Result`
             dynamic property.  Null until the job completes.
 
@@ -1297,46 +1277,40 @@ components:
         priority:
           $ref: '#/components/schemas/JobPriority'
         startedOn:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp when the job began executing.  Null while pending.
 
             '
         finishedOn:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp when the job finished (completed, failed, aborted,
             or cancelled).  Null while pending or running.
 
             '
         abortedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user or system (Guid.Empty) that aborted the job.
             Null if not aborted.
 
             '
         canceledBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user that cancelled the job.  Null if not cancelled.
 
             '
         errorMessage:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Error details if the job failed.  Includes exception message
             and stack trace in development mode.
 
             '
         schedulePlanId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'Reference to the schedule plan that spawned this job. Null
             for manually created jobs.
 
@@ -1346,18 +1320,16 @@ components:
           format: date-time
           description: UTC timestamp when the job was created
         createdBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: UUID of the user who created the job
         lastModifiedOn:
           type: string
           format: date-time
           description: UTC timestamp of the most recent job status update
         lastModifiedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: UUID of the user who last modified the job
       required:
       - id
@@ -1461,9 +1433,8 @@ components:
           format: date-time
           description: UTC start date for the schedule plan
         endDate:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC end date for the schedule plan.  Null for open-ended plans.
 
             '
@@ -1478,18 +1449,16 @@ components:
 
             '
         startTimespan:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'Daily window start time.  The monolith stores this as integer
             minutes-since-midnight; the API accepts ISO-8601 date-time and extracts
             the time portion.
 
             '
         endTimespan:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'Daily window end time.  Midnight (00:00) is treated as end-of-day
             (1440 minutes) per the monolith''s `if (EndTimespan == 0) EndTimespan
             = 1440` logic.
@@ -1503,9 +1472,8 @@ components:
 
             '
         jobAttributes:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Arbitrary JSON attributes passed to jobs created by this plan.
 
             '
@@ -1537,52 +1505,45 @@ components:
         type:
           $ref: '#/components/schemas/SchedulePlanType'
         startDate:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: UTC start date for the schedule plan
         endDate:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: UTC end date for the schedule plan (null for open-ended)
         scheduledDays:
           $ref: '#/components/schemas/SchedulePlanDaysOfWeek'
         intervalInMinutes:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 'Repeat interval in minutes (only for Interval type)
 
             '
         startTimespan:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'Daily window start time.  In the monolith this is stored as
             integer minutes-since-midnight; the output converts to ISO-8601 date-time
             for API consumers.
 
             '
         endTimespan:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'Daily window end time.  In the monolith this is stored as
             integer minutes-since-midnight; the output converts to ISO-8601 date-time
             for API consumers.
 
             '
         lastTriggerTime:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp of the last time this plan triggered a job
 
             '
         nextTriggerTime:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: 'UTC timestamp of the next scheduled trigger.  Recalculated
             automatically after each update or trigger.
 
@@ -1594,9 +1555,8 @@ components:
         jobType:
           $ref: '#/components/schemas/JobType'
         jobAttributes:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: 'Arbitrary JSON attributes passed to jobs created by this plan
 
             '
@@ -1604,9 +1564,8 @@ components:
           type: boolean
           description: Whether the schedule plan is currently active
         lastStartedJobId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'ID of the most recently started job spawned by this plan
 
             '
@@ -1615,9 +1574,8 @@ components:
           format: date-time
           description: UTC timestamp when the schedule plan was created
         lastModifiedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user who last modified the schedule plan
 
             '

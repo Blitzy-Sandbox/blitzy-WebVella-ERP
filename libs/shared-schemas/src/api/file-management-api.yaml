@@ -1098,8 +1098,7 @@ components:
           type: string
           description: Human-readable summary (e.g. "Success")
         hash:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Optional cache-validation hash for list endpoints
         errors:
           type: array
@@ -1249,16 +1248,14 @@ components:
 
             '
         createdBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user who uploaded the file.  Maps to `DbFile.CreatedBy`.
 
             '
         lastModifiedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'UUID of the user who last modified the file.  Maps to `DbFile.LastModifiedBy`.
 
             '
@@ -1320,30 +1317,26 @@ components:
         type:
           $ref: '#/components/schemas/UserFileType'
         alt:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Alternative text for accessibility.  Maps to the `alt` field
             in the monolith''s `user_file` entity.
 
             '
         caption:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Optional caption / description.  Maps to the `caption` field
             in the monolith''s `user_file` entity.
 
             '
         width:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 'Image width in pixels.  Only populated for `type = image`.
             Extracted using image processing during upload (mirrors `UserFileService.CreateUserFile`
             dimension extraction).
 
             '
         height:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 'Image height in pixels.  Only populated for `type = image`.
 
             '
@@ -1369,9 +1362,8 @@ components:
           format: date-time
           description: UTC timestamp when the user file was created
         createdBy:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: UUID of the user who created the file
       required:
       - id
@@ -1570,14 +1562,12 @@ components:
 
             '
         alt:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Alternative text for accessibility / SEO.
 
             '
         caption:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: 'Optional caption or description for the file.
 
             '
@@ -1618,14 +1608,12 @@ components:
 
             '
         width:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 'Image width in pixels (only for image files)
 
             '
         height:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: 'Image height in pixels (only for image files)
 
             '

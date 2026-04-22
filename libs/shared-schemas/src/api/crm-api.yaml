@@ -1425,9 +1425,8 @@ components:
           format: uuid
           description: Unique contact identifier.
         salutationId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'Reference to salutation entity via salutation_1n_contact relation.
             Added by NextPlugin.20190206.cs after correcting the misspelled solutation_id
             from 20190204.
@@ -1491,9 +1490,8 @@ components:
 
             '
         accountId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: 'Primary associated account ID. Resolved via the account_nn_contact
             many-to-many relation. Nullable when the contact is not linked to any
             account.

@@ -864,9 +864,8 @@ components:
           examples:
           - true
         image:
-          type: string
+          type: [string, "null"]
           description: URL or path to the user's profile image
-          nullable: true
           examples:
           - /images/avatar-default.png
         roles:
@@ -887,10 +886,9 @@ components:
           examples:
           - '2025-06-20T14:45:00Z'
         lastLoggedIn:
-          type: string
+          type: [string, "null"]
           format: date-time
           description: ISO 8601 timestamp of the user's most recent login
-          nullable: true
           examples:
           - '2025-12-01T09:00:00Z'
       required:
@@ -961,9 +959,8 @@ components:
           description: Whether the user's email is pre-verified. Defaults to false.
           default: false
         image:
-          type: string
+          type: [string, "null"]
           description: URL or path to the user's profile image
-          nullable: true
         roles:
           type: array
           description: Array of role IDs to assign to the user
@@ -1014,9 +1011,8 @@ components:
           type: boolean
           description: Set email verification status
         image:
-          type: string
+          type: [string, "null"]
           description: URL or path to the user's profile image
-          nullable: true
         roles:
           type: array
           description: Complete replacement list of role IDs. Omit to leave roles

@@ -1681,8 +1681,7 @@ components:
           type: boolean
           description: Whether the operation completed successfully
         message:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable message about the operation result
         errors:
           type: array
@@ -1691,7 +1690,6 @@ components:
           description: List of validation or processing errors
         data:
           description: Response payload — structure varies by endpoint
-          nullable: true
     ErrorModel:
       type: object
       description: Individual error detail within the response envelope
@@ -1701,8 +1699,7 @@ components:
           description: Error identifier or field name that caused the error
           example: name
         value:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: The invalid value that caused the error
         message:
           type: string
@@ -1769,13 +1766,11 @@ components:
           description: Whether this is a system entity (cannot be deleted)
           default: false
         iconName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Icon identifier for UI display
           example: fas fa-shopping-cart
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Color code for UI display
           example: '#2196F3'
         recordPermissions:
@@ -1786,13 +1781,11 @@ components:
           items:
             $ref: '#/components/schemas/Field'
         recordScreenIdField:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: ID of the field used to display the record in screen context
         hash:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Hash of the entity definition for cache validation
     InputEntity:
       type: object
@@ -1803,9 +1796,8 @@ components:
       - labelPlural
       properties:
         id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Optional pre-assigned UUID. Auto-generated if not provided.
         name:
           type: string
@@ -1821,24 +1813,20 @@ components:
           description: Human-readable plural label
           example: Customer Orders
         system:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Whether this is a system entity
           default: false
         iconName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Icon identifier for UI display
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Color code for UI display
         recordPermissions:
           $ref: '#/components/schemas/RecordPermissions'
         recordScreenIdField:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: ID of the field used for record screen display
     PatchEntity:
       type: object
@@ -1857,19 +1845,16 @@ components:
           type: boolean
           description: Updated system flag
         iconName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Updated icon identifier
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Updated color code
         recordPermissions:
           $ref: '#/components/schemas/RecordPermissions'
         recordScreenIdField:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Updated record screen ID field
     RecordPermissions:
       type: object
@@ -2001,16 +1986,13 @@ components:
           description: Whether changes to this field are tracked in audit log
           default: false
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Developer-facing description of the field's purpose
         helpText:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: User-facing help text displayed alongside the field
         placeholderText:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Placeholder text for empty input fields
         enableSecurity:
           type: boolean
@@ -2020,30 +2002,23 @@ components:
           $ref: '#/components/schemas/FieldPermissions'
         defaultValue:
           description: Default value for the field (type depends on fieldType)
-          nullable: true
         minValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
           description: Minimum numeric value (Number, Currency, Percent types)
         maxValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
           description: Maximum numeric value (Number, Currency, Percent types)
         minLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Minimum text length (Text, MultiLineText types)
         maxLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Maximum text length (Text, MultiLineText, Email, Url types)
         decimalPlaces:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Number of decimal places (Number, Currency, Percent types)
         currency:
-          type: object
-          nullable: true
+          type: [object, "null"]
           description: Currency configuration (CurrencyField type)
           properties:
             currencyCode:
@@ -2061,54 +2036,43 @@ components:
               - after
               description: Symbol placement relative to amount
         options:
-          type: array
-          nullable: true
+          type: [array, "null"]
           description: Available options (Select and MultiSelect field types)
           items:
             $ref: '#/components/schemas/SelectOption'
         format:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Display format string (Date, DateTime types)
           example: yyyy-MM-dd
         useCurrentTimeAsDefaultValue:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Use current time as default (Date, DateTime types)
         openTargetInNewWindow:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Open URL in new window (UrlField type)
         maxCount:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Maximum number of files (FileField, ImageField types)
         autoNumberTemplate:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Display template for auto-number (AutoNumberField type)
           example: ORD-{0:D6}
         autoNumberStartValue:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Starting value for auto-number sequence
         encrypted:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Whether the field value is stored encrypted (PasswordField
             type)
         generateNewId:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           description: Auto-generate new GUID as default (GuidField type)
         srid:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Spatial Reference System ID (GeographyField type)
           example: 4326
         formulaReturnType:
-          type: string
-          nullable: true
+          type: [string, "null"]
           enum:
           - number
           - text
@@ -2128,9 +2092,8 @@ components:
       - fieldType
       properties:
         id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Optional pre-assigned UUID. Auto-generated if not provided.
         name:
           type: string
@@ -2157,14 +2120,11 @@ components:
           type: boolean
           default: false
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
         helpText:
-          type: string
-          nullable: true
+          type: [string, "null"]
         placeholderText:
-          type: string
-          nullable: true
+          type: [string, "null"]
         enableSecurity:
           type: boolean
           default: false
@@ -2172,25 +2132,18 @@ components:
           $ref: '#/components/schemas/FieldPermissions'
         defaultValue:
           description: Default value (type depends on fieldType)
-          nullable: true
         minValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
         maxValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
         minLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         maxLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         decimalPlaces:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         currency:
-          type: object
-          nullable: true
+          type: [object, "null"]
           properties:
             currencyCode:
               type: string
@@ -2202,40 +2155,29 @@ components:
               - before
               - after
         options:
-          type: array
-          nullable: true
+          type: [array, "null"]
           items:
             $ref: '#/components/schemas/SelectOption'
         format:
-          type: string
-          nullable: true
+          type: [string, "null"]
         useCurrentTimeAsDefaultValue:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         openTargetInNewWindow:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         maxCount:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         autoNumberTemplate:
-          type: string
-          nullable: true
+          type: [string, "null"]
         autoNumberStartValue:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         encrypted:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         generateNewId:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         srid:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         formulaReturnType:
-          type: string
-          nullable: true
+          type: [string, "null"]
           enum:
           - number
           - text
@@ -2259,38 +2201,30 @@ components:
         auditable:
           type: boolean
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
         helpText:
-          type: string
-          nullable: true
+          type: [string, "null"]
         placeholderText:
-          type: string
-          nullable: true
+          type: [string, "null"]
         enableSecurity:
           type: boolean
         permissions:
           $ref: '#/components/schemas/FieldPermissions'
         defaultValue:
-          nullable: true
+          description: Default value for the field (type depends on fieldType).
+            Nullable; schema intentionally untyped because the value is polymorphic.
         minValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
         maxValue:
-          type: number
-          nullable: true
+          type: [number, "null"]
         minLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         maxLength:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         decimalPlaces:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         currency:
-          type: object
-          nullable: true
+          type: [object, "null"]
           properties:
             currencyCode:
               type: string
@@ -2302,37 +2236,27 @@ components:
               - before
               - after
         options:
-          type: array
-          nullable: true
+          type: [array, "null"]
           items:
             $ref: '#/components/schemas/SelectOption'
         format:
-          type: string
-          nullable: true
+          type: [string, "null"]
         useCurrentTimeAsDefaultValue:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         openTargetInNewWindow:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         maxCount:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         autoNumberTemplate:
-          type: string
-          nullable: true
+          type: [string, "null"]
         autoNumberStartValue:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
         encrypted:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         generateNewId:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
         srid:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
     SelectOption:
       type: object
       description: Option item for Select and MultiSelect field types
@@ -2347,12 +2271,10 @@ components:
           type: string
           description: Option display label
         iconClass:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Optional icon CSS class for the option
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Optional color code for the option
     FieldPermissions:
       type: object
@@ -2406,13 +2328,11 @@ components:
           description: Unique relation name
           example: customer_order_relation
         label:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable relation label
           example: Customer Orders
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Description of the relation's purpose
         system:
           type: boolean
@@ -2437,20 +2357,16 @@ components:
           format: uuid
           description: ID of the target entity's key field
         originEntityName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Name of the origin entity (read-only, populated by server)
         originFieldName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Name of the origin entity's key field (read-only)
         targetEntityName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Name of the target entity (read-only, populated by server)
         targetFieldName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Name of the target entity's key field (read-only)
     InputEntityRelation:
       type: object
@@ -2464,24 +2380,20 @@ components:
       - targetFieldId
       properties:
         id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Optional pre-assigned UUID. Auto-generated if not provided.
         name:
           type: string
           description: Unique relation name
         label:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable relation label
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Description of the relation
         system:
-          type: boolean
-          nullable: true
+          type: [boolean, "null"]
           default: false
         relationType:
           $ref: '#/components/schemas/EntityRelationType'
@@ -2588,8 +2500,7 @@ components:
           description: Parameter value (type determined by the type field)
           example: active
         type:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Type hint for parameter serialization
           enum:
           - text
@@ -2629,8 +2540,7 @@ components:
             $ref: '#/components/schemas/EntityRecord'
           description: Query result records
         totalCount:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
           description: Total count of matching records (when return_total is true)
           minimum: 0
     DataSourceParameter:
@@ -2649,8 +2559,7 @@ components:
           description: Parameter data type
           example: date
         value:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Default or test value for the parameter
         ignore_parse_errors:
           type: boolean
@@ -2664,16 +2573,13 @@ components:
         '
       properties:
         action:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Datasource action type identifier
         eql:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: EQL query string for the datasource
         parameters:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: JSON-encoded parameter values string
         param_list:
           type: array
@@ -2766,15 +2672,13 @@ components:
           description: 1-based row number in the CSV file
           minimum: 1
         fieldName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Name of the field that caused the error
         errorMessage:
           type: string
           description: Human-readable error description
         rawValue:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: The raw CSV value that caused the error
     ColumnMapping:
       type: object
@@ -2784,8 +2688,7 @@ components:
           type: string
           description: Column header name from the CSV file
         fieldName:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Matched entity field name (null if unmatched)
         fieldType:
           $ref: '#/components/schemas/FieldType'

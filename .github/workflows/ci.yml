@@ -113,7 +113,13 @@ jobs:
       - name: Start LocalStack
         uses: localstack/setup-localstack@v0.2.3
         with:
-          image-tag: 'latest'
+          # Pinned to a specific LocalStack version (not 'latest') so CI
+          # runs are deterministic and match the tested validation
+          # baseline documented in docker-compose.yml and the Project
+          # Guide (sections 7.2 and 19.2). Bump deliberately after
+          # confirming compatibility across all service integration tests
+          # (see CODE_REVIEW.md check 1.2 — no :latest tags).
+          image-tag: '4.14.0'
           use-pro: 'true'
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}

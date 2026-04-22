@@ -199,10 +199,18 @@ jobs:
       # 14. Deploy React SPA to S3 frontend hosting bucket
       #     (AAP §0.4.1: frontend-stack creates the S3 bucket)
       #     --delete removes stale assets from previous deployments.
+      #
+      #     Output path: apps/frontend/project.json declares the build
+      #     target outputPath as "dist/apps/frontend" (workspace-rooted
+      #     Nx convention). vite.config.ts mirrors this via
+      #     build.outDir = "../../dist/apps/frontend". Both Nx and direct
+      #     vite invocations therefore emit the SPA bundle into
+      #     {workspaceRoot}/dist/apps/frontend — which is the authoritative
+      #     source for the S3 sync below.
       # =====================================================================
       - name: Deploy Frontend to S3
         run: |
-          aws s3 sync apps/frontend/dist/ \
+          aws s3 sync dist/apps/frontend/ \
             s3://${{ vars.FRONTEND_BUCKET_NAME }}/ \
             --delete
 

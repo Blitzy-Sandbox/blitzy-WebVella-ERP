@@ -650,14 +650,12 @@ components:
           description: Indicates whether the request was processed successfully
           example: true
         message:
-          type: string
+          type: [string, "null"]
           description: Human-readable status message
-          nullable: true
           example: Operation completed successfully
         hash:
-          type: string
+          type: [string, "null"]
           description: Response hash for cache validation (optional)
-          nullable: true
         errors:
           type: array
           description: List of error details if success is false
@@ -686,9 +684,8 @@ components:
           description: Field or context key that the error relates to
           example: query
         value:
-          type: string
+          type: [string, "null"]
           description: The invalid value that triggered the error
-          nullable: true
           example: ''
         message:
           type: string
@@ -764,15 +761,13 @@ components:
           maxLength: 256
           example: monthly_revenue_summary
         description:
-          type: string
+          type: [string, "null"]
           description: Human-readable report description
-          nullable: true
           maxLength: 2048
           example: Monthly revenue breakdown by product category
         category:
-          type: string
+          type: [string, "null"]
           description: Report category for grouping and filtering
-          nullable: true
           maxLength: 128
           example: financial
         weight:
@@ -781,19 +776,17 @@ components:
           default: 0
           example: 10
         query:
-          type: string
+          type: [string, "null"]
           description: 'The report query definition. In the target architecture this
             is a SQL query template for the read-optimized RDS PostgreSQL projections.
             Derived from the monolith''s EQL text field.
 
             '
-          nullable: true
           example: SELECT * FROM revenue_projection WHERE period = @period
         entityName:
-          type: string
+          type: [string, "null"]
           description: Primary entity name this report operates on (from source datasource
             model)
-          nullable: true
           maxLength: 256
           example: invoice
         returnTotal:
@@ -818,16 +811,14 @@ components:
           description: Timestamp when the report was created (UTC)
           example: '2025-01-10T08:00:00.000Z'
         createdBy:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: User ID of the report creator
-          nullable: true
           example: b5c6d7e8-f9a0-1234-5678-abcdef012345
         lastModifiedOn:
-          type: string
+          type: [string, "null"]
           format: date-time
           description: Timestamp when the report was last modified (UTC)
-          nullable: true
           example: '2025-01-12T14:30:00.000Z'
       required:
       - id
@@ -859,9 +850,8 @@ components:
           - bool
           example: text
         label:
-          type: string
+          type: [string, "null"]
           description: Human-readable label for the parameter in UI forms
-          nullable: true
           maxLength: 256
           example: Reporting Period
         required:
@@ -869,13 +859,12 @@ components:
           description: Whether this parameter is required for report execution
           default: false
         defaultValue:
-          type: string
+          type: [string, "null"]
           description: 'Default value for the parameter if not supplied at execution
             time. Supports special values: null, now, utc_now (for date type), guid.empty
             (for guid type), string.empty (for text type).
 
             '
-          nullable: true
           maxLength: 1024
           example: month
         ignoreParseErrors:
@@ -907,9 +896,8 @@ components:
           description: Field type identifier
           example: CurrencyField
         entityName:
-          type: string
+          type: [string, "null"]
           description: Entity that owns this field
-          nullable: true
           example: invoice
         children:
           type: array
@@ -930,15 +918,13 @@ components:
           maxLength: 256
           example: quarterly_sales_report
         description:
-          type: string
+          type: [string, "null"]
           description: Human-readable report description
-          nullable: true
           maxLength: 2048
           example: Quarterly sales summary by region
         category:
-          type: string
+          type: [string, "null"]
           description: Report category for grouping
-          nullable: true
           maxLength: 128
           example: sales
         weight:
@@ -952,9 +938,8 @@ components:
           example: SELECT region, SUM(amount) as total FROM sales_projection WHERE
             quarter = @quarter GROUP BY region
         entityName:
-          type: string
+          type: [string, "null"]
           description: Primary entity this report targets
-          nullable: true
           maxLength: 256
         returnTotal:
           type: boolean
@@ -979,14 +964,12 @@ components:
           minLength: 1
           maxLength: 256
         description:
-          type: string
+          type: [string, "null"]
           description: Updated report description
-          nullable: true
           maxLength: 2048
         category:
-          type: string
+          type: [string, "null"]
           description: Updated report category
-          nullable: true
           maxLength: 128
         weight:
           type: integer
@@ -996,9 +979,8 @@ components:
           description: Updated SQL query template
           minLength: 1
         entityName:
-          type: string
+          type: [string, "null"]
           description: Updated primary entity name
-          nullable: true
           maxLength: 256
         returnTotal:
           type: boolean
@@ -1042,10 +1024,9 @@ components:
           maximum: 1000
           default: 50
         idempotencyKey:
-          type: string
+          type: [string, "null"]
           description: Idempotency key to prevent duplicate executions
           format: uuid
-          nullable: true
       required:
       - parameters
     ExecuteParameterValue:
@@ -1061,13 +1042,12 @@ components:
             definition
           example: period
         value:
-          type: string
+          type: [string, "null"]
           description: 'Parameter value as a string. Parsed according to the parameter
             type. Special values: null, now, utc_now (date), guid.empty (guid), string.empty
             (text), true/false (bool).
 
             '
-          nullable: true
           example: 2025-Q1
       required:
       - name
@@ -1130,9 +1110,8 @@ components:
           - array
           example: string
         label:
-          type: string
+          type: [string, "null"]
           description: Human-readable column label
-          nullable: true
           example: Region
       required:
       - name
@@ -1270,9 +1249,8 @@ components:
           description: Period the data covers
           example: month
         chartData:
-          type: object
+          type: [object, "null"]
           description: Chart-specific data (present when widgetType is chart)
-          nullable: true
           properties:
             labels:
               type: array
@@ -1289,9 +1267,8 @@ components:
               items:
                 $ref: '#/components/schemas/ChartSeries'
         tableData:
-          type: object
+          type: [object, "null"]
           description: Table-specific data (present when widgetType is table)
-          nullable: true
           properties:
             columns:
               type: array
@@ -1303,9 +1280,8 @@ components:
                 type: object
                 additionalProperties: true
         kpiData:
-          type: object
+          type: [object, "null"]
           description: KPI-specific data (present when widgetType is kpi)
-          nullable: true
           properties:
             value:
               type: number
@@ -1313,26 +1289,22 @@ components:
               description: Current KPI value
               example: 125750.5
             previousValue:
-              type: number
+              type: [number, "null"]
               format: double
               description: Previous period KPI value for comparison
-              nullable: true
               example: 115600.0
             changePercent:
-              type: number
+              type: [number, "null"]
               format: double
               description: Percentage change from previous period
-              nullable: true
               example: 8.78
             unit:
-              type: string
+              type: [string, "null"]
               description: Unit of measurement
-              nullable: true
               example: USD
         listData:
-          type: array
+          type: [array, "null"]
           description: List-specific data (present when widgetType is list)
-          nullable: true
           items:
             type: object
             additionalProperties: true
@@ -1392,13 +1364,11 @@ components:
           description: Human-readable log message
           example: Report execution failed due to invalid query parameters
         details:
-          type: string
+          type: [string, "null"]
           description: Detailed information (stack traces, context data)
-          nullable: true
         notificationStatus:
-          type: string
+          type: [string, "null"]
           description: Status of any notification triggered by this log entry
-          nullable: true
           example: sent
         createdOn:
           type: string

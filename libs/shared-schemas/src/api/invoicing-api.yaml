@@ -919,14 +919,12 @@ components:
           description: Indicates whether the request was processed successfully
           example: true
         message:
-          type: string
+          type: [string, "null"]
           description: Human-readable status message
-          nullable: true
           example: Operation completed successfully
         hash:
-          type: string
+          type: [string, "null"]
           description: Response hash for cache validation (optional)
-          nullable: true
         errors:
           type: array
           description: List of error details if success is false
@@ -955,9 +953,8 @@ components:
           description: Field or context key that the error relates to
           example: invoiceId
         value:
-          type: string
+          type: [string, "null"]
           description: The invalid value that triggered the error
-          nullable: true
           example: ''
         message:
           type: string
@@ -1080,15 +1077,13 @@ components:
           description: Payment due date (ISO 8601 date)
           example: '2025-02-15'
         paidDate:
-          type: string
+          type: [string, "null"]
           format: date
           description: Date when the invoice was fully paid (null if unpaid)
-          nullable: true
           example: null
         notes:
-          type: string
+          type: [string, "null"]
           description: Free-text notes or terms attached to the invoice
-          nullable: true
           maxLength: 4000
           example: 'Payment terms: Net 30'
         createdOn:
@@ -1107,10 +1102,9 @@ components:
           description: Timestamp of the last modification (UTC)
           example: '2025-01-16T14:22:00.000Z'
         lastModifiedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: ID of the user who last modified the invoice
-          nullable: true
           example: eabd66fd-8de1-4d79-9674-447ee89921c2
       required:
       - id
@@ -1147,10 +1141,9 @@ components:
           description: Parent invoice identifier
           example: f47ac10b-58cc-4372-a567-0e02b2c3d479
         productId:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: Optional reference to a product in the Inventory service
-          nullable: true
           example: b1c2d3e4-f5a6-7890-bcde-f12345678901
         description:
           type: string
@@ -1232,15 +1225,13 @@ components:
         method:
           $ref: '#/components/schemas/PaymentMethod'
         reference:
-          type: string
+          type: [string, "null"]
           description: External payment reference (check number, transaction ID, etc.)
-          nullable: true
           maxLength: 500
           example: CHK-12345
         notes:
-          type: string
+          type: [string, "null"]
           description: Optional notes about the payment
-          nullable: true
           maxLength: 2000
           example: Partial payment for January invoice
         paidOn:
@@ -1259,16 +1250,14 @@ components:
           description: ID of the user who recorded the payment
           example: eabd66fd-8de1-4d79-9674-447ee89921c2
         lastModifiedOn:
-          type: string
+          type: [string, "null"]
           format: date-time
           description: Timestamp of the last modification (UTC)
-          nullable: true
           example: '2025-01-21T09:00:00.000Z'
         lastModifiedBy:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: ID of the user who last modified the payment
-          nullable: true
       required:
       - id
       - invoiceId
@@ -1393,9 +1382,8 @@ components:
           items:
             $ref: '#/components/schemas/CreateLineItemRequest'
         notes:
-          type: string
+          type: [string, "null"]
           description: Free-text notes or payment terms
-          nullable: true
           maxLength: 4000
           example: 'Payment terms: Net 30'
       required:
@@ -1431,19 +1419,17 @@ components:
           items:
             $ref: '#/components/schemas/CreateLineItemRequest'
         notes:
-          type: string
+          type: [string, "null"]
           description: Updated notes or payment terms
-          nullable: true
           maxLength: 4000
     CreateLineItemRequest:
       type: object
       description: Request body for adding a line item to an invoice
       properties:
         productId:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: Optional product reference from the Inventory service
-          nullable: true
           example: b1c2d3e4-f5a6-7890-bcde-f12345678901
         description:
           type: string
@@ -1484,10 +1470,9 @@ components:
       description: Request body for updating an existing line item
       properties:
         productId:
-          type: string
+          type: [string, "null"]
           format: uuid
           description: Updated product reference
-          nullable: true
         description:
           type: string
           description: Updated line item description
@@ -1535,15 +1520,13 @@ components:
         method:
           $ref: '#/components/schemas/PaymentMethod'
         reference:
-          type: string
+          type: [string, "null"]
           description: External payment reference (check number, transaction ID)
-          nullable: true
           maxLength: 500
           example: CHK-12345
         notes:
-          type: string
+          type: [string, "null"]
           description: Optional payment notes
-          nullable: true
           maxLength: 2000
         paidOn:
           type: string
@@ -1565,14 +1548,12 @@ components:
         method:
           $ref: '#/components/schemas/PaymentMethod'
         reference:
-          type: string
+          type: [string, "null"]
           description: Updated external payment reference
-          nullable: true
           maxLength: 500
         notes:
-          type: string
+          type: [string, "null"]
           description: Updated payment notes
-          nullable: true
           maxLength: 2000
         paidOn:
           type: string

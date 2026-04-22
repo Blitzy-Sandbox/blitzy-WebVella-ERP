@@ -974,8 +974,7 @@ components:
           type: string
           description: Human-readable summary (e.g. "Success")
         hash:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Optional cache-validation hash for list endpoints
         errors:
           type: array
@@ -1066,56 +1065,44 @@ components:
           type: string
           description: Unique short name (e.g. "sdk", "crm", "mail")
         prefix:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: URL prefix for plugin routes
         url:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Public documentation URL for the plugin
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable plugin description
         version:
           type: integer
           description: Monotonically increasing plugin version number
         company:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Publisher company name
         companyUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Publisher company URL
         author:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Plugin author name
         repository:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Source repository URL
         license:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: License identifier (e.g. "Apache-2.0")
         settingsUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: URL to the plugin settings page
         pluginPageUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: URL to the plugin landing page
         iconUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: URL to the plugin icon
         configuration:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: Arbitrary plugin-specific configuration key-value pairs
         patches:
           type: array
@@ -1167,17 +1154,14 @@ components:
           maxLength: 200
           description: Unique short name for the plugin
         prefix:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 50
           description: URL prefix for plugin routes
         url:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Public documentation URL
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 2000
           description: Human-readable description
         version:
@@ -1185,36 +1169,27 @@ components:
           minimum: 1
           description: Initial version number
         company:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 200
         companyUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         author:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 200
         repository:
-          type: string
-          nullable: true
+          type: [string, "null"]
         license:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 100
         settingsUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         pluginPageUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         iconUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         configuration:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
           description: Arbitrary plugin-specific configuration
       required:
       - name
@@ -1228,50 +1203,38 @@ components:
           minLength: 1
           maxLength: 200
         prefix:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 50
         url:
-          type: string
-          nullable: true
+          type: [string, "null"]
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 2000
         version:
           type: integer
           minimum: 1
         company:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 200
         companyUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         author:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 200
         repository:
-          type: string
-          nullable: true
+          type: [string, "null"]
         license:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 100
         settingsUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         pluginPageUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         iconUrl:
-          type: string
-          nullable: true
+          type: [string, "null"]
         configuration:
-          type: object
+          type: [object, "null"]
           additionalProperties: true
-          nullable: true
         status:
           $ref: '#/components/schemas/PluginStatus'
     SitemapArea:
@@ -1296,28 +1259,23 @@ components:
           type: string
           description: Display label
         labelTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
           description: Locale → translated label map
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable description
         descriptionTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
           description: Locale → translated description map
         iconClass:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: CSS icon class name (e.g. Font Awesome class)
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Area accent colour (hex or named)
         weight:
           type: number
@@ -1362,25 +1320,20 @@ components:
           maxLength: 200
           description: Display label
         labelTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           maxLength: 2000
         descriptionTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
         iconClass:
-          type: string
-          nullable: true
+          type: [string, "null"]
         color:
-          type: string
-          nullable: true
+          type: [string, "null"]
         weight:
           type: number
           format: double
@@ -1389,10 +1342,9 @@ components:
           type: boolean
           default: true
         groups:
-          type: array
+          type: [array, "null"]
           items:
             $ref: '#/components/schemas/SitemapGroupInput'
-          nullable: true
         access:
           type: array
           items:
@@ -1455,10 +1407,9 @@ components:
           format: double
           default: 10
         nodes:
-          type: array
+          type: [array, "null"]
           items:
             $ref: '#/components/schemas/SitemapNodeInput'
-          nullable: true
       required:
       - name
       - label
@@ -1484,18 +1435,15 @@ components:
           type: string
           description: Display label
         labelTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
           description: Locale → translated label map
         iconClass:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: CSS icon class name
         url:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Custom URL override (when type is URL)
         weight:
           type: number
@@ -1515,49 +1463,42 @@ components:
             format: uuid
           description: Role IDs granted access
         entityId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Entity linked to this node (for entity-type nodes)
         parentId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Parent node ID for hierarchical nesting
         entityListPages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Page IDs used for entity list views
         entityCreatePages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Page IDs used for entity creation views
         entityDetailsPages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Page IDs used for entity detail views
         entityManagePages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Page IDs used for entity management views
         pages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Additional page IDs attached to this node
       required:
       - id
@@ -1582,16 +1523,13 @@ components:
           minLength: 1
           maxLength: 200
         labelTranslations:
-          type: object
+          type: [object, "null"]
           additionalProperties:
             type: string
-          nullable: true
         iconClass:
-          type: string
-          nullable: true
+          type: [string, "null"]
         url:
-          type: string
-          nullable: true
+          type: [string, "null"]
         weight:
           type: number
           format: double
@@ -1600,49 +1538,41 @@ components:
           type: integer
           description: Node type enumeration value
         access:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
         entityId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
         parentId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
         entityListPages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
         entityCreatePages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
         entityDetailsPages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
         entityManagePages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
         pages:
-          type: array
+          type: [array, "null"]
           items:
             type: string
             format: uuid
-          nullable: true
           description: Additional page IDs to attach to this node
       required:
       - name
@@ -1721,8 +1651,7 @@ components:
           type: string
           description: Page display name
         node_id:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Node ID the page is attached to (empty string if none)
     EntityPageRecord:
       type: object
@@ -1735,16 +1664,14 @@ components:
           type: string
           description: Page display name
         entity_id:
-          type: string
+          type: [string, "null"]
           format: uuid
-          nullable: true
           description: Entity this page belongs to
         type:
           type: string
           description: Page type as stringified integer
         node_id:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Node ID the page is attached to (empty string if none)
     DataSourceType:
       type: string
@@ -1773,23 +1700,19 @@ components:
           type: string
           description: Unique data source name
         description:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Human-readable description
         type:
           $ref: '#/components/schemas/DataSourceType'
         weight:
-          type: number
+          type: [number, "null"]
           format: double
-          nullable: true
           description: Display ordering weight
         eqlText:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: EQL query string (for database-type sources)
         sqlText:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Raw SQL query (for database-type sources)
         parameters:
           type: array
@@ -1817,8 +1740,7 @@ components:
           type: string
           description: Parameter type (string, integer, uuid, etc.)
         defaultValue:
-          type: string
-          nullable: true
+          type: [string, "null"]
           description: Default value when not provided by the caller
       required:
       - name

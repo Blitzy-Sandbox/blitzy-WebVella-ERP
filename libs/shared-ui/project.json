@@ -6,10 +6,13 @@
   "tags": ["scope:shared", "type:ui"],
   "targets": {
     "build": {
-      "executor": "@nx/vite:build",
+      "executor": "@nx/js:tsc",
       "outputs": ["{options.outputPath}"],
       "options": {
-        "outputPath": "dist/libs/shared-ui"
+        "outputPath": "dist/libs/shared-ui",
+        "main": "libs/shared-ui/src/index.ts",
+        "tsConfig": "libs/shared-ui/tsconfig.lib.json",
+        "assets": []
       }
     },
     "lint": {
@@ -23,6 +26,7 @@
       "executor": "@nx/vite:test",
       "outputs": ["{workspaceRoot}/coverage/libs/shared-ui"],
       "options": {
+        "configFile": "libs/shared-ui/vitest.config.ts",
         "passWithNoTests": true,
         "reportsDirectory": "../../coverage/libs/shared-ui"
       }
