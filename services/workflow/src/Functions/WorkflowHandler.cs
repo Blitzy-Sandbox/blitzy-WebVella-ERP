@@ -178,11 +178,14 @@ namespace WebVellaErp.Workflow.Functions
         /// Primary Lambda entry point for HTTP API Gateway v2 proxy integration.
         /// Routes requests to appropriate handler methods based on HTTP method and path.
         ///
-        /// Route table (path-based /v1/ versioning per AAP Section 0.8.6):
-        ///   POST   /v1/workflows              → CreateWorkflowAsync
+        /// <para>Route table (path-based /v1/ versioning per AAP Section 0.8.6):</para>
+        /// <para><b>Legacy / test-compatible paths</b> (preserved verbatim for
+        /// <c>WorkflowHandlerTests.cs</c> coverage):</para>
+        /// <code>
+        ///   POST   /v1/workflows               → CreateWorkflowAsync
         ///   GET    /v1/workflows               → ListWorkflowsAsync
         ///   GET    /v1/workflows/health        → HealthCheckAsync
-        ///   POST   /v1/workflows/recover       → RecoverAbortedWorkflowsAsync
+        ///   POST   /v1/workflows/recover      → RecoverAbortedWorkflowsAsync
         ///   GET    /v1/workflows/{id}          → GetWorkflowAsync
         ///   PUT    /v1/workflows/{id}          → UpdateWorkflowAsync
         ///   POST   /v1/workflows/{id}/start    → StartWorkflowAsync
@@ -193,8 +196,31 @@ namespace WebVellaErp.Workflow.Functions
         ///   GET    /v1/schedules/{id}          → GetSchedulePlanAsync
         ///   PUT    /v1/schedules/{id}          → UpdateSchedulePlanAsync
         ///   POST   /v1/schedules/{id}/trigger  → TriggerSchedulePlanAsync
-        ///   GET    /v1/workflow-types           → ListWorkflowTypesAsync
-        ///   POST   /v1/workflow-types           → RegisterWorkflowTypeAsync
+        ///   GET    /v1/workflow-types          → ListWorkflowTypesAsync
+        ///   POST   /v1/workflow-types          → RegisterWorkflowTypeAsync
+        /// </code>
+        /// <para><b>OpenAPI contract paths</b> (per
+        /// <c>libs/shared-schemas/src/api/workflow-api.yaml</c>, used by the
+        /// API Gateway stack and consumed by the frontend SPA):</para>
+        /// <code>
+        ///   POST   /v1/workflow/workflows                    → CreateWorkflowAsync
+        ///   GET    /v1/workflow/workflows                    → ListWorkflowsAsync
+        ///   GET    /v1/workflow/workflows/{id}               → GetWorkflowAsync
+        ///   POST   /v1/workflow/workflows/{id}/cancel        → CancelWorkflowAsync
+        ///   GET    /v1/workflow/jobs                         → ListWorkflowsAsync (alias)
+        ///   GET    /v1/workflow/schedule-plans               → ListSchedulePlansAsync
+        ///   GET    /v1/workflow/schedule-plans/list          → ListSchedulePlansAsync (frontend compat)
+        ///   POST   /v1/workflow/schedule-plans/test          → CreateTestSchedulePlanAsync
+        ///   GET    /v1/workflow/schedule-plans/test          → CreateTestSchedulePlanAsync (frontend compat)
+        ///   GET    /v1/workflow/schedule-plans/{id}          → GetSchedulePlanAsync
+        ///   PUT    /v1/workflow/schedule-plans/{id}          → UpdateSchedulePlanAsync
+        ///   POST   /v1/workflow/schedule-plans/{id}/trigger  → TriggerSchedulePlanAsync
+        /// </code>
+        /// <para>The <c>/v1/workflow</c> prefix is recognized and stripped at the top
+        /// of the method so both legacy and OpenAPI path shapes dispatch to the same
+        /// downstream route handlers. The <c>jobs</c> resource is treated as a
+        /// read-only alias for <c>workflows</c> (equivalent terminology preserved
+        /// from the monolith's <c>JobManager</c>).</para>
         /// </summary>
         public async Task<APIGatewayHttpApiV2ProxyResponse> HandleApiRequest(
             APIGatewayHttpApiV2ProxyRequest request,
@@ -215,12 +241,40 @@ namespace WebVellaErp.Workflow.Functions
                 if (segments.Length < 2)
                     return CreateErrorResponse(HttpStatusCode.NotFound, "Not Found");
 
+                // ── Path Prefix Normalization ─────────────────────────────────
+                // The OpenAPI contract (libs/shared-schemas/src/api/workflow-api.yaml)
+                // uses a "/v1/workflow/{resource}" prefix structure — e.g.,
+                // /v1/workflow/workflows, /v1/workflow/schedule-plans/test. The
+                // legacy routes used by WorkflowHandlerTests.cs and the monolith
+                // (JobManager/ScheduleManager) use direct resource names under
+                // /v1 — e.g., /v1/workflows, /v1/schedules, /v1/workflow-types.
+                //
+                // To support BOTH path shapes simultaneously (ensuring backward
+                // test compatibility AND OpenAPI conformance without handler
+                // duplication), strip the leading "/workflow" segment when
+                // present. The remaining segments are then routed identically
+                // via the existing RouteWorkflowsAsync / RouteSchedulesAsync /
+                // RouteWorkflowTypesAsync methods plus the OpenAPI-specific
+                // RouteJobsAsync and RouteSchedulePlansAsync additions.
+                if (string.Equals(segments[1], "workflow", StringComparison.OrdinalIgnoreCase)
+                    && segments.Length >= 3)
+                {
+                    var shifted = new string[segments.Length - 1];
+                    shifted[0] = segments[0]; // Preserve "v1" at index 0
+                    Array.Copy(segments, 2, shifted, 1, segments.Length - 2);
+                    segments = shifted;
+                }
+
                 var resource = segments[1];
                 return resource switch
                 {
                     "workflows" => await RouteWorkflowsAsync(
                         segments, method, request, userId, correlationId),
+                    "jobs" => await RouteJobsAsync(
+                        segments, method, request, userId, correlationId),
                     "schedules" => await RouteSchedulesAsync(
+                        segments, method, request, userId, correlationId),
+                    "schedule-plans" => await RouteSchedulePlansAsync(
                         segments, method, request, userId, correlationId),
                     "workflow-types" => await RouteWorkflowTypesAsync(
                         segments, method, request, userId, correlationId),
@@ -450,6 +504,114 @@ namespace WebVellaErp.Workflow.Functions
                 "POST" => await RegisterWorkflowTypeAsync(request, correlationId),
                 _ => CreateErrorResponse(HttpStatusCode.MethodNotAllowed, "Method Not Allowed")
             };
+        }
+
+        /// <summary>
+        /// Routes the OpenAPI <c>/v1/workflow/jobs</c> resource to the appropriate
+        /// handler. "Jobs" is the monolith's terminology for workflow execution
+        /// records (see <c>JobManager.GetJobs()</c>, <c>WebApiController</c>
+        /// line 3420); the new service uses "workflows" internally but exposes
+        /// the backward-compatible "jobs" alias for migration purposes. This
+        /// routing entry maps GET /v1/workflow/jobs → <see cref="ListWorkflowsAsync"/>.
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> RouteJobsAsync(
+            string[] segments, string method, APIGatewayHttpApiV2ProxyRequest request,
+            Guid userId, string correlationId)
+        {
+            // /v1/workflow/jobs — collection-level only (read-only alias for workflows)
+            if (segments.Length != 2)
+                return CreateErrorResponse(HttpStatusCode.NotFound, "Not Found");
+
+            if (method != "GET")
+                return CreateErrorResponse(
+                    HttpStatusCode.MethodNotAllowed, "Method Not Allowed");
+
+            return await ListWorkflowsAsync(request);
+        }
+
+        /// <summary>
+        /// Routes the OpenAPI <c>/v1/workflow/schedule-plans</c> resource tree.
+        /// This is the modern REST path shape used by the API Gateway integration
+        /// and the frontend SPA; it delegates the CRUD and trigger operations to
+        /// the same service methods used by the legacy <c>/v1/schedules/*</c>
+        /// routes, while adding the new <c>/test</c> and <c>/list</c> action
+        /// endpoints required by <c>workflow-api.yaml</c> and the frontend
+        /// (<c>apps/frontend/src/api/endpoints/workflows.ts</c>).
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> RouteSchedulePlansAsync(
+            string[] segments, string method, APIGatewayHttpApiV2ProxyRequest request,
+            Guid userId, string correlationId)
+        {
+            // /v1/workflow/schedule-plans — collection-level (GET list only).
+            // POST to create a new plan uses the legacy /v1/schedules path.
+            if (segments.Length == 2)
+            {
+                return method switch
+                {
+                    "GET" => await ListSchedulePlansAsync(),
+                    _ => CreateErrorResponse(
+                        HttpStatusCode.MethodNotAllowed, "Method Not Allowed")
+                };
+            }
+
+            // /v1/workflow/schedule-plans/{sub} — named action routes first,
+            // then GUID-based per-plan routes.
+            if (segments.Length == 3)
+            {
+                var sub = segments[2];
+
+                // /v1/workflow/schedule-plans/test — create a deterministic test
+                // schedule plan. The OpenAPI spec defines this as POST (correct
+                // REST semantics for resource creation), but the frontend's
+                // `createTestSchedulePlan()` uses GET (preserving the monolith's
+                // original `GET api/v3/en_US/scheduleplan/test` behavior).
+                // Both methods are accepted here for interop during migration.
+                if (string.Equals(sub, "test", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (method == "GET" || method == "POST")
+                        return await CreateTestSchedulePlanAsync(userId, correlationId);
+
+                    return CreateErrorResponse(
+                        HttpStatusCode.MethodNotAllowed, "Method Not Allowed");
+                }
+
+                // /v1/workflow/schedule-plans/list — frontend backwards-compat
+                // alias. The OpenAPI path is /v1/workflow/schedule-plans (no
+                // /list suffix); the frontend uses /list to match the monolith's
+                // GetSchedulePlansList endpoint naming convention
+                // (WebApiController line 3704).
+                if (string.Equals(sub, "list", StringComparison.OrdinalIgnoreCase)
+                    && method == "GET")
+                    return await ListSchedulePlansAsync();
+
+                if (!Guid.TryParse(sub, out var planId))
+                    return CreateErrorResponse(
+                        HttpStatusCode.BadRequest, "Invalid schedule plan ID format.");
+
+                return method switch
+                {
+                    "GET" => await GetSchedulePlanAsync(planId),
+                    "PUT" => await UpdateSchedulePlanAsync(planId, request, userId),
+                    _ => CreateErrorResponse(
+                        HttpStatusCode.MethodNotAllowed, "Method Not Allowed")
+                };
+            }
+
+            // /v1/workflow/schedule-plans/{id}/trigger — action route
+            if (segments.Length == 4)
+            {
+                if (!Guid.TryParse(segments[2], out var planId))
+                    return CreateErrorResponse(
+                        HttpStatusCode.BadRequest, "Invalid schedule plan ID format.");
+
+                if (method == "POST" && string.Equals(
+                    segments[3], "trigger", StringComparison.OrdinalIgnoreCase))
+                    return await TriggerSchedulePlanAsync(planId, correlationId);
+
+                return CreateErrorResponse(HttpStatusCode.NotFound, "Not Found");
+            }
+
+            return CreateErrorResponse(HttpStatusCode.NotFound, "Not Found");
         }
 
         // ════════════════════════════════════════════════════════════════════════════
@@ -1021,6 +1183,148 @@ namespace WebVellaErp.Workflow.Functions
                 schedule_plans = plans,
                 total_count = plans.Count
             });
+        }
+
+        /// <summary>
+        /// Creates (or returns the existing) deterministic test schedule plan for
+        /// development and QA purposes. Provides backward compatibility with the
+        /// monolith's <c>GET api/v3/en_US/scheduleplan/test</c> endpoint
+        /// (<c>WebApiController.cs</c> line 3760) and implements the OpenAPI
+        /// contract <c>POST /v1/workflow/schedule-plans/test</c>.
+        /// <para>
+        /// The returned plan is configured with:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description><b>Daily</b> frequency (<see cref="SchedulePlanType.Daily"/>)</description></item>
+        ///   <item><description>All seven weekdays enabled</description></item>
+        ///   <item><description>Start date = today (UTC midnight) — immediate activation</description></item>
+        ///   <item><description>Execution window = full 24 hours (StartTimespan=0, EndTimespan=1439)</description></item>
+        ///   <item><description>Enabled=true</description></item>
+        ///   <item><description>A deterministic plan ID so repeated invocations are idempotent</description></item>
+        /// </list>
+        /// <para>
+        /// Idempotency: If a plan with the test ID already exists it is returned
+        /// as-is; only on first invocation is a new record persisted via
+        /// <see cref="IWorkflowService.CreateSchedulePlanAsync(SchedulePlan)"/>.
+        /// </para>
+        /// </summary>
+        private async Task<APIGatewayHttpApiV2ProxyResponse> CreateTestSchedulePlanAsync(
+            Guid userId, string correlationId)
+        {
+            // Deterministic test plan identifier. The string "test0000-0000-..." is
+            // intentionally hexadecimal-parseable so the GUID is stable across
+            // invocations; this enables idempotent GET/POST semantics required by
+            // the OpenAPI spec ("If a plan with the generated test ID already
+            // exists, the existing plan is returned.")
+            var testPlanId = new Guid("00000000-0000-0000-0000-00007e570000");
+
+            try
+            {
+                var existing = await _workflowService.GetSchedulePlanAsync(testPlanId)
+                    .ConfigureAwait(false);
+                if (existing != null)
+                {
+                    _logger.LogInformation(
+                        "Returning existing test schedule plan {PlanId}, " +
+                        "CorrelationId={CorrelationId}",
+                        testPlanId, correlationId);
+                    return CreateResponse(
+                        HttpStatusCode.OK, ToOutputSchedulePlan(existing));
+                }
+
+                var now = DateTime.UtcNow;
+                var testPlan = new SchedulePlan
+                {
+                    Id = testPlanId,
+                    Name = "Test Schedule Plan",
+                    Type = SchedulePlanType.Daily,
+                    StartDate = now.Date,
+                    EndDate = null,
+                    ScheduledDays = new SchedulePlanDaysOfWeek
+                    {
+                        ScheduledOnSunday = true,
+                        ScheduledOnMonday = true,
+                        ScheduledOnTuesday = true,
+                        ScheduledOnWednesday = true,
+                        ScheduledOnThursday = true,
+                        ScheduledOnFriday = true,
+                        ScheduledOnSaturday = true
+                    },
+                    IntervalInMinutes = null,
+                    StartTimespan = 0,      // 00:00 UTC — minutes-since-midnight
+                    EndTimespan = 1439,     // 23:59 UTC — full daily window
+                    Enabled = true,
+                    WorkflowTypeId = Guid.Empty,
+                    JobAttributes = null,
+                    CreatedOn = now,
+                    LastModifiedOn = now,
+                    LastModifiedBy = userId == Guid.Empty ? (Guid?)null : userId
+                };
+
+                await _workflowService.CreateSchedulePlanAsync(testPlan)
+                    .ConfigureAwait(false);
+
+                _logger.LogInformation(
+                    "Created test schedule plan {PlanId}, CorrelationId={CorrelationId}",
+                    testPlanId, correlationId);
+
+                return CreateResponse(
+                    HttpStatusCode.OK, ToOutputSchedulePlan(testPlan));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to create or fetch test schedule plan {PlanId}, " +
+                    "CorrelationId={CorrelationId}",
+                    testPlanId, correlationId);
+                return CreateErrorResponse(
+                    HttpStatusCode.InternalServerError,
+                    "Failed to create test schedule plan.");
+            }
+        }
+
+        /// <summary>
+        /// Maps a persisted <see cref="SchedulePlan"/> (with <c>int?</c>
+        /// minutes-since-midnight timespan fields) to the API-facing
+        /// <see cref="OutputSchedulePlan"/> DTO (with <c>DateTime?</c> time-of-day
+        /// timespan fields). Mirrors the monolith's
+        /// <c>OutputSchedulePlan.MapFromSchedulePlan</c> semantics.
+        /// </summary>
+        /// <remarks>
+        /// The <c>StartTimespan</c> / <c>EndTimespan</c> integer minutes are
+        /// converted to a <see cref="DateTime"/> on UTC today's date so the
+        /// caller receives a fully qualified time-of-day value (clients that
+        /// only consume the clock portion can ignore the date).
+        /// </remarks>
+        private static OutputSchedulePlan ToOutputSchedulePlan(SchedulePlan plan)
+        {
+            var today = DateTime.UtcNow.Date;
+            return new OutputSchedulePlan
+            {
+                Id = plan.Id,
+                Name = plan.Name,
+                Type = plan.Type,
+                StartDate = plan.StartDate,
+                EndDate = plan.EndDate,
+                ScheduledDays = plan.ScheduledDays,
+                IntervalInMinutes = plan.IntervalInMinutes,
+                StartTimespan = plan.StartTimespan.HasValue
+                    ? today.AddMinutes(plan.StartTimespan.Value)
+                    : null,
+                EndTimespan = plan.EndTimespan.HasValue
+                    ? today.AddMinutes(plan.EndTimespan.Value)
+                    : null,
+                LastTriggerTime = plan.LastTriggerTime,
+                NextTriggerTime = plan.NextTriggerTime,
+                WorkflowTypeId = plan.WorkflowTypeId,
+                WorkflowType = plan.WorkflowType,
+                JobAttributes = plan.JobAttributes,
+                Enabled = plan.Enabled,
+                LastStartedWorkflowId = plan.LastStartedWorkflowId,
+                CreatedOn = plan.CreatedOn,
+                LastModifiedBy = plan.LastModifiedBy,
+                LastModifiedOn = plan.LastModifiedOn
+            };
         }
 
         /// <summary>

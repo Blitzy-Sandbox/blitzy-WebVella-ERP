@@ -936,12 +936,17 @@ namespace WebVellaErp.Inventory.Functions
         {
             var endpointUrl = Environment.GetEnvironmentVariable("AWS_ENDPOINT_URL");
 
-            // Register IConfiguration from environment variables
+            // Register IConfiguration from environment variables.
+            // Per AAP §0.8.3 (no hardcoded resource IDs/connection strings), the SNS
+            // topic ARN and DynamoDB table name are sourced exclusively from environment
+            // variables set by the CDK inventory-stack (see infra/src/stacks/inventory-stack.ts).
+            // Unit tests set these via Environment.SetEnvironmentVariable; integration
+            // tests populate IConfiguration directly via LocalStackFixture.
             var configBuilder = new ConfigurationBuilder();
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["SNS:InventoryTopicArn"] = Environment.GetEnvironmentVariable("INVENTORY_EVENTS_TOPIC_ARN") ?? "arn:aws:sns:us-east-1:000000000000:inventory-events",
-                ["DynamoDB:TableName"] = Environment.GetEnvironmentVariable("DYNAMODB_TABLE_NAME") ?? "inventory-table",
+                ["SNS:InventoryTopicArn"] = Environment.GetEnvironmentVariable("INVENTORY_EVENTS_TOPIC_ARN"),
+                ["DynamoDB:TableName"] = Environment.GetEnvironmentVariable("DYNAMODB_TABLE_NAME"),
                 ["AWS:EndpointUrl"] = endpointUrl ?? string.Empty
             });
             configBuilder.AddEnvironmentVariables();

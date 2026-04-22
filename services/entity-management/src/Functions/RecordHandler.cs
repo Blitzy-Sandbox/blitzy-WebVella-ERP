@@ -191,9 +191,25 @@ namespace WebVellaErp.EntityManagement.Functions
             // CRITICAL: Requests arriving on /v1/record/{proxy+} are ALWAYS record
             // operations and must NEVER be delegated. The delegation logic only
             // applies when this handler receives traffic via /v1/entities/{proxy+}.
+            //
+            // CDK routes that target this handler directly (must NEVER delegate):
+            //   - /v1/record/{proxy+}
+            //   - /v1/records/{proxy+}
+            //   - /v1/entity-management/records/{proxy+}
+            //   - /v1/entity-management/records  (bare route)
+            // For these routes the CDK proxy+ parameter captures ONLY the entity
+            // name (e.g. "myentity"), not the full /records/... path, so we MUST
+            // inspect the raw path itself rather than relying on the proxy value
+            // alone. Prior logic that only checked proxyLower.Contains("records")
+            // caused entity-management/records/{entityName} traffic to be
+            // incorrectly delegated to EntityHandler.
             var pathLowerForDelegation = path.ToLowerInvariant();
             bool isDirectRecordRoute = pathLowerForDelegation.Contains("/v1/record/")
-                                       || pathLowerForDelegation.StartsWith("/v1/record");
+                                       || pathLowerForDelegation.StartsWith("/v1/record")
+                                       || pathLowerForDelegation.Contains("/v1/records/")
+                                       || pathLowerForDelegation.StartsWith("/v1/records")
+                                       || pathLowerForDelegation.Contains("/records/")
+                                       || pathLowerForDelegation.EndsWith("/records");
 
             var proxyValue = request.PathParameters != null && request.PathParameters.TryGetValue("proxy", out var pv)
                 ? pv : string.Empty;
