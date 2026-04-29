@@ -4,10 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Api.Models.AutoMapper;
 using WebVella.Erp.Database;
+using WebVella.Erp.Diagnostics;
 using WebVella.Erp.Eql;
 using WebVella.Erp.Exceptions;
 using WebVella.Erp.Utilities;
@@ -366,6 +368,83 @@ namespace WebVella.Erp.Api
 			{
 				return false;
 			}
+		}
+
+		/// <summary>
+		/// Generates a cryptographically secure 32-character random password suitable for
+		/// seeding a default administrator account at first run.
+		/// </summary>
+		/// <remarks>
+		/// <para>
+		/// Security fix F-003 — CWE-798 Use of Hard-coded Credentials.
+		/// This helper replaces literal hardcoded admin passwords (e.g., <c>"erp"</c>) in seed
+		/// code paths. Operators must invoke this from any seed/bootstrap code (currently
+		/// <c>WebVella.Erp.ERPService.InitializeSystemEntities</c>) and capture the returned
+		/// plaintext password from the application console at first run.
+		/// </para>
+		/// <para>
+		/// The password is derived from 24 cryptographically random bytes
+		/// (<see cref="RandomNumberGenerator.GetBytes(int)"/>, 192 bits of entropy) and
+		/// encoded as 32 URL-safe Base64 characters.
+		/// </para>
+		/// </remarks>
+		/// <returns>A 32-character URL-safe Base64-encoded random password.</returns>
+		// Security fix: F-003 — Helper for replacing hardcoded admin password with cryptographically random first-run password.
+		public static string GenerateInitialAdminPassword()
+		{
+			byte[] randomBytes = RandomNumberGenerator.GetBytes(24);
+			string base64 = Convert.ToBase64String(randomBytes);
+			// URL-safe Base64: substitute non-URL-safe characters and strip any padding.
+			return base64.Replace('+', '-').Replace('/', '_').TrimEnd('=');
+		}
+
+		/// <summary>
+		/// Flags a user as requiring a password change on next login.
+		/// </summary>
+		/// <param name="userId">The identifier of the user to flag.</param>
+		/// <remarks>
+		/// <para>
+		/// Security fix F-003 — CWE-798 Use of Hard-coded Credentials.
+		/// This helper is intended to be invoked by seed/bootstrap code immediately after a
+		/// default administrator is provisioned with a randomly generated password (see
+		/// <see cref="GenerateInitialAdminPassword"/>). When invoked, it should set a
+		/// <c>MustChangePassword</c> (or equivalent) flag on the user record so that the
+		/// authentication flow forces the operator to rotate the password on first login.
+		/// </para>
+		/// <para>
+		/// The current <c>user</c> entity schema does not yet expose a
+		/// <c>MustChangePassword</c> column, so this helper logs a warning via
+		/// <see cref="WebVella.Erp.Diagnostics.Log"/> and documents the limitation. Adding
+		/// the column constitutes a schema modification that is out of scope for the
+		/// Critical-only F-003 remediation; it is recorded as a follow-up engagement step in
+		/// <c>/docs/security/pentest-findings.md</c>.
+		/// </para>
+		/// </remarks>
+		/// <exception cref="ArgumentException">
+		/// Thrown when <paramref name="userId"/> is <see cref="Guid.Empty"/> or refers to a
+		/// user that does not exist.
+		/// </exception>
+		// Security fix: F-003 — Helper to flag a user for required password change on next login.
+		public void RequirePasswordChangeOnNextLogin(Guid userId)
+		{
+			if (userId == Guid.Empty)
+				throw new ArgumentException("User identifier is required.", nameof(userId));
+
+			ErpUser user = GetUser(userId);
+			if (user == null)
+				throw new ArgumentException($"User '{userId}' not found.", nameof(userId));
+
+			// Schema does not yet expose a MustChangePassword column on the user entity.
+			// Adding the column is a schema modification and is out of scope for the
+			// Critical-only F-003 remediation. Log a warning so operators are aware that the
+			// user requires manual password rotation until the column is added in a
+			// follow-up engagement.
+			Log log = new Log();
+			log.Create(
+				LogType.Error,
+				"SecurityManager.RequirePasswordChangeOnNextLogin",
+				"MustChangePassword flag could not be set: schema does not yet expose this column. Operator must rotate the password manually.",
+				$"userId={userId}");
 		}
 	}
 }
