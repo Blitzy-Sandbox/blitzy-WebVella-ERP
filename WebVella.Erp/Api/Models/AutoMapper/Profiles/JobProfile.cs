@@ -32,7 +32,8 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 			job.CompleteClassName = (string)src["complete_class_name"];
 			if (!string.IsNullOrWhiteSpace(src["attributes"].ToString()))
 			{
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+				// Security fix: F-005 — TypeNameHandling.All on ExpandoObject deserialization is the textbook RCE pattern; ignore $type metadata in stored JSON.
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 				job.Attributes = JsonConvert.DeserializeObject<ExpandoObject>((string)src["attributes"], settings);
 			}
 
@@ -43,13 +44,15 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 					try
 					{
 						//we need to keep backword compadability - so we attempt to deserialize to Expando
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+						// Security fix: F-005 — TypeNameHandling.All on ExpandoObject deserialization is the textbook RCE pattern; ignore $type metadata in stored JSON.
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 						job.Result = JsonConvert.DeserializeObject<ExpandoObject>((string)src["result"], settings);
 					}
 					catch
 					{
 						//if we fail with Expando, try to deserialize to new JobResultWrapper
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+						// Security fix: F-005 — TypeNameHandling.All enables RCE via deserialization; JobResultWrapper is concrete, polymorphism unnecessary.
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 						job.Result = JsonConvert.DeserializeObject<JobResultWrapper>((string)src["result"], settings).Result;
 					}
 				}
@@ -90,7 +93,8 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 			if (src == null)
 				return null;
 
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			// Security fix: F-005 — TypeNameHandling.All on ExpandoObject/SchedulePlanDaysOfWeek deserialization is the textbook RCE pattern; ignore $type metadata in stored JSON.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 			SchedulePlan schedulePlan = new SchedulePlan();
 

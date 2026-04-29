@@ -24,7 +24,8 @@ namespace WebVella.Erp.Jobs
 
 		public Job CreateJob(Job job)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			// Security fix: F-005 — TypeNameHandling.All enables RCE via deserialization; Job attributes are stored/loaded as concrete types, polymorphism unnecessary.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", job.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
@@ -93,7 +94,8 @@ namespace WebVella.Erp.Jobs
 			if (job.Result != null)
 			{
 				JobResultWrapper jrWrap = new JobResultWrapper { Result = job.Result };
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+				// Security fix: F-005 — TypeNameHandling.All enables RCE via deserialization; JobResultWrapper is concrete, polymorphism unnecessary.
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 				string result = JsonConvert.SerializeObject(jrWrap, settings);
 				parameters.Add(new NpgsqlParameter("result", result) { NpgsqlDbType = NpgsqlDbType.Text });
 			}
@@ -294,7 +296,8 @@ namespace WebVella.Erp.Jobs
 
 		public bool CreateSchedule(SchedulePlan schedulePlan)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			// Security fix: F-005 — TypeNameHandling.All enables RCE via deserialization; SchedulePlan fields are concrete, polymorphism unnecessary.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", schedulePlan.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
@@ -343,7 +346,8 @@ namespace WebVella.Erp.Jobs
 
 		public bool UpdateSchedule(SchedulePlan schedulePlan)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			// Security fix: F-005 — TypeNameHandling.All enables RCE via deserialization; SchedulePlan fields are concrete, polymorphism unnecessary.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", schedulePlan.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
