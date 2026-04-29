@@ -29,11 +29,8 @@ namespace WebVella.Erp.Utilities
 
             byte[] salt = RandomNumberGenerator.GetBytes(SaltBytes);
 
-            byte[] hash;
-            using (var pbkdf2 = new Rfc2898DeriveBytes(input, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256))
-            {
-                hash = pbkdf2.GetBytes(HashBytes);
-            }
+            // Security fix: F-002 — Use static Rfc2898DeriveBytes.Pbkdf2 (recommended on .NET 6+, eliminates SYSLIB0060) — preserves PBKDF2-HMAC-SHA-256, 100k iterations, 16-byte CSPRNG salt.
+            byte[] hash = Rfc2898DeriveBytes.Pbkdf2(input, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, HashBytes);
 
             return $"{Pbkdf2Prefix}{Pbkdf2Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
         }
@@ -70,11 +67,9 @@ namespace WebVella.Erp.Utilities
                     if (expected.Length == 0)
                         return false;
 
-                    using (var pbkdf2 = new Rfc2898DeriveBytes(input ?? string.Empty, salt, iterations, HashAlgorithmName.SHA256))
-                    {
-                        byte[] actual = pbkdf2.GetBytes(expected.Length);
-                        return CryptographicOperations.FixedTimeEquals(actual, expected);
-                    }
+                    // Security fix: F-002 — Use static Rfc2898DeriveBytes.Pbkdf2 (recommended on .NET 6+, eliminates SYSLIB0060) — preserves PBKDF2-HMAC-SHA-256 verification with stored iteration count and salt.
+                    byte[] actual = Rfc2898DeriveBytes.Pbkdf2(input ?? string.Empty, salt, iterations, HashAlgorithmName.SHA256, expected.Length);
+                    return CryptographicOperations.FixedTimeEquals(actual, expected);
                 }
                 catch (FormatException) { return false; }
                 catch (ArgumentException) { return false; }
