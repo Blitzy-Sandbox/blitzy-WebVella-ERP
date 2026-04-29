@@ -44,11 +44,18 @@ namespace WebVella.Erp.Web
 				IWebHostEnvironment env = app.ApplicationServices.GetService<IWebHostEnvironment>();
 
 				if (!ErpSettings.IsInitialized) {
-					string configPath = "config.json";
+					// QA fix: ENV-1 — Use exact-case "Config.json" to match the on-disk filename so the app starts on case-sensitive filesystems (Linux).
+					string configPath = "Config.json";
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 
-					var configurationBuilder = new ConfigurationBuilder().SetBasePath(env.ContentRootPath).AddJsonFile(configPath);
+					// QA fix: ENV-1 — Include environment variables so operators can override Config.json values
+					//   (e.g., Settings__Jwt__Key, Settings__EncryptionKey) via standard ASP.NET Core env-var providers
+					//   per AAP §0.7.3, keeping ErpSettings consistent with the host's Configuration sources.
+					var configurationBuilder = new ConfigurationBuilder()
+						.SetBasePath(env.ContentRootPath)
+						.AddJsonFile(configPath)
+						.AddEnvironmentVariables();
 					ErpSettings.Initialize(configurationBuilder.Build());
 				}
 

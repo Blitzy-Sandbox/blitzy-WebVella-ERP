@@ -955,8 +955,16 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        // Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; DbEntity is concrete, polymorphism unnecessary.
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
+                        // Security fix: F-005 — DbEntity has polymorphic List<DbBaseField> (abstract base);
+                        //   deserialize with TypeNameHandling.Auto + WebVellaDatabaseSerializationBinder so
+                        //   the concrete field subclasses are reconstructed correctly while the $type field is
+                        //   restricted to first-party WebVella.Erp.* types only. The binder's allowlist policy
+                        //   defends against the textbook RCE attack surface that motivated F-005.
+                        JsonSerializerSettings settings = new JsonSerializerSettings
+                        {
+                            TypeNameHandling = TypeNameHandling.Auto,
+                            SerializationBinder = WebVella.Erp.Database.WebVellaDatabaseSerializationBinder.Instance,
+                        };
                         List<DbEntity> entities = new List<DbEntity>();
                         while (reader.Read())
                         {

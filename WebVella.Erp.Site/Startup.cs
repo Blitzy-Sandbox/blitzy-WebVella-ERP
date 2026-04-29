@@ -41,8 +41,17 @@ namespace WebVella.Erp.Site
             //legacy until we fix system tables
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-            string configPath = "config.json";
-            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+            // QA fix: ENV-1 — Use exact-case "Config.json" to match the on-disk filename so the app starts on case-sensitive filesystems (Linux).
+            string configPath = "Config.json";
+            // QA fix: ENV-1 — Include environment variables in the configuration build so operators can override
+            //   Settings:Jwt:Key (and other Config.json values) via standard ASP.NET Core env-var providers
+            //   (e.g., Settings__Jwt__Key) per AAP §0.7.3, enabling the F-001 fail-fast guard to be satisfied
+            //   without modifying source-controlled Config.json.
+            Configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile(configPath)
+                .AddEnvironmentVariables()
+                .Build();
 
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });

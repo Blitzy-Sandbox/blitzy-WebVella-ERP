@@ -82,6 +82,16 @@ namespace WebVella.Erp
 							userEntity.RecordPermissions.CanUpdate.Add(SystemIds.AdministratorRoleId);
 							userEntity.RecordPermissions.CanDelete.Add(SystemIds.AdministratorRoleId);
 							var response = entMan.CreateEntity(userEntity, systemItemIdDictionary);
+							// QA fix: ENV-1 — Surface CreateEntity failure immediately to prevent the cascading
+							//   "Entity with such Id does not exist!" message that previously masked the actual
+							//   root cause (originating in EntityRepository.Create) during InitializeSystemEntities.
+							//   Also verify response.Object is not null — Success=true with Object=null indicates the
+							//   internal Create returned true but the post-create ReadEntity could not locate the row,
+							//   which is itself a hard failure that must abort initialization.
+							if (!response.Success)
+								throw new Exception("System error 10050. Entity: user creation failed. Message: " + response.Message);
+							if (response.Object == null)
+								throw new Exception("System error 10050. Entity: user creation succeeded but read-back returned null (cache/transaction visibility issue).");
 
 							#region <--- created_on --->
 							{
@@ -368,6 +378,10 @@ namespace WebVella.Erp
 							roleEntity.RecordPermissions.CanUpdate.Add(SystemIds.AdministratorRoleId);
 							roleEntity.RecordPermissions.CanDelete.Add(SystemIds.AdministratorRoleId);
 							var response = entMan.CreateEntity(roleEntity, systemItemIdDictionary);
+							// QA fix: ENV-1 — Surface CreateEntity failure immediately to prevent cascading errors
+							//   during downstream CreateField calls when the role entity itself failed to materialize.
+							if (!response.Success)
+								throw new Exception("System error 10050. Entity: role creation failed. Message: " + response.Message);
 
 							InputTextField nameRoleField = new InputTextField();
 
