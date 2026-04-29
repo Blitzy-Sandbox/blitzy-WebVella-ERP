@@ -107,7 +107,8 @@ namespace WebVella.Erp.Notifications
 		private void ListenForNotifications()
 		{
 			sqlConnection = new NpgsqlConnection(ErpSettings.ConnectionString);
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+			// Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; Notification is concrete, polymorphism unnecessary.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 			sqlConnection.Open();
 			sqlConnection.Notification += (o, e) =>
@@ -152,7 +153,8 @@ namespace WebVella.Erp.Notifications
 		/// <param name="notification"></param>
 		public void SendNotification(Notification notification)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+			// Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; Notification is concrete, polymorphism unnecessary.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 			var json = JsonConvert.SerializeObject(notification, settings);
 			var encodedText = Encoding.UTF8.ToBase64(json);
 			string sql = $"notify {SQL_NOTIFICATION_CHANNEL_NAME}, '{encodedText}';";
