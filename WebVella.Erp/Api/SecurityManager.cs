@@ -79,17 +79,26 @@ namespace WebVella.Erp.Api
 		public ErpUser GetUser(string email, string password)
 		{
 			if (string.IsNullOrWhiteSpace(email))
-				return null; 
+				return null;
 
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email AND password = @password",
-						 new List<EqlParameter> { new EqlParameter("email", email), new EqlParameter("password", encryptedPassword) }).Execute();
+				// Security fix: F-002 — PBKDF2 hashes use a fresh random salt per invocation, so
+				// the legacy EQL "password = @password" equality comparison no longer works.
+				// Instead, fetch user candidates by email only and verify the supplied password
+				// against each stored hash via PasswordUtil.VerifyMd5Hash, which transparently
+				// supports both the new pbkdf2$... format and legacy 32-hex-char MD5 hashes.
+				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email",
+						 new List<EqlParameter> { new EqlParameter("email", email) }).Execute();
 
 				foreach (var rec in result)
 				{
-					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
+					if (((string)rec["email"]).ToLowerInvariant() != email.ToLowerInvariant())
+						continue;
+
+					// Security fix: F-002 — Use VerifyMd5Hash (PBKDF2 + legacy MD5 fallback) instead of EQL equality.
+					var storedHash = rec["password"] as string;
+					if (PasswordUtil.VerifyMd5Hash(password, storedHash))
 						return rec.MapTo<ErpUser>();
 				}
 
