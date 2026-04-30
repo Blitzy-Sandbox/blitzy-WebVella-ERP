@@ -19,6 +19,8 @@ using WebVella.Erp.Web;
 using WebVella.Erp.Web.Middleware;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using System.Linq;
+using Microsoft.AspNetCore.CookiePolicy;
 
 namespace WebVella.Erp.Site
 {
@@ -39,8 +41,17 @@ namespace WebVella.Erp.Site
             //legacy until we fix system tables
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-            string configPath = "config.json";
-            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+            // QA fix: ENV-1 — Use exact-case "Config.json" to match the on-disk filename so the app starts on case-sensitive filesystems (Linux).
+            string configPath = "Config.json";
+            // QA fix: ENV-1 — Include environment variables in the configuration build so operators can override
+            //   Settings:Jwt:Key (and other Config.json values) via standard ASP.NET Core env-var providers
+            //   (e.g., Settings__Jwt__Key) per AAP §0.7.3, enabling the F-001 fail-fast guard to be satisfied
+            //   without modifying source-controlled Config.json.
+            Configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile(configPath)
+                .AddEnvironmentVariables()
+                .Build();
 
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });
@@ -55,10 +66,13 @@ namespace WebVella.Erp.Site
             //    options.AddPolicy("AllowNodeJsLocalhost",
             //        builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
             //});
+            // Security fix: F-004 — Restrict CORS to operator-configured origins only; eliminates universal cross-origin acceptance (CWE-942).
             services.AddCors(options =>
             {
+                var allowedOrigins = Configuration.GetSection("Settings:Cors:AllowedOrigins").Get<string[]>()
+                    ?? new[] { "http://localhost:5000" };
                 options.AddDefaultPolicy(policy =>
-                    policy.AllowAnyOrigin()
+                    policy.WithOrigins(allowedOrigins)
                         .AllowAnyMethod()
                         .AllowAnyHeader());
             });
@@ -85,6 +99,21 @@ namespace WebVella.Erp.Site
                 Converters = new List<JsonConverter> { new ErpDateTimeJsonConverter() }
             };
 
+            // Security fix: F-001 — Reject default or weak JWT signing keys at startup to prevent token forgery via known-default keys.
+            var jwtKey = Configuration["Settings:Jwt:Key"];
+            var knownDefaults = new[] {
+                "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey",
+                "CHANGE_ME_BEFORE_DEPLOYMENT_USE_AT_LEAST_64_CHARS_OF_HIGH_ENTROPY"
+            };
+            if (string.IsNullOrWhiteSpace(jwtKey)
+                || knownDefaults.Contains(jwtKey, StringComparer.Ordinal)
+                || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+            {
+                throw new InvalidOperationException(
+                    "Settings:Jwt:Key must be overridden with at least 32 bytes of high-entropy random data " +
+                    "before starting the application. See /docs/security/pentest-findings.md (Finding F-001).");
+            }
+
             services.AddAuthentication(options =>
             {
                 options.DefaultScheme = "JWT_OR_COOKIE";
@@ -93,6 +122,8 @@ namespace WebVella.Erp.Site
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
                 options.Cookie.HttpOnly = true;
+                // Security fix: F-010 — Honor HTTPS Secure flag when reverse proxy terminates TLS (mitigates CWE-614).
+                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 options.Cookie.Name = "erp_auth_base";
                 options.LoginPath = new PathString("/login");
                 options.LogoutPath = new PathString("/logout");

@@ -68,6 +68,11 @@ namespace WebVella.Erp
 			//TODO - disq about using as default hosting server timezone when not specified in configuration
 			// 628426 - I think its better to use the current threads timezone as the default if you don't have one set?
 			TimeZoneName = string.IsNullOrWhiteSpace(configuration["Settings:TimeZoneName"]) ? @"FLE Standard Time" : configuration["Settings:TimeZoneName"];
+			// QA fix: ENV-1 — Resolve cross-platform: configured Windows TZ IDs (e.g., "FLE Standard Time")
+			//   are not registered on Linux's IANA-based tzdata; this normalizes the value so all
+			//   downstream callers (ErpDateTimeJsonConverter, DateTimeExtensions, DbRecordRepository,
+			//   RecordManager) receive an ID that resolves on the current platform.
+			TimeZoneName = ResolveCrossPlatformTimeZoneId(TimeZoneName);
 			JsonDateTimeFormat = string.IsNullOrWhiteSpace(configuration["Settings:JsonDateTimeFormat"]) ? "yyyy-MM-ddTHH:mm:ss.fff" : configuration["Settings:JsonDateTimeFormat"];
 
 			Locale = string.IsNullOrWhiteSpace(configuration["Settings:Locale"]) ? "en-US" : configuration["Settings:Locale"];
@@ -120,6 +125,63 @@ namespace WebVella.Erp
 			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp" : configuration["Settings:Jwt:Audience"];
 
 			IsInitialized = true;
+		}
+
+		// QA fix: ENV-1 — Cross-platform time-zone ID resolver. Accepts a Windows or IANA TZ ID and
+		//   returns the form that resolves on the current platform's tzdata. Falls back to UTC when
+		//   the configured ID cannot be resolved on this platform after Windows<->IANA conversion
+		//   and known-alias substitution. This enables shipping a single Config.json across Windows
+		//   and Linux deployments without per-platform overrides.
+		private static string ResolveCrossPlatformTimeZoneId(string configuredId)
+		{
+			if (string.IsNullOrWhiteSpace(configuredId))
+				return TimeZoneInfo.Utc.Id;
+
+			// 1. The configured ID may already be valid on the current platform.
+			if (TryFindTimeZone(configuredId))
+				return configuredId;
+
+			// 2. Configured ID may be a Windows ID running on Linux — try mapping to IANA.
+			if (TimeZoneInfo.TryConvertWindowsIdToIanaId(configuredId, out var ianaId))
+			{
+				if (TryFindTimeZone(ianaId))
+					return ianaId;
+
+				// Some IANA names returned by the conversion table predate the latest tzdata
+				// (e.g., "Europe/Kiev" was renamed to "Europe/Kyiv" in tzdata 2022b). Apply
+				// a small alias map for the most common renames so older mappings still resolve.
+				var aliased = ApplyLegacyIanaAlias(ianaId);
+				if (!string.Equals(aliased, ianaId, StringComparison.Ordinal) && TryFindTimeZone(aliased))
+					return aliased;
+			}
+
+			// 3. Configured ID may be an IANA ID running on Windows — try mapping to Windows.
+			if (TimeZoneInfo.TryConvertIanaIdToWindowsId(configuredId, out var windowsId)
+				&& TryFindTimeZone(windowsId))
+				return windowsId;
+
+			// 4. Last resort — fall back to UTC. Cannot proceed with an unresolvable TZ ID
+			//    since downstream code (e.g., ErpDateTimeJsonConverter ctor) would throw.
+			return TimeZoneInfo.Utc.Id;
+		}
+
+		private static bool TryFindTimeZone(string id)
+		{
+			try { TimeZoneInfo.FindSystemTimeZoneById(id); return true; }
+			catch (TimeZoneNotFoundException) { return false; }
+			catch (InvalidTimeZoneException) { return false; }
+		}
+
+		private static string ApplyLegacyIanaAlias(string iana)
+		{
+			return iana switch
+			{
+				"Europe/Kiev" => "Europe/Kyiv",     // tzdata 2022b rename
+				"Asia/Calcutta" => "Asia/Kolkata",   // tzdata 1993 rename
+				"Asia/Saigon" => "Asia/Ho_Chi_Minh", // tzdata 1996 rename
+				"Africa/Asmera" => "Africa/Asmara",  // tzdata 2008f rename
+				_ => iana
+			};
 		}
 	}
 }

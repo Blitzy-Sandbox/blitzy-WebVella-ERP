@@ -44,7 +44,8 @@ namespace WebVella.Erp.Database
 
 				List<DbParameter> parameters = new List<DbParameter>();
 
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+				// Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; DbEntityRelation is concrete, polymorphism unnecessary.
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 				DbParameter parameterId = new DbParameter();
 				parameterId.Name = "id";
@@ -125,7 +126,8 @@ namespace WebVella.Erp.Database
 
 					NpgsqlCommand command = con.CreateCommand("UPDATE entity_relations SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; DbEntityRelation is concrete, polymorphism unnecessary.
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -170,7 +172,8 @@ namespace WebVella.Erp.Database
 
 				using (NpgsqlDataReader reader = command.ExecuteReader())
 				{
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; DbEntityRelation is concrete, polymorphism unnecessary.
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
 					List<DbEntityRelation> relations = new List<DbEntityRelation>();
 					while (reader.Read())
 					{

@@ -47,7 +47,19 @@ namespace WebVella.Erp.Database
 					{
 						List<DbParameter> parameters = new List<DbParameter>();
 
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+						// Security fix: F-005 — DbEntity has polymorphic List<DbBaseField> (abstract base) so
+						//   TypeNameHandling.Auto is required to round-trip the concrete field subclasses
+						//   (DbDateTimeField, DbTextField, DbEmailField, etc.). The accompanying
+						//   WebVellaDatabaseSerializationBinder neutralizes the textbook RCE attack surface
+						//   by rejecting any $type that is not a first-party WebVella.Erp.* type, so the
+						//   gadget chain that the original Auto-only code allowed (System.Diagnostics.Process,
+						//   ObjectDataProvider, etc.) is broken at the type-resolution step. See the binder's
+						//   class-level documentation for the full threat model.
+						JsonSerializerSettings settings = new JsonSerializerSettings
+						{
+							TypeNameHandling = TypeNameHandling.Auto,
+							SerializationBinder = WebVellaDatabaseSerializationBinder.Instance,
+						};
 
 						DbParameter parameterId = new DbParameter();
 						parameterId.Name = "id";
@@ -143,7 +155,14 @@ namespace WebVella.Erp.Database
 					}
 					catch (Exception)
 					{
-						con.RollbackTransaction();
+						// QA fix: ENV-1 — Wrap RollbackTransaction in its own try/catch so a rollback failure (e.g.,
+						//   ObjectDisposedException on Linux+Npgsql when the underlying NpgsqlTransaction is already
+						//   in disposed/aborted state) does NOT mask the original exception. The original exception
+						//   is re-thrown below so the caller (EntityManager.CreateEntity) can surface a meaningful
+						//   error via response.Message instead of the cascading "Entity with such Id does not exist!"
+						//   downstream failure observed during InitializeSystemEntities on Linux/.NET 10.
+						try { con.RollbackTransaction(); } catch { /* preserve original exception */ }
+						throw;
 					}
 				}
 				return false;
@@ -162,7 +181,16 @@ namespace WebVella.Erp.Database
 				{
 					NpgsqlCommand command = con.CreateCommand("UPDATE entities SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// Security fix: F-005 — DbEntity has polymorphic List<DbBaseField> (abstract base);
+					//   serialize with TypeNameHandling.Auto + WebVellaDatabaseSerializationBinder so the
+					//   concrete field subclasses survive the round-trip while $type is restricted to
+					//   first-party WebVella.Erp.* types only. See WebVellaDatabaseSerializationBinder for
+					//   the threat model and allowlist policy.
+					JsonSerializerSettings settings = new JsonSerializerSettings
+					{
+						TypeNameHandling = TypeNameHandling.Auto,
+						SerializationBinder = WebVellaDatabaseSerializationBinder.Instance,
+					};
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -207,9 +235,17 @@ namespace WebVella.Erp.Database
 				using (NpgsqlDataReader reader = command.ExecuteReader())
 				{
 
+					// Security fix: F-005 — DbEntity has polymorphic List<DbBaseField> (abstract base);
+					//   deserialize with TypeNameHandling.Auto + WebVellaDatabaseSerializationBinder so
+					//   the concrete field subclasses (DbDateTimeField, DbTextField, etc.) are
+					//   reconstructed correctly while the $type field is restricted to first-party
+					//   WebVella.Erp.* types only. Adversarial $type values like
+					//   "System.Diagnostics.Process,System" are rejected by the binder before
+					//   Activator.CreateInstance is reached, breaking the RCE gadget chain.
 					JsonSerializerSettings settings = new JsonSerializerSettings
 					{
 						TypeNameHandling = TypeNameHandling.Auto,
+						SerializationBinder = WebVellaDatabaseSerializationBinder.Instance,
 						NullValueHandling = NullValueHandling.Ignore,
 						MissingMemberHandling = MissingMemberHandling.Ignore,
 					};

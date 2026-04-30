@@ -955,7 +955,16 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        // Security fix: F-005 — DbEntity has polymorphic List<DbBaseField> (abstract base);
+                        //   deserialize with TypeNameHandling.Auto + WebVellaDatabaseSerializationBinder so
+                        //   the concrete field subclasses are reconstructed correctly while the $type field is
+                        //   restricted to first-party WebVella.Erp.* types only. The binder's allowlist policy
+                        //   defends against the textbook RCE attack surface that motivated F-005.
+                        JsonSerializerSettings settings = new JsonSerializerSettings
+                        {
+                            TypeNameHandling = TypeNameHandling.Auto,
+                            SerializationBinder = WebVella.Erp.Database.WebVellaDatabaseSerializationBinder.Instance,
+                        };
                         List<DbEntity> entities = new List<DbEntity>();
                         while (reader.Read())
                         {
@@ -987,7 +996,8 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        // Security fix: F-005 — TypeNameHandling.Auto enables RCE via deserialization; DbEntityRelation is concrete, polymorphism unnecessary.
+                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None };
                         List<DbEntityRelation> relations = new List<DbEntityRelation>();
                         while (reader.Read())
                         {
@@ -9192,9 +9202,10 @@ $"#region << ***Update role*** Role name: {(string)currentRole["name"]} >>\n" +
         private string CreateRecordCode(EntityRecord rec, DbEntity currentEntity)
         {
 
+            // Security fix: F-005 — TypeNameHandling.All emits $type metadata into generated code's JSON literal, propagating insecure-deserialization risk; EntityRecord is concrete, polymorphism unnecessary.
             var response = $"#region << ***Create record*** Id: {rec["id"]} ({currentEntity.Name}) >>\n" +
             "{\n" +
-                $"\tvar json = @\"{JsonConvert.SerializeObject(rec, Formatting.Indented, new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All }).EscapeMultiline()}\";\n" +
+                $"\tvar json = @\"{JsonConvert.SerializeObject(rec, Formatting.Indented, new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None }).EscapeMultiline()}\";\n" +
                 $"\tEntityRecord rec = JsonConvert.DeserializeObject<EntityRecord>(json);\n" +
                 $"\tvar result = recMan.CreateRecord(\"{currentEntity.Name}\", rec);\n" +
                 $"\tif( !result.Success ) throw new Exception(result.Message);\n" +
@@ -9215,9 +9226,10 @@ $"#region << ***Update role*** Role name: {(string)currentRole["name"]} >>\n" +
             }
             else
             {
+                // Security fix: F-005 — TypeNameHandling.All emits $type metadata into generated code's JSON literal, propagating insecure-deserialization risk; EntityRecord is concrete, polymorphism unnecessary.
                 var response = $"#region << ***Update record*** Id: {rec["id"]} ({currentEntity.Name}) >>\n" +
                 "{\n" +
-                    $"\tvar json = @\"{JsonConvert.SerializeObject(rec, Formatting.Indented, new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All }).EscapeMultiline()}\";\n" +
+                    $"\tvar json = @\"{JsonConvert.SerializeObject(rec, Formatting.Indented, new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.None }).EscapeMultiline()}\";\n" +
                     $"\tEntityRecord rec = JsonConvert.DeserializeObject<EntityRecord>(json);\n" +
                     $"\tvar result = recMan.UpdateRecord(\"{currentEntity.Name}\", rec);\n" +
                     $"\tif( !result.Success ) throw new Exception(result.Message);\n" +
