@@ -474,11 +474,18 @@ namespace WebVella.Erp
 						}
 
 						{
+							// Security fix: F-003 — Replace hardcoded admin password "erp" with a cryptographically
+							// random 32-char password to eliminate CWE-798 (Use of Hard-coded Credentials).
+							// The plaintext is printed to the application console exactly once at first run; the
+							// operator MUST capture it before logs rotate. See /docs/security/pentest-findings.md
+							// (Finding F-003) for the full rationale.
+							string initialAdminPassword = SecurityManager.GenerateInitialAdminPassword();
+
 							EntityRecord user = new EntityRecord();
 							user["id"] = SystemIds.FirstUserId;
 							user["first_name"] = "WebVella";
 							user["last_name"] = "Erp";
-							user["password"] = "erp";
+							user["password"] = initialAdminPassword;
 							user["email"] = "erp@webvella.com";
 							user["username"] = "administrator";
 							user["created_on"] = new DateTime(2010, 10, 10);
@@ -487,6 +494,19 @@ namespace WebVella.Erp
 							QueryResponse result = recMan.CreateRecord("user", user);
 							if (!result.Success)
 								throw new Exception("CREATE FIRST USER RECORD:" + result.Message);
+
+							// Security fix: F-003 — Emit the generated admin password to the console exactly once
+							// so the operator can capture it. The application log MUST be reviewed at first start.
+							Console.WriteLine();
+							Console.WriteLine("=========================================================================");
+							Console.WriteLine("  WebVella ERP — Initial Administrator Password (Security fix F-003)");
+							Console.WriteLine("=========================================================================");
+							Console.WriteLine($"  Email   : erp@webvella.com");
+							Console.WriteLine($"  Password: {initialAdminPassword}");
+							Console.WriteLine("  Capture this password — it will not be shown again.");
+							Console.WriteLine("  Rotate the password on first login.");
+							Console.WriteLine("=========================================================================");
+							Console.WriteLine();
 						}
 
 						{
