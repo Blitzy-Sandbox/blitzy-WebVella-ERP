@@ -3345,8 +3345,30 @@ namespace WebVella.Erp.Web.Controllers
 				return DoResponse(badResponse);
 			}
 
+			// Security (A01 - CWE-639): require a valid authenticated user so the temp upload can be stamped
+			// with its owner; finalization (UploadUserFile) later enforces that ownership to defeat IDOR.
+			var currentUser = AuthService.GetUser(User);
+			if (currentUser == null)
+				return DoResponse(new FSResponse { Success = false, Message = "Not authorized." });
+
+			// Read the bytes once so the actual content can be validated before anything is persisted.
+			byte[] fileBytes = ReadFully(file.OpenReadStream());
+
+			// Security (A03 - CWE-434): validate the real file content (magic bytes / strict parse) against the
+			// declared extension; the client-supplied Content-Type and extension are never trusted on their own.
+			if (!IsAllowedUploadContent(fileName, fileBytes))
+			{
+				var badContent = new FSResponse { Success = false, Message = "File content does not match an allowed file type." };
+				return DoResponse(badContent);
+			}
+
 			DbFileRepository fsRepository = new DbFileRepository();
-			var createdFile = fsRepository.CreateTempFile(fileName, ReadFully(file.OpenReadStream()));
+			// Mirror DbFileRepository.CreateTempFile path composition (/tmp/{guid}/{name}) but stamp the owner
+			// (created_by) so UploadUserFile can enforce per-user ownership against IDOR (CWE-639).
+			string tempSection = Guid.NewGuid().ToString().Replace("-", "").ToLowerInvariant();
+			string tempFilePath = DbFileRepository.FOLDER_SEPARATOR + DbFileRepository.TMP_FOLDER_NAME
+				+ DbFileRepository.FOLDER_SEPARATOR + tempSection + DbFileRepository.FOLDER_SEPARATOR + fileName;
+			var createdFile = fsRepository.Create(tempFilePath, fileBytes, DateTime.UtcNow, currentUser.Id);
 
 			return DoResponse(new FSResponse(new FSResult { Url = createdFile.FilePath, Filename = fileName }));
 
@@ -3410,9 +3432,9 @@ namespace WebVella.Erp.Web.Controllers
 		private static readonly HashSet<string> AllowedUploadExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 		{
 			// images
-			".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tif", ".tiff",
+			".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tif", ".tiff",
 			// documents / text / data the ERP already supports
-			".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".pdf", ".html", ".htm",
+			".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".pdf",
 			".ppt", ".pptx", ".xls", ".xlsx", ".ods", ".odp", ".csv", ".json", ".xml",
 			// archives
 			".zip", ".7z", ".gz", ".tar", ".rar",
@@ -3425,6 +3447,8 @@ namespace WebVella.Erp.Web.Controllers
 		// Explicit denylist of server-executable / dangerous extensions - rejected even if accidentally added to the allowlist.
 		private static readonly HashSet<string> DeniedUploadExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 		{
+			// active content / browser-rendered markup (stored-XSS vectors) - removed from the allowlist (A03/CWE-434).
+			".svg", ".html", ".htm",
 			".aspx", ".asp", ".ashx", ".asmx", ".ascx", ".cshtml", ".razor", ".vbhtml", ".master", ".config",
 			".cs", ".vb", ".dll", ".exe", ".com", ".bat", ".cmd", ".sh", ".ps1", ".psm1", ".msi", ".scr",
 			".php", ".php3", ".php4", ".php5", ".phtml", ".jsp", ".jspx", ".pl", ".py", ".rb", ".cgi",
@@ -3483,6 +3507,224 @@ namespace WebVella.Erp.Web.Controllers
 				return false;
 
 			return AllowedUploadExtensions.Contains(ext);
+		}
+
+		// Security (A03 - CWE-434): verify the uploaded bytes actually match a known-good signature for the
+		// declared extension family, rather than trusting the client-controlled filename extension or the
+		// client-supplied Content-Type. Active-content / browser-executable types (.svg/.html/.htm) are not
+		// allowlisted at all (see DeniedUploadExtensions); structured-text types (.xml/.json) are strictly parsed.
+		// Returns false on any mismatch so the caller rejects BEFORE the bytes are persisted.
+		private static bool IsAllowedUploadContent(string fileName, byte[] content)
+		{
+			if (string.IsNullOrWhiteSpace(fileName))
+				return false;
+
+			var ext = Path.GetExtension(fileName).ToLowerInvariant();
+			if (string.IsNullOrEmpty(ext) || DeniedUploadExtensions.Contains(ext) || !AllowedUploadExtensions.Contains(ext))
+				return false;
+
+			// An empty upload carries no executable content; the extension gate above already applied.
+			if (content == null || content.Length == 0)
+				return true;
+
+			switch (ext)
+			{
+				// raster images (binary magic numbers)
+				case ".png": return StartsWith(content, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A);
+				case ".jpg":
+				case ".jpeg": return StartsWith(content, 0xFF, 0xD8, 0xFF);
+				case ".gif": return AsciiAt(content, 0, "GIF87a") || AsciiAt(content, 0, "GIF89a");
+				case ".bmp": return StartsWith(content, 0x42, 0x4D);
+				case ".ico": return StartsWith(content, 0x00, 0x00, 0x01, 0x00);
+				case ".tif":
+				case ".tiff": return StartsWith(content, 0x49, 0x49, 0x2A, 0x00) || StartsWith(content, 0x4D, 0x4D, 0x00, 0x2A);
+				case ".webp": return AsciiAt(content, 0, "RIFF") && AsciiAt(content, 8, "WEBP");
+
+				// documents
+				case ".pdf": return AsciiAt(content, 0, "%PDF-");
+				case ".rtf": return StartsWith(content, 0x7B, 0x5C, 0x72, 0x74, 0x66); // {\rtf
+				// OOXML / OpenDocument are ZIP containers
+				case ".docx":
+				case ".xlsx":
+				case ".pptx":
+				case ".odt":
+				case ".ods":
+				case ".odp": return IsZip(content);
+				// legacy OLE compound documents
+				case ".doc":
+				case ".xls":
+				case ".ppt": return StartsWith(content, 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1);
+
+				// archives
+				case ".zip": return IsZip(content);
+				case ".7z": return StartsWith(content, 0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C);
+				case ".gz": return StartsWith(content, 0x1F, 0x8B);
+				case ".rar": return StartsWith(content, 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07);
+				case ".tar": return AsciiAt(content, 257, "ustar");
+
+				// audio / video
+				case ".mp3": return AsciiAt(content, 0, "ID3") || (content.Length > 1 && content[0] == 0xFF && (content[1] & 0xE0) == 0xE0);
+				case ".wav": return AsciiAt(content, 0, "RIFF") && AsciiAt(content, 8, "WAVE");
+				case ".avi": return AsciiAt(content, 0, "RIFF") && AsciiAt(content, 8, "AVI ");
+				case ".ogg":
+				case ".oga":
+				case ".ogv": return AsciiAt(content, 0, "OggS");
+				case ".mp4":
+				case ".m4a":
+				case ".mov": return AsciiAt(content, 4, "ftyp");
+				case ".webm":
+				case ".mkv": return StartsWith(content, 0x1A, 0x45, 0xDF, 0xA3);
+
+				// fonts
+				case ".woff": return AsciiAt(content, 0, "wOFF");
+				case ".woff2": return AsciiAt(content, 0, "wOF2");
+				case ".otf": return AsciiAt(content, 0, "OTTO");
+				case ".ttf": return StartsWith(content, 0x00, 0x01, 0x00, 0x00) || AsciiAt(content, 0, "true") || AsciiAt(content, 0, "ttcf");
+				case ".eot": return !LooksLikeActiveContent(content); // EOT has no simple portable signature; ensure it is not disguised markup/script
+
+				// plain text (inert)
+				case ".txt":
+				case ".md":
+				case ".csv": return IsProbablyText(content);
+
+				// structured text: strictly parsed to defeat polyglot / active-content payloads
+				case ".json": return IsWellFormedJson(content);
+				case ".xml": return IsWellFormedXml(content);
+
+				default:
+					// allowlisted but without a specific signature: accept only if clearly not active content
+					return !LooksLikeActiveContent(content);
+			}
+		}
+
+		// Returns true when data begins with the given byte signature.
+		private static bool StartsWith(byte[] data, params byte[] signature)
+		{
+			if (data == null || signature == null || data.Length < signature.Length)
+				return false;
+			for (int i = 0; i < signature.Length; i++)
+			{
+				if (data[i] != signature[i])
+					return false;
+			}
+			return true;
+		}
+
+		// Returns true when the ASCII bytes of ascii appear at offset in data.
+		private static bool AsciiAt(byte[] data, int offset, string ascii)
+		{
+			if (data == null || ascii == null || offset < 0 || data.Length < offset + ascii.Length)
+				return false;
+			for (int i = 0; i < ascii.Length; i++)
+			{
+				if (data[offset + i] != (byte)ascii[i])
+					return false;
+			}
+			return true;
+		}
+
+		// ZIP local-file-header, empty-archive, or spanned-archive markers (covers OOXML / OpenDocument too).
+		private static bool IsZip(byte[] data)
+		{
+			return StartsWith(data, 0x50, 0x4B, 0x03, 0x04)
+				|| StartsWith(data, 0x50, 0x4B, 0x05, 0x06)
+				|| StartsWith(data, 0x50, 0x4B, 0x07, 0x08);
+		}
+
+		// True when the bytes look like UTF-8 text (no embedded NUL bytes and a strict UTF-8 decode succeeds).
+		private static bool IsProbablyText(byte[] data)
+		{
+			if (data == null)
+				return false;
+			int start = (data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) ? 3 : 0;
+			for (int i = start; i < data.Length; i++)
+			{
+				if (data[i] == 0x00)
+					return false;
+			}
+			try
+			{
+				var strict = new UTF8Encoding(false, true);
+				strict.GetString(data, start, data.Length - start);
+				return true;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		// Decodes data as UTF-8 (skipping a BOM if present) for structured-format parsing.
+		private static string DecodeUtf8(byte[] data)
+		{
+			int start = (data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) ? 3 : 0;
+			return new UTF8Encoding(false).GetString(data, start, data.Length - start);
+		}
+
+		// Strictly parse as JSON; any malformed / polyglot payload is rejected.
+		private static bool IsWellFormedJson(byte[] data)
+		{
+			if (!IsProbablyText(data))
+				return false;
+			try
+			{
+				Newtonsoft.Json.Linq.JToken.Parse(DecodeUtf8(data));
+				return true;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		// Strictly parse as XML with DTD processing disabled (blocks XXE during validation).
+		private static bool IsWellFormedXml(byte[] data)
+		{
+			if (!IsProbablyText(data))
+				return false;
+			try
+			{
+				var settings = new System.Xml.XmlReaderSettings
+				{
+					DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+					XmlResolver = null,
+					CloseInput = true
+				};
+				using (var ms = new MemoryStream(data))
+				using (var reader = System.Xml.XmlReader.Create(ms, settings))
+				{
+					while (reader.Read()) { }
+				}
+				return true;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		// Heuristic guard: detect HTML / script / PHP / ASP markers in a bounded textual prefix.
+		private static bool LooksLikeActiveContent(byte[] data)
+		{
+			if (data == null || data.Length == 0)
+				return false;
+			int len = Math.Min(data.Length, 4096);
+			string head;
+			try
+			{
+				head = new UTF8Encoding(false).GetString(data, 0, len).ToLowerInvariant();
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+			return head.Contains("<script")
+				|| head.Contains("<?php")
+				|| head.Contains("<%")
+				|| head.Contains("<!doctype html")
+				|| head.Contains("<html")
+				|| head.Contains("<svg")
+				|| head.Contains("javascript:");
 		}
 
 		#endregion
@@ -4070,9 +4312,20 @@ namespace WebVella.Erp.Web.Controllers
 				return DoResponse(response);
 			}
 
+			// Security (A01 - CWE-639 IDOR): load the canonical temp file and require that it was uploaded by the
+			// current user. Temp uploads are stamped with their owner (created_by) at /fs/upload/ time, so a user
+			// cannot finalize another user's freshly-uploaded temp file even if its /tmp/{guid}/ path leaks.
+			var tempFile = new DbFileRepository().Find(rootRelativePath);
+			if (tempFile == null || tempFile.CreatedBy == null || tempFile.CreatedBy.Value != currentUser.Id)
+			{
+				response.Success = false;
+				response.Message = "Invalid file path.";
+				return DoResponse(response);
+			}
+
 			try
 			{
-				response.Object = new UserFileService().CreateUserFile(filePath, fileAlt, fileCaption);
+				response.Object = new UserFileService().CreateUserFile(tempFile.FilePath, fileAlt, fileCaption);
 			}
 			catch (Exception e)
 			{
@@ -4102,7 +4355,7 @@ namespace WebVella.Erp.Web.Controllers
 					}
 
 					var safeFileName = SanitizeUploadFileName(upload.FileName);
-					if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName))
+					if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName) || !IsAllowedUploadContent(safeFileName, fileBytes))
 					{
 						response["uploaded"] = 0;
 						var rejectError = new EntityRecord();
@@ -4148,7 +4401,12 @@ namespace WebVella.Erp.Web.Controllers
 		public IActionResult UploadFileManagerCKEditor(IFormFile upload)
 		{
 			byte[] fileBytes = null;
-			string CKEditorFuncNum = HttpContext.Request.Query["CKEditorFuncNum"].ToString();
+			// Security (XSS): CKEditorFuncNum is a client-supplied callback index interpolated into a JavaScript
+			// response. Parse it to an integer so no attacker-controlled string can be injected into the emitted
+			// <script>; the sanitized integer (funcNum) is reused in every response branch below.
+			int ckEditorFuncNum = 0;
+			int.TryParse(HttpContext.Request.Query["CKEditorFuncNum"].ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out ckEditorFuncNum);
+			string funcNum = ckEditorFuncNum.ToString(CultureInfo.InvariantCulture);
 			try
 			{
 				using (var ms = new MemoryStream())
@@ -4158,9 +4416,9 @@ namespace WebVella.Erp.Web.Controllers
 				}
 
 				var safeFileName = SanitizeUploadFileName(upload.FileName);
-				if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName))
+				if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName) || !IsAllowedUploadContent(safeFileName, fileBytes))
 				{
-					var vRejected = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"File type is not allowed.\");</script></body></html>";
+					var vRejected = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + funcNum + ", \"\", \"File type is not allowed.\");</script></body></html>";
 					return Content(vRejected, "text/html");
 				}
 
@@ -4171,14 +4429,14 @@ namespace WebVella.Erp.Web.Controllers
 
 				string url = "/fs" + newFile.Path;
 				string vMessage = "";
-				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"" + url + "\", \"" + vMessage + "\");</script></body></html>";
+				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + funcNum + ", \"" + url + "\", \"" + vMessage + "\");</script></body></html>";
 
 				return Content(vOutput, "text/html");
 			}
 			catch (Exception ex)
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UploadFileManagerCKEditor", ex);
-				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"" + ex.Message + "\");</script></body></html>";
+				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + funcNum + ", \"\", \"" + ex.Message + "\");</script></body></html>";
 				return Content(vOutput, "text/html");
 			}
 		}
