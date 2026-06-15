@@ -17,6 +17,11 @@ namespace WebVella.Erp.Utilities
 		// Iteration count follows OWASP guidance for PBKDF2-HMAC-SHA256 (>= 600,000).
 		private const string Pbkdf2SchemeName = "pbkdf2-sha256";
 		private const int DefaultIterations = 600000;
+		// SECURITY (OWASP A02/A07 - CWE-400): defensive upper bound on the iteration count read from a stored hash.
+		// A crafted/corrupt stored hash carrying an enormous iteration count would otherwise amplify CPU work on the
+		// verification path (resource-exhaustion DoS). The cap is far above the 600,000 target, so legitimate future
+		// increases to DefaultIterations continue to verify successfully.
+		private const int MaxIterations = 10_000_000;
 		private const int SaltSizeInBytes = 16;   // 128-bit salt from a CSPRNG
 		private const int HashSizeInBytes = 32;   // 256-bit derived key (SHA-256 output)
 
@@ -89,6 +94,11 @@ namespace WebVella.Erp.Utilities
 			if (!int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int iterations) || iterations <= 0)
 				return false;
 
+			// SECURITY (CWE-400): reject an unreasonably high iteration count BEFORE performing any key derivation,
+			// so a crafted/corrupt stored hash cannot force CPU-amplified work on the verification path.
+			if (iterations > MaxIterations)
+				return false;
+
 			byte[] salt;
 			byte[] expectedHash;
 			try
@@ -101,15 +111,20 @@ namespace WebVella.Erp.Utilities
 				return false;
 			}
 
-			if (salt.Length == 0 || expectedHash.Length == 0)
+			// SECURITY (CWE-916): enforce the self-describing format invariants — a 16-byte salt and a 32-byte derived
+			// key. Rejecting any other length neutralizes a crafted stored hash that uses a very short expected hash
+			// (e.g. 1 byte) to weaken verification. This is safe for authentication continuity because HashPassword has
+			// only ever emitted 16-byte salts and 32-byte hashes (legacy MD5 is handled by the earlier branch).
+			if (salt.Length != SaltSizeInBytes || expectedHash.Length != HashSizeInBytes)
 				return false;
 
+			// Always derive exactly HashSizeInBytes (32); never trust a length taken from the stored value.
 			byte[] actualHash = Rfc2898DeriveBytes.Pbkdf2(
 				plaintext,
 				salt,
 				iterations,
 				HashAlgorithmName.SHA256,
-				expectedHash.Length);
+				HashSizeInBytes);
 
 			// Constant-time comparison to avoid timing side-channels.
 			bool ok = CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);

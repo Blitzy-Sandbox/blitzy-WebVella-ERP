@@ -53,6 +53,17 @@ namespace WebVella.Erp
 		//API URLs
 		public static string ApiUrlTemplateFieldInlineEdit { get; private set; }
 
+		// SECURITY (OWASP A05 - CWE-798/CWE-1188): exact-match denylist of every JWT signing key that has ever
+		// shipped as a committed default. Each MUST be rejected at startup so a known, forgeable signing key can
+		// never remain active:
+		//   - "ThisIsMySecretKey"                                   : short historical fallback default
+		//   - "ThisIsMySecretKey" x3 (the 51-char literal below)    : long value committed in Site/Site.Project Config.json
+		private static readonly string[] KnownDefaultJwtKeys = new[]
+		{
+			"ThisIsMySecretKey",
+			"ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey"
+		};
+
 		public static void Initialize(IConfiguration configuration)
 		{
 			Configuration = configuration;
@@ -116,14 +127,19 @@ namespace WebVella.Erp
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): fail-fast on a missing or default JWT signing key.
-			// The shipped default "ThisIsMySecretKey" is publicly known, so accepting it (or an empty value) would let an
+			// The shipped default keys are publicly known, so accepting any of them (or an empty value) would let an
 			// attacker forge valid tokens. The application must refuse to start until a strong, unique key is configured.
+			// Both known shipped defaults are rejected via the KnownDefaultJwtKeys denylist: the short historical
+			// fallback ("ThisIsMySecretKey") AND the long value that was committed in WebVella.Erp.Site/Config.json and
+			// WebVella.Erp.Site.Project/Config.json ("ThisIsMySecretKey" repeated three times). Rejecting both catches
+			// existing deployments, old config files, environment variables, or secret stores still carrying a known
+			// default, which would otherwise keep a forgeable signing key active.
 			// Only the previous silent-default behavior is replaced here; the configuration key string "Settings:Jwt:Key"
 			// is preserved unchanged so existing configuration files and secret stores continue to bind without modification.
 			var jwtKey = configuration["Settings:Jwt:Key"];
-			if (string.IsNullOrWhiteSpace(jwtKey) || string.Equals(jwtKey, "ThisIsMySecretKey", StringComparison.Ordinal))
+			if (string.IsNullOrWhiteSpace(jwtKey) || IsKnownDefaultJwtKey(jwtKey))
 			{
-				throw new Exception("Settings:Jwt:Key is missing or set to the insecure default 'ThisIsMySecretKey'. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+				throw new Exception("Settings:Jwt:Key is missing or set to a known shipped default (e.g. 'ThisIsMySecretKey' or 'ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey'). Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
 			}
 			JwtKey = jwtKey;
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): the default issuer and audience are now DISTINCT so
@@ -135,6 +151,22 @@ namespace WebVella.Erp
 			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp-audience" : configuration["Settings:Jwt:Audience"];
 
 			IsInitialized = true;
+		}
+
+		/// <summary>
+		/// SECURITY (OWASP A05 - CWE-798/CWE-1188): returns true when <paramref name="key"/> exactly matches a known
+		/// shipped default JWT signing key from <see cref="KnownDefaultJwtKeys"/>. The comparison is ordinal
+		/// (case-sensitive) so it matches the exact literals that were previously committed to source/config. Such
+		/// keys are publicly known and must never be accepted as a signing key.
+		/// </summary>
+		private static bool IsKnownDefaultJwtKey(string key)
+		{
+			foreach (var knownDefault in KnownDefaultJwtKeys)
+			{
+				if (string.Equals(key, knownDefault, StringComparison.Ordinal))
+					return true;
+			}
+			return false;
 		}
 	}
 }

@@ -49,8 +49,12 @@ namespace WebVella.Erp.Web.Middleware
 						policy = configuredPolicy;
 
 					var configuredReportOnly = configuration["Settings:SecurityHeaders:ContentSecurityPolicyReportOnly"];
-					if (!string.IsNullOrWhiteSpace(configuredReportOnly))
-						bool.TryParse(configuredReportOnly, out reportOnly);
+					//SECURITY/robustness (functional parity, AAP §0.3.4 / §0.6.3): only override the safe report-only
+					//default when the configured value parses successfully. bool.TryParse writes false into its out
+					//parameter on a failed parse, so assigning it unconditionally would let a present-but-invalid value
+					//silently flip CSP from report-only to enforced and risk breaking existing inline scripts/styles.
+					if (!string.IsNullOrWhiteSpace(configuredReportOnly) && bool.TryParse(configuredReportOnly, out bool parsedReportOnly))
+						reportOnly = parsedReportOnly;
 				}
 
 				string cspHeaderName = reportOnly ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy";
