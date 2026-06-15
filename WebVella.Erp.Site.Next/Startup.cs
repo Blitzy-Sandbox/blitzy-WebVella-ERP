@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
@@ -10,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Threading.RateLimiting;
 using WebVella.Erp.Plugins.Next;
 using WebVella.Erp.Web;
 using WebVella.Erp.Web.Middleware;
@@ -66,12 +68,50 @@ namespace WebVella.Erp.Site.Next
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_next";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//Security: brute-force throttling (A04) using the built-in .NET rate limiter (net10.0; no new package).
+			//Scoped to POST /login per client IP so the rest of the ERP UI keeps full functional parity.
+			services.AddRateLimiter(options =>
+			{
+				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+				//Named policy available for explicit opt-in by the login page ([EnableRateLimiting("login")]).
+				options.AddPolicy("login", httpContext =>
+					RateLimitPartition.GetFixedWindowLimiter(
+						partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+						factory: _ => new FixedWindowRateLimiterOptions
+						{
+							PermitLimit = 5,
+							Window = TimeSpan.FromMinutes(1),
+							QueueLimit = 0
+						}));
+
+				//Self-contained defense-in-depth: throttle ONLY POST /login; everything else is unlimited.
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					if (HttpMethods.IsPost(httpContext.Request.Method) &&
+						httpContext.Request.Path.StartsWithSegments("/login"))
+					{
+						return RateLimitPartition.GetFixedWindowLimiter(
+							partitionKey: "login:" + (httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
+							factory: _ => new FixedWindowRateLimiterOptions
+							{
+								PermitLimit = 5,
+								Window = TimeSpan.FromMinutes(1),
+								QueueLimit = 0
+							});
+					}
+					return RateLimitPartition.GetNoLimiter("unlimited");
+				});
+			});
 
 			services.AddErp();
 		}
@@ -92,6 +132,7 @@ namespace WebVella.Erp.Site.Next
 			}
 			else
 			{
+				app.UseHsts();
 				// Add Error handling middleware which catches all application specific errors and
 				// send the request to the following path or controller action.
 				app.UseErrorHandlingMiddleware();
@@ -116,6 +157,7 @@ namespace WebVella.Erp.Site.Next
 			});
 			app.UseStaticFiles(); //Workaround for blazor to work - https://github.com/dotnet/aspnetcore/issues/9588
 			app.UseRouting();
+			app.UseRateLimiter();
 			app.UseAuthentication();
 			app.UseAuthorization();
 
