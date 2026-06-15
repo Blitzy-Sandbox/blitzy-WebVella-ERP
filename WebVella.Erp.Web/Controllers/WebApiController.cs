@@ -3346,8 +3346,13 @@ namespace WebVella.Erp.Web.Controllers
 					}
 				}
 			}
-			var cultureInfo = new CultureInfo("en-US");
-			HttpContext.Response.Headers.Add("last-modified", file.LastModificationDate.ToString(cultureInfo));
+			//ASP0019: IHeaderDictionary.Add throws an exception when the header key already exists; use the indexer
+			//to set the single Last-Modified value (consistent with the CacheControl assignment immediately below).
+			//The value is formatted as an RFC1123 HTTP-date via the culture-invariant "R" specifier. This is required
+			//on .NET 8+/.NET 10: the en-US culture's DateTime formatting emits a U+202F NARROW NO-BREAK SPACE before
+			//the AM/PM designator (an ICU behavior change), which is an illegal HTTP header character and otherwise
+			//throws InvalidOperationException -> HTTP 500. RFC1123 is also the correct on-wire format for Last-Modified.
+			HttpContext.Response.Headers["last-modified"] = file.LastModificationDate.ToString("R", CultureInfo.InvariantCulture);
 			const int durationInSeconds = 60 * 60 * 24 * 30; //30 days caching of these resources
 			HttpContext.Response.Headers[HeaderNames.CacheControl] = "public,max-age=" + durationInSeconds;
 
