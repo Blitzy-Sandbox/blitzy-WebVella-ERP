@@ -9,6 +9,7 @@ using System.Threading;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Database.Models;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Database
 {
@@ -47,7 +48,7 @@ namespace WebVella.Erp.Database
 					{
 						List<DbParameter> parameters = new List<DbParameter>();
 
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
 
 						DbParameter parameterId = new DbParameter();
 						parameterId.Name = "id";
@@ -162,7 +163,7 @@ namespace WebVella.Erp.Database
 				{
 					NpgsqlCommand command = con.CreateCommand("UPDATE entities SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -212,6 +213,7 @@ namespace WebVella.Erp.Database
 						TypeNameHandling = TypeNameHandling.Auto,
 						NullValueHandling = NullValueHandling.Ignore,
 						MissingMemberHandling = MissingMemberHandling.Ignore,
+						SerializationBinder = ErpSerializationBinder.Instance,
 					};
 					settings.Converters.Add(new DecimalToIntFormatConverter());
 					List<DbEntity> entities = new List<DbEntity>();
