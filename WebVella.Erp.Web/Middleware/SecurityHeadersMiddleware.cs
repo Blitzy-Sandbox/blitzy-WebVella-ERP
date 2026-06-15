@@ -36,7 +36,14 @@ namespace WebVella.Erp.Web.Middleware
 				var headers = context.Response.Headers;
 
 				SetHeaderIfMissing(headers, "X-Content-Type-Options", "nosniff");
-				SetHeaderIfMissing(headers, "X-Frame-Options", "DENY");
+				//SECURITY (OWASP A05 - CWE-1021 Clickjacking): force the EXACT value "DENY", OVERWRITING any value an
+				//earlier component may have written. ASP.NET Core Razor Pages emits "X-Frame-Options: SAMEORIGIN" by
+				//default on page (e.g. /login GET) responses; that value is written before this middleware's OnStarting
+				//callback runs, so a missing-only check (SetHeaderIfMissing) would leave the weaker SAMEORIGIN in place
+				//on those endpoints (verified inconsistency: API/JWT/protected responses returned DENY but /login GET
+				//returned SAMEORIGIN). An unconditional set guarantees the prompt's exact value
+				//(User Example 1 / AAP §0.7.3) "X-Frame-Options: DENY" on EVERY response/endpoint uniformly.
+				SetHeader(headers, "X-Frame-Options", "DENY");
 				SetHeaderIfMissing(headers, "X-XSS-Protection", "0");
 				SetHeaderIfMissing(headers, "Referrer-Policy", "strict-origin-when-cross-origin");
 				SetHeaderIfMissing(headers, "Permissions-Policy", "geolocation=(), microphone=(), camera=()");

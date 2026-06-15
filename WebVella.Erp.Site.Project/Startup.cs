@@ -35,7 +35,10 @@ namespace WebVella.Erp.Site.Project
 			//legacy until we fix system tables
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-			string configPath = "config.json";
+			// PORTABILITY (Linux case-sensitive filesystems): use the EXACT committed filename casing "Config.json".
+			// A lowercase "config.json" lookup throws FileNotFoundException on case-sensitive filesystems even though
+			// the build/publish output contains the file as "Config.json".
+			string configPath = "Config.json";
 			// Security (A02/A05): allow externalized secrets to be supplied at runtime via environment
 			// variables (e.g. Settings__Jwt__Key, Settings__EncryptionKey). The Config.json placeholders for
 			// these keys are intentionally empty; with no env override the host fails fast at startup.
@@ -112,6 +115,29 @@ namespace WebVella.Erp.Site.Project
 				options.LogoutPath = new PathString("/logout");
 				options.AccessDeniedPath = new PathString("/error?access_denied");
 				options.ReturnUrlParameter = "returnUrl";
+				//SECURITY (OWASP A04 Insecure Design / A07 - API auth boundary): for requests under "/api", return an
+				//API-appropriate 401/403 status instead of a 302 redirect to the cookie login page. Interactive
+				//(browser, non-API) requests keep the normal login / access-denied redirect so existing flows are
+				//unchanged. PathString.StartsWithSegments is ordinal case-insensitive and matches "/api" and "/api/...".
+				options.Events = new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationEvents
+				{
+					OnRedirectToLogin = context =>
+					{
+						if (context.Request.Path.StartsWithSegments("/api"))
+							context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status401Unauthorized;
+						else
+							context.Response.Redirect(context.RedirectUri);
+						return System.Threading.Tasks.Task.CompletedTask;
+					},
+					OnRedirectToAccessDenied = context =>
+					{
+						if (context.Request.Path.StartsWithSegments("/api"))
+							context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status403Forbidden;
+						else
+							context.Response.Redirect(context.RedirectUri);
+						return System.Threading.Tasks.Task.CompletedTask;
+					}
+				};
 			})
 			 .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
 			 {

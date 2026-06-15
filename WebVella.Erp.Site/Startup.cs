@@ -41,7 +41,11 @@ namespace WebVella.Erp.Site
             //legacy until we fix system tables
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-            string configPath = "config.json";
+            // SECURITY/PORTABILITY (Linux case-sensitive filesystems): use the EXACT committed filename casing
+            // "Config.json". The repository commits "Config.json" (uppercase C) and the build/publish copies it to the
+            // output directory under that exact name. A lowercase "config.json" lookup throws FileNotFoundException on
+            // case-sensitive filesystems (Linux/containers) even though it resolves on case-insensitive ones (Windows).
+            string configPath = "Config.json";
             // SECURITY (OWASP A05/A02 - CWE-798): layer environment variables OVER the JSON file so the externalized
             // JWT signing key ("Settings__Jwt__Key"), connection string ("Settings__ConnectionString") and encryption
             // key ("Settings__EncryptionKey") supplied at deploy time are observed here. The SymmetricSecurityKey built
@@ -151,6 +155,29 @@ namespace WebVella.Erp.Site
                 options.LogoutPath = new PathString("/logout");
                 options.AccessDeniedPath = new PathString("/error?access_denied");
                 options.ReturnUrlParameter = "returnUrl";
+                //SECURITY (OWASP A04 Insecure Design / A07 - API auth boundary): for requests under "/api", return an
+                //API-appropriate 401/403 status instead of a 302 redirect to the cookie login page. Interactive
+                //(browser, non-API) requests keep the normal login / access-denied redirect so existing flows are
+                //unchanged. PathString.StartsWithSegments is ordinal case-insensitive and matches "/api" and "/api/...".
+                options.Events = new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationEvents
+                {
+                    OnRedirectToLogin = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments("/api"))
+                            context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status401Unauthorized;
+                        else
+                            context.Response.Redirect(context.RedirectUri);
+                        return System.Threading.Tasks.Task.CompletedTask;
+                    },
+                    OnRedirectToAccessDenied = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments("/api"))
+                            context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status403Forbidden;
+                        else
+                            context.Response.Redirect(context.RedirectUri);
+                        return System.Threading.Tasks.Task.CompletedTask;
+                    }
+                };
             })
              .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
              {

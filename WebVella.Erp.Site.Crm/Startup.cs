@@ -72,6 +72,29 @@ namespace WebVella.Erp.Site.Crm
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
+						//SECURITY (OWASP A04 Insecure Design / A07 - API auth boundary): for requests under "/api", return an
+						//API-appropriate 401/403 status instead of a 302 redirect to the cookie login page. Interactive
+						//(browser, non-API) requests keep the normal login / access-denied redirect so existing flows are
+						//unchanged. PathString.StartsWithSegments is ordinal case-insensitive and matches "/api" and "/api/...".
+						options.Events = new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationEvents
+						{
+							OnRedirectToLogin = context =>
+							{
+								if (context.Request.Path.StartsWithSegments("/api"))
+									context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status401Unauthorized;
+								else
+									context.Response.Redirect(context.RedirectUri);
+								return System.Threading.Tasks.Task.CompletedTask;
+							},
+							OnRedirectToAccessDenied = context =>
+							{
+								if (context.Request.Path.StartsWithSegments("/api"))
+									context.Response.StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status403Forbidden;
+								else
+									context.Response.Redirect(context.RedirectUri);
+								return System.Threading.Tasks.Task.CompletedTask;
+							}
+						};
 					});
 
 			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).

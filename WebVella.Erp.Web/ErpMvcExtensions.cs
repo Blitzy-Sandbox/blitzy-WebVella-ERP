@@ -55,7 +55,11 @@ namespace WebVella.Erp.Web
 				IWebHostEnvironment env = app.ApplicationServices.GetService<IWebHostEnvironment>();
 
 				if (!ErpSettings.IsInitialized) {
-					string configPath = "config.json";
+					// PORTABILITY (Linux case-sensitive filesystems): use the EXACT committed filename casing
+					// "Config.json". The hosts that rely on UseErp() to load configuration (Crm, Mail, MicrosoftCDM,
+					// Next, Sdk) commit/publish the file as "Config.json"; a lowercase lookup throws
+					// FileNotFoundException on case-sensitive filesystems (Linux/containers).
+					string configPath = "Config.json";
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 
