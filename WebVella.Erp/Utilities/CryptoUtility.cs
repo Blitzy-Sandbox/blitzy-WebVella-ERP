@@ -13,7 +13,6 @@ namespace WebVella.Erp.Utilities
     {
         #region <--- Fields --->
 
-        private const string defaultCryptKey = "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658";
         private static string cryptKey;
 
         #endregion
@@ -26,13 +25,12 @@ namespace WebVella.Erp.Utilities
             {
                 if (string.IsNullOrEmpty(cryptKey))
                 {
-                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey)) {
-                        cryptKey = defaultCryptKey;
+                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey))
+                    {
+                        throw new InvalidOperationException("Settings:EncryptionKey is not configured. A symmetric encryption key is required; set it via environment variable, user-secrets, or a secret store.");
                     }
-                    else {
 
-                        cryptKey = ErpSettings.EncryptionKey;
-                    }
+                    cryptKey = ErpSettings.EncryptionKey;
                 }
                 return cryptKey;
             }
