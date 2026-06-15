@@ -41,6 +41,13 @@ namespace WebVella.Erp.Web.Service
 				if (scriptObjects.ContainsKey(md5Key))
 					return scriptObjects[md5Key] as ICodeVariable;
 
+				// SECURITY (A03 Injection — documented, accepted Medium risk; CWE-94 Code Injection / CWE-95 Eval Injection):
+				// This is a DELIBERATELY TRUSTED-AUTHOR boundary. The `sourceCode` evaluated here originates
+				// EXCLUSIVELY from authenticated administrators/developers authoring server-side snippets and
+				// page logic — it is NEVER end-user / request-supplied input. Under that trust model, unsandboxed
+				// runtime C# compilation/execution via CSScriptLib is an accepted, documented risk per AAP §0.6.2.
+				// DO NOT route untrusted or end-user-controlled input into this method. Any change that would
+				// accept untrusted input here MUST be escalated and the evaluation MUST be sandboxed/isolated first.
 				CSScript.EvaluatorConfig.ReferenceDomainAssemblies = true;
 				ICodeVariable scriptObject = CSScript.Evaluator.LoadCode<ICodeVariable>(sourceCode);
 				scriptObjects[md5Key] = scriptObject;
