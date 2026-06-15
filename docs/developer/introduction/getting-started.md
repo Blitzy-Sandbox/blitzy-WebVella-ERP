@@ -43,8 +43,14 @@ in project WebVella.Erp.Site and set the correct sql connection string.
 You may also want to change other configuration values (like timezone), but is not required.
 
 4. Run the application. The project is configured to open browser open on login screen when started. 
-All erp functionality requires authentication. Use the default account email "**erp@webvella.com**" and password "**erp**"
-to authenticate. 
+All erp functionality requires authentication. Sign in with the default administrator account email "**erp@webvella.com**".
+The administrator password is **no longer a fixed default** (the old "erp" value has been removed for security). The first
+time the application seeds the database it generates a cryptographically strong, random **one-time** password and writes it
+to the startup console exactly once, in the form:
+`[WebVella.Erp] Initial administrator password for "erp@webvella.com": <generated-password>`
+Copy that password from the console output to authenticate, then change it from your user profile. If you prefer to set the
+initial password yourself, provide it before the first run via the `Settings:DefaultAdminPassword` configuration value
+(for example the `Settings__DefaultAdminPassword` environment variable). 
 
 5. If you want to develop your own components or applications, be sure that the WebVella.Erp.Plugins.SDK is included in your solution.
 This application will help you greatly to create and manage ERP objects like Entities and Relations, although its not required because
