@@ -490,7 +490,7 @@ namespace WebVella.Erp
 
 							// SECURITY: surface the initial administrator password to the operator EXACTLY ONCE at seed
 							// time so a fresh installation remains usable (the operator can perform the first login and
-							// then change it). It is written only to stdout / debug trace and is intentionally NOT
+							// then change it). It is written only to stdout and is intentionally NOT
 							// persisted to the system_log table, to avoid storing a plaintext credential at rest. When
 							// the password was supplied via configuration the operator already knows it, so the value is
 							// not echoed.
@@ -500,7 +500,6 @@ namespace WebVella.Erp
 									+ firstUserPassword
 									+ " - change it immediately after first login.";
 								Console.WriteLine(adminCredentialNotice);
-								System.Diagnostics.Debug.WriteLine(adminCredentialNotice);
 							}
 						}
 
