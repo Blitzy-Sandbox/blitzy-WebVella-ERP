@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using WebVella.Erp.Api.Models.AutoMapper;
 using WebVella.Erp.Database;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Jobs
 {
@@ -24,7 +25,7 @@ namespace WebVella.Erp.Jobs
 
 		public Job CreateJob(Job job)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", job.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
@@ -93,7 +94,7 @@ namespace WebVella.Erp.Jobs
 			if (job.Result != null)
 			{
 				JobResultWrapper jrWrap = new JobResultWrapper { Result = job.Result };
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 				string result = JsonConvert.SerializeObject(jrWrap, settings);
 				parameters.Add(new NpgsqlParameter("result", result) { NpgsqlDbType = NpgsqlDbType.Text });
 			}
@@ -294,7 +295,7 @@ namespace WebVella.Erp.Jobs
 
 		public bool CreateSchedule(SchedulePlan schedulePlan)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", schedulePlan.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
@@ -343,7 +344,7 @@ namespace WebVella.Erp.Jobs
 
 		public bool UpdateSchedule(SchedulePlan schedulePlan)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 
 			List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
 			parameters.Add(new NpgsqlParameter("id", schedulePlan.Id) { NpgsqlDbType = NpgsqlDbType.Uuid });
