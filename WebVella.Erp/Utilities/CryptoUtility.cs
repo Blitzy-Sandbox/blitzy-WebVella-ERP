@@ -9,6 +9,29 @@ using System.Text;
 
 namespace WebVella.Erp.Utilities
 {
+    /// <summary>
+    /// Cryptographic helpers for WebVella ERP.
+    /// </summary>
+    /// <remarks>
+    /// SECURITY POSTURE (A02 - CWE-321/CWE-798):
+    /// The previously hardcoded default symmetric key literal has been removed. <see cref="CryptKey"/> now requires
+    /// <c>Settings:EncryptionKey</c> to be supplied via configuration (environment variable, user-secrets, or a secret
+    /// store) and throws if it is absent, so no encryption key ships in source.
+    ///
+    /// DOCUMENTED MINIMAL-CHANGE EXCEPTION (User Example 3 - AES-256-GCM authenticated encryption):
+    /// The symmetric <c>EncryptText</c>/<c>DecryptText</c>/<c>EncryptData</c>/<c>DecryptData</c> helpers derive the
+    /// key/IV from the configured key by truncation/padding and use the caller-supplied <see cref="SymmetricAlgorithm"/>
+    /// (CBC-style, non-authenticated) encryption. They are LEGACY, NON-LIVE helpers: a solution-wide search confirms
+    /// they have no callers (the only references are commented-out lines in WebVella.Erp.Web/Security/AuthToken.cs).
+    /// Per the project's MINIMAL CHANGE clause ("make only the changes necessary to remediate identified
+    /// vulnerabilities — no feature additions and no refactoring beyond security"), authenticated AES-256-GCM is
+    /// intentionally NOT introduced here, because doing so would add an unused capability to dead code and risk
+    /// breaking the documented public method/signature contract for no live security benefit. If these helpers are
+    /// ever reactivated for real data, they MUST be migrated to AES-256-GCM (with random per-message nonces and a
+    /// backward-compatible decrypt path for any legacy ciphertext) at that time. The non-cryptographic
+    /// <c>ComputeMD5Hash</c>/<c>ComputeOddMD5Hash</c> helpers are content/cache-key digests only and are not used for
+    /// any security decision.
+    /// </remarks>
     public class CryptoUtility
     {
         #region <--- Fields --->

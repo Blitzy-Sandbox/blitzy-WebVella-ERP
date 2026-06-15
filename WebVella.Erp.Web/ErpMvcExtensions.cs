@@ -59,7 +59,14 @@ namespace WebVella.Erp.Web
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 
-					var configurationBuilder = new ConfigurationBuilder().SetBasePath(env.ContentRootPath).AddJsonFile(configPath);
+					// SECURITY (OWASP A05/A02 - CWE-798): layer environment variables OVER the JSON file so that
+					// externalized secrets (e.g. "Settings__Jwt__Key", "Settings__ConnectionString",
+					// "Settings__EncryptionKey") provided at deploy time via environment variables or a secret store
+					// are operationalized at startup. Config.json now ships placeholder/empty secret values, so without
+					// this source the central ErpSettings initialization would never observe the real secrets.
+					// Standard configuration precedence applies (later sources win), so environment variables override
+					// the committed JSON values while all configuration KEY names remain unchanged (schema-preserving).
+					var configurationBuilder = new ConfigurationBuilder().SetBasePath(env.ContentRootPath).AddJsonFile(configPath).AddEnvironmentVariables();
 					ErpSettings.Initialize(configurationBuilder.Build());
 				}
 

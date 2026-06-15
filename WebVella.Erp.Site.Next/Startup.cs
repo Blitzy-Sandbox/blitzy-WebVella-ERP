@@ -38,7 +38,7 @@ namespace WebVella.Erp.Site.Next
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyHeader().AllowAnyMethod().AllowCredentials());
 			});
 
 			services.AddDetection();
@@ -111,6 +111,15 @@ namespace WebVella.Erp.Site.Next
 					}
 					return RateLimitPartition.GetNoLimiter("unlimited");
 				});
+			});
+
+			//HSTS (A05/A07 - CWE-1021/CWE-693): configure Strict-Transport-Security with the prompt-specified value
+			//(1 year + includeSubDomains) so the UseHsts() call in the pipeline emits the exact header. The central
+			//SecurityHeadersMiddleware additionally force-sets this exact value, guaranteeing it on every response.
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
 			});
 
 			services.AddErp();

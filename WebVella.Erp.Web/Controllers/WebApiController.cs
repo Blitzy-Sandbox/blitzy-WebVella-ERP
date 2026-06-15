@@ -4468,6 +4468,16 @@ namespace WebVella.Erp.Web.Controllers
 						if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 							fileName = fileName.Substring(0, fileName.Length - 1);
 
+						//SECURITY (A01/A03 - CWE-22/CWE-434): sanitize the client-supplied filename and reject
+						//disallowed names/extensions and active/executable content before the file is persisted, so this
+						//multi-file endpoint enforces the same upload controls as the single-file paths. Failing closed
+						//here throws, which rolls back the surrounding transaction (consistent with the existing error
+						//handling below) so no unsafe file is stored.
+						var safeFileName = SanitizeUploadFileName(fileName);
+						if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName) || !IsAllowedUploadContent(safeFileName, fileBuffer))
+							throw new Exception("File type is not allowed or the file name is invalid: " + fileName);
+						fileName = safeFileName;
+
 						var recMan = new RecordManager();
 						DbFileRepository fsRepository = new DbFileRepository();
 						string section = Guid.NewGuid().ToString().Replace("-", "").ToLowerInvariant();
@@ -4557,6 +4567,16 @@ namespace WebVella.Erp.Web.Controllers
 
 						if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 							fileName = fileName.Substring(0, fileName.Length - 1);
+
+						//SECURITY (A01/A03 - CWE-22/CWE-434): sanitize the client-supplied filename and reject
+						//disallowed names/extensions and active/executable content before the file is persisted, so this
+						//multi-file endpoint enforces the same upload controls as the single-file paths. Failing closed
+						//here throws, which rolls back the surrounding transaction (consistent with the existing error
+						//handling below) so no unsafe file is stored.
+						var safeFileName = SanitizeUploadFileName(fileName);
+						if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName) || !IsAllowedUploadContent(safeFileName, fileBuffer))
+							throw new Exception("File type is not allowed or the file name is invalid: " + fileName);
+						fileName = safeFileName;
 
 						var recMan = new RecordManager();
 						DbFileRepository fsRepository = new DbFileRepository();

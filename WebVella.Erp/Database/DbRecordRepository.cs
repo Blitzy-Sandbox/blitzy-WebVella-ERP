@@ -551,7 +551,11 @@ namespace WebVella.Erp.Database
 						if (string.IsNullOrWhiteSpace(value as string))
 							return null;
 
-						return PasswordUtil.GetMd5Hash(value as string);
+						//SECURITY (A02 - CWE-327/CWE-916): hash encrypted password-field values with the salted,
+						//adaptive PBKDF2-HMAC-SHA256 hasher instead of unsalted MD5. This mirrors the RecordManager
+						//storage path so every persistence route produces the same self-describing hash format and
+						//legacy MD5 values continue to verify (and transparently upgrade) on next authentication.
+						return ErpPasswordHasher.Default.HashPassword(value as string);
 					}
 				}
 				return value;
@@ -1853,7 +1857,10 @@ namespace WebVella.Erp.Database
                     if (string.IsNullOrWhiteSpace(value as string))
                         return null;
 
-                    return PasswordUtil.GetMd5Hash(value as string);
+                    //SECURITY (A02 - CWE-327/CWE-916): hash encrypted password-field values with the salted,
+                    //adaptive PBKDF2-HMAC-SHA256 hasher instead of unsalted MD5, matching the RecordManager and
+                    //ExtractFieldValue storage paths so all persistence routes share one self-describing hash format.
+                    return ErpPasswordHasher.Default.HashPassword(value as string);
                 }
                 return value;
             }

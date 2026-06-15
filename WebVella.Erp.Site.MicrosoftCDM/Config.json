@@ -1,6 +1,9 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_mscdm_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
+		//SECURITY A02 (CWE-798): database credentials removed from source control. Provide the real connection
+		//string at deploy time via the environment variable "Settings__ConnectionString" (or a secret store).
+		//Key name preserved (schema-preserving); environment variables now override this committed value.
+		"ConnectionString": "",
 		// SECURITY (A02/CWE-321): do NOT commit the symmetric EncryptionKey. Provide it at deploy time via a
 		// secret store or an untracked local Config.json on the host (operator-provisioned). Left empty here so
 		// no usable key ships in source control; ErpSettings reads "Settings:EncryptionKey" (with the legacy

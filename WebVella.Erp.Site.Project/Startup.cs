@@ -144,13 +144,45 @@ namespace WebVella.Erp.Site.Project
 			services.AddRateLimiter(options =>
 			{
 				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-				options.AddFixedWindowLimiter("login", limiterOptions =>
+
+				//Named policy retained for explicit opt-in via [EnableRateLimiting("login")] on the login page.
+				options.AddPolicy("login", httpContext =>
+					RateLimitPartition.GetFixedWindowLimiter(
+						partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+						factory: _ => new FixedWindowRateLimiterOptions
+						{
+							PermitLimit = 5,
+							Window = TimeSpan.FromMinutes(1),
+							QueueLimit = 0
+						}));
+
+				//A04 brute-force defense: the GlobalLimiter actually enforces throttling on POST /login (the named
+				//policy alone was never attached to any endpoint). Every other request is unlimited for parity.
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
 				{
-					limiterOptions.PermitLimit = 5;
-					limiterOptions.Window = TimeSpan.FromMinutes(1);
-					limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-					limiterOptions.QueueLimit = 0;
+					if (HttpMethods.IsPost(httpContext.Request.Method) &&
+						httpContext.Request.Path.StartsWithSegments("/login"))
+					{
+						return RateLimitPartition.GetFixedWindowLimiter(
+							partitionKey: "login:" + (httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
+							factory: _ => new FixedWindowRateLimiterOptions
+							{
+								PermitLimit = 5,
+								Window = TimeSpan.FromMinutes(1),
+								QueueLimit = 0
+							});
+					}
+					return RateLimitPartition.GetNoLimiter("unlimited");
 				});
+			});
+
+			//HSTS (A05/A07 - CWE-1021/CWE-693): configure Strict-Transport-Security with the prompt-specified value
+			//(1 year + includeSubDomains) so the UseHsts() call in the pipeline emits the exact header. The central
+			//SecurityHeadersMiddleware additionally force-sets this exact value, guaranteeing it on every response.
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
 			});
 
 			services.AddErp();

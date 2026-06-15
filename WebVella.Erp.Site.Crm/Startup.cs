@@ -35,7 +35,7 @@ namespace WebVella.Erp.Site.Crm
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyHeader().AllowAnyMethod().AllowCredentials());
 			});
 
 			services.AddDetection();

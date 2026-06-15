@@ -1,6 +1,9 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_crm_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
+		//SECURITY A02 (CWE-798): database credentials removed from source control. Provide the real connection
+		//string at deploy time via the environment variable "Settings__ConnectionString" (or a secret store).
+		//Key name preserved (schema-preserving); environment variables now override this committed value.
+		"ConnectionString": "",
 		//SECURITY A02 (CWE-321/CWE-798): encryption key removed from source control. Provide the real value at
 		//deploy time via the environment variable "Settings__EncryptionKey" (or a secret store). Key name preserved
 		//(schema-preserving); ErpSettings reads Settings:EncryptionKey with the legacy "EncriptionKey" typo fallback.

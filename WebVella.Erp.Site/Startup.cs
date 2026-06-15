@@ -42,7 +42,13 @@ namespace WebVella.Erp.Site
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
             string configPath = "config.json";
-            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+            // SECURITY (OWASP A05/A02 - CWE-798): layer environment variables OVER the JSON file so the externalized
+            // JWT signing key ("Settings__Jwt__Key"), connection string ("Settings__ConnectionString") and encryption
+            // key ("Settings__EncryptionKey") supplied at deploy time are observed here. The SymmetricSecurityKey built
+            // below from Configuration["Settings:Jwt:Key"] relies on this so a real (non-empty, non-default) key can be
+            // provided without committing it to source. Standard precedence applies (env vars override JSON); all
+            // configuration KEY names are unchanged (schema-preserving).
+            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).AddEnvironmentVariables().Build();
 
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });
@@ -72,12 +78,35 @@ namespace WebVella.Erp.Site
             services.AddRateLimiter(options =>
             {
                 options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-                options.AddFixedWindowLimiter("login", opt =>
+
+                //Named policy retained for explicit opt-in via [EnableRateLimiting("login")] on the login page.
+                options.AddPolicy("login", httpContext =>
+                    RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                        factory: _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 5,
+                            Window = TimeSpan.FromMinutes(1),
+                            QueueLimit = 0
+                        }));
+
+                //A04 brute-force defense: the GlobalLimiter actually enforces throttling on POST /login (the named
+                //policy alone was never attached to any endpoint). Every other request is unlimited for parity.
+                options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                 {
-                    opt.Window = TimeSpan.FromMinutes(1);
-                    opt.PermitLimit = 10;
-                    opt.QueueLimit = 0;
-                    opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                    if (HttpMethods.IsPost(httpContext.Request.Method) &&
+                        httpContext.Request.Path.StartsWithSegments("/login"))
+                    {
+                        return RateLimitPartition.GetFixedWindowLimiter(
+                            partitionKey: "login:" + (httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
+                            factory: _ => new FixedWindowRateLimiterOptions
+                            {
+                                PermitLimit = 5,
+                                Window = TimeSpan.FromMinutes(1),
+                                QueueLimit = 0
+                            });
+                    }
+                    return RateLimitPartition.GetNoLimiter("unlimited");
                 });
             });
             services.AddDetection();
@@ -148,6 +177,15 @@ namespace WebVella.Erp.Site
                   };
               });
 
+
+            //HSTS (A05/A07 - CWE-1021/CWE-693): configure Strict-Transport-Security with the prompt-specified value
+            //(1 year + includeSubDomains) so the UseHsts() call in the pipeline emits the exact header. The central
+            //SecurityHeadersMiddleware additionally force-sets this exact value, guaranteeing it on every response.
+            services.AddHsts(options =>
+            {
+                options.MaxAge = TimeSpan.FromDays(365);
+                options.IncludeSubDomains = true;
+            });
 
             services.AddErp();
         }

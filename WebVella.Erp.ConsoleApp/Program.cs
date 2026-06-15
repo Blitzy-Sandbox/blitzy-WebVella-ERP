@@ -37,7 +37,12 @@ namespace WebVella.Erp.ConsoleApp
 			CultureInfo.DefaultThreadCurrentCulture = customCulture;
 			CultureInfo.DefaultThreadCurrentUICulture = customCulture;
 
-			var configurationBuilder = new ConfigurationBuilder().AddJsonFile("config.json".ToApplicationPath());
+			// SECURITY (OWASP A05/A02 - CWE-798): layer environment variables OVER the JSON file so externalized secrets
+			// (e.g. "Settings__ConnectionString", "Settings__EncryptionKey") provided via environment variables or a
+			// secret store are operationalized. The console app is NOT a JWT host (its config has no "Settings:Jwt"
+			// section), so the gated fail-fast in ErpSettings.Initialize does not require a JWT key here. Standard
+			// configuration precedence applies (env vars override JSON); configuration KEY names are unchanged.
+			var configurationBuilder = new ConfigurationBuilder().AddJsonFile("config.json".ToApplicationPath()).AddEnvironmentVariables();
 			ErpSettings.Initialize(configurationBuilder.Build());
 			DbContext.CreateContext(ErpSettings.ConnectionString);
 			ErpService service = new ErpService();

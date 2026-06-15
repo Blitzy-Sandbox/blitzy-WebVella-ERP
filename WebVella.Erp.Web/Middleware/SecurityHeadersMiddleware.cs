@@ -9,10 +9,13 @@ namespace WebVella.Erp.Web.Middleware
 		// default when no override is supplied via configuration.
 		private const string DefaultContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'";
 
-		// Default posture: Report-Only is ON so the strict CSP cannot break existing inline Razor/Stencil
-		// scripts or vendored client libraries on first deployment (functional parity, AAP §0.3.4 / §0.6.3).
-		// Operators switch to enforce mode via configuration (set the flag false) without any code change.
-		private const bool DefaultContentSecurityPolicyReportOnly = true;
+		// Default posture: ENFORCE mode, so the response carries the EXACT required header name
+		// "Content-Security-Policy" with the verbatim policy above (User Example 1 / AAP §0.7.3). The phased
+		// Report-Only rollout described in AAP §0.3.4 / §0.6.3 (to avoid breaking inline Razor/Stencil scripts or
+		// vendored client libraries) remains available WITHOUT any code change: set
+		// "Settings:SecurityHeaders:ContentSecurityPolicyReportOnly" = true in configuration to switch the emitted
+		// header to "Content-Security-Policy-Report-Only" for a tuning period, then revert to enforce.
+		private const bool DefaultContentSecurityPolicyReportOnly = false;
 
 		RequestDelegate next;
 
@@ -34,7 +37,13 @@ namespace WebVella.Erp.Web.Middleware
 				SetHeaderIfMissing(headers, "X-XSS-Protection", "0");
 				SetHeaderIfMissing(headers, "Referrer-Policy", "strict-origin-when-cross-origin");
 				SetHeaderIfMissing(headers, "Permissions-Policy", "geolocation=(), microphone=(), camera=()");
-				SetHeaderIfMissing(headers, "Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+				//SECURITY (OWASP A05 - CWE-1021/CWE-693): force the EXACT HSTS value, OVERWRITING any value an earlier
+				//ASP.NET Core UseHsts() call may have written. UseHsts() (active on most hosts) emits a 30-day max-age
+				//WITHOUT includeSubDomains by default and runs before this middleware, so a missing-only check would
+				//leave that weaker value in place. An unconditional set guarantees the prompt's exact value
+				//(User Example 1 / AAP §0.7.3) on every response. The matching AddHsts(...) configured per host makes
+				//the UseHsts() layer emit the same value; this central overwrite is the authoritative guarantee.
+				SetHeader(headers, "Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 
 				//CSP is configurable (policy string + report-only toggle) so it can be tuned/tightened without
 				//a code change. Defaults preserve the exact literal policy above.
@@ -70,6 +79,12 @@ namespace WebVella.Erp.Web.Middleware
 		{
 			if (!headers.ContainsKey(name))
 				headers[name] = value;
+		}
+
+		//Force-set a header to an exact value, overwriting any value a prior middleware (e.g. UseHsts) emitted.
+		private static void SetHeader(IHeaderDictionary headers, string name, string value)
+		{
+			headers[name] = value;
 		}
 	}
 }

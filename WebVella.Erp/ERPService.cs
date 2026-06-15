@@ -214,7 +214,10 @@ namespace WebVella.Erp
 								password.Searchable = false;
 								password.Auditable = false;
 								password.System = true;
-								password.MinLength = 6;
+								//SECURITY (A07 - CWE-521, User Example 2): enforce a 12-character minimum password length
+								//for the system user.password field so the metadata-driven validation rejects weak
+								//credentials. MaxLength stays 24, comfortably accommodating the raised minimum.
+								password.MinLength = 12;
 								password.MaxLength = 24;
 								password.Encrypted = true;
 

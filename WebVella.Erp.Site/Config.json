@@ -1,7 +1,9 @@
 ﻿{
 	"Settings": {
-		//"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=dev;Password=dev;Database=erp3;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"ConnectionString": "Server=localhost;Port=5432;User Id=dev;Password=dev;Database=ttg_test;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;Timeout=120;KeepAlive=120;",
+		//SECURITY A02 (CWE-798): database credentials removed from source control. Provide the real connection
+		//string at deploy time via the environment variable "Settings__ConnectionString" (or a secret store).
+		//Key name preserved (schema-preserving); environment variables now override this committed value.
+		"ConnectionString": "",
 		"EncryptionKey": "",
 		"CorsOrigins": [ "http://localhost:3333", "http://localhost:3000", "http://localhost" ],
 		"Lang": "en",

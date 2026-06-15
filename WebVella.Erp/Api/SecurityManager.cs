@@ -16,6 +16,12 @@ namespace WebVella.Erp.Api
 {
 	public class SecurityManager
 	{
+		//SECURITY (A04/A07 - timing resistance): a real, precomputed PBKDF2 hash used to run a full verification
+		//for login attempts against non-existent emails, so that "user not found" costs the same as "user found,
+		//wrong password" and the response time no longer reveals whether an account exists. It must be a genuine
+		//hash (not null/empty) because the hasher's Verify short-circuits without doing work on an empty stored hash.
+		private static readonly string DummyPasswordHash = ErpPasswordHasher.Default.HashPassword(Guid.NewGuid().ToString("N"));
+
 		private DbContext suppliedContext = null;
 		private DbContext CurrentContext
 		{
@@ -77,46 +83,84 @@ namespace WebVella.Erp.Api
 		public ErpUser GetUser(string email, string password)
 		{
 			if (string.IsNullOrWhiteSpace(email))
-				return null; 
+				return null;
 
-			using (var ctx = SecurityContext.OpenSystemScope())
+			//SECURITY (A04/A07 - CWE-307/CWE-799 + timing): fetch the candidate by an exact, case-normalized email
+			//match instead of the previous case-insensitive regex (`email ~* @email`). A regex predicate can be
+			//coerced into an expensive scan that returns many rows, and running PBKDF2 only for an exact in-memory
+			//match leaked, via response time, whether an email existed. A parameterized `lower(email) = lower(@email)`
+			//equality is index-friendly, returns at most one row, and is immune to the regex-expansion DoS while
+			//preserving the original case-insensitive matching behavior.
+			Guid? userId = null;
+			string storedHash = null;
+
+			using (NpgsqlConnection connection = new NpgsqlConnection(ErpSettings.ConnectionString))
 			{
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email",
-						 new List<EqlParameter> { new EqlParameter("email", email) }).Execute();
-
-				foreach (var rec in result)
+				try
 				{
-					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
+					connection.Open();
+
+					NpgsqlCommand cmd = new NpgsqlCommand(
+						"SELECT id, password FROM rec_user WHERE lower(email) = lower(@email)", connection);
+					cmd.Parameters.Add(new NpgsqlParameter("email", email));
+
+					NpgsqlDataAdapter dataAdapter = new NpgsqlDataAdapter(cmd);
+					DataTable dt = new DataTable();
+					dataAdapter.Fill(dt);
+
+					if (dt.Rows.Count > 0)
 					{
-						var storedHash = rec["password"] as string;
-						bool ok = ErpPasswordHasher.Default.Verify(password, storedHash, out bool needsUpgrade);
-						if (!ok)
-							continue;
-
-						var user = rec.MapTo<ErpUser>();
-
-						if (needsUpgrade)
-						{
-							try
-							{
-								var newPasswordHash = ErpPasswordHasher.Default.HashPassword(password);
-								List<KeyValuePair<string, object>> storageRecordData = new List<KeyValuePair<string, object>>();
-								storageRecordData.Add(new KeyValuePair<string, object>("id", user.Id));
-								storageRecordData.Add(new KeyValuePair<string, object>("password", newPasswordHash));
-								CurrentContext.RecordRepository.Update("user", storageRecordData);
-							}
-							catch
-							{
-								//A transparent rehash/upgrade failure must never block an otherwise successful login.
-							}
-						}
-
-						return user;
+						DataRow src = dt.Rows[0];
+						userId = (Guid)src["id"];
+						storedHash = src["password"] as string;
 					}
 				}
-
-				return null;
+				finally
+				{
+					connection.Close();
+				}
 			}
+
+			bool ok;
+			bool needsUpgrade = false;
+			if (userId.HasValue)
+			{
+				ok = ErpPasswordHasher.Default.Verify(password, storedHash, out needsUpgrade);
+			}
+			else
+			{
+				//Timing resistance: run a full PBKDF2 verification against a throwaway hash so a request for a
+				//non-existent email costs the same as one for an existing email with a wrong password.
+				ErpPasswordHasher.Default.Verify(password, DummyPasswordHash, out _);
+				ok = false;
+			}
+
+			if (!ok || !userId.HasValue)
+				return null;
+
+			//Load the full user (with the $user_role projection and roles) through the existing by-id loader so the
+			//returned shape is identical to the previous implementation; the nested system scope is safe.
+			var user = GetUser(userId.Value);
+			if (user == null)
+				return null;
+
+			if (needsUpgrade)
+			{
+				try
+				{
+					var newPasswordHash = ErpPasswordHasher.Default.HashPassword(password);
+					List<KeyValuePair<string, object>> storageRecordData = new List<KeyValuePair<string, object>>();
+					storageRecordData.Add(new KeyValuePair<string, object>("id", user.Id));
+					storageRecordData.Add(new KeyValuePair<string, object>("password", newPasswordHash));
+					CurrentContext.RecordRepository.Update("user", storageRecordData);
+				}
+				catch
+				{
+					//A transparent rehash/upgrade failure must never block an otherwise successful login.
+				}
+			}
+
+			return user;
 		}
 
 		private ErpUser GetSystemUserWithNoSecurityCheck()

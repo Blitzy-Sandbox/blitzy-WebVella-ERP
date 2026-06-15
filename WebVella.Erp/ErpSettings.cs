@@ -136,8 +136,18 @@ namespace WebVella.Erp
 			// default, which would otherwise keep a forgeable signing key active.
 			// Only the previous silent-default behavior is replaced here; the configuration key string "Settings:Jwt:Key"
 			// is preserved unchanged so existing configuration files and secret stores continue to bind without modification.
+			//
+			// SCOPE GATING: the fail-fast is enforced ONLY for hosts that actually use JWT bearer authentication,
+			// i.e. hosts whose configuration defines a "Settings:Jwt" section. JWT hosts (WebVella.Erp.Site and
+			// WebVella.Erp.Site.Project) ship that section in Config.json, so the requirement applies to them and an
+			// injected "Settings__Jwt__Key" environment variable / secret can satisfy it. Cookie-only hosts
+			// (Crm, Mail, MicrosoftCDM, Next, Sdk) and the console application have NO "Settings:Jwt" section and
+			// legitimately never construct a SymmetricSecurityKey, so they must be allowed to start without a JWT key.
+			// Gating on section presence (rather than unconditionally throwing) preserves their startup behavior while
+			// still refusing to run a JWT host with a missing/known-default signing key.
 			var jwtKey = configuration["Settings:Jwt:Key"];
-			if (string.IsNullOrWhiteSpace(jwtKey) || IsKnownDefaultJwtKey(jwtKey))
+			var jwtConfigured = configuration.GetSection("Settings:Jwt").Exists();
+			if (jwtConfigured && (string.IsNullOrWhiteSpace(jwtKey) || IsKnownDefaultJwtKey(jwtKey)))
 			{
 				throw new Exception("Settings:Jwt:Key is missing or set to a known shipped default (e.g. 'ThisIsMySecretKey' or 'ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey'). Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
 			}

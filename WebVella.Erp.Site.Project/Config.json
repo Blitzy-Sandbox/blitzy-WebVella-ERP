@@ -1,6 +1,9 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=dev;Password=dev;Database=erp3_project_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
+		//SECURITY A02 (CWE-798): database credentials removed from source control. Provide the real connection
+		//string at deploy time via the environment variable "Settings__ConnectionString" (or a secret store).
+		//Key name preserved (schema-preserving); environment variables now override this committed value.
+		"ConnectionString": "",
 		// Externalized secret - provide at runtime via env var Settings__EncryptionKey or a secret store. Empty here is intentional and triggers fail-fast in ErpSettings.
 		"EncryptionKey": "",
 		"Lang": "en",
