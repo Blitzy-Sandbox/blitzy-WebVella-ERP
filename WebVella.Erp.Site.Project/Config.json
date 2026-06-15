@@ -1,7 +1,8 @@
 ﻿{
 	"Settings": {
 		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=dev;Password=dev;Database=erp3_project_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// Externalized secret - provide at runtime via env var Settings__EncryptionKey or a secret store. Empty here is intentional and triggers fail-fast in ErpSettings.
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
@@ -16,8 +17,17 @@
 		"EmailSMTPPassword": "",
 		"EmailFrom": "",
 		"EmailTo": "",
+		"Cors": {
+			"AllowedOrigins": [
+				"http://localhost:3333",
+				"http://localhost:3000",
+				"http://localhost",
+				"http://localhost:2202"
+			]
+		},
 		"Jwt": {
-			"Key": "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey",
+			// Externalized secret - provide via env var Settings__Jwt__Key. Default/empty is intentional and triggers fail-fast (host + ErpSettings).
+			"Key": "",
 			"Issuer": "webvella-erp",
 			"Audience": "webvella-erp"
 		}
