@@ -8,7 +8,10 @@
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		//SECURITY (OWASP A05 Security Misconfiguration / A09 - CWE-209): production-safe default. When "true",
+		//API error responses leak exception messages, stack traces and absolute file paths. Enable locally only
+		//via the environment override Settings__DevelopmentMode=true; never commit "true" as the shipped default.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",
