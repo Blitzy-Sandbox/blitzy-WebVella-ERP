@@ -81,14 +81,38 @@ namespace WebVella.Erp.Api
 
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email AND password = @password",
-						 new List<EqlParameter> { new EqlParameter("email", email), new EqlParameter("password", encryptedPassword) }).Execute();
+				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email",
+						 new List<EqlParameter> { new EqlParameter("email", email) }).Execute();
 
 				foreach (var rec in result)
 				{
 					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
-						return rec.MapTo<ErpUser>();
+					{
+						var storedHash = rec["password"] as string;
+						bool ok = ErpPasswordHasher.Default.Verify(password, storedHash, out bool needsUpgrade);
+						if (!ok)
+							continue;
+
+						var user = rec.MapTo<ErpUser>();
+
+						if (needsUpgrade)
+						{
+							try
+							{
+								var newPasswordHash = ErpPasswordHasher.Default.HashPassword(password);
+								List<KeyValuePair<string, object>> storageRecordData = new List<KeyValuePair<string, object>>();
+								storageRecordData.Add(new KeyValuePair<string, object>("id", user.Id));
+								storageRecordData.Add(new KeyValuePair<string, object>("password", newPasswordHash));
+								CurrentContext.RecordRepository.Update("user", storageRecordData);
+							}
+							catch
+							{
+								//A transparent rehash/upgrade failure must never block an otherwise successful login.
+							}
+						}
+
+						return user;
+					}
 				}
 
 				return null;
