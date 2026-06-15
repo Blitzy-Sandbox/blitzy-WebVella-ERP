@@ -38,7 +38,14 @@ namespace WebVella.Erp.Utilities
 			typeof(char),
 			typeof(Guid),
 			typeof(DateTime), typeof(DateTimeOffset), typeof(TimeSpan),
-			typeof(byte[])
+			typeof(byte[]),
+			// System.Dynamic.ExpandoObject is the natural carrier for the `dynamic` job/schedule payloads
+			// (Job.Attributes, Job.Result via JobResultWrapper, SchedulePlan.JobAttributes) that are persisted
+			// with TypeNameHandling.All and read back in JobProfile.cs. It is a benign IDictionary<string, object>
+			// property-bag, NOT a code-execution gadget. Allowing it does NOT weaken protection: when a value is
+			// resolved to an ExpandoObject via $type, the $type tokens nested inside it are still validated
+			// recursively by this binder, so a gadget embedded in an attribute/result value remains rejected.
+			typeof(System.Dynamic.ExpandoObject)
 		};
 
 		// Safe generic collection definitions whose type arguments are validated recursively.

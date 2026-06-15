@@ -11,6 +11,7 @@ using WebVella.Erp.Api.Models;
 using WebVella.Erp.Api.Models.AutoMapper;
 using WebVella.Erp.Database;
 using WebVella.Erp.Exceptions;
+using WebVella.Erp.Utilities;
 using WebVella.Erp.Web.Models;
 using WebVella.Erp.Web.Services;
 
@@ -955,7 +956,7 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
                         List<DbEntity> entities = new List<DbEntity>();
                         while (reader.Read())
                         {
@@ -987,7 +988,7 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
                         List<DbEntityRelation> relations = new List<DbEntityRelation>();
                         while (reader.Read())
                         {
