@@ -303,6 +303,18 @@ namespace WebVella.Erp.Eql
 					if (!hasPermisstion)
 						throw new Exception($"No access to entity '{meta.Field.EntityName}'");
 
+					//SECURITY (A02/A07 - CWE-200/CWE-522): never surface password-field hashes in EQL EntityRecord
+					//results delivered to a caller. The [JsonIgnore] redaction on the strongly-typed ErpUser does not
+					//cover the generic EntityRecord dictionaries produced here, so a low-privilege caller holding
+					//user-entity Read permission could read the stored password hash via e.g. `SELECT * FROM user`.
+					//Strip PasswordField values for every non-system caller while preserving them for internal
+					//system-scope reads (SecurityManager loads users inside SecurityContext.OpenSystemScope()), so
+					//authentication/continuity and internal lookups are unaffected. The field key is omitted entirely
+					//(mirrors the [JsonIgnore] "absent from response" intent).
+					bool isSystemRead = SecurityContext.CurrentUser != null && SecurityContext.CurrentUser.Id == SystemIds.SystemUserId;
+					if (meta.Field is PasswordField && !isSystemRead)
+						continue;
+
 					record[meta.Field.Name] = DbRecordRepository.ExtractFieldValue(jObj[meta.Field.Name], meta.Field);
 				}
 				else if (meta.Relation != null)

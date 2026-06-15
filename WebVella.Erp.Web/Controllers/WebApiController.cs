@@ -1191,6 +1191,12 @@ namespace WebVella.Erp.Web.Controllers
 					}
 
 					var entity = new EntityManager().ReadEntity(entityName).Object;
+					// SECURITY (A02/A07 - CWE-200/CWE-522): a PasswordField value (e.g. the stored password
+					// hash) must never be surfaced through the typeahead lookup. A password field is never a
+					// legitimate relation/typeahead target; suppress its values for non-system callers.
+					bool isSystemTypeaheadRead = SecurityContext.CurrentUser != null && SecurityContext.CurrentUser.Id == SystemIds.SystemUserId;
+					if (!isSystemTypeaheadRead && entity != null && entity.Fields != null && entity.Fields.Any(f => f.Name == fieldName && f is PasswordField))
+						resultRecords = new List<EntityRecord>();
 					foreach (var record in resultRecords)
 					{
 						response.Results.Add(new TypeaheadResponseRow
@@ -2499,6 +2505,47 @@ namespace WebVella.Erp.Web.Controllers
 		}
 
 
+		// SECURITY (A02/A07 - CWE-200/CWE-522): the stored password hash must never be surfaced in a
+		// user-data response delivered to a caller. The [JsonIgnore] redaction on the strongly-typed
+		// ErpUser does not cover the generic EntityRecord dictionaries produced by the record query API
+		// (RecordManager.Find), so a low-privilege caller holding user-entity Read permission could read
+		// the stored password hash via e.g. GET /record/user/{id} or /record/user/list. Strip every
+		// PasswordField value here for non-system callers (mirrors the EQL EntityRecord redaction in
+		// EqlCommand and the [JsonIgnore] "absent from response" intent). Internal system-scope reads
+		// (SecurityContext.OpenSystemScope, used by SecurityManager user lookups) are preserved so
+		// authentication and migration continuity are unaffected.
+		private void RedactSensitivePasswordFields(List<EntityRecord> records, string entityName)
+		{
+			if (records == null || records.Count == 0 || string.IsNullOrWhiteSpace(entityName))
+				return;
+
+			//preserve values for internal system-scope reads
+			if (SecurityContext.CurrentUser != null && SecurityContext.CurrentUser.Id == SystemIds.SystemUserId)
+				return;
+
+			var entityResponse = entMan.ReadEntity(entityName);
+			if (entityResponse == null || entityResponse.Object == null || entityResponse.Object.Fields == null)
+				return;
+
+			List<string> passwordFieldNames = entityResponse.Object.Fields
+				.Where(f => f is PasswordField)
+				.Select(f => f.Name)
+				.ToList();
+			if (passwordFieldNames.Count == 0)
+				return;
+
+			foreach (var record in records)
+			{
+				if (record == null)
+					continue;
+				foreach (var passwordFieldName in passwordFieldNames)
+				{
+					if (record.Properties.ContainsKey(passwordFieldName))
+						record.Properties.Remove(passwordFieldName);
+				}
+			}
+		}
+
 		// Get an entity record list
 		// GET: api/v3/en_US/record/{entityName}/list
 		[AcceptVerbs(new[] { "GET" }, Route = "api/v3/en_US/record/{entityName}/{recordId}")]
@@ -2513,6 +2560,7 @@ namespace WebVella.Erp.Web.Controllers
 			if (!result.Success)
 				return DoResponse(result);
 
+			RedactSensitivePasswordFields(result?.Object?.Data, entityName);
 			return Json(result);
 		}
 
@@ -2564,6 +2612,7 @@ namespace WebVella.Erp.Web.Controllers
 			QueryResponse result = recMan.Find(query);
 			if (!result.Success)
 				return DoResponse(result);
+			RedactSensitivePasswordFields(result?.Object?.Data, entityName);
 			return Json(result);
 		}
 
@@ -2969,6 +3018,7 @@ namespace WebVella.Erp.Web.Controllers
 			response.Timestamp = DateTime.UtcNow;
 			response.Success = true;
 			response.Object.Data = queryResponse.Object.Data;
+			RedactSensitivePasswordFields(response.Object?.Data, entityName);
 			return DoResponse(response);
 		}
 
@@ -3215,6 +3265,9 @@ namespace WebVella.Erp.Web.Controllers
 					{
 						throw new Exception(matchQueryResponse.Message);
 					}
+					// SECURITY (A02/A07 - CWE-200/CWE-522): strip PasswordField values (e.g. the stored
+					// password hash) from quick-search projections before returning them to the caller.
+					RedactSensitivePasswordFields(matchQueryResponse.Object?.Data, entityName);
 					responseObject["records"] = matchQueryResponse.Object.Data;
 				}
 
@@ -3765,7 +3818,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "ErpApi:GetJobs", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -3983,7 +4036,7 @@ namespace WebVella.Erp.Web.Controllers
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UpdateSchedulePlan", e);
 				response.Success = false;
 				response.Timestamp = DateTime.UtcNow;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			response.Success = true;
@@ -4023,7 +4076,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:TriggerNowSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			response.Success = true;
@@ -4049,7 +4102,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSchedulePlansList", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4081,7 +4134,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4135,7 +4188,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:CreateTestSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4205,7 +4258,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSystemLog", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4228,7 +4281,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetUserFileList", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4331,7 +4384,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UploadUserFile", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4682,7 +4735,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetSnippetNames", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4707,7 +4760,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 			return DoResponse(response);
 		}
@@ -4726,7 +4779,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetNewJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 			return DoResponse(response);
 		}
