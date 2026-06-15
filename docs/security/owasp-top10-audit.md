@@ -195,10 +195,14 @@ REMEDIATION: A central SecurityHeadersMiddleware emits, on every response:
                X-XSS-Protection: 0
                Referrer-Policy: strict-origin-when-cross-origin
                Permissions-Policy: geolocation=(), microphone=(), camera=()
-             CSP enforce mode is the default; a Settings:SecurityHeaders:ContentSecurityPolicyReportOnly
-             toggle allows an operator to roll CSP out in Report-Only mode first if vendored inline
-             scripts/styles require tuning (functional parity). All hosts also call services.AddHsts with
-             MaxAge = 365 days and IncludeSubDomains so the framework default does not override the exact value.
+             CSP Report-Only mode is the DEFAULT (functional parity): the response carries
+             Content-Security-Policy-Report-Only with the exact policy above, so violations are reported
+             (not enforced) and existing inline Razor/Stencil scripts/styles and vendored client libraries
+             keep working on first deployment. Operators tighten to enforce mode (header
+             Content-Security-Policy, same value) by setting the Settings:SecurityHeaders:ContentSecurityPolicyReportOnly
+             toggle to false once any inline scripts/styles have been tuned — no code change required. All
+             hosts also call services.AddHsts with MaxAge = 365 days and IncludeSubDomains so the framework
+             default does not override the exact value.
 ```
 
 ```

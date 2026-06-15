@@ -9,13 +9,16 @@ namespace WebVella.Erp.Web.Middleware
 		// default when no override is supplied via configuration.
 		private const string DefaultContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'";
 
-		// Default posture: ENFORCE mode, so the response carries the EXACT required header name
-		// "Content-Security-Policy" with the verbatim policy above (User Example 1 / AAP §0.7.3). The phased
-		// Report-Only rollout described in AAP §0.3.4 / §0.6.3 (to avoid breaking inline Razor/Stencil scripts or
-		// vendored client libraries) remains available WITHOUT any code change: set
-		// "Settings:SecurityHeaders:ContentSecurityPolicyReportOnly" = true in configuration to switch the emitted
-		// header to "Content-Security-Policy-Report-Only" for a tuning period, then revert to enforce.
-		private const bool DefaultContentSecurityPolicyReportOnly = false;
+		// Default posture: Report-Only is ON by default so the strict CSP cannot break existing inline
+		// Razor/Stencil scripts/styles or vendored client libraries on first deployment. Per AAP §0.3.4 /
+		// §0.6.3 the CSP is deployed in Report-Only mode FIRST (for functional parity), then tightened. In
+		// this mode the response carries the header name "Content-Security-Policy-Report-Only" with the
+		// verbatim policy above — the CSP VALUE is unchanged (User Example 1 / AAP §0.7.3); only the header
+		// name differs from the enforcing variant, so violations are REPORTED, not enforced. Operators switch
+		// to enforce mode (header "Content-Security-Policy") by setting
+		// "Settings:SecurityHeaders:ContentSecurityPolicyReportOnly" = false in configuration once inline
+		// scripts/styles have been tuned — no code change required.
+		private const bool DefaultContentSecurityPolicyReportOnly = true;
 
 		RequestDelegate next;
 
