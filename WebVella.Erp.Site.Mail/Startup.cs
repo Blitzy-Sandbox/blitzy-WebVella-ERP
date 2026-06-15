@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
@@ -10,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Threading.RateLimiting;
 using WebVella.Erp.Plugins.Mail;
 using WebVella.Erp.Plugins.Next;
 using WebVella.Erp.Plugins.SDK;
@@ -63,12 +65,40 @@ namespace WebVella.Erp.Site.Mail
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_mail";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//Brute-force / DoS protection (OWASP A04/A05): throttle the authentication endpoint by client IP.
+			//A global limiter keeps the protection self-contained (no per-endpoint attribute required) and returns
+			//NoLimiter for every non-login path, so normal ERP API traffic is unaffected (functional parity).
+			services.AddRateLimiter(options =>
+			{
+				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					var path = httpContext.Request.Path;
+					if (path.HasValue && path.Value.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
+					{
+						var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+						return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+						{
+							PermitLimit = 10,
+							Window = TimeSpan.FromMinutes(1),
+							QueueLimit = 0,
+							QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+							AutoReplenishment = true
+						});
+					}
+
+					return RateLimitPartition.GetNoLimiter("__no_rate_limit__");
+				});
+			});
 
 			services.AddErp();
 		}
@@ -89,6 +119,8 @@ namespace WebVella.Erp.Site.Mail
 			}
 			else
 			{
+				//HTTP Strict Transport Security (OWASP A05): instruct browsers to use HTTPS only. Production only.
+				app.UseHsts();
 				// Add Error handling middleware which catches all application specific errors and
 				// send the request to the following path or controller action.
 				app.UseErrorHandlingMiddleware();
@@ -113,6 +145,7 @@ namespace WebVella.Erp.Site.Mail
 			});
 			app.UseStaticFiles(); //Workaround for blazor to work - https://github.com/dotnet/aspnetcore/issues/9588
 			app.UseRouting();
+			app.UseRateLimiter();
 			app.UseAuthentication();
 			app.UseAuthorization();
 
