@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -11,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Threading.RateLimiting;
 using WebVella.Erp.Plugins.Next;
 using WebVella.Erp.Plugins.SDK;
 using WebVella.Erp.Web;
@@ -65,12 +67,33 @@ namespace WebVella.Erp.Site.Sdk
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_sdk";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//Rate limiting (A04) - generous global per-client-IP fixed window as a DoS/brute-force safety net.
+			//The precise login lockout (5 failed attempts) is handled at the login hook (login.cshtml.cs).
+			//Limits are intentionally generous to avoid impacting Blazor/SignalR and shared-IP (NAT) traffic; tune as needed.
+			services.AddRateLimiter(options =>
+			{
+				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					string partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+					return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+					{
+						PermitLimit = 1000,
+						Window = TimeSpan.FromMinutes(1),
+						QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+						QueueLimit = 0
+					});
+				});
+			});
 
 			services.AddErp();
 		}
@@ -91,6 +114,7 @@ namespace WebVella.Erp.Site.Sdk
 			}
 			else
 			{
+				app.UseHsts();
 				// Add Error handling middleware which catches all application specific errors and
 				// send the request to the following path or controller action.
 				app.UseErrorHandlingMiddleware();
@@ -115,6 +139,7 @@ namespace WebVella.Erp.Site.Sdk
 			});
 			app.UseStaticFiles(); //Workaround for blazor to work - https://github.com/dotnet/aspnetcore/issues/9588
 			app.UseRouting();
+			app.UseRateLimiter();
 			app.UseAuthentication();
 			app.UseAuthorization();
 
