@@ -13,6 +13,7 @@ using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models.AutoMapper;
 using WebVella.Erp.Database;
 using WebVella.Erp.Jobs;
+using WebVella.Erp.Utilities;
 using WebVella.Erp.Web.Middleware;
 using WebVella.Erp.Web.Models;
 using WebVella.Erp.Web.Models.AutoMapper;
@@ -33,11 +34,21 @@ namespace WebVella.Erp.Web
 			services.AddSingleton<IHostedService, ErpJobScheduleService>();
 			services.AddSingleton<IHostedService, ErpJobProcessService>();
 			services.AddScoped<CircuitHandler, SecuritityCircuitHandler>();
+
+			//Security: password hashing strategy (salted PBKDF2 KDF) registered once for all hosts (A02/A07)
+			services.AddSingleton<IPasswordHasher, ErpPasswordHasher>();
+
+			//Security: JSON deserialization allowlist binder (A08) - register the shared instance used at the TypeNameHandling sites
+			services.AddSingleton(ErpSerializationBinder.Instance);
+
 			return services;
 		}
 
 		public static IApplicationBuilder UseErp(this IApplicationBuilder app, List<JobType> additionalJobTypes = null, string configFolder = null)
 		{
+			//Security headers (A05) - registered first so it runs ahead of ErpMiddleware; all 7 hosts inherit via their existing app.UseErp() call
+			app.UseMiddleware<SecurityHeadersMiddleware>();
+
 			using (var secCtx = SecurityContext.OpenSystemScope())
 			{
 				IConfiguration configuration = app.ApplicationServices.GetService<IConfiguration>();
