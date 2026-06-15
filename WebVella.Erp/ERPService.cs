@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Api.Models.AutoMapper;
@@ -464,7 +465,20 @@ namespace WebVella.Erp
 							user["id"] = SystemIds.FirstUserId;
 							user["first_name"] = "WebVella";
 							user["last_name"] = "Erp";
-							user["password"] = "erp";
+							// SECURITY (OWASP A07 Authentication Failures / A04 Insecure Design - CWE-1392 use of
+							// shipped default credentials, CWE-521 weak password): the previous hard-coded default
+							// administrator password ("erp") has been removed. On a fresh install the seed password is
+							// taken from an explicit, schema-preserving configuration override
+							// ("Settings:DefaultAdminPassword") when one is supplied; otherwise a cryptographically
+							// strong random password is generated from the platform CSPRNG. The PLAINTEXT value is
+							// assigned here on purpose: RecordManager hashes the PasswordField exactly once when the
+							// record is persisted, so pre-hashing here would double-hash the value.
+							string configuredAdminPassword = ErpSettings.Configuration?["Settings:DefaultAdminPassword"];
+							bool adminPasswordWasGenerated = string.IsNullOrWhiteSpace(configuredAdminPassword);
+							string firstUserPassword = adminPasswordWasGenerated
+								? GenerateStrongPassword(20)
+								: configuredAdminPassword;
+							user["password"] = firstUserPassword;
 							user["email"] = "erp@webvella.com";
 							user["username"] = "administrator";
 							user["created_on"] = new DateTime(2010, 10, 10);
@@ -473,6 +487,21 @@ namespace WebVella.Erp
 							QueryResponse result = recMan.CreateRecord("user", user);
 							if (!result.Success)
 								throw new Exception("CREATE FIRST USER RECORD:" + result.Message);
+
+							// SECURITY: surface the initial administrator password to the operator EXACTLY ONCE at seed
+							// time so a fresh installation remains usable (the operator can perform the first login and
+							// then change it). It is written only to stdout / debug trace and is intentionally NOT
+							// persisted to the system_log table, to avoid storing a plaintext credential at rest. When
+							// the password was supplied via configuration the operator already knows it, so the value is
+							// not echoed.
+							if (adminPasswordWasGenerated)
+							{
+								string adminCredentialNotice = "[WebVella.Erp] Initial administrator password for \"erp@webvella.com\": "
+									+ firstUserPassword
+									+ " - change it immediately after first login.";
+								Console.WriteLine(adminCredentialNotice);
+								System.Diagnostics.Debug.WriteLine(adminCredentialNotice);
+							}
 						}
 
 						{
@@ -886,6 +915,61 @@ namespace WebVella.Erp
 				}
 
 			}
+		}
+
+		/// <summary>
+		/// SECURITY (OWASP A07 Authentication Failures / A04 Insecure Design - CWE-1392 / CWE-521 / CWE-330):
+		/// Generates a cryptographically strong, random password using the platform CSPRNG
+		/// (<see cref="RandomNumberGenerator"/>). This replaces the former shipped default administrator
+		/// credential so that no guessable password is ever seeded on a fresh install.
+		/// </summary>
+		/// <remarks>
+		/// Characters are drawn from a mixed alphabet (upper-case, lower-case, digits and a conservative,
+		/// copy/paste-safe symbol set) using <see cref="RandomNumberGenerator.GetInt32(int)"/>, which performs
+		/// unbiased bounded sampling (no modulo bias). The result is guaranteed to contain at least one
+		/// character from each category and is then shuffled with a CSPRNG-driven Fisher-Yates pass so the
+		/// guaranteed characters are not pinned to fixed positions. The returned value is PLAINTEXT; it is
+		/// hashed exactly once downstream by <c>RecordManager</c> when the password field is persisted.
+		/// </remarks>
+		/// <param name="length">Desired length in characters; values below 16 are raised to 16.</param>
+		/// <returns>A new random password of at least 16 characters.</returns>
+		private static string GenerateStrongPassword(int length)
+		{
+			// Enforce a strong minimum length (>= 16), comfortably above the 12+ policy minimum.
+			if (length < 16)
+				length = 16;
+
+			const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+			const string lower = "abcdefghijklmnopqrstuvwxyz";
+			const string digits = "0123456789";
+			// Conservative symbol set: avoids quotes, backslash, backtick and whitespace so the value is safe
+			// to copy/paste and to print without escaping surprises.
+			const string symbols = "!@#$%^&*()-_=+[]{}";
+			const string alphabet = upper + lower + digits + symbols;
+
+			char[] buffer = new char[length];
+
+			// Guarantee category coverage so the generated password always satisfies common composition
+			// policies (at least one upper, one lower, one digit and one symbol).
+			buffer[0] = upper[RandomNumberGenerator.GetInt32(upper.Length)];
+			buffer[1] = lower[RandomNumberGenerator.GetInt32(lower.Length)];
+			buffer[2] = digits[RandomNumberGenerator.GetInt32(digits.Length)];
+			buffer[3] = symbols[RandomNumberGenerator.GetInt32(symbols.Length)];
+
+			// Fill the remainder uniformly from the full alphabet.
+			for (int i = 4; i < length; i++)
+				buffer[i] = alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)];
+
+			// Cryptographic Fisher-Yates shuffle so the guaranteed-category characters are not at fixed indices.
+			for (int i = length - 1; i > 0; i--)
+			{
+				int j = RandomNumberGenerator.GetInt32(i + 1);
+				char tmp = buffer[i];
+				buffer[i] = buffer[j];
+				buffer[j] = tmp;
+			}
+
+			return new string(buffer);
 		}
 
 		public void InitializePlugins(IServiceProvider serviceProvider)
