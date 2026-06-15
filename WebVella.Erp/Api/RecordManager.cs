@@ -2014,7 +2014,7 @@ namespace WebVella.Erp.Api
 							if (string.IsNullOrWhiteSpace(pair.Value as string))
 								return null;
 
-							return PasswordUtil.GetMd5Hash(pair.Value as string);
+							return ErpPasswordHasher.Default.HashPassword(pair.Value as string);
 						}
 					}
 					return pair.Value;
