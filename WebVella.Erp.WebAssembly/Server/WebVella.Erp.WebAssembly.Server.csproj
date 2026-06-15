@@ -11,7 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Client\WebVella.Erp.WebAssembly.Client.csproj" />
+    <ProjectReference Include="..\Client\WebVella.Erp.WebAssembly.csproj" />
     <ProjectReference Include="..\Shared\WebVella.Erp.WebAssembly.Shared.csproj" />
   </ItemGroup>
 
