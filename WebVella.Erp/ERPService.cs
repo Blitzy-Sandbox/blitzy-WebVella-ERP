@@ -484,11 +484,11 @@ namespace WebVella.Erp
 
 							// Surface the generated initial administrator credential to the operator exactly once
 							// so a fresh install remains usable (functional parity: the operator performs the first
-							// login and then changes it). It is written to stdout/trace only and is deliberately NOT
-							// persisted to the system_log table, to avoid creating a sensitive-data-at-rest exposure.
+							// login and then changes it). It is written to stdout only (deliberately not to any
+							// diagnostic trace sink, and not persisted to the system_log table) to avoid creating a
+							// sensitive-data-at-rest exposure or a second capturable leakage path.
 							string initialAdminPasswordNotice = $"[WebVella.Erp] Initial administrator password for erp@webvella.com: {initialAdminPassword} (please change it immediately after first login).";
 							Console.WriteLine(initialAdminPasswordNotice);
-							System.Diagnostics.Debug.WriteLine(initialAdminPasswordNotice);
 						}
 
 						{

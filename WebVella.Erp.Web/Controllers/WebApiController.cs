@@ -3345,8 +3345,29 @@ namespace WebVella.Erp.Web.Controllers
 				return DoResponse(badResponse);
 			}
 
+			// Security (A01 - CWE-639): require an authenticated user context so the temp file can be owner-stamped.
+			var currentUser = AuthService.GetUser(User);
+			if (currentUser == null)
+			{
+				var unauthorizedResponse = new FSResponse { Success = false, Message = "Not authorized." };
+				return DoResponse(unauthorizedResponse);
+			}
+
+			byte[] fileBytes = ReadFully(file.OpenReadStream());
+
+			// Security (A03 - CWE-434): validate the actual content, not just the extension.
+			if (!IsAllowedUploadContent(fileName, fileBytes, file.ContentType))
+			{
+				var badContentResponse = new FSResponse { Success = false, Message = "File type is not allowed or the file name is invalid." };
+				return DoResponse(badContentResponse);
+			}
+
 			DbFileRepository fsRepository = new DbFileRepository();
-			var createdFile = fsRepository.CreateTempFile(fileName, ReadFully(file.OpenReadStream()));
+			// Security (A01 - CWE-639): stamp the temp file with the uploader's id (DbFileRepository.CreateTempFile
+			// stores created_by = null) so finalization (UploadUserFile) can prove ownership and block cross-user IDOR.
+			string tmpSection = Guid.NewGuid().ToString().Replace("-", "").ToLowerInvariant();
+			string tmpFilePath = DbFileRepository.FOLDER_SEPARATOR + DbFileRepository.TMP_FOLDER_NAME + DbFileRepository.FOLDER_SEPARATOR + tmpSection + DbFileRepository.FOLDER_SEPARATOR + fileName;
+			var createdFile = fsRepository.Create(tmpFilePath, fileBytes, DateTime.UtcNow, currentUser.Id);
 
 			return DoResponse(new FSResponse(new FSResult { Url = createdFile.FilePath, Filename = fileName }));
 
@@ -3483,6 +3504,146 @@ namespace WebVella.Erp.Web.Controllers
 				return false;
 
 			return AllowedUploadExtensions.Contains(ext);
+		}
+
+		// Security (A03 - CWE-434): zip / OOXML (docx,xlsx,pptx) / ODF (odt,ods,odp) all share the PK.. local-file-header,
+		// empty-archive and spanned-archive signatures. Declared before the dictionary that references them so the static
+		// field initializers (which run in textual order) see non-null values.
+		private static readonly byte[][] ZipUploadSignatures = new byte[][]
+		{
+			new byte[] { 0x50, 0x4B, 0x03, 0x04 },
+			new byte[] { 0x50, 0x4B, 0x05, 0x06 },
+			new byte[] { 0x50, 0x4B, 0x07, 0x08 }
+		};
+
+		// OLE2 compound-document signature shared by legacy .doc/.xls/.ppt.
+		private static readonly byte[][] Ole2UploadSignatures = new byte[][]
+		{
+			new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 }
+		};
+
+		// Magic-byte signatures for the well-defined binary types the ERP serves. When an upload uses one of these
+		// extensions its bytes MUST match a known signature (defends against content/extension mismatch, e.g. an HTML
+		// or executable payload renamed to ".jpg"). Types without a single reliable signature (text/markup/data/media/
+		// fonts/tar) are intentionally absent here and handled by the lenient branch of IsAllowedUploadContent.
+		private static readonly Dictionary<string, byte[][]> UploadBinarySignatures = new Dictionary<string, byte[][]>(StringComparer.OrdinalIgnoreCase)
+		{
+			{ ".png", new byte[][] { new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A } } },
+			{ ".jpg", new byte[][] { new byte[] { 0xFF, 0xD8, 0xFF } } },
+			{ ".jpeg", new byte[][] { new byte[] { 0xFF, 0xD8, 0xFF } } },
+			{ ".gif", new byte[][] { new byte[] { 0x47, 0x49, 0x46, 0x38 } } },
+			{ ".bmp", new byte[][] { new byte[] { 0x42, 0x4D } } },
+			{ ".webp", new byte[][] { new byte[] { 0x52, 0x49, 0x46, 0x46 } } },
+			{ ".ico", new byte[][] { new byte[] { 0x00, 0x00, 0x01, 0x00 } } },
+			{ ".tif", new byte[][] { new byte[] { 0x49, 0x49, 0x2A, 0x00 }, new byte[] { 0x4D, 0x4D, 0x00, 0x2A } } },
+			{ ".tiff", new byte[][] { new byte[] { 0x49, 0x49, 0x2A, 0x00 }, new byte[] { 0x4D, 0x4D, 0x00, 0x2A } } },
+			{ ".pdf", new byte[][] { new byte[] { 0x25, 0x50, 0x44, 0x46 } } },
+			{ ".zip", ZipUploadSignatures },
+			{ ".docx", ZipUploadSignatures },
+			{ ".xlsx", ZipUploadSignatures },
+			{ ".pptx", ZipUploadSignatures },
+			{ ".odt", ZipUploadSignatures },
+			{ ".ods", ZipUploadSignatures },
+			{ ".odp", ZipUploadSignatures },
+			{ ".doc", Ole2UploadSignatures },
+			{ ".xls", Ole2UploadSignatures },
+			{ ".ppt", Ole2UploadSignatures },
+			{ ".7z", new byte[][] { new byte[] { 0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C } } },
+			{ ".gz", new byte[][] { new byte[] { 0x1F, 0x8B } } },
+			{ ".rar", new byte[][] { new byte[] { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07 } } }
+		};
+
+		// Declared content types that must never be stored even under an allowed extension (server-executable / script / markup).
+		private static readonly HashSet<string> DangerousUploadContentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+		{
+			"text/html", "application/xhtml+xml",
+			"application/x-msdownload", "application/x-msdos-program", "application/x-dosexec",
+			"application/x-executable", "application/x-elf", "application/x-mach-binary",
+			"application/x-sh", "application/x-csh", "application/x-shellscript",
+			"application/javascript", "text/javascript", "application/x-javascript",
+			"application/x-httpd-php", "application/x-php"
+		};
+
+		// Security (A03 - CWE-434): reject native executables / shebang scripts by content signature, regardless of extension.
+		private static bool HasExecutableUploadSignature(byte[] content)
+		{
+			if (content == null)
+				return false;
+			// Windows PE / DOS ("MZ")
+			if (content.Length >= 2 && content[0] == 0x4D && content[1] == 0x5A)
+				return true;
+			// ELF (0x7F 'E' 'L' 'F')
+			if (content.Length >= 4 && content[0] == 0x7F && content[1] == 0x45 && content[2] == 0x4C && content[3] == 0x46)
+				return true;
+			// Mach-O / fat-binary / Java class magics
+			if (content.Length >= 4)
+			{
+				uint magic = ((uint)content[0] << 24) | ((uint)content[1] << 16) | ((uint)content[2] << 8) | content[3];
+				if (magic == 0xFEEDFACE || magic == 0xFEEDFACF || magic == 0xCEFAEDFE || magic == 0xCFFAEDFE
+					|| magic == 0xCAFEBABE || magic == 0xBEBAFECA)
+					return true;
+			}
+			// Shebang ("#!")
+			if (content.Length >= 2 && content[0] == 0x23 && content[1] == 0x21)
+				return true;
+			return false;
+		}
+
+		private static bool UploadContentStartsWith(byte[] content, byte[] signature)
+		{
+			if (signature == null || content == null || content.Length < signature.Length)
+				return false;
+			for (int i = 0; i < signature.Length; i++)
+			{
+				if (content[i] != signature[i])
+					return false;
+			}
+			return true;
+		}
+
+		// Security (A03 - CWE-434): defense-in-depth content validation layered on top of the extension allowlist.
+		// Inspects the real file bytes (magic numbers) and the declared content type so a dangerous payload
+		// (executable, HTML/script document, etc.) renamed to an allowed extension such as ".jpg" cannot be stored.
+		// Deliberately permissive for text/markup/data/media/font formats (no single reliable signature) to preserve
+		// existing upload functionality (functional parity, AAP 0.7.1), while always blocking executables and
+		// content/extension mismatches for the well-defined binary types the ERP serves.
+		private static bool IsAllowedUploadContent(string fileName, byte[] content, string declaredContentType)
+		{
+			if (string.IsNullOrWhiteSpace(fileName))
+				return false;
+			// zero-byte files are legitimate placeholders in the ERP file system
+			if (content == null || content.Length == 0)
+				return true;
+
+			// 1) universal executable / script guard
+			if (HasExecutableUploadSignature(content))
+				return false;
+
+			// 2) reject dangerous declared content types (parameters such as "; charset=utf-8" are stripped)
+			if (!string.IsNullOrWhiteSpace(declaredContentType))
+			{
+				var ct = declaredContentType.Trim().ToLowerInvariant();
+				int semi = ct.IndexOf(';');
+				if (semi >= 0)
+					ct = ct.Substring(0, semi).Trim();
+				if (DangerousUploadContentTypes.Contains(ct))
+					return false;
+			}
+
+			// 3) for well-defined binary types the bytes must match the extension's signature
+			var ext = Path.GetExtension(fileName).ToLowerInvariant();
+			if (UploadBinarySignatures.TryGetValue(ext, out var signatures))
+			{
+				foreach (var signature in signatures)
+				{
+					if (UploadContentStartsWith(content, signature))
+						return true;
+				}
+				return false;
+			}
+
+			// 4) text / markup / data / media / fonts / tar: executable guard + dangerous-MIME reject above suffice
+			return true;
 		}
 
 		#endregion
@@ -4070,15 +4231,41 @@ namespace WebVella.Erp.Web.Controllers
 				return DoResponse(response);
 			}
 
+			// Security (A01 - CWE-639): resolve the temp file and prove the current user owns it. Temp files are
+			// stamped with the uploader's id at creation (UploadFile), so a user can only finalize their own freshly
+			// uploaded temp file - not another user's guessed or known temp path.
+			var tempFile = new DbFileRepository().Find(rootRelativePath);
+			if (tempFile == null)
+			{
+				response.Success = false;
+				response.Message = "File not found on that path";
+				return DoResponse(response);
+			}
+			if (tempFile.CreatedBy == null || tempFile.CreatedBy.Value != currentUser.Id)
+			{
+				response.Success = false;
+				response.Message = "Not authorized.";
+				return DoResponse(response);
+			}
+
+			// Security (A03 - CWE-434): validate the stored content before finalizing it into a user file.
+			if (!IsAllowedUploadContent(Path.GetFileName(tempFile.FilePath), tempFile.GetBytes(), null))
+			{
+				response.Success = false;
+				response.Message = "File type is not allowed.";
+				return DoResponse(response);
+			}
+
 			try
 			{
-				response.Object = new UserFileService().CreateUserFile(filePath, fileAlt, fileCaption);
+				// finalize using the canonical, ownership-verified path (not the original untrusted input)
+				response.Object = new UserFileService().CreateUserFile(tempFile.FilePath, fileAlt, fileCaption);
 			}
 			catch (Exception e)
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UploadUserFile", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = "An error occurred while processing the uploaded file.";
 			}
 
 			return DoResponse(response);
@@ -4110,8 +4297,20 @@ namespace WebVella.Erp.Web.Controllers
 						return Json(response);
 					}
 
+					// Security (A03 - CWE-434): validate the actual content, not just the extension.
+					if (!IsAllowedUploadContent(safeFileName, fileBytes, upload.ContentType))
+					{
+						response["uploaded"] = 0;
+						var contentError = new EntityRecord();
+						contentError["message"] = "File type is not allowed or the file name is invalid.";
+						response["error"] = contentError;
+						return Json(response);
+					}
+
+					// Security (A01 - CWE-639): owner-stamp the temp file (defense-in-depth; created_by was null).
+					var currentUser = AuthService.GetUser(User);
 					var tempPath = "tmp/" + Guid.NewGuid() + "/" + safeFileName;
-					var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
+					var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, currentUser?.Id);
 
 					var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
 
@@ -4134,7 +4333,7 @@ namespace WebVella.Erp.Web.Controllers
 				response["uploaded"] = 0;
 				response["error"] = new EntityRecord();
 				var message = new EntityRecord();
-				message["message"] = ex.Message;
+				message["message"] = "An error occurred while processing the uploaded file.";
 				response["error"] = message;
 				return Json(response);
 			}
@@ -4162,8 +4361,17 @@ namespace WebVella.Erp.Web.Controllers
 					return Content(vRejected, "text/html");
 				}
 
+				// Security (A03 - CWE-434): validate the actual content, not just the extension.
+				if (!IsAllowedUploadContent(safeFileName, fileBytes, upload.ContentType))
+				{
+					var vContentRejected = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"File type is not allowed.\");</script></body></html>";
+					return Content(vContentRejected, "text/html");
+				}
+
+				// Security (A01 - CWE-639): owner-stamp the temp file (defense-in-depth; created_by was null).
+				var currentUser = AuthService.GetUser(User);
 				var tempPath = "tmp/" + Guid.NewGuid() + "/" + safeFileName;
-				var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
+				var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, currentUser?.Id);
 
 				var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
 
@@ -4176,7 +4384,7 @@ namespace WebVella.Erp.Web.Controllers
 			catch (Exception ex)
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UploadFileManagerCKEditor", ex);
-				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"" + ex.Message + "\");</script></body></html>";
+				var vOutput = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"An error occurred while processing the uploaded file.\");</script></body></html>";
 				return Content(vOutput, "text/html");
 			}
 		}

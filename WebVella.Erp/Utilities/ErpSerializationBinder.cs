@@ -38,7 +38,13 @@ namespace WebVella.Erp.Utilities
 			typeof(char),
 			typeof(Guid),
 			typeof(DateTime), typeof(DateTimeOffset), typeof(TimeSpan),
-			typeof(byte[])
+			typeof(byte[]),
+			// System.Dynamic.ExpandoObject is the property-bag WebVella's job infrastructure persists for
+			// Job.Attributes / Job.Result / SchedulePlan.JobAttributes (serialized with TypeNameHandling.All).
+			// It is a benign IDictionary<string, object> with no dangerous construction/setter side effects, so it
+			// cannot act as a deserialization gadget. Allowlisting it lets legitimately-persisted job payloads
+			// round-trip on the reader side (JobProfile) while genuine gadget types stay rejected (OWASP A08, CWE-502).
+			typeof(System.Dynamic.ExpandoObject)
 		};
 
 		// Safe generic collection definitions whose type arguments are validated recursively.
