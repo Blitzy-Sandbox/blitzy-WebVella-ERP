@@ -18,6 +18,8 @@ namespace WebVella.Erp.Web.Services
 	{
 		private const double JWT_TOKEN_EXPIRY_DURATION_MINUTES = 1440;
 		private const double JWT_TOKEN_FORCE_REFRESH_MINUTES = 120;
+		//Security (A04/A07, CWE-613): bounded authentication cookie lifetime; replaces the former 100-year (never-expiring) session.
+		private const double COOKIE_EXPIRY_DURATION_MINUTES = 480;
 
 		private IServiceProvider serviceProvider;
 
@@ -41,7 +43,7 @@ namespace WebVella.Erp.Web.Services
 				var authProperties = new AuthenticationProperties
 				{
 					AllowRefresh = true,
-					ExpiresUtc = DateTimeOffset.UtcNow.AddYears(100),
+					ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(COOKIE_EXPIRY_DURATION_MINUTES),
 					IsPersistent = false,
 					IssuedUtc = DateTimeOffset.UtcNow,
 				};

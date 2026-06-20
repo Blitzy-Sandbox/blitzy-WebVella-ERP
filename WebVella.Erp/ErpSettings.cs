@@ -115,9 +115,25 @@ namespace WebVella.Erp
 
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
-			JwtKey = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Key"]) ? "ThisIsMySecretKey" : configuration["Settings:Jwt:Key"];
-			JwtIssuer = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Issuer"]) ? "webvella-erp" : configuration["Settings:Jwt:Issuer"];
-			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp" : configuration["Settings:Jwt:Audience"];
+			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Fail fast on a missing
+			// or default JWT signing key. Read the configured value first, then refuse to start when it
+			// is absent or still set to the shipped insecure default literal "ThisIsMySecretKey" (ordinal,
+			// case-sensitive). This prevents tokens from ever being signed with a publicly-known key.
+			// Configure a strong, unique key (>= 32 bytes) via environment variable, user-secrets, or a
+			// secret store before starting the application.
+			var jwtKey = configuration["Settings:Jwt:Key"];
+			if (string.IsNullOrWhiteSpace(jwtKey) || string.Equals(jwtKey, "ThisIsMySecretKey", StringComparison.Ordinal))
+			{
+				throw new Exception("Settings:Jwt:Key is missing or set to the insecure default 'ThisIsMySecretKey'. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+			}
+			JwtKey = jwtKey;
+			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): Default issuer and audience are
+			// DISTINCT so they are never equal when neither is configured. The configuration key strings
+			// are unchanged (schema-preserving), so deployments that set explicit Settings:Jwt:Issuer /
+			// Settings:Jwt:Audience are unaffected. Deployments that relied on the old shared default value
+			// ("webvella-erp") must now set explicit matching issuer/audience in configuration.
+			JwtIssuer = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Issuer"]) ? "webvella-erp-issuer" : configuration["Settings:Jwt:Issuer"];
+			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp-audience" : configuration["Settings:Jwt:Audience"];
 
 			IsInitialized = true;
 		}
