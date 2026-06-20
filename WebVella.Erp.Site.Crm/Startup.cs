@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
@@ -10,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Threading.RateLimiting;
 using WebVella.Erp.Plugins.Crm;
 using WebVella.Erp.Plugins.Next;
 using WebVella.Erp.Plugins.SDK;
@@ -63,12 +65,40 @@ namespace WebVella.Erp.Site.Crm
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_crm";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
+
+			//Rate limiting (A04): generous per-client-IP ceiling to blunt brute-force/DoS bursts without
+			//throttling normal traffic. The authoritative 5-attempt login lockout lives at the login hook.
+			//PermitLimit/Window are tunable for the host's expected traffic.
+			services.AddRateLimiter(options =>
+			{
+				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					string partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+					return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+					{
+						PermitLimit = 600,
+						Window = TimeSpan.FromMinutes(1),
+						QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+						QueueLimit = 0
+					});
+				});
+			});
 
 			services.AddErp();
 		}
@@ -94,6 +124,7 @@ namespace WebVella.Erp.Site.Crm
 				app.UseErrorHandlingMiddleware();
 				app.UseExceptionHandler("/error");
 				app.UseStatusCodePagesWithReExecute("/error");
+				app.UseHsts();
 			}
 
 			//Should be before Static files
@@ -113,6 +144,7 @@ namespace WebVella.Erp.Site.Crm
 			});
 			app.UseStaticFiles(); //Workaround for blazor to work - https://github.com/dotnet/aspnetcore/issues/9588
 			app.UseRouting();
+			app.UseRateLimiter();
 			app.UseAuthentication();
 			app.UseAuthorization();
 

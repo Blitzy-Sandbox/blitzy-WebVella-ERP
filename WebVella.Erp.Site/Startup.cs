@@ -19,6 +19,8 @@ using WebVella.Erp.Web;
 using WebVella.Erp.Web.Middleware;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 namespace WebVella.Erp.Site
 {
@@ -49,18 +51,20 @@ namespace WebVella.Erp.Site
             services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
             services.AddRouting(options => { options.LowercaseUrls = true; });
 
-            //CORS policy declaration
-            //services.AddCors(options =>
-            //{
-            //    options.AddPolicy("AllowNodeJsLocalhost",
-            //        builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
-            //});
+            //CORS policy declaration (A05 - Security Misconfiguration)
+            //Origins are read from Config.json (Settings:CorsOrigins) with a safe localhost fallback when the key is missing/empty.
+            //A NAMED policy with WithOrigins(...) is required because a wildcard any-origin policy is incompatible with AllowCredentials();
+            //this host uses cookie authentication, so credentialed cross-origin requests must be supported.
+            //Origins must be specified with NO trailing slash (exact-match).
+            var corsOrigins = Configuration.GetSection("Settings:CorsOrigins").Get<string[]>()
+                              ?? new[] { "http://localhost:3333", "http://localhost:3000", "http://localhost" };
             services.AddCors(options =>
             {
-                options.AddDefaultPolicy(policy =>
-                    policy.AllowAnyOrigin()
+                options.AddPolicy("ErpCorsPolicy", policy =>
+                    policy.WithOrigins(corsOrigins)
                         .AllowAnyMethod()
-                        .AllowAnyHeader());
+                        .AllowAnyHeader()
+                        .AllowCredentials());
             });
             services.AddDetection();
 
@@ -93,6 +97,13 @@ namespace WebVella.Erp.Site
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
                 options.Cookie.HttpOnly = true;
+                //A07 - Authentication/Session hardening: require HTTPS-only transmission (Secure) and set SameSite
+                //to mitigate CSRF. Secure=Always pairs with UseHsts() in the production pipeline; Lax is used so
+                //login redirect flows continue to work (Strict would break cross-site navigations into the app).
+                options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                //Fully qualified: SameSiteMode is defined in BOTH Microsoft.AspNetCore.Http and Microsoft.Net.Http.Headers
+                //(the latter is imported for HeaderNames), so qualify to the ASP.NET Core HTTP type the cookie expects.
+                options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
                 options.Cookie.Name = "erp_auth_base";
                 options.LoginPath = new PathString("/login");
                 options.LogoutPath = new PathString("/logout");
@@ -125,6 +136,22 @@ namespace WebVella.Erp.Site
               });
 
 
+            //A04 - Insecure Design: edge-level brute-force protection via the built-in rate limiter
+            //(Microsoft.AspNetCore.RateLimiting, in-framework on net10.0 - no extra NuGet package).
+            //This fixed-window "login" limiter pairs with the account-level lockout (after 5 failed attempts)
+            //integrated at the login hook in WebVella.Erp.Web/Pages/login.cshtml.cs. Rejected requests get HTTP 429.
+            services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                options.AddFixedWindowLimiter("login", opt =>
+                {
+                    opt.Window = TimeSpan.FromMinutes(1);
+                    opt.PermitLimit = 10;
+                    opt.QueueLimit = 0;
+                    opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                });
+            });
+
             services.AddErp();
         }
 
@@ -150,6 +177,11 @@ namespace WebVella.Erp.Site
             }
             else
             {
+                //A05 - transport security: enforce HTTPS via HSTS in non-Development environments only
+                //(HSTS can poison localhost during dev). This complements the Strict-Transport-Security header
+                //emitted by SecurityHeadersMiddleware and is the operational prerequisite for Secure cookies.
+                app.UseHsts();
+
                 // Add Error handling middleware which catches all application specific errors and
                 // send the request to the following path or controller action.
                 app.UseErrorHandlingMiddleware();
@@ -160,8 +192,8 @@ namespace WebVella.Erp.Site
             //Should be before Static files
             app.UseResponseCompression();
 
-            //app.UseCors("AllowNodeJsLocalhost"); //Enable CORS -> should be before static files to enable for it too
-            app.UseCors(); //Enable CORS -> should be before static files to enable for it too
+            //Enable CORS using the named allowlist policy (A05) -> must be before static files so they are covered too
+            app.UseCors("ErpCorsPolicy");
 
             app.UseStaticFiles(new StaticFileOptions
             {
@@ -175,6 +207,10 @@ namespace WebVella.Erp.Site
             });
             app.UseStaticFiles(); //Workaround for blazor to work - https://github.com/dotnet/aspnetcore/issues/9588
             app.UseRouting();
+
+            //A04 - Insecure Design: enable the request rate limiter AFTER routing (so endpoint-specific limiters
+            //can resolve endpoint metadata) and BEFORE authentication, to throttle brute-force login attempts.
+            app.UseRateLimiter();
 
 			app.UseAuthentication();
 			app.UseAuthorization();
