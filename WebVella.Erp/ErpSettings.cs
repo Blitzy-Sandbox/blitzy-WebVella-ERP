@@ -53,6 +53,21 @@ namespace WebVella.Erp
 		//API URLs
 		public static string ApiUrlTemplateFieldInlineEdit { get; private set; }
 
+		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Allowlist of JWT signing
+		// keys that were ever shipped in source and are therefore publicly known. Startup fails fast
+		// when the configured Settings:Jwt:Key matches any of these (ordinal, case-sensitive), so JWTs
+		// can never be signed with a guessable, public key. The set is:
+		//   * "ThisIsMySecretKey" - the short fallback default formerly hardcoded in this class.
+		//   * the long literal below - the value committed to the host Config.json files before secret
+		//     externalization (WebVella.Erp.Site / WebVella.Erp.Site.Project), which a deployment could
+		//     still supply via an environment variable, user-secrets, or a secret-store overlay.
+		// Add any future leaked/shipped default here so the fail-fast check stays exhaustive.
+		private static readonly string[] InsecureJwtKeyDefaults = new[]
+		{
+			"ThisIsMySecretKey",
+			"ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey"
+		};
+
 		public static void Initialize(IConfiguration configuration)
 		{
 			Configuration = configuration;
@@ -117,14 +132,17 @@ namespace WebVella.Erp
 
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Fail fast on a missing
 			// or default JWT signing key. Read the configured value first, then refuse to start when it
-			// is absent or still set to the shipped insecure default literal "ThisIsMySecretKey" (ordinal,
-			// case-sensitive). This prevents tokens from ever being signed with a publicly-known key.
-			// Configure a strong, unique key (>= 32 bytes) via environment variable, user-secrets, or a
-			// secret store before starting the application.
+			// is absent or still set to one of the shipped insecure default literals (see
+			// InsecureJwtKeyDefaults; ordinal, case-sensitive). This rejects BOTH the short code fallback
+			// default and the long literal previously committed to the host Config.json files, so tokens
+			// can never be signed with a publicly-known key even when an old value is supplied through an
+			// environment variable, user-secrets, or a secret-store overlay. Configure a strong, unique
+			// key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting
+			// the application.
 			var jwtKey = configuration["Settings:Jwt:Key"];
-			if (string.IsNullOrWhiteSpace(jwtKey) || string.Equals(jwtKey, "ThisIsMySecretKey", StringComparison.Ordinal))
+			if (string.IsNullOrWhiteSpace(jwtKey) || IsInsecureJwtKeyDefault(jwtKey))
 			{
-				throw new Exception("Settings:Jwt:Key is missing or set to the insecure default 'ThisIsMySecretKey'. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+				throw new Exception("Settings:Jwt:Key is missing or set to one of the shipped insecure defaults. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
 			}
 			JwtKey = jwtKey;
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): Default issuer and audience are
@@ -136,6 +154,23 @@ namespace WebVella.Erp
 			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp-audience" : configuration["Settings:Jwt:Audience"];
 
 			IsInitialized = true;
+		}
+
+		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Returns true when the
+		// supplied JWT signing key matches any known-insecure default that was previously shipped in
+		// source (the short code fallback or a value committed to a host Config.json). Comparison is
+		// ordinal and case-sensitive. The configured value is never echoed back to callers or logs.
+		private static bool IsInsecureJwtKeyDefault(string jwtKey)
+		{
+			foreach (var insecureDefault in InsecureJwtKeyDefaults)
+			{
+				if (string.Equals(jwtKey, insecureDefault, StringComparison.Ordinal))
+				{
+					return true;
+				}
+			}
+
+			return false;
 		}
 	}
 }
