@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Api.Models.AutoMapper;
@@ -464,7 +465,14 @@ namespace WebVella.Erp
 							user["id"] = SystemIds.FirstUserId;
 							user["first_name"] = "WebVella";
 							user["last_name"] = "Erp";
-							user["password"] = "erp";
+							// SECURITY (OWASP A07/A04, CWE-1392/CWE-521): the default administrator is no longer
+							// seeded with a hardcoded weak credential. A cryptographically-strong random password
+							// is generated per fresh install with a CSPRNG (RandomNumberGenerator) and surfaced to
+							// the operator exactly once after the record is created (see below). The PLAINTEXT value
+							// is assigned here intentionally; RecordManager hashes it exactly once via
+							// ExtractFieldValue(..., encryptPasswordFields:true), so pre-hashing here would double-hash.
+							string initialAdminPassword = GenerateStrongPassword(20);
+							user["password"] = initialAdminPassword;
 							user["email"] = "erp@webvella.com";
 							user["username"] = "administrator";
 							user["created_on"] = new DateTime(2010, 10, 10);
@@ -473,6 +481,14 @@ namespace WebVella.Erp
 							QueryResponse result = recMan.CreateRecord("user", user);
 							if (!result.Success)
 								throw new Exception("CREATE FIRST USER RECORD:" + result.Message);
+
+							// Surface the generated initial administrator credential to the operator exactly once
+							// so a fresh install remains usable (functional parity: the operator performs the first
+							// login and then changes it). It is written to stdout/trace only and is deliberately NOT
+							// persisted to the system_log table, to avoid creating a sensitive-data-at-rest exposure.
+							string initialAdminPasswordNotice = $"[WebVella.Erp] Initial administrator password for erp@webvella.com: {initialAdminPassword} (please change it immediately after first login).";
+							Console.WriteLine(initialAdminPasswordNotice);
+							System.Diagnostics.Debug.WriteLine(initialAdminPasswordNotice);
 						}
 
 						{
@@ -886,6 +902,36 @@ namespace WebVella.Erp
 				}
 
 			}
+		}
+
+		/// <summary>
+		/// Generates a cryptographically-strong random password using the operating-system CSPRNG
+		/// (<see cref="RandomNumberGenerator"/>). Each character index is produced by
+		/// <see cref="RandomNumberGenerator.GetInt32(int)"/>, which performs rejection sampling
+		/// internally and is therefore free of modulo bias. The alphabet covers upper- and
+		/// lower-case letters, digits and a safe symbol set; visually ambiguous characters
+		/// (I, O, l, 0, 1) are excluded so the value can be transcribed reliably.
+		/// </summary>
+		/// <param name="length">Desired password length. Values below 1 are clamped to 1; callers should pass 16 or more.</param>
+		/// <returns>A newly generated random password of the requested length.</returns>
+		private static string GenerateStrongPassword(int length)
+		{
+			// Strong alphabet: A-Z and a-z (ambiguous I, O, l removed), digits 2-9 (ambiguous 0, 1
+			// removed) and a curated, quote/backslash/space-free symbol set that is safe to copy and type.
+			const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+";
+
+			if (length < 1)
+				length = 1;
+
+			char[] buffer = new char[length];
+			for (int i = 0; i < length; i++)
+			{
+				// GetInt32 uses the OS CSPRNG with rejection sampling => uniform selection, no modulo bias.
+				int index = RandomNumberGenerator.GetInt32(alphabet.Length);
+				buffer[i] = alphabet[index];
+			}
+
+			return new string(buffer);
 		}
 
 		public void InitializePlugins(IServiceProvider serviceProvider)
