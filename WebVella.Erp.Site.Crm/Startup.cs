@@ -108,6 +108,13 @@ namespace WebVella.Erp.Site.Crm
 		// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
 		public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
 		{
+			//Security headers (A05): register SecurityHeadersMiddleware at the FRONT of the pipeline — ahead of
+			//UseStaticFiles/UseAuthentication/UseAuthorization — so the 7 security headers decorate every response
+			//surface (static files, 302 auth-challenge redirects, error pages), not just endpoint responses, and so
+			//its OnStarting callback runs last (LIFO) and can force X-Frame-Options: DENY. Centralized in
+			//ErpMvcExtensions.UseErpSecurityHeaders so all 7 hosts inherit identical behavior.
+			app.UseErpSecurityHeaders();
+
 			app.UseRequestLocalization(new RequestLocalizationOptions
 			{
 				DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture(CultureInfo.GetCultureInfo("en-US"))

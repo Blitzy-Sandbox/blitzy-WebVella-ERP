@@ -44,11 +44,25 @@ namespace WebVella.Erp.Web
 			return services;
 		}
 
+		/// <summary>
+		/// Registers the <see cref="SecurityHeadersMiddleware"/> (A05 - Security Misconfiguration) at the CURRENT
+		/// position in the request pipeline. This is intentionally a SEPARATE entry point from <see cref="UseErp"/>
+		/// so every host can place the security-headers middleware at the very FRONT of its pipeline - ahead of
+		/// UseStaticFiles, UseAuthentication and UseAuthorization. That placement makes the mandated security
+		/// headers decorate EVERY response surface (including static files and the short-circuited 302
+		/// authentication-challenge redirects, which UseErp() runs too late to cover), and - because OnStarting
+		/// callbacks fire LIFO - makes this middleware's callback the LAST to run, so it can overwrite the
+		/// framework's Razor X-Frame-Options value with the required DENY. The middleware definition stays
+		/// centralized here, so all seven WebVella.Erp.Site* hosts inherit identical behavior from this single source.
+		/// </summary>
+		public static IApplicationBuilder UseErpSecurityHeaders(this IApplicationBuilder app)
+		{
+			app.UseMiddleware<SecurityHeadersMiddleware>();
+			return app;
+		}
+
 		public static IApplicationBuilder UseErp(this IApplicationBuilder app, List<JobType> additionalJobTypes = null, string configFolder = null)
 		{
-			//Security headers (A05) - registered first so it runs ahead of ErpMiddleware; all 7 hosts inherit via their existing app.UseErp() call
-			app.UseMiddleware<SecurityHeadersMiddleware>();
-
 			using (var secCtx = SecurityContext.OpenSystemScope())
 			{
 				IConfiguration configuration = app.ApplicationServices.GetService<IConfiguration>();
