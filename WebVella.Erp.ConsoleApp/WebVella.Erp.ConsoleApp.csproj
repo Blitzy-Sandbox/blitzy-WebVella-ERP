@@ -19,6 +19,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- SECURITY (OWASP A02/A05 - secret externalization, AAP 0.4.2): reference the ASP.NET Core shared
+		     framework so Microsoft.Extensions.Configuration.EnvironmentVariables is available at compile and
+		     run time. This lets Program.cs overlay environment-variable secrets (e.g. Settings__EncryptionKey)
+		     on top of the committed Config.json, matching ErpMvcExtensions.UseErp and the web-host Startups,
+		     and making the Config.json "set at runtime via environment variable" note accurate rather than
+		     aspirational. The console app already targets net10.0, so the shared framework is satisfied by the
+		     same runtime the rest of the solution uses. -->
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 		<ProjectReference Include="..\WebVella.Erp\WebVella.Erp.csproj" />
 	</ItemGroup>
 

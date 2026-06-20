@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using System;
 using System.Net.Security;
+using System.Text;
 
 namespace WebVella.Erp
 {
@@ -55,8 +56,9 @@ namespace WebVella.Erp
 
 		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Allowlist of JWT signing
 		// keys that were ever shipped in source and are therefore publicly known. Startup fails fast
-		// when the configured Settings:Jwt:Key matches any of these (ordinal, case-sensitive), so JWTs
-		// can never be signed with a guessable, public key. The set is:
+		// when the configured Settings:Jwt:Key matches any of these (compared case-insensitively after
+		// trimming surrounding whitespace, so a different-case or stray-whitespace copy of a shipped
+		// default is also rejected), so JWTs can never be signed with a guessable, public key. The set is:
 		//   * "ThisIsMySecretKey" - the short fallback default formerly hardcoded in this class.
 		//   * the long literal below - the value committed to the host Config.json files before secret
 		//     externalization (WebVella.Erp.Site / WebVella.Erp.Site.Project), which a deployment could
@@ -67,6 +69,12 @@ namespace WebVella.Erp
 			"ThisIsMySecretKey",
 			"ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey"
 		};
+
+		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): Minimum acceptable length, in bytes,
+		// of a configured JWT signing key on a JWT-enabled host. The tokens are signed with HMAC-SHA256,
+		// whose security guarantees require a key of at least 256 bits / 32 bytes, so a shorter key is
+		// rejected at startup on JWT-enabled hosts (or whenever a key is supplied via an overlay).
+		private const int MinimumJwtKeyByteLength = 32;
 
 		public static void Initialize(IConfiguration configuration)
 		{
@@ -130,38 +138,40 @@ namespace WebVella.Erp
 
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
-			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Conditional fail-fast on the
-			// JWT signing key. The requirement is enforced ONLY when a key is configured: a present key must
-			// not be one of the shipped insecure default literals (see InsecureJwtKeyDefaults; ordinal,
-			// case-sensitive), rejecting BOTH the short code fallback default and the long literal previously
-			// committed to the host Config.json files, so tokens can never be signed with a publicly-known key
-			// even when an old value is supplied through an environment variable, user-secrets, or a secret-store
-			// overlay. An ABSENT key is permitted (JwtKey stays null) so cookie-only hosts that do not use JWT
-			// bearer auth can start; JWT-enabled hosts must configure a strong, unique key (>= 32 bytes) via
-			// environment variable, user-secrets, or a secret store before starting the application.
+			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Fail-fast validation of the
+			// JWT signing key. Whether a key is REQUIRED depends on whether this host actually uses JWT bearer
+			// authentication, which is determined by the presence of a Settings:Jwt configuration section: the
+			// JWT-enabled hosts (WebVella.Erp.Site, WebVella.Erp.Site.Project) ship a Settings:Jwt section in
+			// their Config.json, while the cookie-only hosts (WebVella.Erp.Site.Crm, .Site.Mail,
+			// .Site.MicrosoftCDM, .Site.Next, .Site.Sdk) and the console app ship none.
+			//   * When a Settings:Jwt section IS present (a JWT-enabled host) OR a key has been supplied through
+			//     an environment-variable / user-secrets / secret-store overlay, a strong, unique signing key is
+			//     MANDATORY. Startup fails fast when the key is missing / empty / whitespace, when it matches one
+			//     of the shipped insecure default literals (compared case-insensitively after trimming, so a
+			//     different-case or stray-whitespace copy is also rejected), or when it is shorter than the
+			//     HMAC-SHA256 minimum of 32 bytes. A JWT host therefore can never start with an empty or
+			//     guessable key and silently issue / validate tokens with it.
+			//   * When NO Settings:Jwt section is present and no key has been supplied, JwtKey is left null so the
+			//     cookie-only hosts and the console app - which do not use JWT bearer authentication - start
+			//     normally. AuthService reads ErpSettings.JwtKey only at request time (never at startup), so a
+			//     null key cannot crash startup on such a host.
+			// The configured key value is stored UNCHANGED (it is only trimmed on a copy for the checks above) so
+			// the value AuthService signs / validates with (ErpSettings.JwtKey) stays byte-for-byte identical to
+			// the value each host's JwtBearer setup reads directly from Configuration["Settings:Jwt:Key"].
 			var jwtKey = configuration["Settings:Jwt:Key"];
-			if (!string.IsNullOrWhiteSpace(jwtKey))
+			var jwtSectionPresent = configuration.GetSection("Settings:Jwt").Exists();
+			if (jwtSectionPresent || !string.IsNullOrWhiteSpace(jwtKey))
 			{
-				// A JWT signing key IS configured: it must not be one of the publicly-known shipped defaults.
-				// Fail fast (ordinal, case-sensitive) so tokens can never be signed with a guessable, public key
-				// even when an old value is supplied through an environment variable, user-secrets, or a secret
-				// store. This preserves the strong fail-fast control for the dangerous case.
-				if (IsInsecureJwtKeyDefault(jwtKey))
-				{
-					throw new Exception("Settings:Jwt:Key is set to one of the shipped insecure defaults. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
-				}
+				// This host uses JWT bearer authentication (a Settings:Jwt section is present) or a key was
+				// supplied via an overlay: a strong, unique signing key is required. Fail fast otherwise. The
+				// original value is stored unchanged (only a trimmed copy is inspected by the validator).
+				ValidateJwtSigningKeyOrThrow(jwtKey);
 				JwtKey = jwtKey;
 			}
 			else
 			{
-				// No JWT signing key configured. This is intentionally permitted so cookie-only hosts — which do
-				// not use JWT bearer authentication and ship no Settings:Jwt section (WebVella.Erp.Site.Crm,
-				// .Site.Mail, .Site.MicrosoftCDM, .Site.Next, .Site.Sdk) — can start without crashing. JwtKey
-				// stays null and JWT token issuance/validation is simply unavailable on such a host; AuthService
-				// reads ErpSettings.JwtKey only at request time (never at startup), so a null key cannot crash
-				// startup. JWT-enabled hosts (WebVella.Erp.Site, .Site.Project) MUST supply a strong, unique key
-				// via environment variable / user-secrets / a secret store, which is validated against the
-				// insecure-default allowlist above whenever it is present.
+				// Cookie-only host / console app: no Settings:Jwt section and no overlaid key. JWT token
+				// issuance / validation is simply unavailable here; JwtKey stays null and startup proceeds.
 				JwtKey = null;
 			}
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): Default issuer and audience are
@@ -175,15 +185,43 @@ namespace WebVella.Erp
 			IsInitialized = true;
 		}
 
+		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Validates the JWT signing key
+		// for a JWT-enabled host (or a key supplied via an overlay) and throws to fail startup fast when it
+		// is unsafe. A key is rejected when it is null / empty / whitespace, when (after trimming) it matches
+		// one of the shipped insecure default literals (case-insensitive), or when it is shorter than the
+		// HMAC-SHA256 minimum of MinimumJwtKeyByteLength bytes. The configured value is never echoed to logs.
+		// Only a trimmed COPY is inspected here; the caller stores the original value unchanged so signing
+		// (AuthService) and validation (each host's JwtBearer setup) continue to use identical key bytes.
+		private static void ValidateJwtSigningKeyOrThrow(string jwtKey)
+		{
+			if (string.IsNullOrWhiteSpace(jwtKey))
+			{
+				throw new Exception("Settings:Jwt:Key is not configured for a JWT-enabled host. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+			}
+
+			var candidate = jwtKey.Trim();
+
+			if (IsInsecureJwtKeyDefault(candidate))
+			{
+				throw new Exception("Settings:Jwt:Key is set to one of the shipped insecure defaults. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+			}
+
+			if (Encoding.UTF8.GetByteCount(candidate) < MinimumJwtKeyByteLength)
+			{
+				throw new Exception("Settings:Jwt:Key is too short. Configure a strong, unique JWT signing key of at least 32 bytes via environment variable, user-secrets, or a secret store before starting the application.");
+			}
+		}
+
 		// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Returns true when the
 		// supplied JWT signing key matches any known-insecure default that was previously shipped in
 		// source (the short code fallback or a value committed to a host Config.json). Comparison is
-		// ordinal and case-sensitive. The configured value is never echoed back to callers or logs.
+		// case-insensitive (the caller has already trimmed surrounding whitespace), so a different-case or
+		// stray-whitespace copy of a shipped default is also detected. The value is never echoed to logs.
 		private static bool IsInsecureJwtKeyDefault(string jwtKey)
 		{
 			foreach (var insecureDefault in InsecureJwtKeyDefaults)
 			{
-				if (string.Equals(jwtKey, insecureDefault, StringComparison.Ordinal))
+				if (string.Equals(jwtKey, insecureDefault, StringComparison.OrdinalIgnoreCase))
 				{
 					return true;
 				}

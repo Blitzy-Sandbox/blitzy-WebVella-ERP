@@ -36,6 +36,7 @@ maintained (legacy hashes verify and are transparently upgraded on next login).
 | F-14 | Medium | A06 | MailKit 4.14.1 / MimeKit 4.14.0 vulnerable (transitive) | Resolved |
 | F-15 | Low | A10 | SSRF review surface not documented | Resolved (documentation) |
 | F-16 | Low | — | Structured finding log not present | Resolved (this document) |
+| F-17 | Medium | A05/A07 | Empty `Jwt:Key` did not fail-fast on JWT hosts; insecure-default allowlist exact-ordinal | Resolved |
 
 All Critical and High findings are remediated. All Medium and Low findings are remediated or
 documented. The only residual SCA listing is AutoMapper (F-11); see the Accepted-Risk Register.
@@ -120,12 +121,15 @@ IMPACT:      Production startup blocked by empty committed placeholders, or cook
              fast for a key they do not need.
 REMEDIATION: Layered .AddEnvironmentVariables() onto the UseErp configuration builder (env overrides
              JSON) so secret overlays reach ErpSettings.Initialize for all hosts. Made the JWT-key
-             requirement conditional: when no key is configured, JwtKey is left null (cookie-only
-             hosts start normally); fail-fast is preserved only when a key is present but is the
-             insecure default. The host startup configuration builders (Site, Project) also include
-             .AddEnvironmentVariables() so the host JWT setup and ErpSettings see the same sources.
-             The legacy Settings:EncriptionKey typo fallback and the distinct issuer/audience defaults
-             are preserved.
+             requirement conditional on whether the host uses JWT, determined by the presence of a
+             Settings:Jwt configuration section: cookie-only hosts ship no Settings:Jwt section, leave
+             JwtKey null and start normally, while JWT-enabled hosts (Site, Project) require a key.
+             (This section-gated requirement was subsequently hardened under F-17 so that a JWT-enabled
+             host also fails fast on an empty/whitespace key, and the insecure-default allowlist is
+             matched case-insensitively after trimming with a >= 32-byte minimum length.) The host
+             startup configuration builders (Site, Project) also include .AddEnvironmentVariables() so
+             the host JWT setup and ErpSettings see the same sources. The legacy Settings:EncriptionKey
+             typo fallback and the distinct issuer/audience defaults are preserved.
 STATUS:      Resolved
 ```
 
@@ -307,6 +311,39 @@ DESCRIPTION: The required FINDING:/SEVERITY:/CWE:/LOCATION:/DESCRIPTION:/IMPACT:
              log was not committed to the repository.
 IMPACT:      Auditors lacked an in-repo record of the remediation.
 REMEDIATION: This SECURITY.md provides the structured finding log for all findings.
+STATUS:      Resolved
+```
+
+```
+FINDING:     Empty JWT signing key did not fail-fast on JWT-enabled hosts; insecure-default
+             allowlist matched only exact-ordinal
+ID:          F-17
+SEVERITY:    Medium
+CWE:         CWE-1188 (insecure default initialization) / CWE-1275 (weak credential)
+LOCATION:    WebVella.Erp/ErpSettings.cs (Initialize JWT-key gate); affects the JWT-enabled hosts
+             WebVella.Erp.Site and WebVella.Erp.Site.Project
+DESCRIPTION: The F-04 conditional JWT-key requirement permitted an ABSENT key so cookie-only hosts
+             could start, but it treated an empty/whitespace key identically to an absent key: on a
+             JWT-enabled host that ships a Settings:Jwt section with an empty Key (the externalized
+             default) and no environment override, ErpSettings set JwtKey = null and startup
+             proceeded with no fail-fast signal. Operators received no startup warning; JWT
+             authentication was then dead-on-arrival at request time (Encoding.UTF8.GetBytes(null) /
+             SymmetricSecurityKey IDX10703). Separately, the insecure-default allowlist
+             (IsInsecureJwtKeyDefault) compared with StringComparison.Ordinal, so a different-case or
+             stray-whitespace copy of a shipped default (e.g. "thisismysecretkey" or "ThisIsMySecretKey ")
+             bypassed the check.
+IMPACT:      A JWT host could start in a misconfigured state whose authentication is non-functional
+             (not forgeable - hence Medium, not Critical), and near-miss copies of a publicly-known
+             default key were not rejected.
+REMEDIATION: Gated the JWT-key requirement on the presence of a Settings:Jwt section (the JWT-enabled
+             hosts ship one; the cookie-only hosts and the console app ship none) OR a key supplied via
+             an overlay. When either holds, ErpSettings now fails fast via ValidateJwtSigningKeyOrThrow
+             on an empty/whitespace key, on a shipped insecure default (now matched case-insensitively
+             after trimming a copy), and on a key shorter than the HMAC-SHA256 minimum of 32 bytes.
+             Cookie-only hosts (no Settings:Jwt section, no key) still leave JwtKey null and boot. The
+             configured key value is stored unchanged (only a trimmed copy is inspected) so AuthService
+             signing and each host's JwtBearer validation keep using identical key bytes. A single
+             robust check thus closes both the empty-key gap and the allowlist-robustness gap.
 STATUS:      Resolved
 ```
 

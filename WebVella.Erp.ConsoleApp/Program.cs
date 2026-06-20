@@ -37,7 +37,15 @@ namespace WebVella.Erp.ConsoleApp
 			CultureInfo.DefaultThreadCurrentCulture = customCulture;
 			CultureInfo.DefaultThreadCurrentUICulture = customCulture;
 
-			var configurationBuilder = new ConfigurationBuilder().AddJsonFile("config.json".ToApplicationPath());
+			// SECURITY (OWASP A02/A05 - secret externalization, AAP 0.4.2): layer environment variables on
+			// top of the committed config.json so runtime secret overlays (e.g. Settings__EncryptionKey)
+			// reach ErpSettings.Initialize, consistent with ErpMvcExtensions.UseErp and the web-host Startups.
+			// Environment variables are added LAST so they take precedence over the JSON placeholders, which
+			// is exactly what the Config.json EncryptionKey note describes ("set at runtime via environment
+			// variable Settings__EncryptionKey or a secret store").
+			var configurationBuilder = new ConfigurationBuilder()
+				.AddJsonFile("config.json".ToApplicationPath())
+				.AddEnvironmentVariables();
 			ErpSettings.Initialize(configurationBuilder.Build());
 			DbContext.CreateContext(ErpSettings.ConnectionString);
 			ErpService service = new ErpService();
