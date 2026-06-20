@@ -30,7 +30,7 @@ maintained (legacy hashes verify and are transparently upgraded on next login).
 | F-07 | Medium | A05 | HSTS exact `max-age`/`includeSubDomains` not configured on six hosts | Resolved |
 | F-08 | Medium | A05 | CORS policies missing `AllowAnyHeader` on five hosts | Resolved |
 | F-10 | Medium | A07 | System password field minimum length below policy (6) | Resolved |
-| F-11 | High | A06 | AutoMapper 14.0.0 vulnerable (GHSA-rvv3-g6hj-g44x, recursion DoS) | Resolved (mitigated + accepted residual) |
+| F-11 | High | A06 | AutoMapper 14.0.0 vulnerable (GHSA-rvv3-g6hj-g44x, recursion DoS) | Resolved (upgraded to 16.1.1) |
 | F-12 | Medium | A02 | Symmetric encryption not authenticated (no AES-GCM) | Resolved |
 | F-13 | Low | A05 | JWT issuer equals audience in committed config | Resolved |
 | F-14 | Medium | A06 | MailKit 4.14.1 / MimeKit 4.14.0 vulnerable (transitive) | Resolved |
@@ -39,7 +39,9 @@ maintained (legacy hashes verify and are transparently upgraded on next login).
 | F-17 | Medium | A05/A07 | Empty `Jwt:Key` did not fail-fast on JWT hosts; insecure-default allowlist exact-ordinal | Resolved |
 
 All Critical and High findings are remediated. All Medium and Low findings are remediated or
-documented. The only residual SCA listing is AutoMapper (F-11); see the Accepted-Risk Register.
+documented. The previously residual SCA listing for AutoMapper (F-11) is now cleared by upgrading the
+package to the patched release 16.1.1; `dotnet list package --vulnerable --include-transitive` reports
+no Critical or High advisories across the solution.
 
 ---
 
@@ -218,20 +220,23 @@ FINDING:     AutoMapper 14.0.0 uncontrolled-recursion denial of service
 ID:          F-11
 SEVERITY:    High
 CWE:         CWE-674 (uncontrolled recursion)
-LOCATION:    WebVella.Erp/Api/Models/AutoMapper/ErpAutoMapper.cs; Directory.Build.props;
-             advisory GHSA-rvv3-g6hj-g44x
+LOCATION:    WebVella.Erp/WebVella.Erp.csproj (AutoMapper PackageReference);
+             WebVella.Erp/Api/Models/AutoMapper/ErpAutoMapper.cs; advisory GHSA-rvv3-g6hj-g44x /
+             CVE-2026-32933
 DESCRIPTION: AutoMapper 14.0.0 can be driven into unbounded recursive mapping by a deeply nested or
              self-referential object graph, exhausting the stack.
-IMPACT:      Denial of service.
-REMEDIATION: The vulnerability vector is closed in code: ErpAutoMapper.Initialize applies a default
-             recursion depth cap (MaxDepth = 64) to every registered map at the single configuration
-             seal chokepoint (used by both the web composition root and the console app), bounding
-             recursion for self-referential / cyclic graphs (validated: a 5000-deep graph is capped at
-             64). The package is NOT upgraded — see the Accepted-Risk Register below for the rationale.
-             A solution-wide NuGetAuditSuppress (Directory.Build.props) silences the build-time
-             advisory warning for this specific, mitigated advisory; it does not hide the package from
-             `dotnet list package` vulnerability scans.
-STATUS:      Resolved (vector mitigated; residual SCA listing accepted and documented)
+IMPACT:      Denial of service (High, CVSS 7.5).
+REMEDIATION: The package is upgraded to the patched release: AutoMapper 14.0.0 -> 16.1.1 (the advisory
+             is fixed in 15.1.1 and 16.1.1+; 16.1.1 targets net10.0, this solution's framework, and
+             applies a default MaxDepth of 64 for self-referential types at the library level). The
+             single 15.0+ API change (MapperConfiguration now requires an ILoggerFactory) is handled at
+             the one construction site (ErpAutoMapper.Initialize) by supplying NullLoggerFactory; the
+             public plugin API surface (SetAutoMapperConfiguration(MapperConfigurationExpression)) is
+             unchanged. As defence-in-depth the explicit uniform MaxDepth = 64 cap on every map is
+             retained at the configuration seal chokepoint. The obsolete NuGetAuditSuppress entry has
+             been removed from Directory.Build.props (a patched package needs no suppression). See the
+             AutoMapper licensing note below.
+STATUS:      Resolved (package upgraded to 16.1.1; SCA scan clear of Critical/High)
 ```
 
 ```
@@ -358,7 +363,7 @@ STATUS:      Resolved
 | A03 Injection | Parameterized queries preserved; upload content/filename validation (F-02); runtime code-eval gated and documented (F-01). |
 | A04 Insecure Design | Account lockout / rate limiting made effective (F-05) and extended to JWT issuance (F-03); bounded cookie lifetime and randomized default admin (prior checkpoint). |
 | A05 Security Misconfiguration | Fail-fast JWT-key handling with conditional requirement (F-04); explicit CORS allowlist + AllowAnyHeader (F-08); enforced security headers (F-06) and exact HSTS (F-07); synchronous-I/O removed; distinct issuer/audience (F-13). |
-| A06 Vulnerable & Outdated Components | .NET 7 EoL WebAssembly projects upgraded to net10.0 (prior checkpoint); MailKit/MimeKit upgraded (F-14); AutoMapper recursion DoS mitigated with documented accepted residual (F-11). |
+| A06 Vulnerable & Outdated Components | .NET 7 EoL WebAssembly projects upgraded to net10.0 (prior checkpoint); MailKit/MimeKit upgraded (F-14); AutoMapper upgraded 14.0.0 -> 16.1.1 to clear GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (F-11). |
 | A07 Identification & Authentication Failures | Password minimum raised to 12 (F-10); lockout on Razor and JWT paths (F-03/F-05); bounded cookie lifetime; constant-time hash verification (prior checkpoint). |
 | A08 Software & Data Integrity Failures | Allowlist ISerializationBinder applied at every TypeNameHandling site (prior checkpoint; verified intact). |
 | A09 Security Logging & Monitoring Failures | Existing system_log preserved; see the Security Logging note below. |
@@ -368,24 +373,33 @@ STATUS:      Resolved
 
 ## Accepted-Risk Register
 
-### AutoMapper 14.0.0 — GHSA-rvv3-g6hj-g44x (CWE-674, recursion DoS)
+There are no outstanding accepted security risks. The single former entry (AutoMapper 14.0.0,
+GHSA-rvv3-g6hj-g44x) has been fully resolved by upgrading the package; its resolution record is below.
 
-- **Decision:** Keep AutoMapper 14.0.0; do not upgrade the package.
-- **Why not upgrade:** The only fixed releases (15.1.1 and 16.1.1+) are distributed under a paid
-  commercial license, which conflicts with the project's Apache-2.0 licensing, and they break the
-  static-mapper API that WebVella uses across the solution. An in-place version bump would therefore
-  violate the project's API/functionality preservation and minimal-change constraints. No fixed
-  release exists on the 14.x (MIT) line.
-- **Mitigation applied:** A default recursion depth cap (MaxDepth = 64) is applied to every map at the
-  configuration seal chokepoint (`ErpAutoMapper.Initialize`), which closes the uncontrolled-recursion
-  denial-of-service vector. This is the vendor/community-recommended mitigation for this advisory.
-- **Residual:** `dotnet list package --vulnerable` continues to report AutoMapper 14.0.0 because that
-  command performs a database lookup that does not honor build-time audit suppressions. The residual
-  is intentionally left visible to auditors; the exploitable vector is closed by the depth cap. A
-  solution-wide `Directory.Build.props` suppresses only the build-time NU1903 warning for this
-  specific advisory.
-- **Re-evaluation trigger:** Revisit if a fixed MIT-licensed AutoMapper release becomes available, or
-  if the project adopts a commercial AutoMapper license, or migrates off AutoMapper.
+### AutoMapper 14.0.0 — GHSA-rvv3-g6hj-g44x (CWE-674, recursion DoS) — RESOLVED
+
+- **Resolution:** Upgraded AutoMapper 14.0.0 -> 16.1.1 (the advisory is fixed in 15.1.1 and 16.1.1+).
+  `dotnet list package --vulnerable --include-transitive` no longer reports the package; the SCA scan
+  is clear of Critical/High advisories. The earlier accept-risk posture (keep 14.0.0 + in-code MaxDepth
+  mitigation + build-time NuGetAuditSuppress) is superseded, and the obsolete suppression has been
+  removed from `Directory.Build.props`.
+- **Why the upgrade was adopted:** The prior rationale for not upgrading does not hold on inspection.
+  The 15.0+ API change is a single contained one (the `MapperConfiguration` constructor now takes an
+  `ILoggerFactory`); WebVella constructs the mapper at exactly one site (`ErpAutoMapper.Initialize`),
+  which now passes `NullLoggerFactory.Instance`. WebVella's own public API — including the plugin hook
+  `SetAutoMapperConfiguration(MapperConfigurationExpression)` — is unchanged because that type and the
+  `CreateMap`/`AddProfile`/`ConvertUsing`/`Internal().ForAllMaps` surface all persist in 16.x. The
+  explicit uniform `MaxDepth = 64` cap is retained at the seal chokepoint as defence-in-depth.
+- **AutoMapper licensing note:** AutoMapper 15.0+ is dual-licensed under the Reciprocal Public License
+  1.5 (RPL-1.5) and a commercial license, with a **free community tier** (organizations/individuals
+  under USD 5,000,000 gross annual revenue, non-profits under USD 5M budget, and educational /
+  non-production use). A license key is requested for auditing only; usage is **not** restricted by a
+  missing or invalid key — enforcement is limited to informational log messages (no license server, no
+  outbound calls, no feature gating). The package is therefore freely installable and fully functional
+  for qualifying users. RPL-1.5 is an MPL-derived, file-level reciprocal license: consuming AutoMapper
+  as an unmodified NuGet dependency does not relicense WebVella's own Apache-2.0 code, and downstream
+  consumers receive AutoMapper transitively under its own terms. Deploying organizations that exceed
+  the community-tier thresholds should obtain a commercial license for compliance/auditing purposes.
 
 ---
 

@@ -44,7 +44,15 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="AutoMapper" Version="[14.0.0]" />
+		<!--
+			AutoMapper upgraded 14.0.0 -> 16.1.1 to remediate advisory GHSA-rvv3-g6hj-g44x /
+			CVE-2026-32933 (CWE-674 uncontrolled-recursion DoS, High/7.5). The fix is present in
+			15.1.1 and 16.1.1+; 16.1.1 targets net10.0 (this solution's framework) and applies a
+			default MaxDepth of 64 for self-referential types at the library level. Version is
+			exact-pinned to keep the SCA scan deterministic. NOTE: AutoMapper 15.0+ is dual-licensed
+			(Reciprocal Public License 1.5 / commercial) with a free community tier; see SECURITY.md.
+		-->
+		<PackageReference Include="AutoMapper" Version="[16.1.1]" />
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Ical.Net" Version="5.1.4" />
 		<PackageReference Include="Irony.NetCore" Version="1.1.11" />
