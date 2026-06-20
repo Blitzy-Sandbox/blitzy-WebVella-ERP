@@ -127,15 +127,50 @@ namespace WebVella.Erp.Site.Project
 				  };
 			  });
 
+			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
+
 			services.AddRateLimiter(options =>
 			{
 				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+				//Named policy retained for explicit opt-in via [EnableRateLimiting("login")].
 				options.AddFixedWindowLimiter("login", limiterOptions =>
 				{
 					limiterOptions.PermitLimit = 5;
 					limiterOptions.Window = TimeSpan.FromMinutes(1);
 					limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
 					limiterOptions.QueueLimit = 0;
+				});
+
+				//Security (A04; CWE-307/CWE-799): the named policy above is INERT unless an endpoint opts in, which left
+				//the brute-force surface unprotected. A GlobalLimiter makes the throttle self-contained and ACTIVE: it
+				//caps per-client-IP requests to the credential surfaces - the Razor login (/login) AND the JWT token
+				//issuance endpoints (/api/v3/en_US/auth/jwt/token[/refresh]) - while returning NoLimiter for every other
+				//path so normal ERP traffic keeps full functional parity. Pairs with the 5-attempt account lockout.
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					var path = httpContext.Request.Path;
+					bool isAuthPath = path.HasValue &&
+						(path.Value.StartsWith("/login", StringComparison.OrdinalIgnoreCase)
+						 || path.Value.StartsWith("/api/v3/en_US/auth/jwt/token", StringComparison.OrdinalIgnoreCase));
+					if (isAuthPath)
+					{
+						var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+						return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+						{
+							PermitLimit = 5,
+							Window = TimeSpan.FromMinutes(1),
+							QueueLimit = 0,
+							QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+							AutoReplenishment = true
+						});
+					}
+					return RateLimitPartition.GetNoLimiter("__no_rate_limit__");
 				});
 			});
 

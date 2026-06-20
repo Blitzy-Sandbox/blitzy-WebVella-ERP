@@ -35,7 +35,9 @@ namespace WebVella.Erp.Site.Crm
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					//Security (A05/CWE-942): explicit origins only (no AllowAnyOrigin). AllowAnyHeader is required so
+					//credentialed cross-origin API calls carrying custom headers (e.g. content-type, antiforgery) succeed.
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowAnyHeader().AllowCredentials());
 			});
 
 			services.AddDetection();

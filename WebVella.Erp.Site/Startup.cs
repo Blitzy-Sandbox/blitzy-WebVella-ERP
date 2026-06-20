@@ -42,7 +42,10 @@ namespace WebVella.Erp.Site
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
             string configPath = "config.json";
-            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+            //Security (A02/A05): layer environment variables on top of the committed config.json so runtime secret
+            //overlays (Settings__Jwt__Key, Settings__EncryptionKey) reach BOTH the host JWT setup below and the
+            //central ErpSettings.Initialize in UseErp(). Env vars are added last so they override the JSON placeholders.
+            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).AddEnvironmentVariables().Build();
 
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });
@@ -136,6 +139,14 @@ namespace WebVella.Erp.Site
               });
 
 
+            //HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+            //Matches the central SecurityHeadersMiddleware literal so the framework UseHsts() default cannot preempt it.
+            services.AddHsts(options =>
+            {
+                options.MaxAge = TimeSpan.FromDays(365);
+                options.IncludeSubDomains = true;
+            });
+
             //A04 - Insecure Design: edge-level brute-force protection via the built-in rate limiter
             //(Microsoft.AspNetCore.RateLimiting, in-framework on net10.0 - no extra NuGet package).
             //This fixed-window "login" limiter pairs with the account-level lockout (after 5 failed attempts)
@@ -143,12 +154,40 @@ namespace WebVella.Erp.Site
             services.AddRateLimiter(options =>
             {
                 options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+                //Named policy retained for explicit opt-in via [EnableRateLimiting("login")].
                 options.AddFixedWindowLimiter("login", opt =>
                 {
                     opt.Window = TimeSpan.FromMinutes(1);
                     opt.PermitLimit = 10;
                     opt.QueueLimit = 0;
                     opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                });
+
+                //Security (A04; CWE-307/CWE-799): the named policy above is INERT unless an endpoint opts in, which left
+                //the brute-force surface unprotected. A GlobalLimiter makes the throttle self-contained and ACTIVE: it
+                //caps per-client-IP requests to the credential surfaces - the Razor login (/login) AND the JWT token
+                //issuance endpoints (/api/v3/en_US/auth/jwt/token[/refresh]) - while returning NoLimiter for every other
+                //path so normal ERP traffic keeps full functional parity. Pairs with the 5-attempt account lockout.
+                options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                {
+                    var path = httpContext.Request.Path;
+                    bool isAuthPath = path.HasValue &&
+                        (path.Value.StartsWith("/login", StringComparison.OrdinalIgnoreCase)
+                         || path.Value.StartsWith("/api/v3/en_US/auth/jwt/token", StringComparison.OrdinalIgnoreCase));
+                    if (isAuthPath)
+                    {
+                        var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 10,
+                            Window = TimeSpan.FromMinutes(1),
+                            QueueLimit = 0,
+                            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                            AutoReplenishment = true
+                        });
+                    }
+                    return RateLimitPartition.GetNoLimiter("__no_rate_limit__");
                 });
             });
 

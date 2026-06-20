@@ -28,8 +28,8 @@
 		"Jwt": {
 			// Externalized secret - provide via env var Settings__Jwt__Key. Default/empty is intentional and triggers fail-fast (host + ErpSettings).
 			"Key": "",
-			"Issuer": "webvella-erp",
-			"Audience": "webvella-erp"
+			"Issuer": "webvella-erp-issuer",
+			"Audience": "webvella-erp-audience"
 		}
 	},
 	"Development": {

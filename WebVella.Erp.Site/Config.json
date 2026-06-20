@@ -24,8 +24,8 @@
 		"SystemMasterBackgroundImageUrl": "",
 		"Jwt": {
 			"Key": "",
-			"Issuer": "webvella-erp",
-			"Audience": "webvella-erp"
+			"Issuer": "webvella-erp-issuer",
+			"Audience": "webvella-erp-audience"
 		}
 	},
 	"Development": {

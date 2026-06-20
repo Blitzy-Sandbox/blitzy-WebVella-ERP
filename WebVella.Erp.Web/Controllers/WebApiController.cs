@@ -491,6 +491,12 @@ namespace WebVella.Erp.Web.Controllers
 			}
 		}
 
+		// SECURITY (OWASP A03 Injection / Code Execution; CWE-94/CWE-95): runtime C# compilation via
+		// CodeEvalService.Compile is a remote-code-execution sink. The class-level [Authorize] only
+		// guarantees an authenticated user, NOT a trusted author. Restrict this endpoint to the
+		// "administrator" role so it matches the trusted-admin/developer boundary documented in
+		// CodeEvalService.cs (only administrators author and compile server-side data-source code).
+		[Authorize(Roles = "administrator")]
 		[Route("api/v3.0/datasource/code-compile")]
 		[HttpPost]
 		public ActionResult DataSourceAction([FromBody] DataSourceCodeTestModel model)
@@ -4405,6 +4411,15 @@ namespace WebVella.Erp.Web.Controllers
 				{
 
 					var currentUser = AuthService.GetUser(User);
+					// Security (A01 - CWE-639): require an authenticated user so each upload can be bucketed under and
+					// owner-stamped with the uploader's id (prevents an unauthenticated NRE and cross-user IDOR).
+					if (currentUser == null)
+					{
+						connection.RollbackTransaction();
+						response.Success = false;
+						response.Message = "Not authorized.";
+						return DoResponse(response);
+					}
 
 					foreach (var file in files)
 					{
@@ -4415,6 +4430,15 @@ namespace WebVella.Erp.Web.Controllers
 
 						if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 							fileName = fileName.Substring(0, fileName.Length - 1);
+
+						// Security (A01/A03 - CWE-22/CWE-434): reduce to a safe leaf, enforce the upload allowlist, and
+						// validate the real content (not just the extension) before persisting - mirrors /fs/upload/.
+						// Reject the whole batch on the first invalid file so the surrounding transaction rolls back.
+						fileName = SanitizeUploadFileName(fileName);
+						if (string.IsNullOrWhiteSpace(fileName) || !IsAllowedUploadFileName(fileName))
+							throw new Exception("File type is not allowed or the file name is invalid.");
+						if (!IsAllowedUploadContent(fileName, fileBuffer, file.ContentType))
+							throw new Exception("File type is not allowed or the file name is invalid.");
 
 						var recMan = new RecordManager();
 						DbFileRepository fsRepository = new DbFileRepository();
@@ -4496,6 +4520,17 @@ namespace WebVella.Erp.Web.Controllers
 
 				try
 				{
+					// Security (A01 - CWE-639): require an authenticated user so each temp file can be owner-stamped
+					// (CreateTempFile stores created_by = null), enabling ownership checks at finalization - mirrors /fs/upload/.
+					var currentUser = AuthService.GetUser(User);
+					if (currentUser == null)
+					{
+						connection.RollbackTransaction();
+						response.Success = false;
+						response.Message = "Not authorized.";
+						return DoResponse(response);
+					}
+
 					foreach (var file in files)
 					{
 						var fileBuffer = ReadFully(file.OpenReadStream());
@@ -4506,9 +4541,21 @@ namespace WebVella.Erp.Web.Controllers
 						if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 							fileName = fileName.Substring(0, fileName.Length - 1);
 
+						// Security (A01/A03 - CWE-22/CWE-434): reduce to a safe leaf, enforce the upload allowlist, and
+						// validate the real content (not just the extension) before persisting - mirrors /fs/upload/.
+						// Reject the whole batch on the first invalid file so the surrounding transaction rolls back.
+						fileName = SanitizeUploadFileName(fileName);
+						if (string.IsNullOrWhiteSpace(fileName) || !IsAllowedUploadFileName(fileName))
+							throw new Exception("File type is not allowed or the file name is invalid.");
+						if (!IsAllowedUploadContent(fileName, fileBuffer, file.ContentType))
+							throw new Exception("File type is not allowed or the file name is invalid.");
+
 						var recMan = new RecordManager();
 						DbFileRepository fsRepository = new DbFileRepository();
-						DbFile dbFile = fsRepository.CreateTempFile(fileName, fileBuffer);
+						// Security (A01 - CWE-639): owner-stamped temp file (created_by = uploader) under /tmp, matching /fs/upload/.
+						string tmpSection = Guid.NewGuid().ToString().Replace("-", "").ToLowerInvariant();
+						string tmpFilePath = DbFileRepository.FOLDER_SEPARATOR + DbFileRepository.TMP_FOLDER_NAME + DbFileRepository.FOLDER_SEPARATOR + tmpSection + DbFileRepository.FOLDER_SEPARATOR + fileName;
+						DbFile dbFile = fsRepository.Create(tmpFilePath, fileBuffer, DateTime.UtcNow, currentUser.Id);
 
 						var resultRec = new EntityRecord();
 
@@ -4627,15 +4674,35 @@ namespace WebVella.Erp.Web.Controllers
 		public async Task<IActionResult> GetJwtToken([FromBody] JwtTokenLoginModel model)
 		{
 			ResponseModel response = new ResponseModel { Timestamp = DateTime.UtcNow, Success = true, Errors = new List<ErrorModel>() };
+
+			// Security (A04/A07; CWE-307/CWE-799): this anonymous credential endpoint MUST honor the SAME per-account
+			// lockout as the interactive Razor login (shared LoginAttemptTracker), otherwise an attacker could bypass
+			// the 5-attempt lockout by brute-forcing the JWT token endpoint instead of /login. This is defense-in-depth
+			// alongside the per-host ASP.NET Core rate limiter.
+			string lockoutKey = LoginAttemptTracker.BuildKey(model?.Email);
+			if (LoginAttemptTracker.IsLockedOut(lockoutKey))
+			{
+				response.Success = false;
+				// Generic, non-enumerating message: do not reveal remaining attempts or whether the account exists.
+				response.Message = "Too many failed login attempts. Please try again later.";
+				return DoResponse(response);
+			}
+
 			try
 			{
 				response.Object = await AuthService.GetTokenAsync(model.Email, model.Password);
+				// Security (A04): successful authentication clears the failed-attempt counter for this account.
+				LoginAttemptTracker.Reset(lockoutKey);
 			}
 			catch (Exception e)
 			{
+				// Security (A04): count this failed attempt; the 5th failure trips the lockout window.
+				LoginAttemptTracker.RegisterFailedAttempt(lockoutKey);
 				new LogService().Create(Diagnostics.LogType.Error, "GetJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				// Security (A07/A09; CWE-209): return ONLY a generic message - never leak the exception message or
+				// stack trace to the client (the full error is recorded server-side via LogService above).
+				response.Message = "Invalid email or password";
 			}
 			return DoResponse(response);
 		}
@@ -4654,7 +4721,9 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetNewJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				// Security (A07/A09; CWE-209): return ONLY a generic message at this token endpoint - never leak the
+				// exception message or stack trace to the client (the full error is recorded server-side via LogService).
+				response.Message = "Unable to refresh token.";
 			}
 			return DoResponse(response);
 		}

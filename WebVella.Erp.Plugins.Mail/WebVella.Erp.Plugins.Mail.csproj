@@ -25,7 +25,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="MailKit" Version="4.14.1" />
+		<!-- SCA (OWASP A06): MailKit 4.16.0 clears GHSA-9j88-vvj5-vhgr and pulls MimeKit 4.16.0
+		     transitively, which clears GHSA-g7hc-96xr-gvvx (fixed in MimeKit >= 4.15.1). -->
+		<PackageReference Include="MailKit" Version="4.16.0" />
 	</ItemGroup>
 
 	<ItemGroup>

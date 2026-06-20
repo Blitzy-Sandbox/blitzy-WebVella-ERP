@@ -9,10 +9,13 @@ namespace WebVella.Erp.Web.Middleware
 		// default when no override is supplied via configuration.
 		private const string DefaultContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'";
 
-		// Default posture: Report-Only is ON so the strict CSP cannot break existing inline Razor/Stencil
-		// scripts or vendored client libraries on first deployment (functional parity, AAP §0.3.4 / §0.6.3).
-		// Operators switch to enforce mode via configuration (set the flag false) without any code change.
-		private const bool DefaultContentSecurityPolicyReportOnly = true;
+		// Default posture: the strict Content-Security-Policy is ENFORCED by default (emitted as the
+		// "Content-Security-Policy" header with the exact literal above), satisfying the char-for-char
+		// security-header requirement (AAP §0.7.3 / User Example 1). For a staged rollout where the strict
+		// policy might otherwise break existing inline Razor/Stencil scripts or vendored client libraries,
+		// operators can opt into Report-Only mode via configuration (set the flag true) without any code
+		// change — both the policy string and the report-only toggle remain configurable below.
+		private const bool DefaultContentSecurityPolicyReportOnly = false;
 
 		RequestDelegate next;
 

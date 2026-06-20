@@ -214,7 +214,11 @@ namespace WebVella.Erp
 								password.Searchable = false;
 								password.Auditable = false;
 								password.System = true;
-								password.MinLength = 6;
+								// Security hardening (OWASP A07 / User Example 2): enforce a 12-character
+								// minimum for account passwords. This bounds the raw password input; the stored
+								// value is a salted PBKDF2 hash whose length is unaffected, and legacy login
+								// verification does not re-check length, so existing credentials still verify.
+								password.MinLength = 12;
 								password.MaxLength = 24;
 								password.Encrypted = true;
 

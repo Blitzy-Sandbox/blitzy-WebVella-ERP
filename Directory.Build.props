@@ -1,0 +1,29 @@
+<Project>
+
+  <!--
+    Solution-wide NuGet audit suppression (OWASP A06 / SCA).
+
+    AutoMapper 14.0.0 is flagged by advisory GHSA-rvv3-g6hj-g44x (CWE-674, uncontrolled
+    recursion / denial of service). It is referenced (directly or transitively) by most
+    projects in this solution, so the advisory surfaces as an NU1903 build warning across
+    core, site and plugin projects.
+
+    The only fixed AutoMapper releases (15.1.1 and 16.1.1+) are distributed under a paid
+    commercial license and break the static-mapper API used throughout this solution, so an
+    in-place version bump would violate the project's API/functionality preservation and
+    minimal-change constraints (and the Apache-2.0 license of the affected projects). The
+    denial-of-service vector is therefore mitigated in code instead: WebVella.Erp's
+    ErpAutoMapper.Initialize applies a default recursion depth cap (MaxDepth) to every
+    registered map at the single seal chokepoint, which bounds recursion for self-referential
+    or cyclic object graphs.
+
+    This accepted-risk decision and its mitigation are documented in SECURITY.md. The
+    suppression below silences only the build-time advisory warning for this specific,
+    mitigated advisory; it does NOT affect the "dotnet list package" vulnerability scan, which
+    continues to report the package so the residual risk is never hidden from auditors.
+  -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
+</Project>

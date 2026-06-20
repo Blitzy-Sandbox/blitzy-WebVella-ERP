@@ -35,7 +35,9 @@ namespace WebVella.Erp.Site.Sdk
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					//Security (A05/CWE-942): explicit origins only (no AllowAnyOrigin). AllowAnyHeader is required so
+					//credentialed cross-origin API calls carrying custom headers (e.g. content-type, antiforgery) succeed.
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowAnyHeader().AllowCredentials());
 			});
 
 			services.AddDetection();
@@ -75,6 +77,13 @@ namespace WebVella.Erp.Site.Sdk
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
 
 			//Rate limiting (A04) - generous global per-client-IP fixed window as a DoS/brute-force safety net.
 			//The precise login lockout (5 failed attempts) is handled at the login hook (login.cshtml.cs).

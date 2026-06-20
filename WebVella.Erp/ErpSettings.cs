@@ -130,21 +130,40 @@ namespace WebVella.Erp
 
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
-			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Fail fast on a missing
-			// or default JWT signing key. Read the configured value first, then refuse to start when it
-			// is absent or still set to one of the shipped insecure default literals (see
-			// InsecureJwtKeyDefaults; ordinal, case-sensitive). This rejects BOTH the short code fallback
-			// default and the long literal previously committed to the host Config.json files, so tokens
-			// can never be signed with a publicly-known key even when an old value is supplied through an
-			// environment variable, user-secrets, or a secret-store overlay. Configure a strong, unique
-			// key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting
-			// the application.
+			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188/CWE-798): Conditional fail-fast on the
+			// JWT signing key. The requirement is enforced ONLY when a key is configured: a present key must
+			// not be one of the shipped insecure default literals (see InsecureJwtKeyDefaults; ordinal,
+			// case-sensitive), rejecting BOTH the short code fallback default and the long literal previously
+			// committed to the host Config.json files, so tokens can never be signed with a publicly-known key
+			// even when an old value is supplied through an environment variable, user-secrets, or a secret-store
+			// overlay. An ABSENT key is permitted (JwtKey stays null) so cookie-only hosts that do not use JWT
+			// bearer auth can start; JWT-enabled hosts must configure a strong, unique key (>= 32 bytes) via
+			// environment variable, user-secrets, or a secret store before starting the application.
 			var jwtKey = configuration["Settings:Jwt:Key"];
-			if (string.IsNullOrWhiteSpace(jwtKey) || IsInsecureJwtKeyDefault(jwtKey))
+			if (!string.IsNullOrWhiteSpace(jwtKey))
 			{
-				throw new Exception("Settings:Jwt:Key is missing or set to one of the shipped insecure defaults. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+				// A JWT signing key IS configured: it must not be one of the publicly-known shipped defaults.
+				// Fail fast (ordinal, case-sensitive) so tokens can never be signed with a guessable, public key
+				// even when an old value is supplied through an environment variable, user-secrets, or a secret
+				// store. This preserves the strong fail-fast control for the dangerous case.
+				if (IsInsecureJwtKeyDefault(jwtKey))
+				{
+					throw new Exception("Settings:Jwt:Key is set to one of the shipped insecure defaults. Configure a strong, unique JWT signing key (>= 32 bytes) via environment variable, user-secrets, or a secret store before starting the application.");
+				}
+				JwtKey = jwtKey;
 			}
-			JwtKey = jwtKey;
+			else
+			{
+				// No JWT signing key configured. This is intentionally permitted so cookie-only hosts — which do
+				// not use JWT bearer authentication and ship no Settings:Jwt section (WebVella.Erp.Site.Crm,
+				// .Site.Mail, .Site.MicrosoftCDM, .Site.Next, .Site.Sdk) — can start without crashing. JwtKey
+				// stays null and JWT token issuance/validation is simply unavailable on such a host; AuthService
+				// reads ErpSettings.JwtKey only at request time (never at startup), so a null key cannot crash
+				// startup. JWT-enabled hosts (WebVella.Erp.Site, .Site.Project) MUST supply a strong, unique key
+				// via environment variable / user-secrets / a secret store, which is validated against the
+				// insecure-default allowlist above whenever it is present.
+				JwtKey = null;
+			}
 			// SECURITY (OWASP A05 Security Misconfiguration - CWE-1188): Default issuer and audience are
 			// DISTINCT so they are never equal when neither is configured. The configuration key strings
 			// are unchanged (schema-preserving), so deployments that set explicit Settings:Jwt:Issuer /

@@ -15,6 +15,11 @@ namespace WebVella.Erp.Utilities
 
         private static string cryptKey;
 
+        // AES-GCM standard sizes (in bytes): a 96-bit nonce and a 128-bit authentication tag.
+        // These back the authenticated-encryption API below (User Example 3 / AAP §0.7.3).
+        private const int AesGcmNonceSize = 12;
+        private const int AesGcmTagSize = 16;
+
         #endregion
 
         #region <--- Properties --->
@@ -146,6 +151,117 @@ namespace WebVella.Erp.Utilities
             return DecryptDataInternal(data, algorithm);
         }
 
+        // ---------------------------------------------------------------------------------------------
+        // Authenticated symmetric encryption (AES-256-GCM) — OWASP A02 / User Example 3 / AAP §0.7.3.
+        //
+        // Unlike the legacy SymmetricAlgorithm-based helpers above (which derive a DETERMINISTIC IV from
+        // the key and provide no integrity guarantee), these methods use AES-256 in Galois/Counter Mode:
+        // a fresh cryptographically-random nonce is generated for every operation and an authentication
+        // tag is produced, so any tampering with the ciphertext is detected on decryption (the AesGcm
+        // primitive throws CryptographicException). This is a NEW, additive API — the legacy helpers are
+        // retained unchanged for backward compatibility and no existing ciphertext requires migration.
+        // ---------------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// 	Encrypts UTF-8 text with AES-256-GCM using the configured encryption key.
+        /// 	The returned Base64 string packs the random nonce, the authentication tag and the
+        /// 	ciphertext as: base64( nonce[12] || tag[16] || ciphertext ).
+        /// </summary>
+        /// <param name="plainText"> The plaintext to encrypt. </param>
+        /// <returns> Base64-encoded nonce + tag + ciphertext. </returns>
+        public static string EncryptTextAuthenticated(string plainText)
+        {
+            if (plainText == null)
+                throw new ArgumentNullException(nameof(plainText));
+
+            byte[] cipher = EncryptDataAuthenticated(Encoding.UTF8.GetBytes(plainText));
+            return Convert.ToBase64String(cipher);
+        }
+
+        /// <summary>
+        /// 	Decrypts a Base64 payload produced by <see cref="EncryptTextAuthenticated" /> back to its
+        /// 	original UTF-8 text. Throws <see cref="CryptographicException" /> if the data has been
+        /// 	tampered with or the key is wrong.
+        /// </summary>
+        /// <param name="cypherText"> Base64-encoded nonce + tag + ciphertext. </param>
+        /// <returns> The decrypted plaintext. </returns>
+        public static string DecryptTextAuthenticated(string cypherText)
+        {
+            if (cypherText == null)
+                throw new ArgumentNullException(nameof(cypherText));
+
+            byte[] plain = DecryptDataAuthenticated(Convert.FromBase64String(cypherText));
+            return Encoding.UTF8.GetString(plain);
+        }
+
+        /// <summary>
+        /// 	Encrypts arbitrary data with AES-256-GCM using the configured encryption key. The output
+        /// 	packs the random nonce, the authentication tag and the ciphertext as:
+        /// 	nonce[12] || tag[16] || ciphertext.
+        /// </summary>
+        /// <param name="plainData"> The data to encrypt. </param>
+        /// <returns> nonce + tag + ciphertext. </returns>
+        public static byte[] EncryptDataAuthenticated(byte[] plainData)
+        {
+            if (plainData == null)
+                throw new ArgumentNullException(nameof(plainData));
+
+            byte[] key = DeriveAes256Key(CryptKey);
+
+            byte[] nonce = new byte[AesGcmNonceSize];
+            RandomNumberGenerator.Fill(nonce);
+
+            byte[] tag = new byte[AesGcmTagSize];
+            byte[] cipherText = new byte[plainData.Length];
+
+            // .NET 8+ requires the authentication tag size to be supplied explicitly to the constructor.
+            using (var aesGcm = new AesGcm(key, AesGcmTagSize))
+            {
+                aesGcm.Encrypt(nonce, plainData, cipherText, tag);
+            }
+
+            // Pack nonce || tag || ciphertext so a single opaque token carries everything decryption needs.
+            byte[] result = new byte[AesGcmNonceSize + AesGcmTagSize + cipherText.Length];
+            Buffer.BlockCopy(nonce, 0, result, 0, AesGcmNonceSize);
+            Buffer.BlockCopy(tag, 0, result, AesGcmNonceSize, AesGcmTagSize);
+            Buffer.BlockCopy(cipherText, 0, result, AesGcmNonceSize + AesGcmTagSize, cipherText.Length);
+
+            return result;
+        }
+
+        /// <summary>
+        /// 	Decrypts data produced by <see cref="EncryptDataAuthenticated" />. Throws
+        /// 	<see cref="CryptographicException" /> if authentication fails (tampering or wrong key).
+        /// </summary>
+        /// <param name="cipherData"> nonce + tag + ciphertext. </param>
+        /// <returns> The decrypted data. </returns>
+        public static byte[] DecryptDataAuthenticated(byte[] cipherData)
+        {
+            if (cipherData == null)
+                throw new ArgumentNullException(nameof(cipherData));
+            if (cipherData.Length < AesGcmNonceSize + AesGcmTagSize)
+                throw new ArgumentException("Cipher data is too short to contain a nonce and authentication tag.", nameof(cipherData));
+
+            byte[] key = DeriveAes256Key(CryptKey);
+
+            byte[] nonce = new byte[AesGcmNonceSize];
+            byte[] tag = new byte[AesGcmTagSize];
+            int cipherLength = cipherData.Length - AesGcmNonceSize - AesGcmTagSize;
+            byte[] cipherText = new byte[cipherLength];
+
+            Buffer.BlockCopy(cipherData, 0, nonce, 0, AesGcmNonceSize);
+            Buffer.BlockCopy(cipherData, AesGcmNonceSize, tag, 0, AesGcmTagSize);
+            Buffer.BlockCopy(cipherData, AesGcmNonceSize + AesGcmTagSize, cipherText, 0, cipherLength);
+
+            byte[] plainData = new byte[cipherLength];
+            using (var aesGcm = new AesGcm(key, AesGcmTagSize))
+            {
+                aesGcm.Decrypt(nonce, cipherText, tag, plainData);
+            }
+
+            return plainData;
+        }
+
         /// <summary>
         /// 	Computes MD5 hash value for specified input string
         /// </summary>
@@ -250,6 +366,18 @@ namespace WebVella.Erp.Utilities
                 return Encoding.ASCII.GetBytes(InitVector.Substring(0, ValidLength));
 
             return Encoding.ASCII.GetBytes(InitVector.PadRight(ValidLength, ' '));
+        }
+
+        /// <summary>
+        /// 	Derives a 256-bit AES key from the configured encryption secret. The secret is expected
+        /// 	to be high-entropy key material, so a single SHA-256 pass is used to produce exactly
+        /// 	32 bytes regardless of the secret's textual length.
+        /// </summary>
+        /// <param name="key"> The configured encryption secret. </param>
+        /// <returns> A 32-byte (256-bit) key. </returns>
+        private static byte[] DeriveAes256Key(string key)
+        {
+            return SHA256.HashData(Encoding.UTF8.GetBytes(key));
         }
 
         /// <summary>

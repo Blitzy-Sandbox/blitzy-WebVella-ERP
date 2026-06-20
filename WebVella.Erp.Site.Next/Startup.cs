@@ -38,7 +38,9 @@ namespace WebVella.Erp.Site.Next
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					//Security (A05/CWE-942): explicit origins only (no AllowAnyOrigin). AllowAnyHeader is required so
+					//credentialed cross-origin API calls carrying custom headers (e.g. content-type, antiforgery) succeed.
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowAnyHeader().AllowCredentials());
 			});
 
 			services.AddDetection();
@@ -76,6 +78,13 @@ namespace WebVella.Erp.Site.Next
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
 
 			//Security: brute-force throttling (A04) using the built-in .NET rate limiter (net10.0; no new package).
 			//Scoped to POST /login per client IP so the rest of the ERP UI keeps full functional parity.

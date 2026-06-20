@@ -59,7 +59,19 @@ namespace WebVella.Erp.Web
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 
-					var configurationBuilder = new ConfigurationBuilder().SetBasePath(env.ContentRootPath).AddJsonFile(configPath);
+					// Security (A02/A05 - CWE-798/CWE-1188): layer environment-variable configuration on top of
+					// the committed JSON so externalized secrets reach ErpSettings.Initialize. ASP.NET Core maps
+					// the "__" delimiter in an environment variable name to the ":" configuration hierarchy, so
+					// Settings__EncryptionKey -> Settings:EncryptionKey and Settings__Jwt__Key -> Settings:Jwt:Key.
+					// Environment variables are added LAST so they OVERRIDE the JSON placeholders, allowing
+					// Config.json to ship empty/placeholder secret values while the real secrets are supplied at
+					// runtime via environment variables / user-secrets / a secret store. This is the single
+					// configuration source used by every host, so all 7 site hosts inherit identical secret-overlay
+					// behavior regardless of how their own Startup builds the host IConfiguration.
+					var configurationBuilder = new ConfigurationBuilder()
+						.SetBasePath(env.ContentRootPath)
+						.AddJsonFile(configPath)
+						.AddEnvironmentVariables();
 					ErpSettings.Initialize(configurationBuilder.Build());
 				}
 

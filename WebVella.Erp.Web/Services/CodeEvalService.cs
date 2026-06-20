@@ -42,11 +42,20 @@ namespace WebVella.Erp.Web.Service
 					return scriptObjects[md5Key] as ICodeVariable;
 
 				// SECURITY (A03 Injection — documented, accepted Medium risk; CWE-94 Code Injection / CWE-95 Eval Injection):
-				// This is a DELIBERATELY TRUSTED-AUTHOR boundary. The `sourceCode` evaluated here originates
-				// EXCLUSIVELY from authenticated administrators/developers authoring server-side snippets and
-				// page logic — it is NEVER end-user / request-supplied input. Under that trust model, unsandboxed
-				// runtime C# compilation/execution via CSScriptLib is an accepted, documented risk per AAP §0.6.2.
-				// DO NOT route untrusted or end-user-controlled input into this method. Any change that would
+				// This is a DELIBERATELY TRUSTED-AUTHOR boundary, and that boundary is ENFORCED at every entry
+				// point into this service (it is NOT merely assumed). The `sourceCode` evaluated here reaches
+				// GetScriptObject only via the following trusted-author paths:
+				//   * CodeEvalService.Compile(...) — invoked solely by WebApiController's "api/v3.0/datasource/code-compile"
+				//     endpoint, which is gated with [Authorize(Roles = "administrator")]. Class-level [Authorize]
+				//     alone is NOT sufficient (it permits any authenticated user); the explicit administrator role
+				//     requirement is what enforces the trusted-author boundary for request-driven compilation.
+				//   * CodeEvalService.Evaluate(...) — invoked at page-render time over server-side code that was
+				//     authored at DESIGN time by administrators: DataSource CODE variables and .cs snippets persisted
+				//     through the administrator-only page/snippet designer (see PageDataModel). This persisted metadata
+				//     is never request-supplied; the trust boundary is the administrator authoring permission.
+				// Under that enforced trust model, unsandboxed runtime C# compilation/execution via CSScriptLib is an
+				// accepted, documented risk per AAP §0.6.2. DO NOT route untrusted or end-user-controlled input into
+				// this method, and DO NOT add a caller that is not restricted to administrators. Any change that would
 				// accept untrusted input here MUST be escalated and the evaluation MUST be sandboxed/isolated first.
 				CSScript.EvaluatorConfig.ReferenceDomainAssemblies = true;
 				ICodeVariable scriptObject = CSScript.Evaluator.LoadCode<ICodeVariable>(sourceCode);

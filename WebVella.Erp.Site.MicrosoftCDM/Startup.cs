@@ -37,7 +37,9 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 			services.AddCors(options =>
 			{
 				options.AddPolicy("AllowNodeJsLocalhost",
-					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
+					//Security (A05/CWE-942): explicit origins only (no AllowAnyOrigin). AllowAnyHeader is required so
+					//credentialed cross-origin API calls carrying custom headers (e.g. content-type, antiforgery) succeed.
+					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowAnyHeader().AllowCredentials());
 			});
 
 			services.AddDetection();
@@ -76,6 +78,13 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 						options.ReturnUrlParameter = "returnUrl";
 					});
 
+			//HSTS (A05/A07): emit Strict-Transport-Security with the prompt-specified value (1 year + includeSubDomains).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
+
 			//Brute-force / DoS defense (A04 Insecure Design): register the built-in ASP.NET Core rate limiter.
 			//A named "login" policy (fixed window, partitioned by client IP, 5 requests/minute) throttles repeated
 			//login attempts. It is opt-in per endpoint, so normal ERP traffic is unaffected (behavior-preserving).
@@ -84,6 +93,8 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 			services.AddRateLimiter(options =>
 			{
 				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+				//Named policy retained for explicit opt-in via [EnableRateLimiting("login")].
 				options.AddPolicy("login", httpContext =>
 					RateLimitPartition.GetFixedWindowLimiter(
 						partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -93,6 +104,28 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 							Window = TimeSpan.FromMinutes(1),
 							QueueLimit = 0
 						}));
+
+				//Security (A04; CWE-307/CWE-799): the named policy above is INERT unless an endpoint opts in, which left
+				//the brute-force surface unprotected. A GlobalLimiter makes the throttle self-contained and ACTIVE: it
+				//caps per-client-IP requests to the login path (/login) while returning NoLimiter for every other path
+				//so normal ERP traffic keeps full functional parity. Pairs with the 5-attempt account lockout.
+				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+				{
+					var path = httpContext.Request.Path;
+					if (path.HasValue && path.Value.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
+					{
+						var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+						return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+						{
+							PermitLimit = 5,
+							Window = TimeSpan.FromMinutes(1),
+							QueueLimit = 0,
+							QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+							AutoReplenishment = true
+						});
+					}
+					return RateLimitPartition.GetNoLimiter("__no_rate_limit__");
+				});
 			});
 
 			services.AddErp();
