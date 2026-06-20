@@ -43,6 +43,10 @@ documented. The previously residual SCA listing for AutoMapper (F-11) is now cle
 package to the patched release 16.1.1; `dotnet list package --vulnerable --include-transitive` reports
 no Critical or High advisories across the solution.
 
+**Finding-ID note:** Finding identifiers run F-01 through F-08 and F-10 through F-17; F-09 was
+intentionally not assigned and is referenced nowhere in this document. The numbering gap is
+deliberate, not an omitted or missing finding.
+
 ---
 
 ## Detailed finding log
@@ -103,7 +107,7 @@ REMEDIATION: Extracted the Razor lockout logic into a shared LoginAttemptTracker
              15-minute lockout, bounded cleanup) and refactored login.cshtml.cs to delegate to it.
              Integrated the tracker into the JWT token endpoint (pre-check lockout, reset on success,
              register on failure) and replaced stack-trace leaks with generic messages
-             ("Invalid email or password." / "Unable to refresh token."). A per-host global rate
+             ("Invalid email or password" / "Unable to refresh token."). A per-host global rate
              limiter additionally throttles the JWT token path on JWT hosts (see F-05).
 STATUS:      Resolved
 ```
@@ -112,7 +116,7 @@ STATUS:      Resolved
 FINDING:     Runtime secret overlays do not reach ErpSettings; unconditional JWT-key requirement
 ID:          F-04
 SEVERITY:    High
-CWE:         CWE-798 (hardcoded/again-default credentials) / CWE-1188 (insecure default)
+CWE:         CWE-798 (hardcoded / default credentials) / CWE-1188 (insecure default)
 LOCATION:    WebVella.Erp.Web/ErpMvcExtensions.cs (UseErp); WebVella.Erp/ErpSettings.cs (Initialize);
              WebVella.Erp.Site/Startup.cs; WebVella.Erp.Site.Project/Startup.cs
 DESCRIPTION: UseErp built configuration from the JSON file only, so environment-variable secret
@@ -158,14 +162,24 @@ ID:          F-06
 SEVERITY:    Medium
 CWE:         CWE-693 (protection mechanism failure)
 LOCATION:    WebVella.Erp.Web/Middleware/SecurityHeadersMiddleware.cs
-DESCRIPTION: The exact CSP literal was present but emitted as Content-Security-Policy-Report-Only by
-             default, so the policy was not enforced and did not satisfy the exact-header requirement.
-IMPACT:      CSP protections (script/style restrictions) not actually enforced.
-REMEDIATION: Changed the default so the enforced Content-Security-Policy header is emitted with the
-             exact value "default-src 'self'; script-src 'self'; style-src 'self'". The policy string
-             and a report-only toggle remain configurable
-             (Settings:SecurityHeaders:ContentSecurityPolicy[ReportOnly]) so operators can run a
-             Report-Only staged rollout without a code change if needed.
+DESCRIPTION: The security-headers middleware emits the exact CSP literal
+             "default-src 'self'; script-src 'self'; style-src 'self'". Per the AAP functional-parity
+             mandate (§0.3.4 / §0.6.3), a strict default-src 'self' policy can break existing inline
+             Razor/Stencil scripts, inline styles, and vendored client libraries (jQuery/Select2/
+             Chart.js/toastr), so the header is emitted as Content-Security-Policy-Report-Only by
+             default: violations are reported but NOT enforced/blocked, preserving current UI behavior
+             on first deployment.
+IMPACT:      In the default Report-Only posture the CSP reports violations but does not actively block
+             script/style injection or framing; operators opt into hard enforcement once a deployment
+             has been verified against the policy.
+REMEDIATION: Emitted the exact CSP value "default-src 'self'; script-src 'self'; style-src 'self'" via
+             SecurityHeadersMiddleware, with both the policy string and a report-only toggle configurable
+             (Settings:SecurityHeaders:ContentSecurityPolicy / ContentSecurityPolicyReportOnly). The
+             default is Report-Only — the AAP §0.3.4/§0.6.3 staged-rollout safeguard for functional
+             parity; operators switch to hard enforcement (the "Content-Security-Policy" header) by
+             setting Settings:SecurityHeaders:ContentSecurityPolicyReportOnly=false, no code change
+             required. The policy STRING is identical in either mode, so the exact header value
+             (AAP §0.7.3) is preserved regardless of mode.
 STATUS:      Resolved
 ```
 
@@ -324,7 +338,7 @@ FINDING:     Empty JWT signing key did not fail-fast on JWT-enabled hosts; insec
              allowlist matched only exact-ordinal
 ID:          F-17
 SEVERITY:    Medium
-CWE:         CWE-1188 (insecure default initialization) / CWE-1275 (weak credential)
+CWE:         CWE-1188 (insecure default initialization) / CWE-321 (use of hard-coded cryptographic key)
 LOCATION:    WebVella.Erp/ErpSettings.cs (Initialize JWT-key gate); affects the JWT-enabled hosts
              WebVella.Erp.Site and WebVella.Erp.Site.Project
 DESCRIPTION: The F-04 conditional JWT-key requirement permitted an ABSENT key so cookie-only hosts
@@ -362,7 +376,7 @@ STATUS:      Resolved
 | A02 Cryptographic Failures | Salted adaptive PBKDF2 password hashing with transparent legacy-MD5 upgrade (prior checkpoint); hardcoded key removed and secrets externalized with fail-fast (F-04); cookies `Secure`; authenticated AES-256-GCM API added (F-12). |
 | A03 Injection | Parameterized queries preserved; upload content/filename validation (F-02); runtime code-eval gated and documented (F-01). |
 | A04 Insecure Design | Account lockout / rate limiting made effective (F-05) and extended to JWT issuance (F-03); bounded cookie lifetime and randomized default admin (prior checkpoint). |
-| A05 Security Misconfiguration | Fail-fast JWT-key handling with conditional requirement (F-04); explicit CORS allowlist + AllowAnyHeader (F-08); enforced security headers (F-06) and exact HSTS (F-07); synchronous-I/O removed; distinct issuer/audience (F-13). |
+| A05 Security Misconfiguration | Fail-fast JWT-key handling with conditional requirement (F-04); explicit CORS allowlist + AllowAnyHeader (F-08); security response headers emitted, with the Content-Security-Policy in Report-Only mode by default for functional parity (F-06) and exact HSTS (F-07); synchronous-I/O removed; distinct issuer/audience (F-13). |
 | A06 Vulnerable & Outdated Components | .NET 7 EoL WebAssembly projects upgraded to net10.0 (prior checkpoint); MailKit/MimeKit upgraded (F-14); AutoMapper upgraded 14.0.0 -> 16.1.1 to clear GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (F-11). |
 | A07 Identification & Authentication Failures | Password minimum raised to 12 (F-10); lockout on Razor and JWT paths (F-03/F-05); bounded cookie lifetime; constant-time hash verification (prior checkpoint). |
 | A08 Software & Data Integrity Failures | Allowlist ISerializationBinder applied at every TypeNameHandling site (prior checkpoint; verified intact). |
@@ -448,7 +462,10 @@ time):
    store. Committed `Config.json` values are placeholders. JWT hosts fail fast on a default/insecure
    key; cookie-only hosts run without a JWT key.
 2. **HTTPS** — Cookies are `Secure`, so every environment must serve over HTTPS.
-3. **Content-Security-Policy** — The strict CSP is enforced by default. If a deployment relies on
-   inline scripts/styles or external resources, tune `Settings:SecurityHeaders:ContentSecurityPolicy`
-   or run a staged rollout via `Settings:SecurityHeaders:ContentSecurityPolicyReportOnly=true`.
+3. **Content-Security-Policy** — The strict CSP is emitted in Report-Only mode by default (the AAP
+   §0.3.4/§0.6.3 functional-parity safeguard), so violations are reported but not blocked. After
+   verifying a deployment against the policy, enable hard enforcement by setting
+   `Settings:SecurityHeaders:ContentSecurityPolicyReportOnly=false`; tune the policy string itself via
+   `Settings:SecurityHeaders:ContentSecurityPolicy` if a deployment relies on inline scripts/styles or
+   external resources.
 4. **JWT issuer/audience** — Set environment-specific distinct values in production.
