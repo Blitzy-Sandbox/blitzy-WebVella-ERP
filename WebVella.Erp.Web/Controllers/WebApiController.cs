@@ -3690,7 +3690,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "ErpApi:GetJobs", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -3908,7 +3908,7 @@ namespace WebVella.Erp.Web.Controllers
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:UpdateSchedulePlan", e);
 				response.Success = false;
 				response.Timestamp = DateTime.UtcNow;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			response.Success = true;
@@ -3948,7 +3948,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:TriggerNowSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			response.Success = true;
@@ -3974,7 +3974,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSchedulePlansList", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4006,7 +4006,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4060,7 +4060,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:CreateTestSchedulePlan", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4130,7 +4130,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetSystemLog", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4153,7 +4153,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "TErpApi:GetUserFileList", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
@@ -4657,7 +4657,7 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetSnippetNames", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : "An internal error occurred!";
 			}
 
 			return DoResponse(response);
