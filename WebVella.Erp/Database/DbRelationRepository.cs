@@ -7,6 +7,7 @@ using System.Linq;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Database.Models;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Database
 {
@@ -44,7 +45,7 @@ namespace WebVella.Erp.Database
 
 				List<DbParameter> parameters = new List<DbParameter>();
 
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
 
 				DbParameter parameterId = new DbParameter();
 				parameterId.Name = "id";
@@ -125,7 +126,7 @@ namespace WebVella.Erp.Database
 
 					NpgsqlCommand command = con.CreateCommand("UPDATE entity_relations SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -170,7 +171,7 @@ namespace WebVella.Erp.Database
 
 				using (NpgsqlDataReader reader = command.ExecuteReader())
 				{
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = ErpSerializationBinder.Instance };
 					List<DbEntityRelation> relations = new List<DbEntityRelation>();
 					while (reader.Read())
 					{

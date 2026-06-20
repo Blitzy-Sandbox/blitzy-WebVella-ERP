@@ -3337,6 +3337,14 @@ namespace WebVella.Erp.Web.Controllers
 			if (fileName.EndsWith("\"", StringComparison.InvariantCulture))
 				fileName = fileName.Substring(0, fileName.Length - 1);
 
+			// Security (A01/A03 - CWE-22/CWE-434): reduce to a safe leaf and enforce the upload allowlist.
+			fileName = SanitizeUploadFileName(fileName);
+			if (string.IsNullOrWhiteSpace(fileName) || !IsAllowedUploadFileName(fileName))
+			{
+				var badResponse = new FSResponse { Success = false, Message = "File type is not allowed or the file name is invalid." };
+				return DoResponse(badResponse);
+			}
+
 			DbFileRepository fsRepository = new DbFileRepository();
 			var createdFile = fsRepository.CreateTempFile(fileName, ReadFully(file.OpenReadStream()));
 
@@ -3394,6 +3402,87 @@ namespace WebVella.Erp.Web.Controllers
 				}
 				return ms.ToArray();
 			}
+		}
+
+		// Security (A01/A03 - CWE-22/CWE-434): allowlist of upload file extensions the ERP file system supports.
+		// Centralized so reviewers can tune it in one place. Broad on purpose to preserve existing upload functionality
+		// (functional parity, AAP 0.7.1) while blocking server-executable / dangerous types.
+		private static readonly HashSet<string> AllowedUploadExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+		{
+			// images
+			".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico", ".tif", ".tiff",
+			// documents / text / data the ERP already supports
+			".doc", ".docx", ".odt", ".rtf", ".txt", ".md", ".pdf", ".html", ".htm",
+			".ppt", ".pptx", ".xls", ".xlsx", ".ods", ".odp", ".csv", ".json", ".xml",
+			// archives
+			".zip", ".7z", ".gz", ".tar", ".rar",
+			// audio / video
+			".mp3", ".wav", ".m4a", ".ogg", ".oga", ".mp4", ".webm", ".ogv", ".mov", ".avi", ".mkv",
+			// fonts
+			".woff", ".woff2", ".ttf", ".otf", ".eot"
+		};
+
+		// Explicit denylist of server-executable / dangerous extensions - rejected even if accidentally added to the allowlist.
+		private static readonly HashSet<string> DeniedUploadExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+		{
+			".aspx", ".asp", ".ashx", ".asmx", ".ascx", ".cshtml", ".razor", ".vbhtml", ".master", ".config",
+			".cs", ".vb", ".dll", ".exe", ".com", ".bat", ".cmd", ".sh", ".ps1", ".psm1", ".msi", ".scr",
+			".php", ".php3", ".php4", ".php5", ".phtml", ".jsp", ".jspx", ".pl", ".py", ".rb", ".cgi",
+			".jar", ".war", ".js", ".jse", ".vbs", ".wsf", ".wsh", ".hta", ".reg"
+		};
+
+		// Security: reduce an arbitrary, possibly attacker-controlled filename to a safe bare leaf.
+		// Strips directory components, traversal sequences, separators, and control characters.
+		// Returns null when nothing safe remains (caller must reject).
+		private static string SanitizeUploadFileName(string raw)
+		{
+			if (string.IsNullOrWhiteSpace(raw))
+				return null;
+
+			var name = raw.Trim();
+
+			// defensive: strip surrounding double quotes if present
+			if (name.StartsWith("\"", StringComparison.InvariantCulture))
+				name = name.Substring(1);
+			if (name.EndsWith("\"", StringComparison.InvariantCulture))
+				name = name.Substring(0, name.Length - 1);
+
+			// reduce to the bare leaf - removes any directory/traversal components ("../", "a/b/c", drive letters, etc.)
+			name = Path.GetFileName(name);
+
+			// remove any residual separators and control characters
+			var sb = new StringBuilder(name.Length);
+			foreach (var ch in name)
+			{
+				if (ch == '/' || ch == '\\' || char.IsControl(ch))
+					continue;
+				sb.Append(ch);
+			}
+
+			// strip trailing dots/spaces (Windows evasion) but keep internal name + extension intact
+			name = sb.ToString().Trim().TrimEnd('.', ' ').Trim();
+
+			if (string.IsNullOrWhiteSpace(name) || name == "." || name == "..")
+				return null;
+
+			return name;
+		}
+
+		// Security: enforce the upload allowlist by extension (authoritative) with a hard denylist guard.
+		// contentType (client-supplied, advisory) may additionally be checked by the caller, but the extension is the gate.
+		private static bool IsAllowedUploadFileName(string fileName)
+		{
+			if (string.IsNullOrWhiteSpace(fileName))
+				return false;
+
+			var ext = Path.GetExtension(fileName).ToLowerInvariant();
+			if (string.IsNullOrEmpty(ext))
+				return false; // require a recognizable extension
+
+			if (DeniedUploadExtensions.Contains(ext))
+				return false;
+
+			return AllowedUploadExtensions.Contains(ext);
 		}
 
 		#endregion
@@ -3944,6 +4033,43 @@ namespace WebVella.Erp.Web.Controllers
 			}
 
 			#endregion
+
+			// Security (A01 - CWE-22/CWE-639): confine the requested path to the temp-upload root and block traversal/IDOR.
+			// Authenticated access is already enforced by the class-level [Authorize]; ensure a valid user context exists.
+			var currentUser = AuthService.GetUser(User);
+			if (currentUser == null)
+			{
+				response.Success = false;
+				response.Message = "Not authorized.";
+				return DoResponse(response);
+			}
+
+			// normalize separators and validate the virtual path
+			var normalizedPath = (filePath ?? string.Empty).Replace("\\", "/").Trim();
+			// mirror UserFileService: an optional leading "/fs" is stripped before lookup
+			var rootRelativePath = normalizedPath;
+			if (rootRelativePath.StartsWith("/fs", StringComparison.OrdinalIgnoreCase))
+				rootRelativePath = rootRelativePath.Substring(3);
+			if (!rootRelativePath.StartsWith("/"))
+				rootRelativePath = "/" + rootRelativePath;
+
+			// reject traversal sequences and confine finalization to freshly-uploaded temp files only
+			var hasTraversal = rootRelativePath.Split('/').Any(seg => seg == "..");
+			if (hasTraversal || !rootRelativePath.StartsWith("/tmp/", StringComparison.OrdinalIgnoreCase))
+			{
+				response.Success = false;
+				response.Message = "Invalid file path.";
+				return DoResponse(response);
+			}
+
+			// enforce the same upload extension allowlist on the finalized file name
+			if (!IsAllowedUploadFileName(Path.GetFileName(rootRelativePath)))
+			{
+				response.Success = false;
+				response.Message = "File type is not allowed.";
+				return DoResponse(response);
+			}
+
 			try
 			{
 				response.Object = new UserFileService().CreateUserFile(filePath, fileAlt, fileCaption);
@@ -3974,7 +4100,17 @@ namespace WebVella.Erp.Web.Controllers
 						upload.CopyTo(ms);
 						fileBytes = ms.ToArray();
 					}
-					var tempPath = "tmp/" + Guid.NewGuid() + "/" + upload.FileName;
+					var safeFileName = SanitizeUploadFileName(upload.FileName);
+					if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName))
+					{
+						response["uploaded"] = 0;
+						var rejectError = new EntityRecord();
+						rejectError["message"] = "File type is not allowed or the file name is invalid.";
+						response["error"] = rejectError;
+						return Json(response);
+					}
+
+					var tempPath = "tmp/" + Guid.NewGuid() + "/" + safeFileName;
 					var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
 
 					var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
@@ -3982,7 +4118,7 @@ namespace WebVella.Erp.Web.Controllers
 					string url = "/fs" + newFile.Path;
 
 					response["uploaded"] = 1;
-					response["fileName"] = upload.FileName;
+					response["fileName"] = safeFileName;
 					response["url"] = url;
 					return Json(response);
 
@@ -4019,7 +4155,14 @@ namespace WebVella.Erp.Web.Controllers
 					upload.CopyTo(ms);
 					fileBytes = ms.ToArray();
 				}
-				var tempPath = "tmp/" + Guid.NewGuid() + "/" + upload.FileName;
+				var safeFileName = SanitizeUploadFileName(upload.FileName);
+				if (string.IsNullOrWhiteSpace(safeFileName) || !IsAllowedUploadFileName(safeFileName))
+				{
+					var vRejected = @"<html><body><script>window.parent.CKEDITOR.tools.callFunction(" + CKEditorFuncNum + ", \"\", \"File type is not allowed.\");</script></body></html>";
+					return Content(vRejected, "text/html");
+				}
+
+				var tempPath = "tmp/" + Guid.NewGuid() + "/" + safeFileName;
 				var tempFile = new DbFileRepository().Create(tempPath, fileBytes, null, null);
 
 				var newFile = new UserFileService().CreateUserFile(tempFile.FilePath, null, null);
