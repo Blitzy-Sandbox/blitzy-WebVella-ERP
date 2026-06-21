@@ -153,6 +153,17 @@ REMEDIATION: Added an active partitioned GlobalLimiter scoped to the credential 
              on JWT hosts the JWT token path) with NoLimiter for all other paths to preserve
              functional parity. All hosts already call app.UseRateLimiter(), so the global limiter is
              applied automatically. The other hosts already had a consumed global limiter.
+             Additionally, an options.OnRejected handler was added to every host's AddRateLimiter
+             configuration so the genuine 429 rejection survives the non-Development error pipeline.
+             Without a started response, UseStatusCodePagesWithReExecute("/error") replays the rejected
+             request — preserving its HTTP method — against the /error Razor Page; for a credential POST
+             that page's AutoValidateAntiforgeryToken filter then fails and OVERWRITES the limiter's 429
+             with a 400. This is why credential POSTs past PermitLimit were previously surfaced as 400
+             (only safe-method GETs surfaced as 429). The OnRejected handler commits the response
+             (status 429 + an application/json body) so StatusCodePages skips re-execution and the 429
+             is returned uniformly for GET and POST. Verified at runtime: credential POSTs past
+             PermitLimit return HTTP 429 (with the seven security headers and no /error re-execution)
+             on Site (PermitLimit=10), Project (PermitLimit=5), and the cookie hosts (PermitLimit=600).
 STATUS:      Resolved
 ```
 

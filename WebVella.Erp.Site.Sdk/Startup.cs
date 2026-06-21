@@ -91,6 +91,24 @@ namespace WebVella.Erp.Site.Sdk
 			services.AddRateLimiter(options =>
 			{
 				options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+				// Security (A04; CWE-307/CWE-799) — F-RATELIMIT-POST: commit the 429 response body here so the
+				// genuine rate-limit rejection survives UseStatusCodePagesWithReExecute("/error"). Without a started
+				// response that re-execution replays the request (preserving its HTTP method) against the /error
+				// Razor Page; for a credential POST the page's AutoValidateAntiforgeryToken filter then fails and
+				// OVERWRITES the limiter's 429 with a 400 — which is why credential POSTs past PermitLimit were never
+				// observed as 429 (only safe-method GETs were). Starting the response (ContentType + body) makes
+				// StatusCodePages skip re-execution, so the genuine 429 is preserved uniformly for GET and POST.
+				options.OnRejected = async (context, cancellationToken) =>
+				{
+					var response = context.HttpContext.Response;
+					if (!response.HasStarted)
+					{
+						response.StatusCode = StatusCodes.Status429TooManyRequests;
+						response.ContentType = "application/json";
+						await response.WriteAsync("{\"success\":false,\"message\":\"Too many requests. Please try again later.\"}", cancellationToken);
+					}
+				};
 				options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
 				{
 					string partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
