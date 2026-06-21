@@ -8,7 +8,7 @@
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
 		"CacheKey": "", //if empty current date will be used 
-		"DevelopmentMode": "true",
+		"DevelopmentMode": "false", // SECURITY (A05/CWE-209): production-safe default - masks internal error details/stack traces (ApiControllerBase.DoBadRequestResponse) and hides the DEV MODE banner. Set to "true" only for local development.
 		"EnableBackgroundJobs": "false",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",

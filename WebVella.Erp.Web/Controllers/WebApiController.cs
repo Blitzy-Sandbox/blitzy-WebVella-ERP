@@ -4716,6 +4716,17 @@ namespace WebVella.Erp.Web.Controllers
 			try
 			{
 				response.Object = await AuthService.GetNewTokenAsync(model.Token);
+				// Security (A07; CWE-287/CWE-703): GetNewTokenAsync returns null for an invalid / tampered / expired
+				// token - token validation fails silently inside GetValidSecurityTokenAsync, which catches the
+				// validation exception and returns null rather than throwing, so the catch block below is never
+				// entered for that case. Without this guard the endpoint would misleadingly report success:true with
+				// object:null (HTTP 200), implying a successful refresh while issuing no token. Treat a null result as
+				// a failed refresh so DoResponse returns HTTP 400 with a generic message and no token.
+				if (response.Object == null)
+				{
+					response.Success = false;
+					response.Message = "Unable to refresh token.";
+				}
 			}
 			catch (Exception e)
 			{

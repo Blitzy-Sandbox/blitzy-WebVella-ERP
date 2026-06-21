@@ -19,6 +19,8 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 
 		public static IWebHost BuildWebHost(string[] args) =>
 		   WebHost.CreateDefaultBuilder(args)
+			   // QA Issue 1 (static web assets): force RCL _content/* assets (WebVella.Erp.Web, WebVella.TagHelpers) to load in EVERY environment - WebHost.CreateDefaultBuilder only auto-loads them in Development, so a Release host run outside Development returned 405 for all static assets and broke UI parity.
+			   .UseStaticWebAssets()
 			   .UseStartup<Startup>()
 			   .Build();
 	}

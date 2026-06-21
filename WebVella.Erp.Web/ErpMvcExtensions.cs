@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Razor;
@@ -41,6 +42,21 @@ namespace WebVella.Erp.Web
 			//Security: JSON deserialization allowlist binder (A08) - register the shared instance used at the TypeNameHandling sites
 			services.AddSingleton(ErpSerializationBinder.Instance);
 
+			//Security (A07 - Authentication/Session Failures, CWE-613): server-side authentication ticket store so that
+			//logout truly invalidates the session and a replayed pre-logout cookie can no longer authenticate. Without a
+			//SessionStore the cookie handler embeds the whole ticket in the (self-contained, encrypted) cookie, so
+			//SignOutAsync only deletes the browser's copy and a captured cookie stays valid until ExpiresUtc. Backing the
+			//handler with MemoryCacheTicketStore makes the cookie carry only an opaque session key; SignOutAsync then
+			//removes the server-side entry, after which the replayed cookie resolves to a missing key and is rejected.
+			//AddMemoryCache() is idempotent (TryAdd-based) so it is safe even if a host also registers it. The
+			//post-configuration targets the DEFAULT cookie scheme - the scheme every WebVella.Erp.Site* host authenticates
+			//with - and runs after each host's AddAuthentication().AddCookie(...), so this single central registration
+			//covers all seven hosts without per-host wiring and without changing AuthService's public API.
+			services.AddMemoryCache();
+			services.AddSingleton<ITicketStore, MemoryCacheTicketStore>();
+			services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+				.Configure<ITicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
+
 			return services;
 		}
 
@@ -69,7 +85,13 @@ namespace WebVella.Erp.Web
 				IWebHostEnvironment env = app.ApplicationServices.GetService<IWebHostEnvironment>();
 
 				if (!ErpSettings.IsInitialized) {
-					string configPath = "config.json";
+					// Security/portability (QA Issue 3 — Linux content-root casing): the committed configuration
+					// file is tracked as "Config.json" (capital C). On case-sensitive file systems (Linux) the
+					// loader MUST request the exact tracked casing, otherwise AddJsonFile throws
+					// FileNotFoundException: config.json when the host runs from its normal content root. This is
+					// the single shared config loader the five cookie-only hosts (Crm/Mail/MicrosoftCDM/Next/Sdk)
+					// rely on, so the casing fix here covers them all. Safe on Windows/macOS (case-insensitive).
+					string configPath = "Config.json";
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 

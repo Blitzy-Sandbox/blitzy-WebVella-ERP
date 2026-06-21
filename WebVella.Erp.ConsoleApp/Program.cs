@@ -43,8 +43,10 @@ namespace WebVella.Erp.ConsoleApp
 			// Environment variables are added LAST so they take precedence over the JSON placeholders, which
 			// is exactly what the Config.json EncryptionKey note describes ("set at runtime via environment
 			// variable Settings__EncryptionKey or a secret store").
+			// Portability (QA Issue 3 — Linux content-root casing): request the exact tracked casing
+			// "Config.json" (capital C). On case-sensitive file systems the lowercase name would not resolve.
 			var configurationBuilder = new ConfigurationBuilder()
-				.AddJsonFile("config.json".ToApplicationPath())
+				.AddJsonFile("Config.json".ToApplicationPath())
 				.AddEnvironmentVariables();
 			ErpSettings.Initialize(configurationBuilder.Build());
 			DbContext.CreateContext(ErpSettings.ConnectionString);

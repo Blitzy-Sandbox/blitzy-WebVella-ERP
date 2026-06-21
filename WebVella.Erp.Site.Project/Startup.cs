@@ -35,7 +35,9 @@ namespace WebVella.Erp.Site.Project
 			//legacy until we fix system tables
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-			string configPath = "config.json";
+			//Portability (QA Issue 3 — Linux content-root casing): use the exact tracked casing "Config.json"
+			//(capital C) so AddJsonFile resolves on case-sensitive file systems when run from the content root.
+			string configPath = "Config.json";
 			Configuration = new ConfigurationBuilder()
 				.SetBasePath(Directory.GetCurrentDirectory())
 				.AddJsonFile(configPath)

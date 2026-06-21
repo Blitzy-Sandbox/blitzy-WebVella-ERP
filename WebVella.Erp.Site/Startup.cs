@@ -41,7 +41,10 @@ namespace WebVella.Erp.Site
             //legacy until we fix system tables
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-            string configPath = "config.json";
+            //Portability (QA Issue 3 — Linux content-root casing): the committed file is tracked as "Config.json"
+            //(capital C); on case-sensitive file systems the loader must use the exact casing or AddJsonFile throws
+            //FileNotFoundException when the host runs from its normal content root. Safe on case-insensitive OSes.
+            string configPath = "Config.json";
             //Security (A02/A05): layer environment variables on top of the committed config.json so runtime secret
             //overlays (Settings__Jwt__Key, Settings__EncryptionKey) reach BOTH the host JWT setup below and the
             //central ErpSettings.Initialize in UseErp(). Env vars are added last so they override the JSON placeholders.
