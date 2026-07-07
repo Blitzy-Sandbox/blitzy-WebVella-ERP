@@ -36,6 +36,15 @@ namespace WebVella.Erp.Site.Crm
 					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
 			});
 
+			// SECURITY (A05 - CWE-319 Cleartext Transmission): configure HSTS so app.UseHsts() (in Configure) emits the
+			// mandated baseline 'Strict-Transport-Security: max-age=31536000; includeSubDomains' (365 days) rather than the
+			// ASP.NET Core default (30 days, no includeSubDomains), matching the sibling hosts' security-header standard.
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
+
 			services.AddDetection();
 
 			services.AddMvc()
