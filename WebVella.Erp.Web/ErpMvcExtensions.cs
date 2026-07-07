@@ -48,7 +48,19 @@ namespace WebVella.Erp.Web
 					if (!string.IsNullOrWhiteSpace(configFolder))
 						configPath = System.IO.Path.Combine(configFolder, configPath);
 
-					var configurationBuilder = new ConfigurationBuilder().SetBasePath(env.ContentRootPath).AddJsonFile(configPath);
+					// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+					// CWE-798 Use of Hard-coded Credentials): layer the host's already-merged configuration (user-secrets in
+					// development and environment variables in production — see the AddUserSecrets/AddEnvironmentVariables chain
+					// in each host Startup.cs) OVER config.json so that the secrets removed from config.json (JWT signing key,
+					// encryption key, connection string) actually reach ErpSettings. Previously only config.json was read here, so
+					// a deployment that supplied those secrets via the mandated env-var/user-secret mechanism failed to boot even
+					// though the values were correctly configured. config.json remains the base layer (optional) so existing
+					// config.json-based deployments keep working unchanged.
+					var configurationBuilder = new ConfigurationBuilder()
+						.SetBasePath(env.ContentRootPath)
+						.AddJsonFile(configPath, optional: true);
+					if (configuration != null)
+						configurationBuilder.AddConfiguration(configuration);
 					ErpSettings.Initialize(configurationBuilder.Build());
 				}
 
