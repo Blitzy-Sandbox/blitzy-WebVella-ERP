@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 using System;
+using Microsoft.Extensions.Configuration;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
@@ -25,6 +26,22 @@ namespace WebVella.Erp.Site.Mail
 		{
 			//legacy until we fix system tables
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+			// CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from a merged
+			// configuration so the secrets removed from config.json (connection string, encryption key, JWT signing key)
+			// — supplied via environment variables in production — reach ErpSettings without being committed. Done here
+			// rather than in the shared UseErp() helper (which only reads config.json); UseErp()'s IsInitialized guard
+			// then skips its own initialization.
+			if (!WebVella.Erp.ErpSettings.IsInitialized)
+			{
+				var erpConfiguration = new ConfigurationBuilder()
+					.SetBasePath(System.IO.Directory.GetCurrentDirectory())
+					.AddJsonFile("config.json", optional: true)
+					.AddEnvironmentVariables()
+					.Build();
+				WebVella.Erp.ErpSettings.Initialize(erpConfiguration);
+			}
 			services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Optimal);
 			services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
 			services.AddRouting(options => { options.LowercaseUrls = true; });
@@ -74,7 +91,12 @@ namespace WebVella.Erp.Site.Mail
 						options.Cookie.HttpOnly = true;
 						// SECURITY (A07 - CWE-614 Sensitive Cookie Without 'Secure' / CWE-1275 Missing SameSite): restrict the
 						// auth cookie to HTTPS (Secure) and set SameSite=Lax to mitigate transport interception and CSRF.
-						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						// REGRESSION FIX (A05/A07): gate Secure on the environment so local Development over plain HTTP still
+						// receives the auth cookie (SameAsRequest); non-Development stays HTTPS-only (Always).
+						options.Cookie.SecurePolicy =
+							string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+								? CookieSecurePolicy.SameAsRequest
+								: CookieSecurePolicy.Always;
 						// NOTE: fully qualified because Microsoft.Net.Http.Headers (imported for HeaderNames) also
 						// declares a SameSiteMode enum; CookieBuilder.SameSite requires Microsoft.AspNetCore.Http.SameSiteMode.
 						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;

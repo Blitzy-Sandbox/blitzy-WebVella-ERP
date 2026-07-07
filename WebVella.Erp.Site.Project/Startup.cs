@@ -39,6 +39,13 @@ namespace WebVella.Erp.Site.Project
 			// Env vars override config.json; deployments that still keep values in config.json are unaffected.
 			Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).AddEnvironmentVariables().Build();
 
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+			// CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from the merged
+			// configuration built above so the secrets removed from config.json (connection string, encryption key, JWT signing
+			// key) — supplied via environment variables in production — reach ErpSettings without being committed. The shared
+			// UseErp() helper only reads config.json; its `if (!ErpSettings.IsInitialized)` guard then skips its own init.
+			if (!ErpSettings.IsInitialized)
+				ErpSettings.Initialize(Configuration);
 
 			services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Optimal);
 			services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
@@ -94,8 +101,13 @@ namespace WebVella.Erp.Site.Project
             {
 				options.Cookie.HttpOnly = true;
 				// SECURITY (A07 insecure session cookie — CWE-614 cleartext transport / CWE-1275 missing SameSite):
-				// force the auth cookie to travel only over HTTPS and add CSRF mitigation via SameSite=Lax.
-				options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+				// force the auth cookie to travel only over HTTPS and add CSRF mitigation via SameSite=Lax. REGRESSION FIX:
+				// gate Secure on the environment so local Development over plain HTTP still receives the auth cookie
+				// (SameAsRequest); every non-Development environment keeps it HTTPS-only (Always).
+				options.Cookie.SecurePolicy =
+					string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+						? CookieSecurePolicy.SameAsRequest
+						: CookieSecurePolicy.Always;
 				// Fully qualified to disambiguate from Microsoft.Net.Http.Headers.SameSiteMode (both namespaces are imported).
 				options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 				options.Cookie.Name = "erp_auth_project";

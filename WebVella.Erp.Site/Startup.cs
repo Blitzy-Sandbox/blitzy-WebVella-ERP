@@ -49,6 +49,15 @@ namespace WebVella.Erp.Site
                 .AddEnvironmentVariables()
                 .Build();
 
+            // SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+            // CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from the merged
+            // configuration built above so the secrets removed from config.json (connection string, encryption key, JWT
+            // signing key) — supplied via user-secrets (dev) / environment variables (prod) — reach ErpSettings without being
+            // committed to source control. The shared UseErp() helper only reads config.json; its `if (!ErpSettings.IsInitialized)`
+            // guard then skips its own initialization, so this is the single authoritative, env-var-aware initialization path.
+            if (!ErpSettings.IsInitialized)
+                ErpSettings.Initialize(Configuration);
+
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });
 
@@ -118,8 +127,15 @@ namespace WebVella.Erp.Site
                 options.Cookie.HttpOnly = true;
                 options.Cookie.Name = "erp_auth_base";
                 // SECURITY (A07 / CWE-614, CWE-1275): Secure (HTTPS-only) + SameSite=Lax prevent plaintext-HTTP transmission and mitigate CSRF.
-                // (Secure presumes HTTPS — see UseHttpsRedirection/UseHsts in Configure.)
-                options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                // (Secure presumes HTTPS — see UseHttpsRedirection/UseHsts in Configure.) REGRESSION FIX: an unconditional
+                // Secure policy stops the browser from sending the auth cookie over plain HTTP, which breaks local Development
+                // (http://localhost). Gate on the environment — SameAsRequest in Development so local HTTP login keeps working,
+                // Always in every non-Development environment so production cookies remain HTTPS-only. This matches the
+                // env.IsDevelopment() gating already used for UseHsts/UseHttpsRedirection in Configure().
+                options.Cookie.SecurePolicy =
+                    string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+                        ? CookieSecurePolicy.SameAsRequest
+                        : CookieSecurePolicy.Always;
                 // Fully-qualified: both Microsoft.AspNetCore.Http and Microsoft.Net.Http.Headers (used for HeaderNames) define SameSiteMode;
                 // CookieBuilder.SameSite is Microsoft.AspNetCore.Http.SameSiteMode. Qualifying avoids CS0104 without altering using directives.
                 options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;

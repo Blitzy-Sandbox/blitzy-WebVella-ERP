@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Extensions.Configuration;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
@@ -27,6 +28,22 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 		{
 			//legacy until we fix system tables
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+			// CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from a merged
+			// configuration so the secrets removed from config.json (connection string, encryption key, JWT signing key)
+			// — supplied via environment variables in production — reach ErpSettings without being committed. Done here
+			// rather than in the shared UseErp() helper (which only reads config.json); UseErp()'s IsInitialized guard
+			// then skips its own initialization.
+			if (!WebVella.Erp.ErpSettings.IsInitialized)
+			{
+				var erpConfiguration = new ConfigurationBuilder()
+					.SetBasePath(System.IO.Directory.GetCurrentDirectory())
+					.AddJsonFile("config.json", optional: true)
+					.AddEnvironmentVariables()
+					.Build();
+				WebVella.Erp.ErpSettings.Initialize(erpConfiguration);
+			}
 			services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Optimal);
 			services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
 			services.AddRouting(options => { options.LowercaseUrls = true; });
@@ -77,7 +94,12 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 						// SECURITY (A05/A07 - CWE-614 Sensitive Cookie in HTTPS Session Without 'Secure' Attribute;
 						// CWE-1275 Sensitive Cookie with Improper SameSite Attribute): send the auth cookie only over HTTPS
 						// and never on cross-site requests, mitigating session-cookie theft over cleartext and CSRF.
-						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						// REGRESSION FIX (A05/A07): gate Secure on the environment so local Development over plain HTTP still
+						// receives the auth cookie (SameAsRequest); non-Development stays HTTPS-only (Always).
+						options.Cookie.SecurePolicy =
+							string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+								? CookieSecurePolicy.SameAsRequest
+								: CookieSecurePolicy.Always;
 						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_crm";
 						options.LoginPath = new PathString("/login");
