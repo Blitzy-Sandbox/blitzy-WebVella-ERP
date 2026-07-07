@@ -1,12 +1,19 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_base;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (A02/A05 · CWE-798 Use of Hard-coded Credentials): committed DB credentials and the
+		// EncryptionKey literal were removed from source control. Supply these at runtime via ASP.NET Core
+		// user-secrets or environment variables (Settings__ConnectionString, Settings__EncryptionKey). The
+		// supplied connection string MUST retain the non-secret perf params Pooling=true;MinPoolSize=1;
+		// MaxPoolSize=100;CommandTimeout=120; to preserve the documented performance envelope.
+		"ConnectionString": "",
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
 		"CacheKey": "", //if empty current date will be used 
-		"DevelopmentMode": "true",
+		// SECURITY (A05 / CWE-215 · information disclosure): keep DevelopmentMode=false in production so detailed
+		// error/stack-trace diagnostics are never disclosed to clients.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "false",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\webvella-erp-files",
