@@ -464,14 +464,29 @@ namespace WebVella.Erp
 							user["id"] = SystemIds.FirstUserId;
 							user["first_name"] = "WebVella";
 							user["last_name"] = "Erp";
-							// SECURITY (A07 Identification & Authentication Failures — CWE-798 Use of Hard-coded Credentials,
-							// CWE-521 Weak Password Requirements): the initial administrator account must NOT ship with a
-							// well-known hardcoded password ("erp"). Generate a strong, unique password with a CSPRNG on first
-							// seed. The generated value (20 chars, within the field MinLength/MaxLength 6..24 bounds) is
-							// PBKDF2-hashed by the RecordManager password-field write path when the record is created
-							// (do NOT hash here — that would double-hash).
-							const string pwdAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
-							string initialAdminPassword = System.Security.Cryptography.RandomNumberGenerator.GetString(pwdAlphabet, 20);
+							// SECURITY (A07 Identification & Authentication Failures - CWE-798 Use of Hard-coded Credentials,
+							// CWE-521 Weak Password Requirements; CWE-532 Insertion of Sensitive Information into Log File):
+							// the initial administrator account must NOT ship with a well-known hardcoded password ("erp"), and
+							// the bootstrap credential must NEVER be written to stdout/logs (stdout is routinely captured into
+							// container/IIS/Kestrel logs, creating a password-in-logs exposure). Instead require the operator to
+							// supply the initial administrator password through the SAME protected configuration channel already
+							// used for the JWT signing key and the encryption key - Settings:InitialAdminPassword - provided via
+							// user-secrets (Development) or the SETTINGS__INITIALADMINPASSWORD environment variable (Production).
+							// Fail fast (mirroring the JWT-key guard in ErpSettings) when it is absent or violates the length
+							// policy, so a fresh install can never silently create a weak/guessable or unconfigured administrator.
+							// The value is PBKDF2-hashed by the RecordManager password-field write path on CreateRecord (do NOT
+							// hash here - that would double-hash). First-login rotation of this bootstrap credential is ENFORCED
+							// on the login page (see WebVella.Erp.Web/Pages/login.cshtml.cs) so the shared bootstrap secret cannot persist.
+							string initialAdminPassword = ErpSettings.Configuration?["Settings:InitialAdminPassword"]?.Trim();
+							if (string.IsNullOrWhiteSpace(initialAdminPassword))
+								throw new InvalidOperationException(
+									"Settings:InitialAdminPassword is not configured. Supply a strong initial administrator password " +
+									"(12-24 characters) via user-secrets in Development or the SETTINGS__INITIALADMINPASSWORD environment " +
+									"variable in Production before first run. The application never generates or logs this value.");
+							if (initialAdminPassword.Length < 12 || initialAdminPassword.Length > 24)
+								throw new InvalidOperationException(
+									"Settings:InitialAdminPassword must be 12-24 characters (enterprise password-length policy; the " +
+									"user password field maximum is 24). Reconfigure it before first run.");
 							user["password"] = initialAdminPassword;
 							user["email"] = "erp@webvella.com";
 							user["username"] = "administrator";
@@ -481,18 +496,6 @@ namespace WebVella.Erp
 							QueryResponse result = recMan.CreateRecord("user", user);
 							if (!result.Success)
 								throw new Exception("CREATE FIRST USER RECORD:" + result.Message);
-
-							// SECURITY (A07): surface the generated one-time administrator password to the operator via
-							// transient stdout EXACTLY ONCE at first-run seed. It is never persisted to the database or to
-							// system_log (that would be a secrets-in-log finding); stdout is transient and operator-controlled.
-							// The operator must sign in with this value and change it immediately. Persistent force-rotation
-							// guidance is documented in the SECURITY.md deliverable (no user-entity schema change is in scope).
-							Console.WriteLine("========================================================================");
-							Console.WriteLine("[WebVella ERP SECURITY] Initial administrator account created.");
-							Console.WriteLine("  Username: administrator   Email: erp@webvella.com");
-							Console.WriteLine($"  One-time password: {initialAdminPassword}");
-							Console.WriteLine("  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN.");
-							Console.WriteLine("========================================================================");
 						}
 
 						{
