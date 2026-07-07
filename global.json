@@ -1,5 +1,8 @@
 {
+  // SECURITY (OWASP A08 / supply-chain): pin the .NET SDK so builds are reproducible
+  // and never fall back to an out-of-support toolchain (.NET 7 is EOL as of 2024-05-14).
   "sdk": {
-    //"version": "7.0.103"
+    "version": "10.0.100",
+    "rollForward": "latestFeature"
   }
 }

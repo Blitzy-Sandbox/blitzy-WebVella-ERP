@@ -112,12 +112,40 @@ namespace WebVella.Erp.Diagnostics
 
 			return JsonConvert.SerializeObject(eRecord);
 		}
+
+		// SECURITY (A09/CWE-778): structured security-event logging (authentication failures, permission denials, role changes, password changes) for auditability and monitoring. Never log secrets/passwords in message or details.
+		public void CreateSecurityEvent(string source, string message, string details = null, LogNotificationStatus notificationStatus = LogNotificationStatus.NotNotified)
+		{
+			Create(LogType.Security, source, message, details ?? string.Empty, notificationStatus, saveDetailsAsJson: true);
+		}
+
+		public void LogAuthenticationFailure(string emailOrUser, string details = null)
+		{
+			// Never log the attempted password; only the account identifier is recorded.
+			CreateSecurityEvent("Security.Authentication", $"Authentication failed for '{emailOrUser}'.", details);
+		}
+
+		public void LogPermissionDenied(string subject, string resource, string details = null)
+		{
+			CreateSecurityEvent("Security.Authorization", $"Permission denied for '{subject}' on resource '{resource}'.", details);
+		}
+
+		public void LogRoleChange(string subject, string details = null)
+		{
+			CreateSecurityEvent("Security.RoleChange", $"Role change for '{subject}'.", details);
+		}
+
+		public void LogPasswordChange(string subject, string details = null)
+		{
+			CreateSecurityEvent("Security.PasswordChange", $"Password change for '{subject}'.", details);
+		}
 	}
 
 	public enum LogType
 	{
 		Error = 1,
-		Info = 2
+		Info = 2,
+		Security = 3
 	}
 
 	public enum LogNotificationStatus
