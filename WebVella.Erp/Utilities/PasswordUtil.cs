@@ -15,6 +15,9 @@ namespace WebVella.Erp.Utilities
         // for PBKDF2-HMAC-SHA256 and stays well within the login performance envelope (login is infrequent).
         private const string Pbkdf2Prefix = "PBKDF2$";
         private const int Pbkdf2Iterations = 210000;
+        // SECURITY (CWE-400): reject an absurd iteration count in a stored hash so a tampered value cannot
+        // turn each verification into a CPU denial-of-service. 10,000,000 is far above any legitimate hash.
+        private const int Pbkdf2MaxIterations = 10_000_000;
         private const int SaltByteSize = 16;    // 128-bit salt
         private const int SubkeyByteSize = 32;   // 256-bit subkey
 
@@ -66,7 +69,7 @@ namespace WebVella.Erp.Utilities
                 if (parts.Length != 4)
                     return PasswordVerificationResult.Failed;
 
-                if (!int.TryParse(parts[1], out int iterations) || iterations <= 0)
+                if (!int.TryParse(parts[1], out int iterations))
                     return PasswordVerificationResult.Failed;
 
                 byte[] salt;
@@ -81,16 +84,30 @@ namespace WebVella.Erp.Utilities
                     return PasswordVerificationResult.Failed;
                 }
 
-                // Guard against a zero-length subkey (FixedTimeEquals(empty,empty) is true) and null input.
-                if (storedSubkey.Length == 0 || providedPassword == null)
+                // SECURITY (A02 / CWE-916, CWE-330): enforce the mandated PBKDF2 cost/format BEFORE deriving so a
+                // tampered or downgraded stored hash (e.g. "PBKDF2$1$...", a short salt, or a 1-byte subkey) can
+                // NEVER verify as Success. HashPassword always emits exactly SaltByteSize/SubkeyByteSize at
+                // Pbkdf2Iterations, so anything with fewer iterations or a wrong salt/subkey length is invalid.
+                // The upper bound blocks a stored-hash CPU denial-of-service via an absurd iteration count. A
+                // null password and a zero-length subkey are both rejected here (FixedTimeEquals(empty,empty) is true).
+                if (providedPassword == null
+                    || salt.Length != SaltByteSize
+                    || storedSubkey.Length != SubkeyByteSize
+                    || iterations < Pbkdf2Iterations
+                    || iterations > Pbkdf2MaxIterations)
                     return PasswordVerificationResult.Failed;
 
-                byte[] computedSubkey = Rfc2898DeriveBytes.Pbkdf2(providedPassword, salt, iterations, HashAlgorithmName.SHA256, storedSubkey.Length);
+                byte[] computedSubkey = Rfc2898DeriveBytes.Pbkdf2(providedPassword, salt, iterations, HashAlgorithmName.SHA256, SubkeyByteSize);
 
                 // SECURITY (CWE-208): constant-time comparison to avoid timing side-channels.
-                return CryptographicOperations.FixedTimeEquals(computedSubkey, storedSubkey)
+                if (!CryptographicOperations.FixedTimeEquals(computedSubkey, storedSubkey))
+                    return PasswordVerificationResult.Failed;
+
+                // A verified hash whose (still-valid) iteration count differs from the current policy is
+                // re-normalized to Pbkdf2Iterations on the next successful login via the rehash signal.
+                return iterations == Pbkdf2Iterations
                     ? PasswordVerificationResult.Success
-                    : PasswordVerificationResult.Failed;
+                    : PasswordVerificationResult.SuccessRehashNeeded;
             }
 
             // Legacy MD5 path: verify against the old digest and signal a rehash on success.

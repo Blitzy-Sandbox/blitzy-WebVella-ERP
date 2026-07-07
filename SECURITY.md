@@ -5,7 +5,23 @@
 **Audit type:** Comprehensive source-code security audit with in-code remediation of Critical/High findings and documentation of Medium/Low findings.
 **Change discipline:** Minimal Change Clause — only the changes necessary to remediate identified vulnerabilities were made; existing functionality, API contracts, database schemas, and user-facing behavior are preserved.
 
-> **How to read this report.** Every finding is recorded in the mandated Finding format (Section 4). Findings classified **Critical** or **High** were remediated in code (Section 5). Findings classified **Medium** or **Low** were documented with recommended fixes and a deferral rationale (Section 6), except for a small number of Medium/Low items that were fixed opportunistically as part of a low-risk edit — those are marked *Fixed* and noted as such. Section 7 records the before/after scan posture; Section 8 is the actionable secure-configuration guide.
+> **How to read this report.** Every finding is recorded in the mandated Finding format (Section 4). Findings classified **Critical** or **High** are remediated in code (Section 5); findings classified **Medium** or **Low** are documented with recommended fixes and a deferral rationale (Section 6). Section 7 records the before/after scan posture; Section 8 is the actionable secure-configuration guide.
+>
+> **This is a living document produced during a phased, per-vulnerability-class remediation.** Sections 5 and 7 describe the *target* end-state. Every remediation item and scan gate is annotated with its status — **✅ Implemented** (landed in code now) or **⏳ Planned** (scheduled for a later vulnerability-class checkpoint) — so no item is presented as complete before its supporting code and scan evidence exist. See **Milestone Status** immediately below for exactly what is implemented at the current checkpoint.
+
+### Milestone Status — Checkpoint 1: Foundational Security Primitives & Standalone Core/Web/Build Fixes
+
+This checkpoint delivers the **foundational security primitives** and the standalone core/web/build fixes that the later remediations depend on. The following are **✅ Implemented in code at this checkpoint**:
+
+- **A02 crypto primitive** — `PasswordUtil` PBKDF2-HMAC-SHA256 hashing plus the tri-state, backward-compatible `VerifyPassword` (constant-time comparison; enforces the 16-byte salt, 32-byte subkey, and a 210,000-iteration floor with a DoS ceiling; legacy MD5 → *rehash-needed* signal).
+- **A05 config primitives** — `SecurityHeadersMiddleware` (baseline headers, CSP in **report-only** mode) with a `UseSecurityHeaders()` extension; `ErpMiddleware` synchronous-I/O opt-in removed.
+- **A08 deserialization primitive** — the **fail-closed** `ErpSerializationBinder` allowlist (throws `JsonSerializationException` on any non-permitted type).
+- **A05/A02 config surface** — the hardcoded default JWT signing key removed from `ErpSettings` (a configured `Settings:Jwt:Key` is now required, fail-fast at startup).
+- **A09 logging** — `Log` extended with a `Security` log type and security-event helper methods routed through the existing insert path.
+- **A06 components** — the WASM **Shared** project retargeted `net7.0` → `net10.0`; the SDK pinned in `global.json`.
+- **A03 eval boundary** — the code-compile endpoint that can reach `CodeEvalService` is now gated with `[Authorize(Roles = "administrator")]`, and the accepted-risk documentation reflects that verified, enforced guard.
+
+The remaining Critical/High remediations described in Section 5 are **⏳ Planned** for later vulnerability-class checkpoints: routing `SecurityManager`/`RecordManager`/`DbRecordRepository` through the new hasher; removing the hardcoded key from `CryptoUtility`; sanitizing all seven host `Config.json`/`web.config`; tightening CORS/cookies/HSTS/headers wiring in the seven `Startup.cs`; switching the four Newtonsoft `TypeNameHandling` call sites to the binder / `None`; retargeting the WASM **Server** project; and the authentication/session changes in `ERPService`/`AuthService`/`login.cshtml.cs`. **The automated SAST/SCA/secrets scans have not yet been run to completion, so their acceptance gates are targets that are not yet met** (see Section 7).
 
 ---
 
@@ -13,19 +29,23 @@
 
 WebVella ERP is a free and open-source, extensible web application platform (ASP.NET Core + Blazor WebAssembly front end, PostgreSQL 16 data store, no ORM — SQL is issued through parameterized `NpgsqlCommand`). This audit assessed the full OWASP Top 10 (2021) attack surface plus supplementary checks (dependency/SCA, secrets detection, security-header verification, TLS configuration, input validation / output encoding, error-handling / information disclosure, rate-limiting / DoS, CORS, file-upload, and API security).
 
-The audit identified **26 findings**. All **15 Critical and High** findings were **remediated in code**. An additional **4 Medium/Low** items were fixed opportunistically as part of low-risk edits. The remaining **7 Medium/Low** findings are documented here with recommended fixes and a deferral rationale consistent with the Minimal Change Clause ("document but do not fix unless Critical").
+The audit identified **26 findings**: **15 Critical/High** — all scheduled for in-code remediation across the phased vulnerability-class checkpoints — and **11 Medium/Low**, documented here with recommended fixes and a deferral rationale consistent with the Minimal Change Clause ("document but do not fix unless Critical"). At the current foundational checkpoint the shared security primitives and the standalone core/web/build fixes are implemented; the remaining Critical/High remediations are in progress and are marked **⏳ Planned** in Section 5 until their supporting code lands (see **Milestone Status** above for the precise per-item breakdown).
 
 ### 1.1 Findings by Severity
 
-| Severity | Total | Remediated in code | Documented only |
-|----------|:-----:|:------------------:|:---------------:|
+| Severity | Total | In-code remediation (target plan) | Documented only |
+|----------|:-----:|:---------------------------------:|:---------------:|
 | **Critical** | 5 | 5 | 0 |
 | **High** | 10 | 10 | 0 |
 | **Medium** | 6 | 3 | 3 |
 | **Low** | 5 | 1 | 4 |
 | **Total** | **26** | **19** | **7** |
 
+> The **In-code remediation** column is the *target remediation plan* across all phased checkpoints, not the count completed at the current checkpoint. For what is actually implemented now versus **⏳ Planned**, see **Milestone Status** above and the per-item status markers in Section 5.
+
 ### 1.2 Headline Outcome
+
+_These are the **target** headline outcomes for the remediation as a whole. See **Milestone Status** above and the per-item **✅ Implemented / ⏳ Planned** markers in Section 5 for what has landed at the current checkpoint versus what remains scheduled._
 
 - **Cryptography (A02):** Unsalted MD5 password hashing replaced with PBKDF2 (HMAC-SHA-256, 128-bit salt, 256-bit subkey) and a backward-compatible verify that transparently rehashes legacy MD5 credentials on the next successful login — no existing user is locked out. Constant-time comparison via `CryptographicOperations.FixedTimeEquals`. Hardcoded encryption key and default JWT signing key removed; configured values are now required (fail-fast at startup).
 - **Configuration (A05):** Permissive `AllowAnyOrigin` CORS replaced with an origin allowlist; a `SecurityHeadersMiddleware` now emits the mandated response-header baseline (CSP begins in report-only mode); session cookies gain `Secure`/`SameSite`; HTTPS redirection and HSTS are enabled outside development; committed secrets removed from configuration and `DevelopmentMode` set to `false` for production.
@@ -34,7 +54,7 @@ The audit identified **26 findings**. All **15 Critical and High** findings were
 - **Components (A06):** The two out-of-support `net7.0` Blazor WebAssembly projects retargeted to `net10.0`; the SDK version pinned in `global.json`.
 - **Logging (A09):** Structured security-event logging added for authentication failures, permission denials, and role/password changes.
 
-**Target validation posture:** SAST, SCA (dependency), and secrets scans report **zero Critical/High** findings after remediation; the solution builds cleanly (`dotnet build -c Release`); and the documented functional workflows (cookie login, JWT login, record CRUD, EQL) remain operational.
+**Validation posture (target — not yet met at this checkpoint):** the acceptance goal is that SAST, SCA (dependency), and secrets scans report **zero Critical/High** findings once all remediations land. These scans have **not yet been run to completion**, so those gates are **not yet met**. A dependency scan currently surfaces an outstanding **high-severity advisory for `AutoMapper` 14.0.0 (NU1903)** and moderate advisories for **`MailKit`/`MimeKit` (NU1902)** — tracked under A06, out of scope for the foundational checkpoint, and to be addressed with the A06 remediation. Targeted in-scope module builds succeed (`WebVella.Erp`, `WebVella.Erp.Web` build with `dotnet build -c Release`); full functional-workflow verification (cookie login, JWT login, record CRUD, EQL) is scheduled once the dependent remediations land.
 
 ---
 
@@ -46,17 +66,19 @@ The audit covered the core runtime library (`WebVella.Erp`), the shared web laye
 
 ### 2.2 OWASP Top 10 (2021) Categories Assessed
 
-| ID | Category | Result |
-|----|----------|--------|
-| **A01** | Broken Access Control | Server-side permission engine (`SecurityContext.HasEntityPermission`) is authoritative; one UI-only visibility helper documented (D4). |
-| **A02** | Cryptographic Failures | Multiple Critical/High findings (weak hashing, hardcoded keys) — remediated. |
-| **A03** | Injection | SQL fully parameterized (positive control). Runtime C# evaluation documented as an accepted-risk admin-only feature (D3). |
-| **A04** | Insecure Design | Assessed; related weaknesses surface under A07 (session/lockout) and a latent null-reference (D5). |
-| **A05** | Security Misconfiguration | Multiple High findings (CORS, headers, cookies, HTTPS/HSTS, dev-mode disclosure) — remediated. |
-| **A06** | Vulnerable & Outdated Components | Out-of-support .NET 7 runtime remediated; vendored JS libraries documented as CVE-gated (D6). |
-| **A07** | Identification & Authentication Failures | Default admin credential, session lifetime, lockout, token clock — remediated; MFA and localStorage token documented (D1, D2). |
-| **A08** | Software & Data Integrity Failures | Insecure deserialization remediated; SDK pinning added. |
-| **A09** | Security Logging & Monitoring Failures | Insufficient security logging remediated. |
+> The **Assessment & Status** column records both what the audit found and the remediation state **at the current foundational-primitives checkpoint** (**✅ Implemented** / **⏳ Planned**). It is not an end-state "all clear"; see the Section 4.2 Status column and the Section 5 per-subsection markers, which govern.
+
+| ID | Category | Assessment & Status |
+|----|----------|---------------------|
+| **A01** | Broken Access Control | Server-side permission engine (`SecurityContext.HasEntityPermission`) is authoritative (positive control, unchanged); one UI-only visibility helper documented (D4). |
+| **A02** | Cryptographic Failures | Multiple Critical/High findings (weak hashing, hardcoded keys). PBKDF2 primitive + constant-time compare ✅ Implemented; `ErpSettings` default JWT key removed ✅; credential-path routing and `CryptoUtility` key removal ⏳ Planned (crypto checkpoint). |
+| **A03** | Injection | SQL fully parameterized (positive control, unchanged). Runtime C# evaluation is an accepted-risk admin-only feature (D3); its admin-only compile guard is now enforced in code ✅. |
+| **A04** | Insecure Design | Assessed; related weaknesses surface under A07 (session/lockout — ⏳ Planned) and a latent null-reference (D5, documented). |
+| **A05** | Security Misconfiguration | Multiple High findings (CORS, headers, cookies, HTTPS/HSTS, dev-mode disclosure). `SecurityHeadersMiddleware` ✅ and `ErpMiddleware` sync-I/O removal ✅ Implemented; per-host CORS/cookie/HSTS/dev-mode changes ⏳ Planned (configuration checkpoint). |
+| **A06** | Vulnerable & Outdated Components | Out-of-support .NET 7: WASM **Shared** retargeted to `net10.0` ✅, **Server** ⏳ Planned; SDK pinned in `global.json` ✅; vendored JS libraries documented as CVE-gated (D6). |
+| **A07** | Identification & Authentication Failures | Default admin credential, session lifetime, lockout, token clock — ⏳ Planned (authentication checkpoint); MFA and localStorage token documented (D1, D2). |
+| **A08** | Software & Data Integrity Failures | Insecure deserialization: allowlist `ErpSerializationBinder` ✅ Implemented; call-site `TypeNameHandling` changes ⏳ Planned. SDK pinning added ✅. |
+| **A09** | Security Logging & Monitoring Failures | Structured security-event logging added ✅ Implemented. |
 | **A10** | Server-Side Request Forgery (SSRF) | Assessed; no server-side fetch of user-controlled URLs identified as a remediation target. Mail inline-image handling (HtmlAgilityPack) noted as an input-handling surface with no active finding. |
 
 ### 2.3 Supplementary Checks
@@ -116,36 +138,38 @@ REMEDIATION: [Specific fix applied]
 
 | # | Finding | OWASP | Severity | CWE | Status |
 |---|---------|:-----:|:--------:|-----|--------|
-| C1 | Weak password hashing (unsalted MD5) | A02 | Critical | CWE-916, CWE-759, CWE-327 | Fixed (crypto) |
-| C2 | Hardcoded default encryption key in source | A02 | Critical | CWE-798, CWE-321 | Fixed (crypto) |
-| C3 | Hardcoded / default JWT signing key | A02 | Critical | CWE-798, CWE-321, CWE-547 | Fixed (crypto/config) |
-| C4 | Default administrator credential | A07 | Critical | CWE-798, CWE-521 | Fixed (authentication) |
-| C5 | Insecure deserialization (`TypeNameHandling`) | A08 | Critical | CWE-502 | Fixed (deserialization) |
-| H1 | Non-constant-time credential comparison | A02 | High | CWE-208 | Fixed (crypto) |
-| H2 | Committed database credentials | A02 | High | CWE-798 | Fixed (configuration) |
-| H3 | Permissive CORS (`AllowAnyOrigin`) | A05 | High | CWE-942 | Fixed (configuration) |
-| H4 | Missing security response headers | A05 | High | CWE-693, CWE-1021, CWE-16 | Fixed (configuration) |
-| H5 | Session cookie missing `Secure`/`SameSite` | A05 | High | CWE-614, CWE-1275 | Fixed (configuration) |
-| H6 | Missing HTTPS redirection / HSTS (cleartext transport) | A02 | High | CWE-319 | Fixed (configuration) |
-| H7 | Excessive session lifetime (100-year cookie) | A07 | High | CWE-613 | Fixed (authentication) |
-| H8 | No account lockout / brute-force protection | A07 | High | CWE-307 | Fixed (authentication) |
-| H9 | Information disclosure via development mode | A05 | High | CWE-489, CWE-215, CWE-11 | Fixed (configuration) |
-| H10 | Out-of-support runtime (.NET 7) | A06 | High | CWE-1104 | Fixed (components) |
-| M1 | Token expiry uses local time, not UTC | A07 | Medium | CWE-613 | Fixed (authentication) |
-| M2 | Synchronous I/O enabled (DoS surface) | A05 | Medium | CWE-400 | Fixed (configuration) |
-| M3 | Insufficient security logging | A09 | Medium | CWE-778 | Fixed (logging) |
-| L1 | Unpinned SDK toolchain (supply-chain) | A08 | Low | CWE-1104 | Fixed (components) |
+| C1 | Weak password hashing (unsalted MD5) | A02 | Critical | CWE-916, CWE-759, CWE-327 | ◑ Partial — PBKDF2 primitive ✅; call-site routing ⏳ |
+| C2 | Hardcoded default encryption key in source | A02 | Critical | CWE-798, CWE-321 | ⏳ Planned (crypto) |
+| C3 | Hardcoded / default JWT signing key | A02 | Critical | CWE-798, CWE-321, CWE-547 | ◑ Partial — `ErpSettings` default removed ✅; host `Config.json` ⏳ |
+| C4 | Default administrator credential | A07 | Critical | CWE-798, CWE-521 | ⏳ Planned (authentication) |
+| C5 | Insecure deserialization (`TypeNameHandling`) | A08 | Critical | CWE-502 | ◑ Partial — `ErpSerializationBinder` ✅; call sites ⏳ |
+| H1 | Non-constant-time credential comparison | A02 | High | CWE-208 | ✅ Implemented (crypto) |
+| H2 | Committed database credentials | A02 | High | CWE-798 | ⏳ Planned (configuration) |
+| H3 | Permissive CORS (`AllowAnyOrigin`) | A05 | High | CWE-942 | ⏳ Planned (configuration) |
+| H4 | Missing security response headers | A05 | High | CWE-693, CWE-1021, CWE-16 | ◑ Partial — middleware ✅; host wiring ⏳ |
+| H5 | Session cookie missing `Secure`/`SameSite` | A05 | High | CWE-614, CWE-1275 | ⏳ Planned (configuration) |
+| H6 | Missing HTTPS redirection / HSTS (cleartext transport) | A02 | High | CWE-319 | ⏳ Planned (configuration) |
+| H7 | Excessive session lifetime (100-year cookie) | A07 | High | CWE-613 | ⏳ Planned (authentication) |
+| H8 | No account lockout / brute-force protection | A07 | High | CWE-307 | ⏳ Planned (authentication) |
+| H9 | Information disclosure via development mode | A05 | High | CWE-489, CWE-215, CWE-11 | ⏳ Planned (configuration) |
+| H10 | Out-of-support runtime (.NET 7) | A06 | High | CWE-1104 | ◑ Partial — WASM Shared ✅; Server ⏳ |
+| M1 | Token expiry uses local time, not UTC | A07 | Medium | CWE-613 | ⏳ Planned (authentication) |
+| M2 | Synchronous I/O enabled (DoS surface) | A05 | Medium | CWE-400 | ✅ Implemented (configuration) |
+| M3 | Insufficient security logging | A09 | Medium | CWE-778 | ✅ Implemented (logging) |
+| L1 | Unpinned SDK toolchain (supply-chain) | A08 | Low | CWE-1104 | ✅ Implemented (components) |
 | D1 | No multi-factor authentication (MFA) | A07 | Medium | CWE-308 | Documented |
 | D2 | JWT stored in browser localStorage (WASM) | A07/A02 | Medium | CWE-522, CWE-79 | Documented |
-| D3 | Runtime C# evaluation (accepted risk) | A03 | Medium | CWE-94 | Documented (comment + guard verified) |
+| D3 | Runtime C# evaluation (accepted risk) | A03 | Medium | CWE-94 | ✅ Admin-only guard enforced; documented |
 | D4 | UI-only authorization helper (`WvAuthorize`) | A01 | Low | CWE-602 | Documented |
 | D5 | Latent null-reference in Blazor circuit handler | A04 | Low | CWE-476 | Documented |
 | D6 | Vendored client-side libraries (CVE-gated) | A06 | Low | CWE-1104, CWE-1395 | Documented |
 | D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | A02/A05 | Low | CWE-798 | Documented |
 
-> **Consistency note.** Every Critical and High finding was fixed. Items **M1–M3** and **L1** are Medium/Low that were fixed opportunistically because the edit was low-risk and already in scope for its commit class; they are marked *Fixed* accordingly. Items **D1–D7** are Medium/Low that were documented, not code-changed, per the Minimal Change Clause.
+> **Consistency note.** The **Status** column reflects the state at the current **foundational-primitives checkpoint**, not the end state of the whole engagement: **✅ Implemented** items have landed in code; **◑ Partial** items have their shared primitive implemented with the remaining call-site/host integration **⏳ Planned**; **⏳ Planned** items are scheduled for a later vulnerability-class checkpoint (see the **Milestone Status** banner in Section 1 and the per-subsection Status markers in Section 5, which are authoritative). Items **M2–M3** and **L1** are Medium/Low that were implemented in this checkpoint because the edit was low-risk and already in scope for its commit class; **M1** remains **⏳ Planned** with the rest of the authentication class. Items **D1–D7** are Medium/Low that are documented, not code-changed, per the Minimal Change Clause; **D3**'s administrator-only guard has additionally been **enforced in code** (see Section 4.10 — A03) on top of being documented.
 
 ---
+
+> **How to read the REMEDIATION field below.** Each finding block uses the mandated audit template, whose `REMEDIATION` line states the **prescribed fix** for that vulnerability. The template describes the fix in the specified form; it does **not** by itself assert the fix has already shipped. Whether a given remediation has **landed at this checkpoint** versus is **scheduled for a later vulnerability-class checkpoint** is given authoritatively by the **Status** column in Section 4.2 and the per-subsection **Status** markers in Section 5. Where the two could be read as differing, Sections 4.2 and 5 govern.
 
 ### 4.3 A02 — Cryptographic Failures
 
@@ -440,7 +464,7 @@ LOCATION: WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L45
 DESCRIPTION: The platform evaluates C# source at runtime via CS-Script to support admin-authored server-side logic. Dynamic code execution is inherently powerful and, if exposed to untrusted authors, would permit arbitrary code execution.
 IMPACT: If a non-trusted actor could supply the source code, this would be remote code execution. In the platform's design the authorship of this code is restricted to trusted administrators, making it a deliberate, bounded capability rather than an open injection sink.
 EVIDENCE: CSScript.EvaluatorConfig.ReferenceDomainAssemblies = true; ICodeVariable scriptObject = CSScript.Evaluator.LoadCode<ICodeVariable>(sourceCode);
-REMEDIATION: Documented as an accepted risk; the capability is intentionally retained (removing it is feature loss, out of scope). A threat comment was added at the evaluation site and the admin-only trusted-author boundary was verified. Recommendation: keep the authorship path restricted to administrators and audit any change to who can supply code.
+REMEDIATION: Documented as an accepted risk; the capability is intentionally retained (removing it is feature loss, out of scope). The admin-only trusted-author boundary is now enforced in code: the request-reachable compiler endpoint `api/v3.0/datasource/code-compile` (WebVella.Erp.Web/Controllers/WebApiController.cs), which forwards caller-supplied `model.CsCode` to `CodeEvalService.Compile`, previously relied only on class-level `[Authorize]` (authentication, any role). It now carries `[Authorize(Roles = "administrator")]`, so non-administrators are denied by default. The threat comment at the evaluation site (`CodeEvalService.cs:L44-L48`) was corrected to describe the guard that is actually enforced rather than an assumed one. Recommendation: keep the authorship path restricted to administrators and audit any change to who can supply code.
 ```
 
 > **Positive control (A03, preserved — no change):** All database access uses parameterized `NpgsqlCommand` queries; SQL injection is therefore controlled at the data layer. This baseline was verified and deliberately left unchanged.
@@ -458,7 +482,7 @@ EVIDENCE: Circuit-handler code path that may dereference a null reference under 
 REMEDIATION: Documented only (Low, not Critical) per the Minimal Change Clause. Recommendation: add a null guard on the affected path in a future maintenance change.
 ```
 
-> **A04 note.** Insecure-design concerns primarily manifested as the session/authentication weaknesses already captured under A07 (excessive session lifetime, missing lockout), which were remediated.
+> **A04 note.** Insecure-design concerns primarily manifested as the session/authentication weaknesses already captured under A07 (excessive session lifetime, missing lockout, non-UTC token expiry); their remediation is **⏳ Planned** in the authentication vulnerability-class checkpoint (see Section 4.2 status for H7, H8, M1 and the Section 5 authentication marker).
 
 ### 4.12 A10 — Server-Side Request Forgery (SSRF)
 
@@ -469,9 +493,11 @@ REMEDIATION: Documented only (Low, not Critical) per the Minimal Change Clause. 
 
 ## 5. Remediation Actions (Critical & High)
 
-Remediations were grouped into atomic commits by vulnerability class and validated after each class. The before/after summaries below describe the vulnerable code and the fixed approach; no change alters an API contract, database schema, or documented performance envelope.
+Remediations are grouped into atomic commits by vulnerability class and validated after each class. The before/after summaries below describe the vulnerable code and the fixed approach; no change alters an API contract, database schema, or documented performance envelope. **Each subsection is annotated with its status at the current checkpoint (✅ Implemented / ⏳ Planned);** an item marked ⏳ describes the target fix that lands in a later vulnerability-class checkpoint and is **not yet present** in the code.
 
 ### 5.1 Commit class: `crypto` (A02)
+
+**Status:** ✅ Implemented — the `PasswordUtil` PBKDF2 primitive/verify and the `ErpSettings` JWT-default removal. ⏳ Planned — routing `SecurityManager`/`RecordManager`/`DbRecordRepository` through the new hasher and removing the hardcoded key from `CryptoUtility`.
 
 **Password hashing — MD5 → PBKDF2 with backward-compatible migration (C1, H1).**
 
@@ -485,14 +511,16 @@ if (result == Failed && VerifyMd5Hash(stored, provided))
     return SuccessRehashNeeded;   // caller re-persists a PBKDF2 hash on next login
 ```
 
-The credential-validation path (`WebVella.Erp/Api/SecurityManager.cs`) and the encrypted password-field write path (`WebVella.Erp/Api/RecordManager.cs`) were routed through the new primitive so hashing and verification stay consistent, and rehashed values are persisted on legacy success.
+⏳ **Planned:** the credential-validation path (`WebVella.Erp/Api/SecurityManager.cs`) and the encrypted password-field write path (`WebVella.Erp/Api/RecordManager.cs`) will be routed through the new primitive so hashing and verification stay consistent, persisting rehashed values on legacy success. These call sites still use the legacy MD5 helper at the current checkpoint and change in a later vulnerability-class checkpoint.
 
 **Hardcoded keys removed (C2, C3).**
 
-- **Before:** `CryptoUtility.cs` fell back to a compiled-in default encryption key; `ErpSettings.cs` fell back to the literal JWT key `"ThisIsMySecretKey"`.
-- **After:** The literals are removed. A configured encryption key (`Settings:EncryptionKey`) and JWT signing key (`Settings:Jwt:Key`) are required; a missing key fails fast at startup with a clear message instead of silently using a known secret. The deprecated misspelled `Settings:EncriptionKey` continues to be read for backward compatibility but is documented as deprecated (Section 8).
+- **Before:** `CryptoUtility.cs` falls back to a compiled-in default encryption key; `ErpSettings.cs` fell back to the literal JWT key `"ThisIsMySecretKey"`.
+- **After:** ✅ Implemented for the JWT key — the literal is removed from `ErpSettings.cs`; a configured JWT signing key (`Settings:Jwt:Key`) is required and a missing key fails fast at startup with a clear message instead of silently using a known secret. The deprecated misspelled `Settings:EncriptionKey` continues to be read for backward compatibility but is documented as deprecated (Section 8). ⏳ **Planned** for the encryption key — removing the compiled-in default from `CryptoUtility.cs` and requiring a configured `Settings:EncryptionKey` lands in a later checkpoint.
 
 ### 5.2 Commit class: `configuration` (A02/A05)
+
+**Status:** ✅ Implemented — `SecurityHeadersMiddleware` (the baseline headers with CSP in report-only mode) and the removal of the synchronous-I/O opt-in in `ErpMiddleware`. ⏳ Planned — the seven-host CORS allowlist, cookie `SecurePolicy`/`SameSite`, `UseHttpsRedirection`/`UseHsts`, `Config.json` secret removal / `DevelopmentMode=false`, and `web.config` environment change. (The header baseline below is emitted by the middleware; `Strict-Transport-Security` is added by `UseHsts()` when the host wiring lands.)
 
 **Security-header baseline (H4).** A new `WebVella.Erp.Web/Middleware/SecurityHeadersMiddleware.cs` emits the following baseline on every response (reproduced verbatim as the required standard):
 
@@ -526,19 +554,30 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 
 ### 5.3 Commit class: `deserialization` (A08)
 
+**Status:** ✅ Implemented — the shared fail-closed `ErpSerializationBinder`. ⏳ Planned — switching the four Newtonsoft `TypeNameHandling` call sites (`JobDataService`, `NotificationContext`, `DbEntityRepository`, `DbRelationRepository`) to `None` or the binder. The `TypeNameHandling` sites below are unchanged at the current checkpoint.
+
 **`TypeNameHandling` gadget surface closed (C5).**
 - **Before:** `TypeNameHandling.All` (jobs) and `TypeNameHandling.Auto` (notifications, entities, relations) honored an attacker-influenceable `$type` discriminator.
 - **After:** `TypeNameHandling.None` where polymorphism is unnecessary; otherwise a shared allowlist binder:
 
 ```
-// ErpSerializationBinder (conceptual): reject any type outside the permitted set
-public Type BindToType(string assemblyName, string typeName) =>
-    _allowed.Contains(typeName) ? _inner.BindToType(assemblyName, typeName) : null;
+// ErpSerializationBinder (conceptual): FAIL-CLOSED — resolve only allow-listed types and THROW for
+// anything else, so a hostile $type discriminator (deserialization gadget) is never materialized.
+// Never return null (that would be fail-open); Newtonsoft only instantiates the type AFTER this returns.
+public Type BindToType(string assemblyName, string typeName)
+{
+    Type resolvedType = DefaultBinder.BindToType(assemblyName, typeName);
+    if (resolvedType == null || !IsTypeAllowed(resolvedType))
+        throw new JsonSerializationException($"Blocked deserialization of forbidden type '{typeName}' (A08 / CWE-502).");
+    return resolvedType;
+}
 ```
 
-The binder's allowlist enumerates the types persisted by jobs, notifications, entities, and relations so existing stored data still round-trips.
+The binder's allowlist admits first-party (`WebVella*`) types plus a curated safe BCL set, recursing through array element types and generic arguments so existing stored data still round-trips while any non-permitted type is rejected by throwing.
 
 ### 5.4 Commit class: `authentication` (A07)
+
+**Status:** ⏳ Planned — all items in this subsection (`ERPService` default-admin credential, `AuthService` cookie lifetime and UTC token clock, and `login.cshtml.cs` lockout) land in a later vulnerability-class checkpoint and are **not yet present** in the code.
 
 - **Default admin (C4):** static password `"erp"` → CSPRNG-generated initial password with forced rotation at first login.
 - **Session lifetime (H7):** cookie `ExpiresUtc` reduced from `AddYears(100)` to an operational lifetime aligned with the 1440-minute JWT lifetime.
@@ -547,10 +586,14 @@ The binder's allowlist enumerates the types persisted by jobs, notifications, en
 
 ### 5.5 Commit class: `components` (A06)
 
-- **Runtime target (H10):** `WebVella.Erp.WebAssembly` Server and Shared projects retargeted `net7.0` → `net10.0`.
-- **SDK pin (L1):** `global.json` SDK version pinned to a .NET 10 SDK for reproducible builds.
+**Status:** ✅ Implemented — the WASM **Shared** project retarget and the `global.json` SDK pin. ⏳ Planned — the WASM **Server** project retarget.
+
+- **Runtime target (H10):** ✅ the `WebVella.Erp.WebAssembly` **Shared** project is retargeted `net7.0` → `net10.0`; ⏳ the **Server** project retarget is Planned for a later checkpoint.
+- **SDK pin (L1):** ✅ `global.json` SDK version pinned to a .NET 10 SDK for reproducible builds.
 
 ### 5.6 Commit class: `logging` (A09)
+
+**Status:** ✅ Implemented.
 
 - **Security events (M3):** `Log.cs` extended with structured entries for authentication failures, permission denials, and role/password changes.
 
@@ -559,7 +602,7 @@ The binder's allowlist enumerates the types persisted by jobs, notifications, en
 
 ## 6. Documented Findings (Medium & Low — not code-changed)
 
-Per the Minimal Change Clause ("document but do not fix unless Critical"), the following Medium/Low findings are documented with a recommended fix and a deferral rationale rather than remediated in code. (The Medium/Low items that *were* fixed opportunistically — M1, M2, M3, L1 — appear in Sections 4 and 5.)
+Per the Minimal Change Clause ("document but do not fix unless Critical"), the following Medium/Low findings are documented with a recommended fix and a deferral rationale rather than remediated in code. (The Medium/Low items that *were* implemented at the current checkpoint because the edit was low-risk and already in scope for its commit class — **M2, M3, L1** — appear in Sections 4 and 5; **M1** is ⏳ Planned with the authentication class.)
 
 ### D1 — No multi-factor authentication (MFA)
 - **OWASP / Severity / CWE:** A07 / Medium / CWE-308.
@@ -576,10 +619,10 @@ Per the Minimal Change Clause ("document but do not fix unless Critical"), the f
 
 ### D3 — Runtime C# evaluation (accepted risk)
 - **OWASP / Severity / CWE:** A03 / Medium / CWE-94.
-- **Location:** `WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L45`.
+- **Location:** `WebVella.Erp.Web/Services/CodeEvalService.cs` (runtime eval site); enforcing guard in `WebVella.Erp.Web/Controllers/WebApiController.cs` (route `api/v3.0/datasource/code-compile`).
 - **Description:** Admin-authored C# is evaluated at runtime (CS-Script). This is a deliberate, trusted-author feature.
-- **Applied action:** A threat comment was added at the evaluation site and the admin-only authorship boundary was verified. The capability is intentionally **retained** (removing it is feature loss).
-- **Deferral rationale:** Removing the feature is out of scope; the risk is bounded to trusted administrators. Recommendation: keep authorship restricted to administrators and audit any change to who can supply code.
+- **Applied action:** ✅ Implemented. The `api/v3.0/datasource/code-compile` endpoint in `WebApiController` — the only request path that submits arbitrary source code to `CodeEvalService` — now carries `[Authorize(Roles = "administrator")]` in addition to the controller's class-level `[Authorize]`, so arbitrary runtime C# compilation is reachable **only by administrators**, not by every authenticated user. A threat comment at the eval site documents this enforced guard. The runtime `Evaluate` path executes code that was already persisted (code data sources / page-component code) via the admin-only page-builder / SDK tooling. The capability is intentionally **retained** (removing it is feature loss).
+- **Deferral rationale:** Removing the feature is out of scope; with the administrator-only guard enforced, the residual risk is bounded to trusted administrators. Recommendation: keep authorship restricted to administrators and audit any change to who can supply code.
 
 ### D4 — UI-only authorization helper (`WvAuthorize`)
 - **OWASP / Severity / CWE:** A01 / Low / CWE-602.
@@ -624,27 +667,29 @@ These existing controls were verified as correct baseline behavior and intention
 
 ## 7. Scan Results (Before / After)
 
-The scans below are the `.NET`-appropriate equivalents of the request's `npm audit` / `pip-audit` examples (Section 2.4). "Before" reflects the pre-remediation baseline; "After" is the target end-state once all remediations in this change set are in place. The acceptance gate is **zero Critical/High** across SAST, SCA, and secrets scans.
+The scans below are the `.NET`-appropriate equivalents of the request's `npm audit` / `pip-audit` examples (Section 2.4). "Before" reflects the pre-remediation baseline; the **"After (target)"** column is the *projected* end-state once **all** remediations in this change set are in place. The acceptance gate is **zero Critical/High** across SAST, SCA, and secrets scans.
+
+> **⏳ Status: gates not yet met.** The automated SAST/SCA/secrets scans have **not yet been run to completion**, and several remediations that clear these categories are still **⏳ Planned** (Section 5). The "After (target)" values below are therefore projections, not measured results — each total row is marked **Target (pending)** rather than "gate met." A dependency scan run at the current checkpoint additionally surfaces an outstanding **high-severity advisory for `AutoMapper` 14.0.0 (NU1903)** and moderate advisories for **`MailKit`/`MimeKit` (NU1902)** that must be resolved before the SCA gate can pass.
 
 ### 7.1 SAST (Security Code Scan / Semgrep / Roslyn CA2326–CA2330)
 
-| Category | Before (Critical/High) | After (Critical/High) | Notes |
+| Category | Before (Critical/High) | After (target) | Notes |
 |----------|:----------------------:|:---------------------:|-------|
 | Insecure deserialization (CA2326–CA2330) | 11 sites | 0 | `TypeNameHandling.None` / allowlist binder (C5). |
 | Weak hashing (MD5) | 1 | 0 | PBKDF2 migration (C1). |
 | Hardcoded keys (crypto) | 2 | 0 | Encryption + JWT keys removed (C2, C3). |
 | Non-constant-time comparison | 1 | 0 | `FixedTimeEquals` (H1). |
-| **SAST total (Critical/High)** | **15** | **0** | Gate met. |
+| **SAST total (Critical/High)** | **15** | **0** | Target (pending) — deserialization call-site switches and the crypto integration/CryptoUtility key removal are ⏳ Planned. |
 
 ### 7.2 SCA (`dotnet list package --vulnerable --include-transitive` / OWASP Dependency-Check / Trivy / retire.js)
 
-| Component surface | Before (Critical/High) | After (Critical/High) | Notes |
+| Component surface | Before (Critical/High) | After (target) | Notes |
 |-------------------|:----------------------:|:---------------------:|-------|
-| NuGet managed packages | 0 | 0 | Security-relevant packages already at current, patched pins (Section 7.4); no version bump required. |
+| NuGet managed packages | `AutoMapper` 14.0.0 (NU1903, high); `MailKit`/`MimeKit` (NU1902, moderate) | pending | Surfaced by `dotnet build`/restore; the AAP's *security-relevant* pins (Section 7.4) are current, but these advisories are outstanding and tracked under A06. |
 | Runtime target (.NET 7 EOS) | 2 projects unsupported | 0 | Retargeted to `net10.0` (H10). |
 | SDK toolchain pin | unpinned | pinned | `global.json` pinned (L1). |
 | Vendored JS (retire.js) | none confirmed | none confirmed | CVE-gated; monitor in CI (D6). |
-| **SCA total (Critical/High)** | **0 (mgd) + EOS runtime** | **0** | Gate met. |
+| **SCA total (Critical/High)** | **`AutoMapper` NU1903 (high) + EOS runtime** | pending | Target (pending) — `AutoMapper` advisory unresolved and the WASM Server retarget is ⏳ Planned. |
 
 ### 7.3 Secrets (gitleaks / detect-secrets)
 
@@ -654,9 +699,9 @@ The scans below are the `.NET`-appropriate equivalents of the request's `npm aud
 | Encryption key literal | present (source + config) | 0 | Removed; configured value required (C2). |
 | JWT signing key literal | present (source + config) | 0 | Removed; configured value required (C3). |
 | Default admin password | present in source | 0 | CSPRNG-generated + forced rotation (C4). |
-| **Secrets total** | **≥4** | **0** | Gate met. |
+| **Secrets total** | **≥4** | **0** | Target (pending) — secret removal from the seven host `Config.json` and the default-admin rotation are ⏳ Planned. |
 
-> **Interpretation.** After remediation, the acceptance gates are satisfied: SAST **0** Critical/High, SCA **0** Critical/High CVEs (and no end-of-support runtime), and secrets scan **0** committed credentials. Managed NuGet dependencies required no version changes because they were already at current, patched releases; the A06 remediation is a runtime-target change plus a CVE-gated vendored-asset policy, not a package-upgrade wave.
+> **Interpretation.** The acceptance goal is that, **once all remediations land**, SAST reports **0** Critical/High, SCA reports **0** Critical/High CVEs (and no end-of-support runtime), and the secrets scan reports **0** committed credentials. At the current foundational checkpoint these gates are **not yet met**: several clearing remediations are ⏳ Planned (Section 5), and the SCA surface still shows the outstanding `AutoMapper` NU1903 (high) / `MailKit`/`MimeKit` NU1902 (moderate) advisories, which are tracked under A06. The AAP's *security-relevant* NuGet pins (Section 7.4) are already current; the A06 remediation is a runtime-target change plus a CVE-gated vendored-asset policy rather than a wholesale package-upgrade wave.
 
 ### 7.4 Security-relevant dependency versions (reference)
 
@@ -737,15 +782,18 @@ This gate operationalizes the "no insecure defaults in production" guarantee and
 
 ## 9. Appendix / References
 
-### 9.1 Remediated files (by commit class)
+### 9.1 Remediation file plan (by commit class)
 
-- **crypto (A02):** `WebVella.Erp/Utilities/PasswordUtil.cs`, `WebVella.Erp/Utilities/CryptoUtility.cs`, `WebVella.Erp/ErpSettings.cs`, `WebVella.Erp/Api/SecurityManager.cs`, `WebVella.Erp/Api/RecordManager.cs`.
-- **configuration (A05/A02):** `WebVella.Erp.Web/Middleware/SecurityHeadersMiddleware.cs` (new), `WebVella.Erp.Web/Middleware/ErpMiddleware.cs`, `WebVella.Erp.Site*/Startup.cs` (7 hosts), `WebVella.Erp.Site*/Config.json` (7 hosts), `WebVella.Erp.Site/web.config`.
-- **deserialization (A08):** `WebVella.Erp/Utilities/ErpSerializationBinder.cs` (new), `WebVella.Erp/Jobs/JobDataService.cs`, `WebVella.Erp/Notifications/NotificationContext.cs`, `WebVella.Erp/Database/DbEntityRepository.cs`, `WebVella.Erp/Database/DbRelationRepository.cs`.
-- **authentication (A07):** `WebVella.Erp.Web/Services/AuthService.cs`, `WebVella.Erp.Web/Pages/login.cshtml.cs`, `WebVella.Erp/ERPService.cs`.
-- **components (A06):** `WebVella.Erp.WebAssembly/Server/*.csproj`, `WebVella.Erp.WebAssembly/Shared/*.csproj`, `global.json`.
-- **logging (A09):** `WebVella.Erp/Diagnostics/Log.cs`.
-- **documentation:** `SECURITY.md` (this report).
+Files in the full remediation plan, annotated with status at the current checkpoint (✅ Implemented / ⏳ Planned). See **Milestone Status** for the summary.
+
+- **crypto (A02):** ✅ `WebVella.Erp/Utilities/PasswordUtil.cs`, ✅ `WebVella.Erp/ErpSettings.cs` (JWT default); ⏳ `WebVella.Erp/Utilities/CryptoUtility.cs`, ⏳ `WebVella.Erp/Api/SecurityManager.cs`, ⏳ `WebVella.Erp/Api/RecordManager.cs`.
+- **configuration (A05/A02):** ✅ `WebVella.Erp.Web/Middleware/SecurityHeadersMiddleware.cs` (new), ✅ `WebVella.Erp.Web/Middleware/ErpMiddleware.cs`; ⏳ `WebVella.Erp.Site*/Startup.cs` (7 hosts), ⏳ `WebVella.Erp.Site*/Config.json` (7 hosts), ⏳ `WebVella.Erp.Site*/web.config`.
+- **deserialization (A08):** ✅ `WebVella.Erp/Utilities/ErpSerializationBinder.cs` (new); ⏳ `WebVella.Erp/Jobs/JobDataService.cs`, ⏳ `WebVella.Erp/Notifications/NotificationContext.cs`, ⏳ `WebVella.Erp/Database/DbEntityRepository.cs`, ⏳ `WebVella.Erp/Database/DbRelationRepository.cs`.
+- **eval boundary (A03):** ✅ `WebVella.Erp.Web/Controllers/WebApiController.cs` (administrator-only guard on `api/v3.0/datasource/code-compile`), ✅ `WebVella.Erp.Web/Services/CodeEvalService.cs` (accepted-risk threat comment).
+- **authentication (A07):** ⏳ `WebVella.Erp.Web/Services/AuthService.cs`, ⏳ `WebVella.Erp.Web/Pages/login.cshtml.cs`, ⏳ `WebVella.Erp/ERPService.cs`.
+- **components (A06):** ✅ `WebVella.Erp.WebAssembly/Shared/*.csproj`, ✅ `global.json`; ⏳ `WebVella.Erp.WebAssembly/Server/*.csproj`.
+- **logging (A09):** ✅ `WebVella.Erp/Diagnostics/Log.cs`.
+- **documentation:** ✅ `SECURITY.md` (this report — milestone-accurate skeleton/status at the current checkpoint; expanded as later checkpoints land).
 
 ### 9.2 Reference-only files (preserved, not modified)
 
@@ -769,7 +817,16 @@ This gate operationalizes the "no insecure defaults in production" guarantee and
 - .NET support policy — .NET 7 end of support 2024-05-14; .NET 10 current LTS.
 - CWE database: `https://cwe.mitre.org/`
 
+### 9.5 Environment / build fixes (NOT part of the security remediation)
+
+A set of tracked `.sln`/`.csproj` edits correct project-reference **path casing** (`WebVella.ERP` → `WebVella.Erp`) so the solution restores and builds on a **case-sensitive (Linux) filesystem**. These are **build-environment fixes, not security changes**, and are intentionally kept **separate from the security milestone**:
+
+- **What:** case-only path corrections in `WebVella.ERP3.sln` and the following project files — `WebVella.Erp.ConsoleApp`, `WebVella.Erp.Web`, the six `WebVella.Erp.Plugins.*`, and the six `WebVella.Erp.Site.*` `.csproj` files (15 files total).
+- **Why:** on a case-insensitive filesystem (Windows) the original casing resolves; on a case-sensitive filesystem it does not, breaking `dotnet restore`/`build`.
+- **Isolation:** they are committed in a **dedicated setup commit** (`setup: fix case-sensitive project references (WebVella.ERP -> WebVella.Erp)`), distinct from the security-remediation commits, so the security change set contains only security-relevant modifications.
+- **Security impact:** none — no code behavior, API contract, dependency, or configuration value is changed; only reference path casing.
+
 ---
 
-*This report documents the security posture of the WebVella ERP codebase after the audit and remediation described above. Critical and High findings were remediated in code with the least-invasive change consistent with preserving existing functionality; Medium and Low findings were documented with recommended fixes. The report reflects the target validation posture of zero Critical/High findings across SAST, SCA, and secrets scans.*
+*This report documents the target security posture of the WebVella ERP codebase for the audit and phased remediation described above, and its status at the current checkpoint. Critical and High findings are being remediated in code with the least-invasive change consistent with preserving existing functionality; Medium and Low findings are documented with recommended fixes. Section 5 and Section 7 mark each item **✅ Implemented / ⏳ Planned**; the zero-Critical/High validation posture across SAST, SCA, and secrets scans is the **target** acceptance gate and is **not yet met** at the current checkpoint.*
 

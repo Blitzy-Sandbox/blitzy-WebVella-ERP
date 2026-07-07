@@ -491,6 +491,13 @@ namespace WebVella.Erp.Web.Controllers
 			}
 		}
 
+		// SECURITY (A03 / CWE-94 - Code Injection): this endpoint hands caller-supplied C# (model.CsCode)
+		// to CodeEvalService.Compile, which compiles arbitrary code at runtime (CS-Script). Class-level
+		// [Authorize] only guarantees authentication, so without this attribute ANY authenticated user could
+		// reach the runtime compiler. Restrict to administrators (deny-by-default for every other role) so the
+		// accepted-risk runtime-eval boundary is actually enforced, matching the admin-only data-source
+		// authoring UI that is the sole intended caller.
+		[Authorize(Roles = "administrator")]
 		[Route("api/v3.0/datasource/code-compile")]
 		[HttpPost]
 		public ActionResult DataSourceAction([FromBody] DataSourceCodeTestModel model)
