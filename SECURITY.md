@@ -18,7 +18,7 @@ The audit assessed the full OWASP Top 10 (2021) surface plus supplementary check
 | Critical | 5 | **All remediated in code** (C1–C5). |
 | High | 11 | **10 remediated in code** (H1–H10); **1 risk-accepted + build-audit-suppressed** (H11 — AutoMapper advisory; upstream fix is license-incompatible, documented with a migration recommendation). |
 | Medium | 7 | M1–M3 remediated in code; D1–D3, D9 documented (accepted-risk / feature-scope / pre-existing). |
-| Low | 6 | L1 remediated in code; D4–D8, D10 documented. |
+| Low | 7 | L1 and D7 remediated in code; D4–D6, D8, D10 documented. |
 
 ### 1.2 Headline Outcome
 
@@ -118,7 +118,7 @@ REMEDIATION: [Specific fix applied]
 | D4 | UI-only authorization helper (`WvAuthorize`) | A01 | Low | CWE-602 | 📄 Documented |
 | D5 | Latent null-reference in Blazor circuit handler | A04 | Low | CWE-476 | 📄 Documented |
 | D6 | Vendored client-side libraries (CVE-gated) | A06 | Low | CWE-1104, CWE-1395 | 📄 Documented |
-| D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | A02/A05 | Low | CWE-798 | 📄 Documented |
+| D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | A02/A05 | Low | CWE-798 | ✅ Resolved |
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | A06 | Low | CWE-1104 | 📄 Documented |
 | D9 | JWT token endpoints leak stack traces + file paths in production | A05 | Medium | CWE-209 | 📄 Documented |
 | D10 | `MicrosoftCDM` host reuses the `Crm` session cookie name (`erp_auth_crm`) | A05 | Low | CWE-614, CWE-1275 | 📄 Documented |
@@ -483,9 +483,10 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 ```
 
   A `UseSecurityHeaders()` extension registers it in the pipeline.
-- **Seven host `Startup.cs`** — replaced permissive CORS with an explicit origin allowlist (modeled on `Site.Crm`'s `AllowNodeJsLocalhost` template — that template file is **unchanged**, used as reference only); added `Cookie.SecurePolicy` (env-gated: `Always` in prod, `SameAsRequest` in dev) and `Cookie.SameSite = Lax`; added `UseHttpsRedirection()`/`UseHsts()` (non-development only); wired `UseSecurityHeaders()`. Each host also now initializes `ErpSettings.Initialize(Configuration)` in `ConfigureServices` (see the design note below), so environment-variable / user-secret configuration flows through to `ErpSettings` at every host — this replaced an earlier out-of-scope edit to the shared `WebVella.Erp.Web/ErpMvcExtensions.cs`, which was reverted to be byte-identical to its baseline.
+- **Seven host `Startup.cs`** — replaced permissive CORS with an explicit origin allowlist (modeled on the `AllowNodeJsLocalhost` **CORS policy** already present in `Site.Crm/Startup.cs`, which serves as the reference template — that CORS policy body is unchanged, though `Site.Crm/Startup.cs`, like every host, did receive the cookie/HSTS/header hardening below); added `Cookie.SecurePolicy` (env-gated: `Always` in prod, `SameAsRequest` in dev) and `Cookie.SameSite = Lax`; added `UseHttpsRedirection()`/`UseHsts()` (non-development only); wired `UseSecurityHeaders()`. Each host also now initializes `ErpSettings.Initialize(Configuration)` in `ConfigureServices` (see the design note below), so environment-variable / user-secret configuration flows through to `ErpSettings` at every host — this replaced an earlier out-of-scope edit to the shared `WebVella.Erp.Web/ErpMvcExtensions.cs`, which was reverted to be byte-identical to its baseline.
 - **Seven host `Config.json`** — removed the committed database credentials, encryption key, and JWT key (all now empty and sourced from user-secrets/env); set `DevelopmentMode=false`.
-- **`web.config` (WebVella.Erp.Site only)** — documented that `ASPNETCORE_ENVIRONMENT` must not be `Development` in production.
+- **`WebVella.Erp.ConsoleApp/Config.json`** — removed the committed connection string and encryption-key literal (now empty, sourced from user-secrets/env) and set `DevelopmentMode=false`, closing **D7** (this local EQL/CRUD smoke harness previously carried the same class of secrets as the hosts).
+- **`web.config` (WebVella.Erp.Site)** — set `ASPNETCORE_ENVIRONMENT=Production` so the developer exception page and detailed stack-trace/debug disclosure are disabled in production (**H9**); it must not be `Development` in production.
 
 **Build-gate fix (host packaging).** Resolving the CORS/cookie/header work surfaced an `NETSDK1022` duplicate-`Content`-item build failure in `WebVella.Erp.Site` when a lowercase runtime `config.json` is present alongside the shipped `Config.json` on a case-sensitive filesystem. `WebVella.Erp.Site.csproj` now adds `config.json` to `DefaultItemExcludes` and re-includes `Config.json` with `CopyToOutputDirectory=PreserveNewest`, so the solution builds cleanly whether or not a lowercase `config.json` exists, with no publish regression.
 
@@ -528,7 +529,6 @@ Per the Minimal Change Clause, the following are documented with recommended fix
 | D4 | UI-only authorization helper `WvAuthorize` | Low | Ensure every UI-gated action has an independent server-side permission check. | Server-side `HasEntityPermission` is already authoritative; this is defense-in-depth. |
 | D5 | Latent null-reference in Blazor circuit handler | Low | Add a null guard on the affected path. | Robustness defect, not a security compromise; not Critical. |
 | D6 | Vendored client-side libraries (CVE-gated) | Low | Run retire.js in CI; update only libraries with an active CVE. | No confirmed active CVE this pass; blanket upgrade risks UI regressions. |
-| D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | Low | Move the ConsoleApp connection string to user-secrets/env. | The ConsoleApp is a local dev/smoke harness, not a deployed host; low exposure. |
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | Low | After compatibility validation, update to the latest patched releases in routine dependency maintenance. | Moderate severity does not fail the Critical/High acceptance gate; a version bump is outside the minimal-change boundary for this audit. |
 | D9 | JWT token endpoints (`GetJwtToken`/`GetNewJwtToken`) return `e.Message + e.StackTrace` to the client in production | Medium | Return a generic client-facing error and gate detail on `DevelopmentMode` (mirror `ApiControllerBase`); never place `e.StackTrace` in a response body — it is already logged server-side via `LogService`. | Pre-existing (present at the pre-audit baseline); not among the enumerated in-scope A07 targets; Medium ⇒ documented per §0.8.1, not code-changed. |
 | D10 | `MicrosoftCDM` host reuses the `Crm` cookie name (`erp_auth_crm`) | Low | Assign a host-unique cookie name (e.g., `erp_auth_cdm`) so auth cookies cannot collide across hosts on a shared parent domain. | Pre-existing session-isolation nit; negligible impact in the single-host reference deployment; Low ⇒ documented, outside the minimal cookie-flag fix (H5). |
@@ -693,24 +693,32 @@ openssl rand -hex 32
 | `WebVella.Erp/ErpSettings.cs` | Remove default JWT/encryption keys; require configured values (A02/A05) | ✅ |
 | `WebVella.Erp/Api/SecurityManager.cs` | Route validation through PBKDF2; rehash-on-login (A02/A07) | ✅ |
 | `WebVella.Erp/Api/RecordManager.cs` | Password-field write path uses PBKDF2 (A02) | ✅ |
+| `WebVella.Erp/Database/DbRecordRepository.cs` | Encrypted password-field write path uses PBKDF2 instead of MD5 (A02) | ✅ |
 | `WebVella.Erp/ERPService.cs` | Operator-supplied bootstrap secret; fail-fast; no stdout (A07) | ✅ |
 | `WebVella.Erp/Jobs/JobDataService.cs` | `TypeNameHandling` → `None`/binder (A08) | ✅ |
 | `WebVella.Erp/Notifications/NotificationContext.cs` | `TypeNameHandling` → `None`/binder (A08) | ✅ |
 | `WebVella.Erp/Database/DbEntityRepository.cs` | `TypeNameHandling` → `None`/binder (A08) | ✅ |
 | `WebVella.Erp/Database/DbRelationRepository.cs` | `TypeNameHandling` → `None`/binder (A08) | ✅ |
+| `WebVella.Erp/Api/Models/AutoMapper/Profiles/JobProfile.cs` | Job attribute/result (de)serialization constrained with the `ErpSerializationBinder` allowlist (A08) | ✅ |
 | `WebVella.Erp/Diagnostics/Log.cs` | Structured security-event logging (A09) | ✅ |
+| `WebVella.Erp.Web/Models/BaseErpPageModel.cs` | Wire `LogPermissionDenied` at the page-access authorization deny paths (A09) | ✅ |
 | `WebVella.Erp.Web/Services/AuthService.cs` | Cookie lifetime → operational; UTC token expiry (A07) | ✅ |
 | `WebVella.Erp.Web/Middleware/ErpMiddleware.cs` | Remove `AllowSynchronousIO` (DoS) | ✅ |
 | `WebVella.Erp.Web/Services/CodeEvalService.cs` | Threat comment + admin-only guard verified (A03) | ✅ |
+| `WebVella.Erp.Web/Controllers/WebApiController.cs` | `[Authorize(Roles="administrator")]` on the runtime-compile endpoint — deny-by-default for non-admins (A03/D3) | ✅ |
 | `WebVella.Erp.Web/Pages/login.cshtml.cs` (+ `login.cshtml`) | 5-attempt lockout + forced first-login rotation (A07) | ✅ |
 | `WebVella.Erp.Site*/Startup.cs` (7 hosts) | CORS allowlist, cookie `SecurePolicy`/`SameSite`, HTTPS/HSTS, headers, `ErpSettings.Initialize` (A05/A02/A07) | ✅ |
 | `WebVella.Erp.Site*/Config.json` (7 hosts) | Remove secrets; `DevelopmentMode=false` (A02/A05) | ✅ |
+| `WebVella.Erp.ConsoleApp/Config.json` | Remove committed connection string / encryption key; `DevelopmentMode=false` (A02/A05, D7) | ✅ |
+| `WebVella.Erp.Site/web.config` | `ASPNETCORE_ENVIRONMENT=Production` — disable dev exception page / stack-trace disclosure (A05/H9) | ✅ |
 | `WebVella.Erp.Site.csproj` | `config.json` `DefaultItemExcludes` + re-include `Config.json` PreserveNewest — fixes NETSDK1022 | ✅ |
 | `WebVella.Erp.WebAssembly/Server/*.csproj`, `.../Shared/*.csproj` | `net7.0` → `net10.0` (A06) | ✅ |
 | `global.json` | Pin SDK version (A08 supply-chain) | ✅ |
 | `WebVella.Erp/WebVella.Erp.csproj` | AutoMapper pinned `[14.0.0]` + risk-acceptance rationale comment (A06/H11) | ✅ |
+| `WebVella.Erp.Site/JWT_README.txt` | Reconcile the stale `JwtBearer` version to `10.0.1`; note the signing key must come from user-secrets/env, never source (A05 doc) | ✅ |
+| `.gitignore` | Ignore lowercase runtime `config.json` copies so removed secrets cannot be re-committed (A02/A05, CWE-798) | ✅ |
 
-**Reference-only (NOT modified):** `WebVella.Erp.Web/Controllers/ApiControllerBase.cs` (error masking), `WebVella.Erp/Api/Models/ErpUser.cs` (`[JsonIgnore]` redaction), `WebVella.Erp.Site.Crm/Startup.cs` (CORS template), `WebVella.Erp.Web/ErpMvcExtensions.cs` (reverted byte-identical to baseline — the config-supply wiring lives in each host `Startup.cs`, not the shared extension).
+**Reference-only (NOT modified):** `WebVella.Erp.Web/Controllers/ApiControllerBase.cs` (error masking), `WebVella.Erp/Api/Models/ErpUser.cs` (`[JsonIgnore]` redaction), `WebVella.Erp.Web/ErpMvcExtensions.cs` (reverted byte-identical to baseline — the config-supply wiring lives in each host `Startup.cs`, not the shared extension). Note: the `AllowNodeJsLocalhost` **CORS policy** in `WebVella.Erp.Site.Crm/Startup.cs` is the allowlist template the other hosts were modeled on and its CORS body is unchanged, but the file itself **was** modified (cookie `SecurePolicy`/`SameSite`, HSTS/HTTPS redirection, security headers, `ErpSettings.Initialize`) and is counted in the 7-host `Startup.cs` row above — it is not reference-only.
 
 ### 9.2 Standards Applied
 
