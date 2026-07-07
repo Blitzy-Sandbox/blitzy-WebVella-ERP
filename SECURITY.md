@@ -17,8 +17,8 @@ The audit assessed the full OWASP Top 10 (2021) surface plus supplementary check
 |----------|:-----:|-------------|
 | Critical | 5 | **All remediated in code** (C1–C5). |
 | High | 11 | **10 remediated in code** (H1–H10); **1 risk-accepted + build-audit-suppressed** (H11 — AutoMapper advisory; upstream fix is license-incompatible, documented with a migration recommendation). |
-| Medium | 6 | M1–M3 remediated in code; D1–D3 documented (accepted-risk / feature-scope). |
-| Low | 5 | L1 remediated in code; D4–D8 documented. |
+| Medium | 7 | M1–M3 remediated in code; D1–D3, D9 documented (accepted-risk / feature-scope / pre-existing). |
+| Low | 6 | L1 remediated in code; D4–D8, D10 documented. |
 
 ### 1.2 Headline Outcome
 
@@ -120,6 +120,8 @@ REMEDIATION: [Specific fix applied]
 | D6 | Vendored client-side libraries (CVE-gated) | A06 | Low | CWE-1104, CWE-1395 | 📄 Documented |
 | D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | A02/A05 | Low | CWE-798 | 📄 Documented |
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | A06 | Low | CWE-1104 | 📄 Documented |
+| D9 | JWT token endpoints leak stack traces + file paths in production | A05 | Medium | CWE-209 | 📄 Documented |
+| D10 | `MicrosoftCDM` host reuses the `Crm` session cookie name (`erp_auth_crm`) | A05 | Low | CWE-614, CWE-1275 | 📄 Documented |
 
 > The **REMEDIATION** field in each finding block below states the fix that was **applied** (past tense). For the risk-accepted item (H11) the block states the accepted-risk disposition and recommended long-term fix.
 
@@ -223,7 +225,7 @@ LOCATION: WebVella.Erp.Site/Startup.cs (only HttpOnly was set); applies to all s
 DESCRIPTION: The authentication cookie set HttpOnly but neither Secure (restrict to HTTPS) nor SameSite (restrict cross-site sending), leaving it eligible to be transmitted over cleartext and attached to cross-site requests.
 IMPACT: Without Secure the cookie can leak over HTTP; without SameSite it is attached to cross-site requests, broadening CSRF exposure and session-theft opportunities.
 EVIDENCE: options.Cookie.HttpOnly = true; options.Cookie.Name = "erp_auth_base"; // no Cookie.SecurePolicy, no Cookie.SameSite
-REMEDIATION: Added Cookie.SecurePolicy and Cookie.SameSite = SameSiteMode.Lax across all seven hosts, preserving each host's distinct cookie name. SecurePolicy is ENVIRONMENT-GATED — CookieSecurePolicy.Always in production, CookieSecurePolicy.SameAsRequest in development — so a strict HTTPS-only cookie does not break local HTTP development login. This depends on HTTPS enforcement (H6), added in the same edit. Verified at runtime: over HTTP in Development the cookie is set with SameSite=Lax; HttpOnly; no Secure flag.
+REMEDIATION: Added Cookie.SecurePolicy and Cookie.SameSite = SameSiteMode.Lax across all seven hosts, preserving each host's existing cookie name. Six hosts use distinct names (erp_auth_base, erp_auth_crm, erp_auth_mail, erp_auth_next, erp_auth_project, erp_auth_sdk); the MicrosoftCDM host reuses the Crm name (erp_auth_crm) — that pre-existing name collision is out of scope for this cookie-flag fix and is documented separately as a Low finding (D10). SecurePolicy is ENVIRONMENT-GATED — CookieSecurePolicy.Always in production, CookieSecurePolicy.SameAsRequest in development — so a strict HTTPS-only cookie does not break local HTTP development login. This depends on HTTPS enforcement (H6), added in the same edit. Verified at runtime: over HTTP in Development the cookie is set with SameSite=Lax; HttpOnly; no Secure flag.
 ```
 
 ```
@@ -246,6 +248,28 @@ DESCRIPTION: The middleware opted the request into synchronous I/O. Synchronous 
 IMPACT: A burst of slow or large requests can exhaust the thread pool, degrading or halting the service (availability impact).
 EVIDENCE: var syncIOFeature = context.Features.Get<IHttpBodyControlFeature>(); if (syncIOFeature != null) syncIOFeature.AllowSynchronousIO = true;
 REMEDIATION: The AllowSynchronousIO = true opt-in is removed/refactored toward asynchronous I/O so the pipeline no longer forces synchronous blocking. (Fixed opportunistically as a low-risk, localized edit within the configuration commit class.)
+```
+
+```
+FINDING: JWT token endpoints disclose exception stack traces and file paths (production)
+SEVERITY: Medium
+CWE: CWE-209
+LOCATION: WebVella.Erp.Web/Controllers/WebApiController.cs — GetJwtToken (route api/v3/en_US/auth/jwt/token, L4283-L4297) and GetNewJwtToken (route api/v3/en_US/auth/jwt/token/refresh, L4302-L4316)
+DESCRIPTION: The two [AllowAnonymous] JWT token / token-refresh endpoints catch exceptions and copy the raw exception message together with the full stack trace into the client-facing response body (response.Message = e.Message + e.StackTrace). Unlike the record/query API surface, these two handlers do NOT route error detail through the DevelopmentMode-gated masking in ApiControllerBase, so the disclosure occurs regardless of environment — including production.
+IMPACT: An unauthenticated caller can trigger an exception (e.g., malformed input) and read internal stack frames, absolute file paths, type names, and library internals, aiding reconnaissance and exploit development.
+EVIDENCE: catch (Exception e) { new LogService().Create(LogType.Error, "GetJwtToken", e); response.Success = false; response.Message = e.Message + e.StackTrace; }  (identical pattern in GetNewJwtToken)
+REMEDIATION: Documented only (Medium, not code-changed). These endpoints are pre-existing (present at the pre-audit baseline) and were not among the enumerated in-scope A07 remediation targets (AuthService.cs, login.cshtml.cs, ERPService.cs), so per the Minimal Change Clause and the severity-driven action rule (§0.8.1 — Medium findings are documented, not fixed) they are documented here. Recommended fix: return a generic client-facing error message and gate any detailed error on DevelopmentMode (mirroring ApiControllerBase); never assign e.StackTrace to a response body — the exception is already captured server-side via LogService for diagnostics.
+```
+
+```
+FINDING: MicrosoftCDM host reuses the Crm session cookie name
+SEVERITY: Low
+CWE: CWE-614, CWE-1275
+LOCATION: WebVella.Erp.Site.MicrosoftCDM/Startup.cs:L104 (Cookie.Name = "erp_auth_crm"), colliding with WebVella.Erp.Site.Crm/Startup.cs:L92
+DESCRIPTION: Six of the seven hosts assign a distinct authentication cookie name (erp_auth_base, erp_auth_crm, erp_auth_mail, erp_auth_next, erp_auth_project, erp_auth_sdk); the MicrosoftCDM host reuses the Crm host's cookie name (erp_auth_crm). If both hosts are ever served under the same parent domain, their authentication cookies can collide, causing session cross-talk.
+IMPACT: On a shared parent domain a session established on one host could be read or overwritten by the other, undermining session isolation between the two applications. In the reference single-host deployment the practical impact is negligible (Low).
+EVIDENCE: WebVella.Erp.Site.MicrosoftCDM/Startup.cs: options.Cookie.Name = "erp_auth_crm";  (identical to the value in WebVella.Erp.Site.Crm/Startup.cs)
+REMEDIATION: Documented only (Low, not Critical) per the Minimal Change Clause. Recommended fix: assign a host-unique cookie name (e.g., erp_auth_cdm) to the MicrosoftCDM host so cookies cannot collide across hosts sharing a parent domain. The Secure/SameSite hardening (H5) already applies to this cookie.
 ```
 
 ### 4.5 A06 — Vulnerable & Outdated Components
@@ -374,7 +398,7 @@ LOCATION: WebVella.Erp/Diagnostics/Log.cs
 DESCRIPTION: The logging facility recorded login timestamps and general error events but did not emit structured, security-relevant audit entries for authentication failures, permission denials, or role/password changes.
 IMPACT: Attacks such as brute-force attempts, privilege abuse, or unauthorized role changes may go undetected and lack the forensic trail required for incident response.
 EVIDENCE: Log.cs exposed GetLogs plus general create/error logging, with no dedicated security-event entries.
-REMEDIATION: Extended Log.cs with structured security-event entries for authentication failures, permission denials, and role/password changes, providing an auditable trail for monitoring and incident response. Authentication-failure logging never records the supplied password and is best-effort (never throws on the login path).
+REMEDIATION: Extended Log.cs with four structured security-event methods — LogAuthenticationFailure (source Security.Authentication), LogPermissionDenied (Security.Authorization), LogRoleChange (Security.RoleChange), and LogPasswordChange (Security.PasswordChange) — and WIRED them at their call sites so the entries are actually emitted: authentication failures in SecurityManager.GetUser(email, password); permission denials at the three /error?401 authorization-deny sites in WebVella.Erp.Web/Models/BaseErpPageModel.cs.Init(); and role/password changes in SecurityManager.SaveUser() (both the existing-user and create branches, driven by persisted-vs-incoming change detection). Every entry is IDENTIFIER-ONLY (email or resource path); the supplied password and the stored hash are never recorded (CWE-778), and all calls are best-effort (wrapped in try/catch so they never throw on the authentication or save path). Verified at runtime against a fresh database: each of the four categories writes a system_log type=3 (Security) row with an identifier-only message (an isolated role change leaves the password hash intact and vice-versa); a wrong-password attempt writes a Security.Authentication row while a successful login writes none; and a full scan of system_log confirmed no plaintext password or PBKDF2 hash material appears in any message or details field.
 ```
 
 ### 4.9 A01 — Broken Access Control
@@ -506,6 +530,8 @@ Per the Minimal Change Clause, the following are documented with recommended fix
 | D6 | Vendored client-side libraries (CVE-gated) | Low | Run retire.js in CI; update only libraries with an active CVE. | No confirmed active CVE this pass; blanket upgrade risks UI regressions. |
 | D7 | Secrets in `WebVella.Erp.ConsoleApp/Config.json` | Low | Move the ConsoleApp connection string to user-secrets/env. | The ConsoleApp is a local dev/smoke harness, not a deployed host; low exposure. |
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | Low | After compatibility validation, update to the latest patched releases in routine dependency maintenance. | Moderate severity does not fail the Critical/High acceptance gate; a version bump is outside the minimal-change boundary for this audit. |
+| D9 | JWT token endpoints (`GetJwtToken`/`GetNewJwtToken`) return `e.Message + e.StackTrace` to the client in production | Medium | Return a generic client-facing error and gate detail on `DevelopmentMode` (mirror `ApiControllerBase`); never place `e.StackTrace` in a response body — it is already logged server-side via `LogService`. | Pre-existing (present at the pre-audit baseline); not among the enumerated in-scope A07 targets; Medium ⇒ documented per §0.8.1, not code-changed. |
+| D10 | `MicrosoftCDM` host reuses the `Crm` cookie name (`erp_auth_crm`) | Low | Assign a host-unique cookie name (e.g., `erp_auth_cdm`) so auth cookies cannot collide across hosts on a shared parent domain. | Pre-existing session-isolation nit; negligible impact in the single-host reference deployment; Low ⇒ documented, outside the minimal cookie-flag fix (H5). |
 
 ### 6.1 Positive Controls Preserved (reference-only, not modified)
 
@@ -705,6 +731,21 @@ openssl rand -hex 32
 - Target framework: **.NET 10** across the solution (the two `net7.0` WASM projects were retargeted). SDK pinned in `global.json`.
 - Runtime configuration on a case-sensitive filesystem: source references a lowercase `config.json` while the repository ships `Config.json`; `WebVella.Erp.Site.csproj` now excludes the lowercase runtime artifact from the build items and re-includes `Config.json` (PreserveNewest), so both the build and publish are correct regardless of a lowercase copy.
 - The AutoMapper advisory suppression is declared once, solution-wide, in `Directory.Build.props`.
+
+### 9.5 Out-of-Scope, Pre-existing, Non-security Observations (documented, not fixed)
+
+The QA browser/end-to-end pass surfaced the following **functional/operational** observations. They are **not security vulnerabilities**, and each was verified via `git` to **pre-date this security audit** (they exist at the pre-audit baseline and were not introduced or affected by any remediation edit). Per the Minimal Change Clause (§0.7) and the out-of-scope boundary (§0.3.2 — "unrelated feature, performance, or refactoring work"), they are documented here for a complete audit trail but were deliberately **not changed** (none is Critical). They are recorded so a future functional-maintenance effort can address them.
+
+| # | Observation | Severity | Pre-existing evidence | Disposition |
+|---|-------------|:--------:|-----------------------|-------------|
+| O1 | Blazor Server circuit on the SDK `/dev` page does not connect — `blazor.server.js` returns HTTP 405 | Info (functional) | Caused by the catch-all `[AcceptVerbs("DELETE"), Route("{*filepath}")]` action in `WebApiController.cs` combined with the legacy `UseStaticFiles()`/routing order under .NET 10; the catch-all route is present from the **initial commit `4919f97d`**. The security remediation to the Sdk `Startup.cs` only added dev-gated `UseHttpsRedirection`/`UseHsts` + a pass-through `UseSecurityHeaders()` and left the `UseStaticFiles → UseRouting → UseEndpoints` ordering unchanged. | Not a security issue; pre-existing; out of scope. Recommend a routing-order/catch-all fix in a functional change. |
+| O2 | Blazor **WASM** client returns 404 — broken `ProjectReference` to `..\Client\WebVella.Erp.WebAssembly.Client.csproj` (actual project file is `WebVella.Erp.WebAssembly.csproj`) | Info (functional) | The broken project reference was introduced in commit **`d8c5c086`** (2023-11-01), long before this audit. The only A06 edit to these projects was the `net7.0 → net10.0` target-framework retarget. | Not a security issue; pre-existing; out of scope. Recommend correcting the `ProjectReference` path in a build-maintenance change. |
+| O3 | CKEditor image-thumbnail generation fails on Linux (GDI+/`libgdiplus` dependency) | Info (environment) | Server-side image processing depends on `System.Drawing`/GDI+, which is not fully supported on Linux; this is an environment/runtime limitation, not introduced by any remediation. | Not a security issue; environment-specific; out of scope. Recommend a cross-platform image library for Linux hosting. |
+| O4 | `GET /fs/...` returns HTTP 500 when the request path carries a U+202F (narrow no-break space) header artifact | Info (functional) | Pre-existing file-serving handler behavior (matches the long-standing build warning `ASP0019` at `WebApiController.cs:3304`); unrelated to any security edit. | Not a security issue; pre-existing; out of scope. Recommend input-normalization hardening in a functional change. |
+| O5 | Minor navigation accessibility labels / bfcache eligibility observations | Info (a11y/perf) | UI/accessibility and back-forward-cache observations from the E2E pass; not security-relevant and not affected by remediation. | Not a security issue; out of scope. Recommend addressing in routine UX/a11y maintenance. |
+| F2 | JWT refresh endpoint returns `success: true` for a malformed/garbage refresh token (no token is actually issued) | Info (contract) | `GetNewJwtToken` reports success without issuing a token on unparseable input; **no authentication bypass** occurs (no valid token is minted, no session is granted). Behavior is pre-existing. | Not exploitable as an auth bypass; Info. Recommend returning an explicit failure for an invalid refresh token to tighten the API contract. |
+
+> These observations were also relayed in the resolution report. They are intentionally excluded from the security finding inventory (Sections 4 and 6) because they are not security vulnerabilities; this appendix preserves their disposition for completeness.
 
 ---
 
