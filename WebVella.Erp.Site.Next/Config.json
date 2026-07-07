@@ -10,7 +10,7 @@
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		// SECURITY (A05 · information disclosure): keep DevelopmentMode=false in production so detailed
+		// SECURITY (A05 / CWE-215 · information disclosure): keep DevelopmentMode=false in production so detailed
 		// error/stack-trace diagnostics are never disclosed to clients.
 		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",

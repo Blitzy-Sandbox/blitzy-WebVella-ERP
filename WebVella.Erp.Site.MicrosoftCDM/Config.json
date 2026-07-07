@@ -10,6 +10,7 @@
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
+		// SECURITY (A05 / CWE-215): DevelopmentMode disabled so detailed diagnostics/stack traces are not disclosed in production.
 		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
