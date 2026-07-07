@@ -11,10 +11,17 @@ namespace WebVella.Erp.Utilities
     // ONLY for that backward-compatible verification.
     public static class PasswordUtil
     {
-        // PBKDF2 tuning. Kept as constants for easy adjustment. 210,000 iterations meets OWASP guidance
-        // for PBKDF2-HMAC-SHA256 and stays well within the login performance envelope (login is infrequent).
+        // PBKDF2 tuning. Kept as constants for easy adjustment. 600,000 iterations meets the CURRENT OWASP
+        // guidance for PBKDF2-HMAC-SHA256 (raised from 210,000 as a MINOR Security-Hardening remediation) and
+        // stays well within the login performance envelope (login is infrequent; see the benchmark in SECURITY.md).
         private const string Pbkdf2Prefix = "PBKDF2$";
-        private const int Pbkdf2Iterations = 210000;
+        private const int Pbkdf2Iterations = 600000;
+        // SECURITY (A02 backward-compatible migration): the MINIMUM stored iteration count still accepted at
+        // verification time. It equals the PREVIOUS policy (210,000) so hashes written before this hardening
+        // continue to verify; because they are below the current Pbkdf2Iterations they return SuccessRehashNeeded
+        // and are transparently upgraded to 600,000 on the next successful login (rehash-on-login). Without this
+        // separate floor, raising Pbkdf2Iterations would reject every pre-existing PBKDF2 hash and lock users out.
+        private const int Pbkdf2MinIterations = 210000;
         // SECURITY (CWE-400): reject an absurd iteration count in a stored hash so a tampered value cannot
         // turn each verification into a CPU denial-of-service. 10,000,000 is far above any legitimate hash.
         private const int Pbkdf2MaxIterations = 10_000_000;
@@ -84,16 +91,18 @@ namespace WebVella.Erp.Utilities
                     return PasswordVerificationResult.Failed;
                 }
 
-                // SECURITY (A02 / CWE-916, CWE-330): enforce the mandated PBKDF2 cost/format BEFORE deriving so a
+                // SECURITY (A02 / CWE-916, CWE-330): enforce the accepted PBKDF2 cost/format BEFORE deriving so a
                 // tampered or downgraded stored hash (e.g. "PBKDF2$1$...", a short salt, or a 1-byte subkey) can
-                // NEVER verify as Success. HashPassword always emits exactly SaltByteSize/SubkeyByteSize at
-                // Pbkdf2Iterations, so anything with fewer iterations or a wrong salt/subkey length is invalid.
-                // The upper bound blocks a stored-hash CPU denial-of-service via an absurd iteration count. A
-                // null password and a zero-length subkey are both rejected here (FixedTimeEquals(empty,empty) is true).
+                // NEVER verify as Success. The accepted cost floor is Pbkdf2MinIterations (the previous 210,000
+                // policy): hashes at or above the floor verify, and those below the CURRENT Pbkdf2Iterations are
+                // re-hashed on login (see below), so raising the policy never locks out an already-migrated user.
+                // Anything below the floor, above Pbkdf2MaxIterations (upper bound blocks a stored-hash CPU
+                // denial-of-service), or with a wrong salt/subkey length is invalid. A null password and a
+                // zero-length subkey are both rejected here (FixedTimeEquals(empty,empty) is true).
                 if (providedPassword == null
                     || salt.Length != SaltByteSize
                     || storedSubkey.Length != SubkeyByteSize
-                    || iterations < Pbkdf2Iterations
+                    || iterations < Pbkdf2MinIterations
                     || iterations > Pbkdf2MaxIterations)
                     return PasswordVerificationResult.Failed;
 
