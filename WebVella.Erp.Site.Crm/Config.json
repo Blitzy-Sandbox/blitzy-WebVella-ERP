@@ -1,11 +1,16 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_crm_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (A02/A05 - CWE-798 Hard-coded Credentials): committed DB connection string with credentials removed.
+		// Supply at deploy time via user-secrets (key "Settings:ConnectionString") or environment variable "Settings__ConnectionString". Do NOT commit credentials.
+		"ConnectionString": "",
+		// SECURITY (A02 - CWE-798 Hard-coded Credentials): committed symmetric encryption key removed.
+		// Supply at deploy time via user-secrets (key "Settings:EncryptionKey") or environment variable "Settings__EncryptionKey".
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		// SECURITY (A05 - CWE-497/CWE-215 Information Disclosure): DevelopmentMode disabled so production does not leak stack traces/verbose diagnostics.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",

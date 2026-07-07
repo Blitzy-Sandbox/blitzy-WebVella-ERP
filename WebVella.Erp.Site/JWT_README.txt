@@ -1,6 +1,6 @@
 ﻿=========================================================================
 1. add to web site project 
-<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.3" />
+<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
 
 
 =========================================================================
@@ -9,7 +9,9 @@
 add in settings section
 
 "Jwt": {
-	"Key": "ThisIsMySecretKey",
+	// SECURITY: do NOT commit a real key. Leave "Key" empty in config.json and supply it via
+	// user-secrets (dev) or the Settings__Jwt__Key environment variable (prod).
+	"Key": "",
 	"Issuer": "webvella-erp",
 	"Audience": "webvella-erp"
 }
