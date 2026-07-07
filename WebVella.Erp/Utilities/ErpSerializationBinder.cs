@@ -48,6 +48,15 @@ namespace WebVella.Erp.Utilities
 			typeof(DateTimeOffset),
 			typeof(TimeSpan),
 			typeof(byte[]),
+			// SECURITY (A08 / CWE-502): System.Dynamic.ExpandoObject is the dynamic property-bag type used for
+			// persisted job Attributes/Result and schedule JobAttributes. JobDataService serializes these dynamic
+			// payloads with TypeNameHandling.All (emitting "$type":"System.Dynamic.ExpandoObject, System.Linq.Expressions")
+			// and JobProfile deserializes them (including through the object-typed JobResultWrapper.Result), so the
+			// binder MUST allow it or legitimate stored job/schedule data fails to round-trip (falling back to
+			// "ERROR WHILE DESERIALIZE"). ExpandoObject is an inert key/value bag (IDictionary<string, object>) with
+			// no deserialization side effects - it is NOT an exploitable gadget - so allowlisting it preserves data
+			// compatibility without weakening the fail-closed guarantee for genuine gadget types.
+			typeof(System.Dynamic.ExpandoObject),
 			// Open generic definitions (matched via Type.GetGenericTypeDefinition()):
 			typeof(List<>),
 			typeof(Dictionary<,>),
