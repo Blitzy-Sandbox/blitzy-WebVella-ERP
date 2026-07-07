@@ -268,7 +268,9 @@ namespace WebVella.Erp.Api
 						valEx.AddError("email", "Email is not valid.");
 				}
 
-				if (existingUser.Password != user.Password && !string.IsNullOrWhiteSpace(user.Password))
+				// SECURITY (A09/CWE-778): detect a genuine password change for audit logging (exact existing condition preserved).
+				bool passwordChanged = existingUser.Password != user.Password && !string.IsNullOrWhiteSpace(user.Password);
+				if (passwordChanged)
 					record["password"] = user.Password;
 
 				if (existingUser.Enabled != user.Enabled)
@@ -286,6 +288,8 @@ namespace WebVella.Erp.Api
 				if (existingUser.Image != user.Image)
 					record["image"] = user.Image;
 
+				// SECURITY (A09/CWE-778): detect a role-set change for audit logging (compare persisted vs incoming role ids).
+				bool rolesChanged = !new HashSet<Guid>(existingUser.Roles.Select(x => x.Id)).SetEquals(user.Roles.Select(x => x.Id));
 				record["$user_role.id"] = user.Roles.Select(x => x.Id).ToList();
 
 				valEx.CheckAndThrow();
@@ -293,6 +297,13 @@ namespace WebVella.Erp.Api
 				var response = recMan.UpdateRecord("user", record);
 				if (!response.Success)
 					throw new Exception(response.Message);
+
+				// SECURITY (A09/CWE-778): audit credential/role changes for monitoring & forensics (best-effort, non-throwing; identifier ONLY, never the password or hash).
+				string auditSubject = user.Email ?? user.Username ?? user.Id.ToString();
+				if (passwordChanged)
+					try { new WebVella.Erp.Diagnostics.Log().LogPasswordChange(auditSubject); } catch { }
+				if (rolesChanged)
+					try { new WebVella.Erp.Diagnostics.Log().LogRoleChange(auditSubject); } catch { }
 
 			}
 			else
@@ -331,6 +342,12 @@ namespace WebVella.Erp.Api
 				var response = recMan.CreateRecord("user", record);
 				if (!response.Success)
 					throw new Exception(response.Message);
+
+				// SECURITY (A09/CWE-778): audit initial credential set + role assignment on user creation (best-effort, non-throwing; identifier ONLY, never the password or hash).
+				string auditSubject = user.Email ?? user.Username ?? user.Id.ToString();
+				try { new WebVella.Erp.Diagnostics.Log().LogPasswordChange(auditSubject); } catch { }
+				if (user.Roles.Any())
+					try { new WebVella.Erp.Diagnostics.Log().LogRoleChange(auditSubject); } catch { }
 
 			}
 		}
