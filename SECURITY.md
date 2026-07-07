@@ -15,21 +15,21 @@ The audit assessed the full OWASP Top 10 (2021) surface plus supplementary check
 
 | Severity | Count | Disposition |
 |----------|:-----:|-------------|
-| Critical | 5 | **All remediated in code** (C1–C5). |
-| High | 11 | **10 remediated in code** (H1–H10); **1 risk-accepted + build-audit-suppressed** (H11 — AutoMapper advisory; upstream fix is license-incompatible, documented with a migration recommendation). |
-| Medium | 7 | M1–M3 remediated in code; D1–D3, D9 documented (accepted-risk / feature-scope / pre-existing). |
-| Low | 7 | L1 and D7 remediated in code; D4–D6, D8, D10 documented. |
+| Critical | 6 | **C1–C5 remediated in code**; **C6 documented** (bundled `libwkhtmltox.dll` SSRF advisory — upstream project archived/won't-fix, out-of-application-boundary infrastructure with no reachable managed sink; documented per §0.3.2). |
+| High | 12 | **11 remediated in code** (H1–H10, H12 — H12 is the js-cookie prototype-pollution refresh to 3.0.7); **1 risk-accepted + build-audit-suppressed** (H11 — AutoMapper advisory; upstream fix is license-incompatible, documented with a migration recommendation). |
+| Medium | 8 | M1–M3 remediated in code; D1–D3, D9, D11 documented (accepted-risk / feature-scope / pre-existing / data-model default). |
+| Low | 9 | L1 and D7 remediated in code; D4–D6, D8, D10, D12–D13 documented. |
 
 ### 1.2 Headline Outcome
 
 - **A02 Cryptographic Failures:** unsalted MD5 password hashing replaced with **PBKDF2** (HMAC-SHA-256, 128-bit salt, 256-bit subkey) with backward-compatible **rehash-on-login** migration and **constant-time** comparison; hardcoded encryption key and default JWT signing key removed (configured values now required, fail-fast at startup).
 - **A05 Security Misconfiguration:** per-host **CORS allowlist**, **security-headers middleware** (CSP in report-only mode), **cookie `SecurePolicy`/`SameSite`**, **HTTPS redirection + HSTS** (production), committed secrets removed, `DevelopmentMode=false` for production.
-- **A06 Vulnerable & Outdated Components:** the two end-of-support `net7.0` Blazor WASM projects retargeted to `net10.0`; SDK pinned in `global.json`. The `AutoMapper` 14.0.0 advisory is a documented risk acceptance (H11).
+- **A06 Vulnerable & Outdated Components:** the two end-of-support `net7.0` Blazor WASM projects retargeted to `net10.0`; SDK pinned in `global.json`; the vendored **js-cookie** client library refreshed **2.2.x → 3.0.7** to remediate a prototype-pollution advisory (H12). The `AutoMapper` 14.0.0 advisory is a documented risk acceptance (H11).
 - **A07 Identification & Authentication Failures:** no static default administrator password (operator-supplied bootstrap secret with **forced first-login rotation**); 100-year session cookie reduced to an operational lifetime; **five-attempt lockout**; token expiry corrected to UTC.
 - **A08 Software & Data Integrity Failures:** all four Newtonsoft.Json `TypeNameHandling` sites switched to `None` or a shared **fail-closed allowlist binder** (`ErpSerializationBinder`).
 - **A09 Security Logging Failures:** structured security-event logging added (auth failures, permission denials, role/password changes).
 
-**Validation posture (measured — see Section 7):** the clean release build passes (`dotnet build -c Release` → **0 errors**); SAST reports **0** insecure-deserialization/weak-crypto findings (Roslyn CA2326–CA2330 and weak-crypto analyzers); the secrets scan finds **0** committed credentials in the seven host `Config.json` files; and the SCA scan reports **0 Critical** with the only **High** being the risk-accepted `AutoMapper` advisory (build-audit-suppressed). Functional smoke tests (fresh-database seeding, forced admin-password rotation, cookie login, EQL + record CRUD/hook flow) pass.
+**Validation posture (measured — see Section 7):** the clean release build passes (`dotnet build -c Release` → **0 errors**); SAST reports **0** insecure-deserialization/weak-crypto findings (Roslyn CA2326–CA2330 and weak-crypto analyzers); the secrets scan finds **0** committed credentials in the seven host `Config.json` files; and the automated SCA scan reports **0 Critical** with the only scanner-flagged **High** being the risk-accepted `AutoMapper` advisory (build-audit-suppressed) — the previously-vendored js-cookie High was remediated by the 3.0.7 refresh (H12). One **documented Critical** (C6, the bundled `libwkhtmltox.dll` SSRF advisory) is not surfaced by the SCA scanners because it is a native binary with no managed reference and no reachable in-application sink; it is documented as out-of-application-boundary infrastructure (§4.12), not code-changed, because no upstream fix exists (project archived) and it lies outside the application boundary per §0.3.2. Functional smoke tests (fresh-database seeding, forced admin-password rotation, cookie login, EQL + record CRUD/hook flow) pass.
 
 ---
 
@@ -97,6 +97,7 @@ REMEDIATION: [Specific fix applied]
 | C3 | Hardcoded / default JWT signing key | A02 | Critical | CWE-798, CWE-321, CWE-547 | ✅ Resolved |
 | C4 | Default administrator credential | A07 | Critical | CWE-798, CWE-521 | ✅ Resolved |
 | C5 | Insecure deserialization (`TypeNameHandling`) | A08 | Critical | CWE-502 | ✅ Resolved |
+| C6 | SSRF advisory in bundled `libwkhtmltox.dll` native library | A10 | Critical | CWE-918 | 📄 Documented (out-of-boundary; no reachable sink; no upstream fix) |
 | H1 | Non-constant-time credential comparison | A02 | High | CWE-208 | ✅ Resolved |
 | H2 | Committed database credentials | A02 | High | CWE-798 | ✅ Resolved |
 | H3 | Permissive CORS (`AllowAnyOrigin`) | A05 | High | CWE-942 | ✅ Resolved |
@@ -108,6 +109,7 @@ REMEDIATION: [Specific fix applied]
 | H9 | Information disclosure via development mode | A05 | High | CWE-489, CWE-215, CWE-11 | ✅ Resolved |
 | H10 | Out-of-support runtime (.NET 7) | A06 | High | CWE-1104 | ✅ Resolved |
 | H11 | `AutoMapper` 14.0.0 uncontrolled-recursion advisory | A06 | High | CWE-674 | ⚠ Risk-accepted (build-audit-suppressed) |
+| H12 | Outdated vendored `js-cookie` 2.2.x (prototype pollution) | A06 | High | CWE-1321, CWE-1104 | ✅ Resolved (refreshed to 3.0.7) |
 | M1 | Token expiry uses local time, not UTC | A07 | Medium | CWE-613 | ✅ Resolved |
 | M2 | Synchronous I/O enabled (DoS surface) | A05 | Medium | CWE-400 | ✅ Resolved |
 | M3 | Insufficient security logging | A09 | Medium | CWE-778 | ✅ Resolved |
@@ -122,8 +124,11 @@ REMEDIATION: [Specific fix applied]
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | A06 | Low | CWE-1104 | 📄 Documented |
 | D9 | JWT token endpoints leak stack traces + file paths in production | A05 | Medium | CWE-209 | 📄 Documented |
 | D10 | `MicrosoftCDM` host reuses the `Crm` session cookie name (`erp_auth_crm`) | A05 | Low | CWE-614, CWE-1275 | 📄 Documented |
+| D11 | User password-hash readable by any authenticated user (EQL / datasource / record API) | A01 | Medium | CWE-522, CWE-256, CWE-200 | 📄 Documented |
+| D12 | Hardcoded demo credential in the WASM sample page | A07 | Low | CWE-798 | 📄 Documented |
+| D13 | Commented-out internal DB topology in base-Site `Config.json` | A05 | Low | CWE-200 | 📄 Documented |
 
-> The **REMEDIATION** field in each finding block below states the fix that was **applied** (past tense). For the risk-accepted item (H11) the block states the accepted-risk disposition and recommended long-term fix.
+> The **REMEDIATION** field in each finding block below states the fix that was **applied** (past tense). For the risk-accepted item (H11) the block states the accepted-risk disposition and recommended long-term fix; for the documented items (C6, D-series) it states the recommended fix and the deferral rationale.
 
 ### 4.3 A02 — Cryptographic Failures
 
@@ -297,6 +302,17 @@ REMEDIATION: Risk-accepted and kept pinned at [14.0.0]. The upgrade is doubly bl
 ```
 
 ```
+FINDING: Outdated vendored js-cookie (prototype pollution)
+SEVERITY: High
+CWE: CWE-1321 (Improperly Controlled Modification of Object Prototype Attributes), CWE-1104 (Use of Unmaintained Third-Party Components)
+LOCATION: WebVella.Erp.Web/wwwroot/lib/js-cookie/js.cookie.min.js (vendored js-cookie 2.2.x)
+DESCRIPTION: The vendored js-cookie library was version 2.2.x, affected by advisory GHSA-qjx8-664m-686j (CVE-2026-46625, High, CWE-1321, CVSS 7.5). The 2.x internal extend() helper copied every enumerable key — including "__proto__" — from a source options object into the target, enabling prototype pollution / cookie-attribute injection when attacker-influenced data reached a Cookies.set / withConverter call.
+IMPACT: If attacker-controlled input reached the cookie-attribute path, a crafted "__proto__" key could modify Object.prototype, corrupting application logic that relies on prototype-chain lookups (denial of service, or in some application shapes logic/authorization manipulation). In THIS codebase every Cookies.* call site in base.js is currently commented out, so live exploitability was low, but the vulnerable library was still served to browsers and would be flagged by client-side SCA (retire.js).
+EVIDENCE: The 2.x file contained the vulnerable `function e(){...for(var t in o)n[t]=o[t]}` extend with no "__proto__" guard, plus the 2.x API surface (getJSON / withConverter). A direct fetch of /_content/WebVella.Erp.Web/lib/js-cookie/js.cookie.min.js served the vulnerable body (verified pre-fix).
+REMEDIATION: Refreshed the vendored library 2.2.x → js-cookie 3.0.7 (MIT → MIT drop-in) — a CVE-gated vendored-asset update under the A06 components class (no libman.json exists; the asset is manually vendored). js-cookie 3.0.7 guards every assignment with `("__proto__" !== key)`, neutralizing the prototype-pollution vector, and removes the legacy getJSON API. A threat comment was prepended to the file. The orphan 2.x source map (`js.cookie.min.js.map` — unreferenced, no `sourceMappingURL`, and still embedding the vulnerable 2.x source; js-cookie 3.x ships no UMD map) was removed. Verified at runtime: the asset serves HTTP 200 with the 3.0.7 body (2485 bytes incl. threat comment); an in-browser injection of `{"__proto__":{...}}` no longer pollutes `Object.prototype` (`pollutionBlocked=true`); and the `Cookies.set`/`get` round-trip still works (no functional/visual regression; all call sites remain commented out).
+```
+
+```
 FINDING: Unpinned SDK toolchain (build reproducibility / supply-chain)
 SEVERITY: Low
 CWE: CWE-1104
@@ -313,9 +329,9 @@ SEVERITY: Low
 CWE: CWE-1104, CWE-1395
 LOCATION: WebVella wwwroot vendored client-side assets (e.g., Bootstrap v4, jQuery, moment, jsTree 3.3.7, Select2, Chart.js)
 DESCRIPTION: Front-end libraries are vendored into wwwroot. Vendored libraries can drift behind upstream security releases.
-IMPACT: An outdated vendored library carrying a known client-side CVE (e.g., DOM-based XSS) could be exploited in the browser context.
-EVIDENCE: Vendored assets are present under wwwroot/lib; no active CVE was confirmed by a scanner in this pass.
-REMEDIATION: Documented only (Low, not code-changed). Recommendation: run retire.js in CI and update only libraries flagged with an active CVE. Deferral rationale: a blanket front-end upgrade risks UI regressions and exceeds the minimal-change boundary; no confirmed active CVE in this pass.
+IMPACT: An outdated vendored library carrying a known client-side CVE (e.g., DOM-based XSS or prototype pollution) could be exploited in the browser context.
+EVIDENCE: Vendored assets are present under wwwroot/lib. In this pass exactly one vendored library carried an active advisory — js-cookie 2.2.x (prototype pollution, GHSA-qjx8-664m-686j) — which is tracked and remediated as its own resolved High finding (H12). The remaining vendored libraries (Bootstrap v4, jQuery, moment, jsTree 3.3.7, Select2, Chart.js) were not flagged with an active CVE by a scanner in this pass.
+REMEDIATION: The one flagged library (js-cookie) was updated 2.2.x → 3.0.7 (see H12). For the remaining libraries, documented only (Low, not code-changed). Recommendation: run retire.js in CI and update only libraries flagged with an active CVE. Deferral rationale: a blanket front-end upgrade risks UI regressions and exceeds the minimal-change boundary; no confirmed active CVE for the remaining libraries in this pass.
 ```
 
 ```
@@ -448,7 +464,20 @@ REMEDIATION: Documented only (Low, not Critical) per the Minimal Change Clause. 
 
 ### 4.12 A10 — Server-Side Request Forgery (SSRF)
 
-> **Assessed — no active finding.** No server-side code path was identified that fetches an attacker-controlled URL in a way that constitutes SSRF. The Mail plugin's inline-image handling (via HtmlAgilityPack) was noted as an input-handling surface to monitor, but no exploitable SSRF sink was found; no code change is made for A10.
+> **Application code: assessed — no active finding.** No server-side application code path was identified that fetches an attacker-controlled URL in a way that constitutes SSRF. The Mail plugin's inline-image handling (via HtmlAgilityPack) was noted as an input-handling surface to monitor, but no exploitable SSRF sink was found in managed code; no application code change is made for A10.
+
+> **Bundled native component: one documented Critical (C6, not code-changed).** A bundled third-party native library carries a known SSRF advisory. It is documented — not remediated — because no upstream fix exists (the project is archived) and it is out-of-application-boundary infrastructure per §0.3.2, with no reachable managed sink in this codebase.
+
+```
+FINDING: SSRF advisory in bundled wkhtmltox native library
+SEVERITY: Critical (documented — out-of-application-boundary; no upstream fix; no reachable in-app sink)
+CWE: CWE-918 (Server-Side Request Forgery)
+LOCATION: ExternalLibraries/libwkhtmltox.dll (git-tracked native binary, ~29 MB)
+DESCRIPTION: The repository bundles the wkhtmltopdf/wkhtmltox native rendering library, which is affected by CVE-2022-35583 (SSRF, CWE-918, CVSS 9.8): when rendering attacker-controlled HTML/URLs, wkhtmltox can be induced to issue server-side requests to arbitrary internal endpoints. The wkhtmltopdf project was archived in January 2023 and will not ship a fix.
+IMPACT: If a code path rendered attacker-controlled HTML through this library, an attacker could reach internal/metadata endpoints (SSRF). Exploitability in THIS codebase is effectively absent: a full source scan found ZERO managed references to the binary (no DllImport, no P/Invoke, no loader) — the only reference is a Windows-only post-build XCOPY step in WebVella.Erp.Site.csproj that merely stages the file into the output. There is no reachable rendering sink, so no live SSRF path exists in the running application; the library is a dormant, unreachable artifact.
+EVIDENCE: Grepping the solution for `libwkhtmltox` and `DllImport` returns only the post-build copy step (WebVella.Erp.Site.csproj) and the binary itself; no managed loader or invocation exists. Automated SCA scanners (`dotnet list package --vulnerable`, retire.js) do not flag it because it is a raw native binary, not a managed/NuGet or JS package.
+REMEDIATION: Documented, NOT code-changed, per the Minimal Change Clause and §0.3.2 (third-party binaries / infrastructure outside the application boundary are documented, not modified; only version updates are in scope, and none exists here). No upstream patch is available (project archived). Recommendations: (1) if PDF/image rendering is not used on a deployment, remove the bundled binary and its post-build copy step to eliminate the dormant artifact; (2) if rendering IS required, replace wkhtmltox with a maintained renderer (e.g., a headless-Chromium-based service) and enforce an egress allowlist / disable local-file and internal-network access at the network boundary; (3) treat any future introduction of a managed call site into this library as a Critical regression. Because there is no reachable sink and no upstream fix, this does not block the automated Critical/High SCA acceptance gate, but it is recorded here as a Critical advisory for full transparency.
+```
 
 ---
 
@@ -507,6 +536,7 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 
 - **`WebVella.Erp.WebAssembly/Server/*.csproj` and `.../Shared/*.csproj`** — retargeted `net7.0` → `net10.0` (✅).
 - **`global.json`** — SDK version pinned (✅).
+- **`WebVella.Erp.Web/wwwroot/lib/js-cookie/js.cookie.min.js`** — vendored js-cookie refreshed `2.2.x → 3.0.7` (MIT → MIT drop-in) to remediate prototype-pollution advisory `GHSA-qjx8-664m-686j` / `CVE-2026-46625` (H12/CWE-1321); a threat comment was prepended and the orphan 2.x source map (`js.cookie.min.js.map`) removed. CVE-gated client-library update (✅).
 - **`AutoMapper` 14.0.0** — kept pinned at `[14.0.0]`; a solution-wide `NuGetAuditSuppress` for `GHSA-rvv3-g6hj-g44x` was added to `Directory.Build.props` with a 20-line threat/risk-acceptance comment (⚠ risk-accepted, see H11). `MailKit`/`MimeKit` moderate advisories documented only (D8/Min).
 
 ### 5.6 Logging & DoS — ✅ Resolved
@@ -532,6 +562,11 @@ Per the Minimal Change Clause, the following are documented with recommended fix
 | D8 | `MailKit` 4.14.1 / `MimeKit` 4.14.0 moderate advisories | Low | After compatibility validation, update to the latest patched releases in routine dependency maintenance. | Moderate severity does not fail the Critical/High acceptance gate; a version bump is outside the minimal-change boundary for this audit. |
 | D9 | JWT token endpoints (`GetJwtToken`/`GetNewJwtToken`) return `e.Message + e.StackTrace` to the client in production | Medium | Return a generic client-facing error and gate detail on `DevelopmentMode` (mirror `ApiControllerBase`); never place `e.StackTrace` in a response body — it is already logged server-side via `LogService`. | Pre-existing (present at the pre-audit baseline); not among the enumerated in-scope A07 targets; Medium ⇒ documented per §0.8.1, not code-changed. |
 | D10 | `MicrosoftCDM` host reuses the `Crm` cookie name (`erp_auth_crm`) | Low | Assign a host-unique cookie name (e.g., `erp_auth_cdm`) so auth cookies cannot collide across hosts on a shared parent domain. | Pre-existing session-isolation nit; negligible impact in the single-host reference deployment; Low ⇒ documented, outside the minimal cookie-flag fix (H5). |
+| D11 | User password-hash readable by any authenticated user via EQL / datasource / record API | Medium | Set `enable_security=true` on the `user.password` field so it is redacted from read APIs, and/or narrow `user.record_permissions.can_read` to remove `guest`/`regular`. | Pre-existing platform data-model default: the `password` field ships with `enable_security=false` and the `user` entity is broadly readable (`can_read=[guest,regular,admin]`), so the stored hash is returned by generic read paths. Changing entity/field metadata is a data-model change beyond the minimal code-fix boundary; hashes are now PBKDF2 (600k iters, salted) so offline cracking is expensive. Medium ⇒ documented per §0.8.1. |
+| D12 | Hardcoded demo credential (`erp@webvella.com` / `erp`) in the WASM sample page | Low | Remove the hardcoded credential from `WebVella.Erp.WebAssembly/Client/Pages/Index.razor.cs` (≈L25) and require interactive entry, or exclude the sample page from production builds. | Demo/sample scaffolding in the WASM client — not part of the audited host application and not in the AAP file map; the seeded default admin password it references is itself remediated (C4: operator-supplied bootstrap secret + forced first-login rotation), so the literal no longer grants access. Low ⇒ documented. |
+| D13 | Commented-out internal DB topology in base-Site `Config.json` | Low | Remove the commented-out connection string / UNC storage path so internal host / port / database / share names are not disclosed in source. | The ACTIVE `ConnectionString` is already blank (committed secrets removed under the C-class secret remediation); only a commented-out line remains, disclosing internal topology (`Server=…;Port=…;Database=…`) and a `FileSystemStorageFolder` UNC path. Editing `Config.json` further is outside the minimal secret-removal fix already applied; Low ⇒ documented per §0.8.1. |
+
+**OBS1 (Info — no finding, no code change).** The encryption key is validated lazily (on first cryptographic use) whereas the JWT signing key is validated eagerly at startup (fail-fast). Neither falls back to an insecure default — both defaults were removed, and a missing value fails closed at its respective validation point rather than silently degrading. The asymmetry is noted for operators: a missing/invalid encryption key surfaces on the first encrypt/decrypt operation rather than at boot. Recommendation (optional, not a fix): promote encryption-key validation to startup for earlier operator feedback. Recorded as an Info observation only.
 
 ### 6.1 Positive Controls Preserved (reference-only, not modified)
 
@@ -574,7 +609,7 @@ Command: `dotnet list package --vulnerable --include-transitive` (plus the NuGet
 | MailKit | 4.14.1 | (NU1902) | Moderate | 📄 Documented (D8) — below the Critical/High gate. |
 | MimeKit | 4.14.0 | (NU1902) | Moderate | 📄 Documented (D8) — below the Critical/High gate. |
 
-**SCA outcome: 0 Critical, 0 un-accepted High.** The only High (AutoMapper) is a documented, formally accepted risk with a recorded suppression and a long-term migration recommendation; `dotnet list package --vulnerable` remains version-based and will still enumerate the advisory by design.
+**SCA outcome: 0 Critical, 0 un-accepted High.** The only scanner-flagged High (AutoMapper) is a documented, formally accepted risk with a recorded suppression and a long-term migration recommendation; `dotnet list package --vulnerable` remains version-based and will still enumerate the advisory by design. The vendored **js-cookie** advisory (H12) that a client-side scanner (retire.js) would flag has been remediated by the 2.2.x → 3.0.7 refresh, so retire.js is clean for it. Separately, the bundled **`libwkhtmltox.dll`** SSRF advisory (C6) is a **documented Critical** that the SCA scanners do **not** surface — it is a raw native binary (not a managed/NuGet or JS package) with no managed reference and no reachable in-application sink; it is recorded in §4.12 and does not block this gate (no upstream fix exists; out-of-application-boundary per §0.3.2).
 
 ### 7.4 Secrets Scan
 
@@ -601,9 +636,11 @@ Command: `dotnet list package --vulnerable --include-transitive` (plus the NuGet
 |------|-------------|:------:|
 | Clean release build | 0 errors | ✅ |
 | SAST | 0 Critical/High | ✅ |
-| SCA | 0 Critical/High (High = risk-accepted AutoMapper, suppressed) | ✅ |
+| SCA | 0 Critical / 0 un-accepted High from automated scanners (High = risk-accepted AutoMapper, suppressed; js-cookie High remediated to 3.0.7) | ✅ |
 | Secrets | 0 committed credentials | ✅ |
 | Functional smoke | all workflows pass | ✅ |
+
+> **Note on the documented Critical (C6).** The automated SCA acceptance gate evaluates managed/NuGet and vendored-JS packages and is clean (0 Critical, 0 un-accepted High). The `libwkhtmltox.dll` SSRF advisory (C6) is a Critical-severity item documented out-of-band (§4.12): it is a native binary the scanners do not enumerate, has no reachable in-application sink, and has no upstream fix (archived project). Per §0.3.2 it is out-of-application-boundary infrastructure and is documented rather than code-changed; it therefore does not fail the automated gate but is disclosed here in full for transparency.
 
 ### 7.7 Security-relevant Dependency Versions (reference)
 
@@ -713,6 +750,7 @@ openssl rand -hex 32
 | `WebVella.Erp.Site/web.config` | `ASPNETCORE_ENVIRONMENT=Production` — disable dev exception page / stack-trace disclosure (A05/H9) | ✅ |
 | `WebVella.Erp.Site.csproj` | `config.json` `DefaultItemExcludes` + re-include `Config.json` PreserveNewest — fixes NETSDK1022 | ✅ |
 | `WebVella.Erp.WebAssembly/Server/*.csproj`, `.../Shared/*.csproj` | `net7.0` → `net10.0` (A06) | ✅ |
+| `WebVella.Erp.Web/wwwroot/lib/js-cookie/js.cookie.min.js` | Vendored js-cookie refreshed 2.2.x → 3.0.7 (CVE-gated A06 client-lib update; prototype-pollution remediation, H12/CWE-1321) + threat comment; companion orphan `js.cookie.min.js.map` **removed** (unreferenced, embedded vulnerable 2.x source, no 3.x UMD map) | ✅ |
 | `global.json` | Pin SDK version (A08 supply-chain) | ✅ |
 | `WebVella.Erp/WebVella.Erp.csproj` | AutoMapper pinned `[14.0.0]` + risk-acceptance rationale comment (A06/H11) | ✅ |
 | `WebVella.Erp.Site/JWT_README.txt` | Reconcile the stale `JwtBearer` version to `10.0.1`; note the signing key must come from user-secrets/env, never source (A05 doc) | ✅ |
@@ -757,5 +795,5 @@ The QA browser/end-to-end pass surfaced the following **functional/operational**
 
 ---
 
-*End of report. All Critical and High findings are remediated in code except the AutoMapper advisory (H11), which is a documented, build-audit-suppressed risk acceptance with a recommended long-term migration to a maintained, license-compatible mapper. All Medium and Low findings are documented with recommended fixes. The FINAL validation gates (Section 7) pass with measured results.*
+*End of report. All Critical and High findings are remediated in code with two documented exceptions: the AutoMapper High advisory (H11), a build-audit-suppressed risk acceptance with a recommended long-term migration to a maintained, license-compatible mapper; and the wkhtmltox Critical SSRF advisory (C6), a bundled native binary with no upstream fix (archived project) and no reachable in-application sink, documented as out-of-application-boundary infrastructure per §0.3.2. The previously-vendored js-cookie High (H12) was remediated by the 2.2.x → 3.0.7 refresh. All Medium and Low findings are documented with recommended fixes. The FINAL validation gates (Section 7) pass with measured results.*
 
