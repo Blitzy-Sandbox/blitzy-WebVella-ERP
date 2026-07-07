@@ -1,0 +1,37 @@
+<Project>
+
+  <!-- ===========================================================================================
+       SECURITY (A06 - Vulnerable and Outdated Components) - solution-wide risk-acceptance record.
+
+       AutoMapper 14.0.0 is referenced directly by WebVella.Erp and TRANSITIVELY by every project
+       that depends on it (all Site hosts, all Plugins, Web, WASM Server, ConsoleApp). It carries
+       HIGH advisory GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (CWE-674 Uncontrolled Recursion): a deeply
+       nested or self-referential object graph pushed through a mapping path can exhaust the stack
+       (StackOverflowException, i.e. denial of service).
+
+       The upgrade is infeasible within the Minimal Change Clause:
+         * The fix (a default MaxDepth of 64) ships ONLY in AutoMapper 15.1.1+/16.1.1+, which are
+           RE-LICENSED from MIT to RPL-1.5 (reciprocal/copyleft) or commercial and are therefore
+           incompatible with this project's Apache-2.0 license. AAP 0.3.2/0.4.2 forbid third-party
+           dependency-version and license changes; 0.8.2 forbids architectural changes such as
+           swapping the mapper for a non-Critical finding (this advisory is HIGH, not Critical).
+         * The maintainer confirmed NO patch will be released for the 14.x (MIT) line.
+         * WebVella maps only its own bounded, non-cyclic internal metadata types (Entity, Field,
+           Relation, Job, User, Role, and similar); no attacker-controlled recursive object graph
+           reaches an AutoMapper conversion path, so real-world exploitability is effectively absent.
+
+       This NuGetAuditSuppress records the accepted risk for the NuGet build audit across ALL
+       projects (without it, each transitive consumer re-emits NU1903 during restore and build).
+       The full finding rationale is documented at WebVella.Erp/WebVella.Erp.csproj (the pinned
+       direct reference) and in SECURITY.md (finding H1). Recommended long-term remediation: migrate
+       to a maintained MIT-licensed mapper such as Mapperly.
+
+       NOTE: the NuGet vulnerability listing (dotnet list package, vulnerable flag) is a
+       VERSION-based query and will still list this advisory regardless of this suppression; that
+       residual is documented as a risk-accepted HIGH in SECURITY.md.
+       =========================================================================================== -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-rvv3-g6hj-g44x" />
+  </ItemGroup>
+
+</Project>

@@ -44,6 +44,27 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- SECURITY (A06 - Vulnerable & Outdated Components): AutoMapper 14.0.0 is affected by
+		     GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (HIGH, CWE-674 Uncontrolled Recursion): a deeply
+		     nested or self-referential object graph pushed through a mapping path can exhaust the
+		     stack (StackOverflowException => denial of service). This dependency is deliberately
+		     risk-accepted and kept pinned at [14.0.0] for the following reasons:
+		       (1) The maintainer has confirmed NO patch will be released for the 14.x line. The fix
+		           (a default MaxDepth of 64) ships only in 15.1.1+/16.1.1+, which are RE-LICENSED
+		           from MIT to RPL-1.5 (reciprocal/copyleft) or a commercial license and are therefore
+		           incompatible with this project's Apache-2.0 license. The AAP Minimal Change Clause
+		           forbids dependency-version and license changes for third-party libraries (0.3.2,
+		           0.4.2) and forbids architectural changes (e.g. migrating the mapper) for a
+		           non-Critical finding (0.8.2); this advisory is HIGH, not Critical.
+		       (2) WebVella maps only its own bounded, non-cyclic internal metadata types (Entity,
+		           Field, Relation, Job, User, Role, ...). No attacker-controlled recursive object
+		           graph reaches an AutoMapper conversion path, so real-world exploitability of the
+		           uncontrolled-recursion DoS is effectively absent for this codebase.
+		     The NuGet security audit is VERSION-based and will continue to list this advisory while
+		     14.0.0 is referenced; a single solution-wide NuGetAuditSuppress in Directory.Build.props
+		     records the accepted risk (for this project and every consumer of it) so the build audit
+		     does not fail. The recommended long-term remediation (migrate to a maintained MIT-licensed
+		     mapper such as Mapperly) is documented as a High finding in SECURITY.md. -->
 		<PackageReference Include="AutoMapper" Version="[14.0.0]" />
 		<PackageReference Include="CsvHelper" Version="33.1.0" />
 		<PackageReference Include="Ical.Net" Version="5.1.4" />
