@@ -36,6 +36,15 @@ namespace WebVella.Erp.Site.Mail
 					builder => builder.WithOrigins("http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
 			});
 
+			// SECURITY (A05/A02 - CWE-319 Cleartext Transmission): configure HSTS to the mandated baseline
+			// (max-age=31536000 = 1 year, includeSubDomains) so the Strict-Transport-Security header emitted by
+			// UseHsts() in the Configure pipeline matches the required security-header standard.
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
+
 			services.AddDetection();
 
 			services.AddMvc()
@@ -63,6 +72,12 @@ namespace WebVella.Erp.Site.Mail
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						// SECURITY (A07 - CWE-614 Sensitive Cookie Without 'Secure' / CWE-1275 Missing SameSite): restrict the
+						// auth cookie to HTTPS (Secure) and set SameSite=Lax to mitigate transport interception and CSRF.
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						// NOTE: fully qualified because Microsoft.Net.Http.Headers (imported for HeaderNames) also
+						// declares a SameSiteMode enum; CookieBuilder.SameSite requires Microsoft.AspNetCore.Http.SameSiteMode.
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_mail";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
@@ -94,7 +109,19 @@ namespace WebVella.Erp.Site.Mail
 				app.UseErrorHandlingMiddleware();
 				app.UseExceptionHandler("/error");
 				app.UseStatusCodePagesWithReExecute("/error");
+
+				// SECURITY (A05/A02 - CWE-319 Cleartext Transmission / CWE-693 Protection Mechanism Failure): enforce HTTPS
+				// and emit HSTS in non-development environments so the Secure-flagged auth cookie is only sent over TLS.
+				// Gated to non-development to preserve local HTTP development flows.
+				app.UseHsts();
+				app.UseHttpsRedirection();
 			}
+
+			// SECURITY (A05 - CWE-693 Protection Mechanism Failure / CWE-1021 Clickjacking / CWE-16 Misconfiguration): emit the
+			// baseline security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy,
+			// X-XSS-Protection, and report-only Content-Security-Policy) on every response, including static files and
+			// re-executed error responses. Placed AFTER the exception handlers so headers survive UseExceptionHandler re-execution.
+			app.UseSecurityHeaders();
 
 			//Should be before Static files
 			app.UseResponseCompression();

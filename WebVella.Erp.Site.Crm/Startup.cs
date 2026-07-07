@@ -64,6 +64,11 @@ namespace WebVella.Erp.Site.Crm
 					{
 						options.Cookie.HttpOnly = true;
 						options.Cookie.Name = "erp_auth_crm";
+						// SECURITY (A05/A07 - CWE-614 Sensitive Cookie Without 'Secure'; CWE-1275 Missing SameSite): send the auth
+						// cookie only over HTTPS and restrict cross-site sending to mitigate session hijacking and CSRF.
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						// SameSiteMode fully qualified: both Microsoft.AspNetCore.Http and Microsoft.Net.Http.Headers are imported and define SameSiteMode (avoids CS0104).
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
@@ -94,7 +99,16 @@ namespace WebVella.Erp.Site.Crm
 				app.UseErrorHandlingMiddleware();
 				app.UseExceptionHandler("/error");
 				app.UseStatusCodePagesWithReExecute("/error");
+				// SECURITY (A05 - CWE-319 Cleartext Transmission): outside Development, redirect HTTP->HTTPS and emit HSTS so
+				// browsers only use TLS. Gated to non-development so local HTTP dev flows are not broken. HSTS pairs with the Secure cookie above.
+				app.UseHttpsRedirection();
+				app.UseHsts();
 			}
+
+			// SECURITY (A05 - CWE-693 Protection Mechanism Failure): emit the baseline hardening response headers
+			// (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection, CSP report-only)
+			// on every response, including static files. Registered early so headers are set before the response body starts.
+			app.UseSecurityHeaders();
 
 			//Should be before Static files
 			app.UseResponseCompression();

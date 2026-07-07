@@ -81,16 +81,59 @@ namespace WebVella.Erp.Api
 
 			using (var ctx = SecurityContext.OpenSystemScope())
 			{
-				var encryptedPassword = PasswordUtil.GetMd5Hash(password);
-				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email AND password = @password",
-						 new List<EqlParameter> { new EqlParameter("email", email), new EqlParameter("password", encryptedPassword) }).Execute();
+				// SECURITY (A02/CWE-916 + A07/CWE-287): unsalted MD5 is a broken password primitive and, because the new
+				// PBKDF2 hashes are salted and non-deterministic, a SQL "password = @password" equality match is no longer
+				// possible. Fetch the user by email ONLY - the email stays parameterized (A03 SQL-injection protection is
+				// preserved) and keeps the case-insensitive ~* regex operator for behavioral parity - then verify in code below.
+				var result = new EqlCommand("SELECT *, $user_role.* FROM user WHERE email ~* @email",
+						 new List<EqlParameter> { new EqlParameter("email", email) }).Execute();
 
 				foreach (var rec in result)
 				{
 					if (((string)rec["email"]).ToLowerInvariant() == email.ToLowerInvariant())
+					{
+						// SECURITY (A02/CWE-916 + A07/CWE-287): PBKDF2 hashes are salted/non-deterministic and can no longer be
+						// matched by SQL equality, so credential verification is performed in code here. Read the STORED hash from
+						// the raw record - ErpUser.Password is [JsonIgnore] (Api/Models/ErpUser.cs) and may be null after MapTo.
+						var storedHash = rec["password"] as string;
+						var vr = PasswordUtil.VerifyPassword(storedHash, password);
+
+						if (vr == PasswordUtil.PasswordVerificationResult.Failed)
+						{
+							// SECURITY (A09/CWE-778): best-effort, non-throwing auth-failure audit (never logs the supplied password).
+							try { new WebVella.Erp.Diagnostics.Log().LogAuthenticationFailure(email); } catch { }
+							return null;
+						}
+
+						if (vr == PasswordUtil.PasswordVerificationResult.SuccessRehashNeeded)
+						{
+							// SECURITY (A02/CWE-916): transparently re-hash a verified LEGACY MD5 credential to PBKDF2 (rehash-on-login)
+							// so no existing user is locked out and MD5 is phased out over time. A targeted, parameterized direct UPDATE
+							// is used so the value is NOT hashed a second time (no double-hash) and no record hooks/validation fire on the
+							// login hot path. Mirrors the direct-SQL idiom in GetSystemUserWithNoSecurityCheck (physical table rec_user).
+							try
+							{
+								var newHash = PasswordUtil.HashPassword(password);
+								using (NpgsqlConnection connection = new NpgsqlConnection(ErpSettings.ConnectionString))
+								{
+									connection.Open();
+									using (NpgsqlCommand cmd = new NpgsqlCommand("UPDATE rec_user SET password = @password WHERE id = @id", connection))
+									{
+										cmd.Parameters.AddWithValue("@password", newHash);
+										cmd.Parameters.AddWithValue("@id", (Guid)rec["id"]);
+										cmd.ExecuteNonQuery();
+									}
+								}
+							}
+							catch { /* a write-back failure must NOT block an otherwise successful login */ }
+						}
+
 						return rec.MapTo<ErpUser>();
+					}
 				}
 
+				// SECURITY (A09/CWE-778): best-effort, non-throwing audit for a login attempt against a non-existent/non-matching email.
+				try { new WebVella.Erp.Diagnostics.Log().LogAuthenticationFailure(email); } catch { }
 				return null;
 			}
 		}

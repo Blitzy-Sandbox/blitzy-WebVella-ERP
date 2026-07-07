@@ -65,6 +65,11 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						// SECURITY (A05/A07 - CWE-614 Sensitive Cookie in HTTPS Session Without 'Secure' Attribute;
+						// CWE-1275 Sensitive Cookie with Improper SameSite Attribute): send the auth cookie only over HTTPS
+						// and never on cross-site requests, mitigating session-cookie theft over cleartext and CSRF.
+						options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_crm";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
@@ -83,6 +88,11 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 				DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture(CultureInfo.GetCultureInfo("en-US"))
 			});
 
+			// SECURITY (A05 - CWE-693 Protection Mechanism Failure): emit the hardened response-header baseline
+			// (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection, and a
+			// report-only Content-Security-Policy) on every response. Registered early so it also covers static files and errors.
+			app.UseSecurityHeaders();
+
 			//env.EnvironmentName = EnvironmentName.Production;
 			// Add the following to the request pipeline only in development environment.
 			if (string.Equals(env.EnvironmentName, "Development", StringComparison.OrdinalIgnoreCase))
@@ -96,6 +106,11 @@ namespace WebVella.Erp.Site.MicrosoftCDM
 				app.UseErrorHandlingMiddleware();
 				app.UseExceptionHandler("/error");
 				app.UseStatusCodePagesWithReExecute("/error");
+
+				// SECURITY (A02/A05 - CWE-319 Cleartext Transmission of Sensitive Information): outside Development,
+				// redirect HTTP->HTTPS and enable HSTS so credentials and the Secure auth cookie are never sent in cleartext.
+				app.UseHttpsRedirection();
+				app.UseHsts();
 			}
 
 			//Should be before Static files

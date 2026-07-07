@@ -7,6 +7,7 @@ using System.Linq;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Database.Models;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Database
 {
@@ -44,7 +45,8 @@ namespace WebVella.Erp.Database
 
 				List<DbParameter> parameters = new List<DbParameter>();
 
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+				// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization; preserves round-trip.
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 
 				DbParameter parameterId = new DbParameter();
 				parameterId.Name = "id";
@@ -125,7 +127,8 @@ namespace WebVella.Erp.Database
 
 					NpgsqlCommand command = con.CreateCommand("UPDATE entity_relations SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization; preserves round-trip.
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -170,7 +173,8 @@ namespace WebVella.Erp.Database
 
 				using (NpgsqlDataReader reader = command.ExecuteReader())
 				{
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization of the relation JSON while preserving round-trip.
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 					List<DbEntityRelation> relations = new List<DbEntityRelation>();
 					while (reader.Read())
 					{

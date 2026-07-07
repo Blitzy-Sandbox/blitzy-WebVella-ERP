@@ -6,6 +6,7 @@ using System.Data;
 using System.Dynamic;
 using System.Linq;
 using WebVella.Erp.Jobs;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 {
@@ -32,7 +33,8 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 			job.CompleteClassName = (string)src["complete_class_name"];
 			if (!string.IsNullOrWhiteSpace(src["attributes"].ToString()))
 			{
-				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+				// SECURITY (A08/CWE-502): constrain Newtonsoft type resolution with an allowlist SerializationBinder to block $type gadget deserialization while preserving legitimate job payload round-trip.
+				JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 				job.Attributes = JsonConvert.DeserializeObject<ExpandoObject>((string)src["attributes"], settings);
 			}
 
@@ -43,13 +45,15 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 					try
 					{
 						//we need to keep backword compadability - so we attempt to deserialize to Expando
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+						// SECURITY (A08/CWE-502): constrain Newtonsoft type resolution with an allowlist SerializationBinder to block $type gadget deserialization while preserving legitimate job payload round-trip.
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 						job.Result = JsonConvert.DeserializeObject<ExpandoObject>((string)src["result"], settings);
 					}
 					catch
 					{
 						//if we fail with Expando, try to deserialize to new JobResultWrapper
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+						// SECURITY (A08/CWE-502): constrain Newtonsoft type resolution with an allowlist SerializationBinder to block $type gadget deserialization while preserving legitimate job payload round-trip.
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 						job.Result = JsonConvert.DeserializeObject<JobResultWrapper>((string)src["result"], settings).Result;
 					}
 				}
@@ -90,7 +94,8 @@ namespace WebVella.Erp.Api.Models.AutoMapper.Profiles
 			if (src == null)
 				return null;
 
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All };
+			// SECURITY (A08/CWE-502): constrain Newtonsoft type resolution with an allowlist SerializationBinder to block $type gadget deserialization while preserving legitimate job payload round-trip.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All, SerializationBinder = ErpSerializationBinder.Instance };
 
 			SchedulePlan schedulePlan = new SchedulePlan();
 
