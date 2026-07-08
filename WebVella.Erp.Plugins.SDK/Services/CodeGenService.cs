@@ -11,6 +11,7 @@ using WebVella.Erp.Api.Models;
 using WebVella.Erp.Api.Models.AutoMapper;
 using WebVella.Erp.Database;
 using WebVella.Erp.Exceptions;
+using WebVella.Erp.Utilities;
 using WebVella.Erp.Web.Models;
 using WebVella.Erp.Web.Services;
 
@@ -955,7 +956,12 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        // SECURITY (A08 / CWE-502 Deserialization of Untrusted Data): attach the fail-closed allowlist
+                        // SerializationBinder. This path deserializes DbEntity JSON read from the legacy migration-source
+                        // database (OldDbConnectionString); without the binder an unrestricted TypeNameHandling.Auto "$type"
+                        // token could instantiate arbitrary gadget types (RCE). The binder resolves only first-party WebVella
+                        // types plus a curated safe BCL set and throws for anything else. Mirrors DbEntityRepository.
+                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
                         List<DbEntity> entities = new List<DbEntity>();
                         while (reader.Read())
                         {
@@ -987,7 +993,12 @@ namespace WebVella.Erp.Plugins.SDK.Services
                     using (NpgsqlDataReader reader = command.ExecuteReader())
                     {
 
-                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+                        // SECURITY (A08 / CWE-502 Deserialization of Untrusted Data): attach the fail-closed allowlist
+                        // SerializationBinder. This path deserializes DbEntityRelation JSON read from the legacy migration-source
+                        // database (OldDbConnectionString); without the binder an unrestricted TypeNameHandling.Auto "$type"
+                        // token could instantiate arbitrary gadget types (RCE). The binder resolves only first-party WebVella
+                        // types plus a curated safe BCL set and throws for anything else. Mirrors DbRelationRepository.
+                        JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
                         List<DbEntityRelation> relations = new List<DbEntityRelation>();
                         while (reader.Read())
                         {
