@@ -41,7 +41,9 @@ namespace WebVella.Erp.Web.Services
 				var authProperties = new AuthenticationProperties
 				{
 					AllowRefresh = true,
-					ExpiresUtc = DateTimeOffset.UtcNow.AddYears(100),
+					// SECURITY (A07 / CWE-613): a 100-year auth cookie is effectively a non-expiring session. Reduce the cookie
+					// lifetime to an operational value aligned with the documented envelope (JWT lifetime = 1440 minutes / 24h).
+					ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(JWT_TOKEN_EXPIRY_DURATION_MINUTES),
 					IsPersistent = false,
 					IssuedUtc = DateTimeOffset.UtcNow,
 				};
@@ -154,8 +156,10 @@ namespace WebVella.Erp.Web.Services
 
 			var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ErpSettings.JwtKey));
 			var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256Signature);
+			// SECURITY (A07): compute JWT expiry in UTC. JWT validation is UTC-based; using server-local DateTime.Now
+			// skews the token lifetime by the machine's UTC offset (premature or delayed expiry).
 			var tokenDescriptor = new JwtSecurityToken(ErpSettings.JwtIssuer, ErpSettings.JwtAudience, claims,
-						expires: DateTime.Now.AddMinutes(JWT_TOKEN_EXPIRY_DURATION_MINUTES), signingCredentials: credentials);
+						expires: DateTime.UtcNow.AddMinutes(JWT_TOKEN_EXPIRY_DURATION_MINUTES), signingCredentials: credentials);
 			return (new JwtSecurityTokenHandler().WriteToken(tokenDescriptor), tokenDescriptor);
 		}
 #pragma warning restore 1998

@@ -551,7 +551,8 @@ namespace WebVella.Erp.Database
 						if (string.IsNullOrWhiteSpace(value as string))
 							return null;
 
-						return PasswordUtil.GetMd5Hash(value as string);
+						// SECURITY (A02/CWE-327): store encrypted password fields with PBKDF2 (salted, iterated) instead of unsalted MD5.
+						return PasswordUtil.HashPassword(value as string);
 					}
 				}
 				return value;
@@ -1853,7 +1854,8 @@ namespace WebVella.Erp.Database
                     if (string.IsNullOrWhiteSpace(value as string))
                         return null;
 
-                    return PasswordUtil.GetMd5Hash(value as string);
+                    // SECURITY (A02/CWE-327): store encrypted password fields with PBKDF2 (salted, iterated) instead of unsalted MD5.
+                    return PasswordUtil.HashPassword(value as string);
                 }
                 return value;
             }

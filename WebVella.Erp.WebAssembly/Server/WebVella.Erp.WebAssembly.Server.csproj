@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <!-- SECURITY (OWASP A06:2021 Vulnerable & Outdated Components / CWE-1104): retargeted from end-of-support .NET 7 (EOL 2024-05-14) to .NET 10 LTS; aligned Microsoft.AspNetCore.Components.WebAssembly.Server to 10.0.1 to match the framework and the Client project's 10.0.1 WebAssembly packages. -->
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="7.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.1" />
   </ItemGroup>
 
   <ItemGroup>

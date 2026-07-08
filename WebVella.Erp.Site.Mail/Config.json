@@ -1,11 +1,19 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_mail_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (A02/A05 - CWE-798 Use of Hard-coded Credentials): the PostgreSQL connection string embedded a
+		// plaintext database password and internal host and has been removed from source control. Supply it at runtime
+		// via user-secrets or the environment variable "Settings__ConnectionString".
+		"ConnectionString": "",
+		// SECURITY (A02 - CWE-798/CWE-321 Use of Hard-coded Cryptographic Key): the symmetric encryption key has been
+		// removed from source control. Supply it at runtime via user-secrets or the environment variable
+		// "Settings__EncryptionKey". NOTE: rotating this key invalidates previously protected data - coordinate operationally.
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		// SECURITY (A05 - CWE-489 Active Debug Code / CWE-209 Information Exposure): DevelopmentMode disabled so
+		// production API error responses do not disclose exception messages or stack traces (see ApiControllerBase).
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",

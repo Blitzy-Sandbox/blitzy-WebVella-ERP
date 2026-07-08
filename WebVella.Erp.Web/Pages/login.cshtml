@@ -16,12 +16,25 @@
 			@Html.AntiForgeryToken()
 			<div class="form-group">
 				<label for="loginEmail">Email</label>
-				<input type="email" class="form-control form-control-sm" id="loginEmail" placeholder="" name="Username" value="">
+				<input type="email" class="form-control form-control-sm" id="loginEmail" placeholder="" name="Username" value="@Model.Username">
 			</div>
 			<div class="form-group">
 				<label for="loginPassword">Password</label>
 				<input type="password" class="form-control form-control-sm" id="loginPassword" placeholder="" name="Password" value="">
 			</div>
+			@* SECURITY (A07 / AAP 0.6.1 "force rotation at first login"): the seeded administrator must set a new
+			   password before gaining app access; these fields appear only on that enforced bootstrap path. *@
+			@if (Model.MustChangePassword)
+			{
+			<div class="form-group">
+				<label for="newPassword">New password (required at first login)</label>
+				<input type="password" class="form-control form-control-sm" id="newPassword" placeholder="" name="NewPassword" value="">
+			</div>
+			<div class="form-group">
+				<label for="confirmPassword">Confirm new password</label>
+				<input type="password" class="form-control form-control-sm" id="confirmPassword" placeholder="" name="ConfirmPassword" value="">
+			</div>
+			}
 			<button class="btn btn-primary btn-block mt-4 btn-sm" type="submit">Login</button>
 		</form>
 	</div>

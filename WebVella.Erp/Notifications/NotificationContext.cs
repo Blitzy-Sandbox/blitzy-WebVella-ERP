@@ -107,7 +107,8 @@ namespace WebVella.Erp.Notifications
 		private void ListenForNotifications()
 		{
 			sqlConnection = new NpgsqlConnection(ErpSettings.ConnectionString);
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+			// SECURITY (A08/CWE-502): constrain type resolution with an allowlist SerializationBinder; the NOTIFY payload is externally influenceable, so unrestricted TypeNameHandling.Auto could instantiate $type gadgets (RCE).
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 
 			sqlConnection.Open();
 			sqlConnection.Notification += (o, e) =>
@@ -152,7 +153,8 @@ namespace WebVella.Erp.Notifications
 		/// <param name="notification"></param>
 		public void SendNotification(Notification notification)
 		{
-			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+			// SECURITY (A08/CWE-502): attach the same allowlist SerializationBinder on the serialize path; BindToName delegates to the default binder so the emitted $type is byte-identical and the notification round-trip is preserved.
+			JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 			var json = JsonConvert.SerializeObject(notification, settings);
 			var encodedText = Encoding.UTF8.ToBase64(json);
 			string sql = $"notify {SQL_NOTIFICATION_CHANNEL_NAME}, '{encodedText}';";

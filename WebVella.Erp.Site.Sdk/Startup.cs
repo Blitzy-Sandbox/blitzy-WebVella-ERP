@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 using System;
+using Microsoft.Extensions.Configuration;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
@@ -25,6 +26,22 @@ namespace WebVella.Erp.Site.Sdk
 		{
 			//legacy until we fix system tables
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+			// CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from a merged
+			// configuration so the secrets removed from config.json (connection string, encryption key, JWT signing key)
+			// — supplied via environment variables in production — reach ErpSettings without being committed. Done here
+			// rather than in the shared UseErp() helper (which only reads config.json); UseErp()'s IsInitialized guard
+			// then skips its own initialization.
+			if (!WebVella.Erp.ErpSettings.IsInitialized)
+			{
+				var erpConfiguration = new ConfigurationBuilder()
+					.SetBasePath(System.IO.Directory.GetCurrentDirectory())
+					.AddJsonFile("config.json", optional: true)
+					.AddEnvironmentVariables()
+					.Build();
+				WebVella.Erp.ErpSettings.Initialize(erpConfiguration);
+			}
 			services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Optimal);
 			services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
 			services.AddRouting(options => { options.LowercaseUrls = true; });
@@ -65,12 +82,33 @@ namespace WebVella.Erp.Site.Sdk
 					.AddCookie(options =>
 					{
 						options.Cookie.HttpOnly = true;
+						// SECURITY (A05/A07 / CWE-614 Sensitive Cookie Without 'Secure' flag, CWE-1275 weak SameSite):
+						// send the auth cookie only over HTTPS and restrict cross-site sending to mitigate cookie
+						// theft over cleartext and CSRF. Requires HTTPS in non-dev (see UseHttpsRedirection/UseHsts below).
+						// REGRESSION FIX (A05/A07): gate Secure on the environment so local Development over plain HTTP still
+						// receives the auth cookie (SameAsRequest); non-Development stays HTTPS-only (Always).
+						options.Cookie.SecurePolicy =
+							string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+								? CookieSecurePolicy.SameAsRequest
+								: CookieSecurePolicy.Always;
+						// Fully-qualified: 'SameSiteMode' is ambiguous between Microsoft.Net.Http.Headers and
+						// Microsoft.AspNetCore.Http (both imported); Cookie.SameSite requires the ASP.NET Core Http type.
+						options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 						options.Cookie.Name = "erp_auth_sdk";
 						options.LoginPath = new PathString("/login");
 						options.LogoutPath = new PathString("/logout");
 						options.AccessDeniedPath = new PathString("/error?access_denied");
 						options.ReturnUrlParameter = "returnUrl";
 					});
+
+			// SECURITY (A05 / CWE-693 Protection Mechanism Failure): configure HSTS so UseHsts() emits the mandated
+			// baseline "Strict-Transport-Security: max-age=31536000; includeSubDomains" (1 year). Header is only sent
+			// over HTTPS and only in non-development environments (see Configure()).
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
 
 			services.AddErp();
 		}
@@ -96,7 +134,18 @@ namespace WebVella.Erp.Site.Sdk
 				app.UseErrorHandlingMiddleware();
 				app.UseExceptionHandler("/error");
 				app.UseStatusCodePagesWithReExecute("/error");
+				// SECURITY (A02/A05 / CWE-319 Cleartext Transmission of Sensitive Information): force HTTP->HTTPS so
+				// credentials and the Secure auth cookie are never sent in cleartext. Gated to non-dev only.
+				app.UseHttpsRedirection();
+				// SECURITY (A05 / CWE-693 Protection Mechanism Failure): emit HSTS (max-age=31536000; includeSubDomains,
+				// per AddHsts) so browsers pin HTTPS. Gated to non-dev so local HTTP debugging is unaffected.
+				app.UseHsts();
 			}
+
+			// SECURITY (A05 / CWE-693 Protection Mechanism Failure): emit baseline hardening response headers on every
+			// response (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection,
+			// and Content-Security-Policy-Report-Only). Registered before static files so all responses are covered.
+			app.UseSecurityHeaders();
 
 			//Should be before Static files
 			app.UseResponseCompression();

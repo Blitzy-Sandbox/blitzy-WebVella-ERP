@@ -41,6 +41,14 @@ namespace WebVella.Erp.Web.Service
 				if (scriptObjects.ContainsKey(md5Key))
 					return scriptObjects[md5Key] as ICodeVariable;
 
+				// SECURITY (A03 / CWE-94, ACCEPTED RISK): this compiles & executes admin-authored C# at runtime (CS-Script).
+				// It is a deliberate, trusted-author feature (code data sources, page-component code, snippets) and must NOT
+				// receive untrusted input. The only request path that submits arbitrary source code for compilation is the
+				// code-compile API in WebVella.Erp.Web.Controllers.WebApiController (route api/v3.0/datasource/code-compile),
+				// which now carries [Authorize(Roles = "administrator")] in addition to the controller's class-level [Authorize];
+				// arbitrary compilation is therefore reachable only by administrators, not by every authenticated user. The
+				// runtime Evaluate path executes code that was already persisted (code data sources / page-component code) via
+				// the admin-only page-builder / SDK tooling. Documented as accepted-risk in SECURITY.md.
 				CSScript.EvaluatorConfig.ReferenceDomainAssemblies = true;
 				ICodeVariable scriptObject = CSScript.Evaluator.LoadCode<ICodeVariable>(sourceCode);
 				scriptObjects[md5Key] = scriptObject;

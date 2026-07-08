@@ -2014,7 +2014,8 @@ namespace WebVella.Erp.Api
 							if (string.IsNullOrWhiteSpace(pair.Value as string))
 								return null;
 
-							return PasswordUtil.GetMd5Hash(pair.Value as string);
+							// SECURITY (A02/CWE-327): store encrypted password fields with PBKDF2 (salted, iterated) instead of unsalted MD5.
+							return PasswordUtil.HashPassword(pair.Value as string);
 						}
 					}
 					return pair.Value;

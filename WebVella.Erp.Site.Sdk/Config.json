@@ -1,11 +1,17 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (CWE-798 Use of Hard-coded Credentials): the DB connection string embeds plaintext credentials and
+		// must NOT be committed. Supply at runtime via user-secrets (dev) or environment variable Settings__ConnectionString (prod).
+		"ConnectionString": "",
+		// SECURITY (CWE-798 Use of Hard-coded Cryptographic Key): the symmetric encryption key must NOT be committed.
+		// Supply at runtime via user-secrets (dev) or environment variable Settings__EncryptionKey (prod).
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		// SECURITY (CWE-16 Configuration / CWE-209 Information Exposure via error messages): disable development mode
+		// in production so stack traces and diagnostics are not leaked. Override to "true" only in local dev.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "false",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",

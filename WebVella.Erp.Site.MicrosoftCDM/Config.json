@@ -1,11 +1,17 @@
 ﻿{
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=test;Password=test;Database=erp3_mscdm_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (A02/A05 - CWE-798 Use of Hard-coded Credentials): DB credentials, connection string, and the
+		// EncryptionKey have been removed from source control. Supply them at runtime via ASP.NET Core user-secrets
+		// (development) or environment variables (production), e.g. Settings__ConnectionString and Settings__EncryptionKey.
+		// The runtime-supplied ConnectionString MUST retain the documented pool/timeout settings
+		// (Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120) so the performance envelope is preserved.
+		"ConnectionString": "",
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		// SECURITY (A05 / CWE-215): DevelopmentMode disabled so detailed diagnostics/stack traces are not disclosed in production.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",

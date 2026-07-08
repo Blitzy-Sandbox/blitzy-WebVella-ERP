@@ -17,6 +17,13 @@
 		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 		<ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+		<!-- SECURITY/BUILD FIX (error NETSDK1022 "Duplicate 'Content' items ... 'Config.json'"): at runtime the app loads a
+		     lowercase config.json (git-ignored) that operators create by copying the tracked template Config.json. On a
+		     case-sensitive Linux file system both files coexist; the Web SDK's default Content glob includes both and MSBuild's
+		     case-INSENSITIVE duplicate check then fails the release build. Drop the lowercase runtime artifact from the default
+		     item globs so `dotnet build`/`dotnet publish` are deterministic whether or not the runtime config.json is present.
+		     (The tracked Config.json is re-included below with its original copy behavior.) -->
+		<DefaultItemExcludes>$(DefaultItemExcludes);config.json</DefaultItemExcludes>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -36,6 +43,16 @@
 		<None Update="**.xproj;**.user;**.vspscc">
 			<CopyToPublishDirectory>Never</CopyToPublishDirectory>
 		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Re-include the tracked config template that DefaultItemExcludes dropped (the exclude is case-insensitive on this
+		     matcher and removes both casings), preserving its original PreserveNewest copy-to-output/publish behavior so the
+		     build/publish output is byte-for-byte unchanged. The lowercase runtime config.json stays excluded. -->
+		<Content Include="Config.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 	</ItemGroup>
 
 	<ItemGroup>

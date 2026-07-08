@@ -9,6 +9,7 @@ using System.Threading;
 using WebVella.Erp.Api;
 using WebVella.Erp.Api.Models;
 using WebVella.Erp.Database.Models;
+using WebVella.Erp.Utilities;
 
 namespace WebVella.Erp.Database
 {
@@ -47,7 +48,8 @@ namespace WebVella.Erp.Database
 					{
 						List<DbParameter> parameters = new List<DbParameter>();
 
-						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+						// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization; keeps the polymorphic field hierarchy round-trip.
+						JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 
 						DbParameter parameterId = new DbParameter();
 						parameterId.Name = "id";
@@ -162,7 +164,8 @@ namespace WebVella.Erp.Database
 				{
 					NpgsqlCommand command = con.CreateCommand("UPDATE entities SET json=@json WHERE id=@id;");
 
-					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto };
+					// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization; keeps the polymorphic field hierarchy round-trip.
+					JsonSerializerSettings settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, SerializationBinder = new ErpSerializationBinder() };
 
 					var parameter = command.CreateParameter() as NpgsqlParameter;
 					parameter.ParameterName = "json";
@@ -207,11 +210,13 @@ namespace WebVella.Erp.Database
 				using (NpgsqlDataReader reader = command.ExecuteReader())
 				{
 
+					// SECURITY (A08/CWE-502): allowlist SerializationBinder blocks $type gadget deserialization of the entity JSON while preserving the polymorphic field hierarchy round-trip.
 					JsonSerializerSettings settings = new JsonSerializerSettings
 					{
 						TypeNameHandling = TypeNameHandling.Auto,
 						NullValueHandling = NullValueHandling.Ignore,
 						MissingMemberHandling = MissingMemberHandling.Ignore,
+						SerializationBinder = new ErpSerializationBinder(),
 					};
 					settings.Converters.Add(new DecimalToIntFormatConverter());
 					List<DbEntity> entities = new List<DbEntity>();

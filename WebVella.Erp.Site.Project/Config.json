@@ -1,11 +1,18 @@
 ﻿{
+	// SECURITY (A02/A05 hardcoded secrets — CWE-798): committed secrets removed from source. Supply at runtime via
+	// environment variables (":" nests as "__", e.g. Settings__Jwt__Key) or user-secrets. Never commit real values.
 	"Settings": {
-		"ConnectionString": "Server=192.168.10.25;Port=5436;User Id=dev;Password=dev;Database=erp3_project_with_sdk;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;",
-		"EncryptionKey": "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658",
+		// SECURITY (CWE-798): DB credentials removed. Provide the FULL connection string via env var Settings__ConnectionString,
+		// including pooling/timeout to preserve the performance envelope, e.g.
+		// "Server=<host>;Port=<port>;User Id=<user>;Password=<pwd>;Database=<db>;Pooling=true;MinPoolSize=1;MaxPoolSize=100;CommandTimeout=120;"
+		"ConnectionString": "",
+		// SECURITY (CWE-798): encryption key removed. Provide via env var Settings__EncryptionKey (64 hex chars).
+		"EncryptionKey": "",
 		"Lang": "en",
 		"Locale": "en-US",
 		"TimeZoneName": "FLE Standard Time",
-		"DevelopmentMode": "true",
+		// SECURITY (A05 / CWE-215): production must not disclose stack traces / dev diagnostics — DevelopmentMode disabled.
+		"DevelopmentMode": "false",
 		"EnableBackgroungJobs": "true",
 		"EnableFileSystemStorage": "false",
 		"FileSystemStorageFolder": "\\\\192.168.10.25\\Share\\erp3-files",
@@ -17,7 +24,9 @@
 		"EmailFrom": "",
 		"EmailTo": "",
 		"Jwt": {
-			"Key": "ThisIsMySecretKeyThisIsMySecretKeyThisIsMySecretKey",
+			// SECURITY (CWE-798): default JWT signing key removed. Provide a strong key via env var Settings__Jwt__Key
+			// (>= 32 bytes / 256-bit for HMAC-SHA-256). Rotating this key invalidates all in-flight tokens.
+			"Key": "",
 			"Issuer": "webvella-erp",
 			"Audience": "webvella-erp"
 		}

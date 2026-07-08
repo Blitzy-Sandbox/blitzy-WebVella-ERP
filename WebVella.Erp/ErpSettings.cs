@@ -57,6 +57,9 @@ namespace WebVella.Erp
 		{
 			Configuration = configuration;
 			EncryptionKey = configuration["Settings:EncryptionKey"];
+			// SECURITY / DEPRECATED (A02 Cryptographic Failures): the misspelled 'Settings:EncriptionKey' key read below exists
+			// ONLY for backward compatibility with legacy configs and is deprecated. New deployments MUST use the correctly
+			// spelled 'Settings:EncryptionKey'. Runtime behavior is intentionally preserved here to avoid breaking existing projects.
 			// 628426@gmail.com 27 Jul 2020 backwards compatibility for projects which still have mispelled EncryiptionKey in config
 			if (string.IsNullOrWhiteSpace(EncryptionKey))
 			{
@@ -115,7 +118,17 @@ namespace WebVella.Erp
 
 			ApiUrlTemplateFieldInlineEdit = string.IsNullOrWhiteSpace(configuration[$"ApiUrlTemplates:FieldInlineEdit"]) ? "/api/v3/en_US/record/{entityName}/{recordId}" : configuration[$"ApiUrlTemplates:FieldInlineEdit"];
 
-			JwtKey = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Key"]) ? "ThisIsMySecretKey" : configuration["Settings:Jwt:Key"];
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-798 Use of Hard-coded Credentials,
+			// CWE-547 Use of Hard-coded, Security-relevant Constants): the JWT signing key must NEVER fall back to a committed
+			// default value. A shipped default lets an attacker forge valid tokens and bypass authentication on any deployment
+			// that did not override it. Require an operator-supplied key (user-secrets / environment variable) and fail fast at
+			// startup with a clear message if it is absent, rather than silently using an insecure default. Recommended: use a
+			// key of at least 32 bytes (256 bits) so it is strong enough for HMAC-SHA-256 token signing.
+			JwtKey = configuration["Settings:Jwt:Key"];
+			if (string.IsNullOrWhiteSpace(JwtKey))
+				throw new InvalidOperationException(
+					"Missing required configuration 'Settings:Jwt:Key'. Provide a strong JWT signing key via user-secrets or " +
+					"environment variables. A built-in default key is no longer supplied for security reasons.");
 			JwtIssuer = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Issuer"]) ? "webvella-erp" : configuration["Settings:Jwt:Issuer"];
 			JwtAudience = string.IsNullOrWhiteSpace(configuration["Settings:Jwt:Audience"]) ? "webvella-erp" : configuration["Settings:Jwt:Audience"];
 

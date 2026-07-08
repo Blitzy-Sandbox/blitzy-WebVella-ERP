@@ -13,7 +13,6 @@ namespace WebVella.Erp.Utilities
     {
         #region <--- Fields --->
 
-        private const string defaultCryptKey = "BC93B776A42877CFEE808823BA8B37C83B6B0AD23198AC3AF2B5A54DCB647658";
         private static string cryptKey;
 
         #endregion
@@ -26,13 +25,16 @@ namespace WebVella.Erp.Utilities
             {
                 if (string.IsNullOrEmpty(cryptKey))
                 {
-                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey)) {
-                        cryptKey = defaultCryptKey;
-                    }
-                    else {
+                    // SECURITY (A02 / secrets — CWE-798 Hard-coded Credentials, CWE-321 Hard-coded Cryptographic Key):
+                    // no built-in default encryption key is shipped. Require an operator-supplied key via
+                    // configuration (user-secrets / environment variables) and fail fast rather than silently
+                    // falling back to a public, source-readable default.
+                    if (string.IsNullOrWhiteSpace(ErpSettings.EncryptionKey))
+                        throw new InvalidOperationException(
+                            "Missing required configuration 'Settings:EncryptionKey'. Provide an encryption key via " +
+                            "user-secrets or environment variables. A built-in default key is no longer supplied for security reasons.");
 
-                        cryptKey = ErpSettings.EncryptionKey;
-                    }
+                    cryptKey = ErpSettings.EncryptionKey;
                 }
                 return cryptKey;
             }

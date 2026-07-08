@@ -34,26 +34,41 @@ namespace WebVella.Erp.Site.Project
 			AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 			string configPath = "config.json";
-			Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+			// SECURITY (A02/A05 secret migration — CWE-798): read environment variables so secrets removed from config.json
+			// (Settings:ConnectionString, Settings:EncryptionKey, Settings:Jwt:Key) resolve at runtime from env (e.g. Settings__Jwt__Key).
+			// Env vars override config.json; deployments that still keep values in config.json are unaffected.
+			Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).AddEnvironmentVariables().Build();
 
+			// SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+			// CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from the merged
+			// configuration built above so the secrets removed from config.json (connection string, encryption key, JWT signing
+			// key) — supplied via environment variables in production — reach ErpSettings without being committed. The shared
+			// UseErp() helper only reads config.json; its `if (!ErpSettings.IsInitialized)` guard then skips its own init.
+			if (!ErpSettings.IsInitialized)
+				ErpSettings.Initialize(Configuration);
 
 			services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Optimal);
 			services.AddResponseCompression(options => { options.Providers.Add<GzipCompressionProvider>(); });
 			services.AddRouting(options => { options.LowercaseUrls = true; });
 
 			//CORS policy declaration
-			//services.AddCors(options =>
-			//{
-			//	options.AddPolicy("AllowNodeJsLocalhost",
-			//		builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost", "http://localhost:2202").AllowAnyMethod().AllowCredentials());
-			//});
-            services.AddCors(options =>
-            {
-                options.AddDefaultPolicy(policy =>
-                    policy.AllowAnyOrigin()
-                        .AllowAnyMethod()
-                        .AllowAnyHeader());
-            });
+			// SECURITY (A05 overly-permissive CORS — CWE-942): AllowAnyOrigin() lets ANY website call the API. Replaced with an
+			// explicit origin allowlist. AllowAnyOrigin() also cannot be combined with AllowCredentials(); the named policy keeps
+			// the Blazor WASM dev origin (:3333) and the CKEditor upload flow working while blocking arbitrary cross-origin callers.
+			services.AddCors(options =>
+			{
+				options.AddPolicy("AllowNodeJsLocalhost",
+					builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost", "http://localhost:2202").AllowAnyMethod().AllowCredentials());
+			});
+
+			// SECURITY (A02/A05 cleartext transport - CWE-319): configure HSTS so app.UseHsts() (in Configure) emits the
+			// mandated baseline 'Strict-Transport-Security: max-age=31536000; includeSubDomains' (365 days) rather than the
+			// ASP.NET Core default (30 days, no includeSubDomains), matching the sibling hosts' security-header standard.
+			services.AddHsts(options =>
+			{
+				options.MaxAge = TimeSpan.FromDays(365);
+				options.IncludeSubDomains = true;
+			});
             services.AddDetection();
 
 			services.AddMvc()
@@ -85,6 +100,16 @@ namespace WebVella.Erp.Site.Project
 			.AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
             {
 				options.Cookie.HttpOnly = true;
+				// SECURITY (A07 insecure session cookie — CWE-614 cleartext transport / CWE-1275 missing SameSite):
+				// force the auth cookie to travel only over HTTPS and add CSRF mitigation via SameSite=Lax. REGRESSION FIX:
+				// gate Secure on the environment so local Development over plain HTTP still receives the auth cookie
+				// (SameAsRequest); every non-Development environment keeps it HTTPS-only (Always).
+				options.Cookie.SecurePolicy =
+					string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+						? CookieSecurePolicy.SameAsRequest
+						: CookieSecurePolicy.Always;
+				// Fully qualified to disambiguate from Microsoft.Net.Http.Headers.SameSiteMode (both namespaces are imported).
+				options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
 				options.Cookie.Name = "erp_auth_project";
 				options.LoginPath = new PathString("/login");
 				options.LogoutPath = new PathString("/logout");
@@ -127,6 +152,11 @@ namespace WebVella.Erp.Site.Project
 				DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture(CultureInfo.GetCultureInfo("en-US"))
 			});
 
+			// SECURITY (A05 missing security headers — CWE-693): emit the hardening response-header baseline
+			// (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection, CSP report-only)
+			// for EVERY response. Registered early so headers apply to static files, errors, and all pages.
+			app.UseSecurityHeaders();
+
 			//env.EnvironmentName = EnvironmentName.Production;
 			// Add the following to the request pipeline only in development environment.
 			if (string.Equals(env.EnvironmentName, "Development", StringComparison.OrdinalIgnoreCase))
@@ -135,6 +165,10 @@ namespace WebVella.Erp.Site.Project
 			}
 			else
 			{
+				// SECURITY (A02/A05 cleartext transport — CWE-319): enforce HTTPS and enable HSTS outside development
+				// (dev typically serves plain HTTP). UseHsts() emits Strict-Transport-Security: max-age + includeSubDomains.
+				app.UseHsts();
+				app.UseHttpsRedirection();
 				// Add Error handling middleware which catches all application specific errors and
 				// send the request to the following path or controller action.
 				app.UseErrorHandlingMiddleware();
@@ -145,8 +179,8 @@ namespace WebVella.Erp.Site.Project
 			//Should be before Static files
 			app.UseResponseCompression();
 
-            //app.UseCors("AllowNodeJsLocalhost"); //Enable CORS -> should be before static files to enable for it too
-            app.UseCors(); //Enable CORS -> should be before static files to enable for it too
+            // SECURITY (A05 — CWE-942): apply the named origin allowlist instead of the removed permissive default policy.
+            app.UseCors("AllowNodeJsLocalhost"); //Enable CORS -> should be before static files to enable for it too
 
             app.UseStaticFiles(new StaticFileOptions
 			{

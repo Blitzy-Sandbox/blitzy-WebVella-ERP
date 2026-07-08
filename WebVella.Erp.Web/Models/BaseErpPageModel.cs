@@ -155,14 +155,24 @@ namespace WebVella.Erp.Web.Models
 			if (ErpRequestContext.App != null)
 			{
 				if (ErpRequestContext.App.Access == null || ErpRequestContext.App.Access.Count == 0)
+				{
+					// SECURITY (A09/CWE-778 + CWE-285): audit page-access authorization denials for monitoring/forensics (best-effort, non-throwing; identifier only, never secrets).
+					try { new WebVella.Erp.Diagnostics.Log().LogPermissionDenied(CurrentUser?.Email, HttpContext.Request.Path.ToString()); } catch { }
 					return new LocalRedirectResult("/error?401");
+				}
 
 				IEnumerable<Guid> rolesWithAccess = ErpRequestContext.App.Access.Intersect(currentUserRoles);
 				if (!rolesWithAccess.Any())
+				{
+					// SECURITY (A09/CWE-778 + CWE-285): audit page-access authorization denials for monitoring/forensics (best-effort, non-throwing; identifier only, never secrets).
+					try { new WebVella.Erp.Diagnostics.Log().LogPermissionDenied(CurrentUser?.Email, HttpContext.Request.Path.ToString()); } catch { }
 					return new LocalRedirectResult("/error?401");
+				}
 			}
 			else if (!currentUserRoles.Contains(WebVella.Erp.Api.SystemIds.AdministratorRoleId) && urlInfo.PageType != PageType.Home && urlInfo.PageType != PageType.Site)
 			{
+				// SECURITY (A09/CWE-778 + CWE-285): audit page-access authorization denials for monitoring/forensics (best-effort, non-throwing; identifier only, never secrets).
+				try { new WebVella.Erp.Diagnostics.Log().LogPermissionDenied(CurrentUser?.Email, HttpContext.Request.Path.ToString()); } catch { }
 				return new LocalRedirectResult("/error?401");
 			}
 

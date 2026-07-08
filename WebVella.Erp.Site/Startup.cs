@@ -40,7 +40,23 @@ namespace WebVella.Erp.Site
             AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
             string configPath = "config.json";
-            Configuration = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile(configPath).Build();
+            // SECURITY (A02/A05 / CWE-798): layer user-secrets (dev) and environment variables (prod) OVER config.json so secrets
+            // removed from config.json (connection string, encryption key, JWT signing key) are supplied without being committed.
+            Configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile(configPath)
+                .AddUserSecrets<Startup>()
+                .AddEnvironmentVariables()
+                .Build();
+
+            // SECURITY (A05 Security Misconfiguration / A02 Cryptographic Failures — CWE-665 Improper Initialization,
+            // CWE-798 Use of Hard-coded Credentials): initialize ErpSettings here, in this in-scope host, from the merged
+            // configuration built above so the secrets removed from config.json (connection string, encryption key, JWT
+            // signing key) — supplied via user-secrets (dev) / environment variables (prod) — reach ErpSettings without being
+            // committed to source control. The shared UseErp() helper only reads config.json; its `if (!ErpSettings.IsInitialized)`
+            // guard then skips its own initialization, so this is the single authoritative, env-var-aware initialization path.
+            if (!ErpSettings.IsInitialized)
+                ErpSettings.Initialize(Configuration);
 
             services.AddLocalization(options => options.ResourcesPath = "Resources");
             services.Configure<RequestLocalizationOptions>(options => { options.DefaultRequestCulture = new RequestCulture(Configuration["Settings:Locale"]); });
@@ -55,12 +71,22 @@ namespace WebVella.Erp.Site
             //    options.AddPolicy("AllowNodeJsLocalhost",
             //        builder => builder.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost").AllowAnyMethod().AllowCredentials());
             //});
+            // SECURITY (A05 / CWE-942): explicit CORS origin allowlist instead of AllowAnyOrigin(). AllowCredentials() cannot be
+            // combined with AllowAnyOrigin(); the allowlist keeps the Blazor WASM dev client and CKEditor upload flow working.
             services.AddCors(options =>
             {
                 options.AddDefaultPolicy(policy =>
-                    policy.AllowAnyOrigin()
+                    policy.WithOrigins("http://localhost:3333", "http://localhost:3000", "http://localhost")
                         .AllowAnyMethod()
-                        .AllowAnyHeader());
+                        .AllowAnyHeader()
+                        .AllowCredentials());
+            });
+
+            // SECURITY (A05 / CWE-319): configure HSTS so UseHsts() emits 'Strict-Transport-Security: max-age=31536000; includeSubDomains'.
+            services.AddHsts(options =>
+            {
+                options.MaxAge = TimeSpan.FromDays(365);
+                options.IncludeSubDomains = true;
             });
             services.AddDetection();
 
@@ -85,6 +111,12 @@ namespace WebVella.Erp.Site
                 Converters = new List<JsonConverter> { new ErpDateTimeJsonConverter() }
             };
 
+            // SECURITY (A02/A05 / CWE-798): the JWT signing key must be supplied via user-secrets/environment variables (Settings:Jwt:Key);
+            // no insecure default is baked in. Fail fast with a clear message if it is missing.
+            var jwtKey = Configuration["Settings:Jwt:Key"];
+            if (string.IsNullOrWhiteSpace(jwtKey))
+                throw new InvalidOperationException("Settings:Jwt:Key is not configured. Provide it via user-secrets (dev) or the Settings__Jwt__Key environment variable (prod). See SECURITY.md.");
+
             services.AddAuthentication(options =>
             {
                 options.DefaultScheme = "JWT_OR_COOKIE";
@@ -94,6 +126,19 @@ namespace WebVella.Erp.Site
             {
                 options.Cookie.HttpOnly = true;
                 options.Cookie.Name = "erp_auth_base";
+                // SECURITY (A07 / CWE-614, CWE-1275): Secure (HTTPS-only) + SameSite=Lax prevent plaintext-HTTP transmission and mitigate CSRF.
+                // (Secure presumes HTTPS — see UseHttpsRedirection/UseHsts in Configure.) REGRESSION FIX: an unconditional
+                // Secure policy stops the browser from sending the auth cookie over plain HTTP, which breaks local Development
+                // (http://localhost). Gate on the environment — SameAsRequest in Development so local HTTP login keeps working,
+                // Always in every non-Development environment so production cookies remain HTTPS-only. This matches the
+                // env.IsDevelopment() gating already used for UseHsts/UseHttpsRedirection in Configure().
+                options.Cookie.SecurePolicy =
+                    string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)
+                        ? CookieSecurePolicy.SameAsRequest
+                        : CookieSecurePolicy.Always;
+                // Fully-qualified: both Microsoft.AspNetCore.Http and Microsoft.Net.Http.Headers (used for HeaderNames) define SameSiteMode;
+                // CookieBuilder.SameSite is Microsoft.AspNetCore.Http.SameSiteMode. Qualifying avoids CS0104 without altering using directives.
+                options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax;
                 options.LoginPath = new PathString("/login");
                 options.LogoutPath = new PathString("/logout");
                 options.AccessDeniedPath = new PathString("/error?access_denied");
@@ -109,7 +154,7 @@ namespace WebVella.Erp.Site
                      ValidateIssuerSigningKey = true,
                      ValidIssuer = Configuration["Settings:Jwt:Issuer"],
                      ValidAudience = Configuration["Settings:Jwt:Audience"],
-                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["Settings:Jwt:Key"]))
+                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
                  };
              })
               .AddPolicyScheme("JWT_OR_COOKIE", "JWT_OR_COOKIE", options =>
@@ -155,7 +200,16 @@ namespace WebVella.Erp.Site
                 app.UseErrorHandlingMiddleware();
                 app.UseExceptionHandler("/error");
                 app.UseStatusCodePagesWithReExecute("/error");
+
+                // SECURITY (A05 / CWE-319): enforce HTTPS transport and emit HSTS ONLY outside Development (avoids breaking local HTTP dev flows).
+                // UseHsts() emits Strict-Transport-Security: max-age=31536000; includeSubDomains (configured via AddHsts).
+                app.UseHttpsRedirection();
+                app.UseHsts();
             }
+
+            // SECURITY (A05 / CWE-693): emit the baseline security response headers (incl. report-only Content-Security-Policy) on EVERY
+            // response; registered early (before static files) so static-file responses are covered too.
+            app.UseSecurityHeaders();
 
             //Should be before Static files
             app.UseResponseCompression();
