@@ -4291,7 +4291,11 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				// SECURITY (A05 / CWE-209): [AllowAnonymous] endpoint — do not disclose the exception stack trace
+				// (server file paths / internal structure) to unauthenticated callers in production. Mirrors the
+				// ApiControllerBase.DoBadRequestResponse positive control (full detail only in DevelopmentMode);
+				// the exception is always captured server-side via LogService above.
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : e.Message;
 			}
 			return DoResponse(response);
 		}
@@ -4310,7 +4314,11 @@ namespace WebVella.Erp.Web.Controllers
 			{
 				new LogService().Create(Diagnostics.LogType.Error, "GetNewJwtToken", e);
 				response.Success = false;
-				response.Message = e.Message + e.StackTrace;
+				// SECURITY (A05 / CWE-209): [AllowAnonymous] endpoint — do not disclose the exception stack trace
+				// (server file paths / internal structure) to unauthenticated callers in production. Mirrors the
+				// ApiControllerBase.DoBadRequestResponse positive control (full detail only in DevelopmentMode);
+				// the exception is always captured server-side via LogService above.
+				response.Message = ErpSettings.DevelopmentMode ? (e.Message + e.StackTrace) : e.Message;
 			}
 			return DoResponse(response);
 		}
