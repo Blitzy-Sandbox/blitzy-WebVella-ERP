@@ -14,14 +14,17 @@ FieldResponse response = new EntityManager().CreateField(entityId, newFieldObjec
 
 ## Web API
 
+See the canonical REST reference: `../../api-reference/entities.md`.
+
 ##### Authorization
 
 To initiate this web request, you need to be in `Administrator` role.
 
 ##### HTTP request
 ```http
-POST https://<YOUR_DOMAIN>/api/v3/en_US/meta/entity/{Id}/field
+POST https://<host>/api/v1/meta/entity/{Id}/field
 ```
+Source: /docs/developer/entities/create-entity-field.md:L23
 
 ##### Query parameters
 

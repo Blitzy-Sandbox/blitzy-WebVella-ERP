@@ -18,14 +18,17 @@ EntityResponse response = new EntityManager().CreateEntity(userEntity);
 
 ## Web API
 
+See the canonical REST reference: `../../api-reference/entities.md`.
+
 ##### Authorization
 
 To initiate this web request, you need to be in `Administrator` role.
 
 ##### HTTP request
 ```http
-POST https://<YOUR_DOMAIN>/api/v3/en_US/meta/entity
+POST https://<host>/api/v1/meta/entity
 ```
+Source: /docs/developer/entities/create-entity.md:L27
 
 ##### Query parameters
 
