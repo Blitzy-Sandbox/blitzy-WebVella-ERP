@@ -58,6 +58,8 @@ All responses are in JSON formatted in a specific way.
 
 ## Properties
 
+> The `/api/v1/` error/problem-details model is documented in [`../../api-reference/errors.md`](../../api-reference/errors.md).
+
 +-------------------------------+-----------------------------------+
 | name                          | description                       |
 +===============================+===================================+

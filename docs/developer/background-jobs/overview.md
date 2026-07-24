@@ -7,6 +7,8 @@ All such jobs are executed in the background in a separate threads, which limits
 
 The functionality is provided by methods decorated with special attributes and the `ScheduleManager` service.
 
+Scheduled jobs now run in a dedicated background **worker host** (`WebVella.Erp.Worker`) rather than inside the web application host. The scheduling model itself is unchanged: the platform's `ScheduleManager` still checks each minute for jobs that need to be started, and each job runs on its own background thread. The worker's scheduler is *Not available / to be confirmed* (Quartz.NET vs Hangfire). See the [architecture overview](../../architecture/overview.md) for how the worker tier fits into the headless platform.
+
 Definitions of the used terms are:
 
 * background job type - the background job definition method that should be executed 
