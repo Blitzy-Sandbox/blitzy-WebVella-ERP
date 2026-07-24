@@ -15,12 +15,31 @@
 
 WebVella ERP 
 ======
-**WebVella ERP** is a free and open-source web software, that targets extreme customization and plugability in service of any business data management needs. It is build upon our experience, best practices and the newest available technologies. Currently it targets ASP.NET Core 9. Our database of choice is PostgreSQL 16. Targets Linux or Windows as host OS. Currently tested only on Windows.
+**WebVella ERP** is a free and open-source web platform that targets extreme customization and pluggability in service of any business data-management needs. It is built upon our experience, best practices, and the newest available technologies.
+
+WebVella ERP is evolving into a **headless, container-native platform**. The product is being split into a REST/OpenAPI API host (`WebVella.Erp.Api`, serving `/api/v1/`), a React single-page-application client (`WebVella.Erp.Client`), and a background worker (`WebVella.Erp.Worker`) — all built on top of the unchanged core engine (`WebVella.Erp`) and PostgreSQL, and extended through a formal `IErpPlugin` plugin contract.
+
+The database of choice is **PostgreSQL**, and **Linux containers are the primary deployment target** — Docker Compose for local development and Kubernetes for production. The authoritative .NET **target runtime is a to-be-confirmed decision point** (.NET 9 vs .NET 10 / `net10.0`): the project manifests currently declare `net10.0` (see `WebVella.Erp/WebVella.Erp.csproj`), which has not yet been reconciled with earlier ".NET 9" references and will be confirmed before release.
 
 If you want this project to continue or just like it, we will greatly appreciate your support of the project by: 
 * giving it a "star" 
 * contributing to the source
 * Become a Sponsor: Click on the Sponsor button and Thank you in advance
+
+## Getting started
+
+WebVella ERP runs as a set of Linux containers. For a containerized quick start with Docker Compose, together with build-and-run instructions, see [INSTRUCTIONS.md](INSTRUCTIONS.md).
+
+### Documentation
+
+The documentation set for the headless platform lives under [`docs/`](docs/):
+
+* Getting Started — [docs/developer/introduction/getting-started.md](docs/developer/introduction/getting-started.md)
+* API reference (REST / OpenAPI, `/api/v1/`) — [docs/api-reference/](docs/api-reference/)
+* Plugin SDK (`IErpPlugin`) — [docs/plugin-sdk/](docs/plugin-sdk/)
+* Architecture, including the `ICodeVariable`/`BaseErpPageModel` compatibility shim — [docs/architecture/](docs/architecture/) ([adapter doc](docs/architecture/icodevariable-adapter.md))
+* Migration (RazorPages/Blazor → headless) — [docs/migration/](docs/migration/)
+* Deployment & operations (Docker Compose / Kubernetes) — [docs/deployment/](docs/deployment/)
 
 Related repositories
 
@@ -32,7 +51,7 @@ Related repositories
 
 
 ### Third party libraries
-* see [LIBRARIES](https://github.com/WebVella/WebVella-ERP/blob/master/LIBRARIES.md) files
+* see [LIBRARIES](LIBRARIES.md) files
 
 ## License 
 * see [LICENSE](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt) file
