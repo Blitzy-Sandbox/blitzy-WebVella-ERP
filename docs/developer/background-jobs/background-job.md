@@ -1,7 +1,7 @@
 ﻿<!--{"sort_order":2, "name": "background-job", "label": "Background job"}-->
 # Background job
 
-The background job type is defined by the `ErpJob` object. This object works with close relation with the `SchedulePlan` object and when scheduled it creates a number of background jobs which execute the same method, as assigned in the type.
+The background job type is defined by the `ErpJob` object. This object works with close relation with the `SchedulePlan` object and when scheduled it creates a number of background jobs which execute the same method, as assigned in the type. These job types are executed by the new background worker host (`WebVella.Erp.Worker`); the `ErpJob` contract below is unchanged.
 
 ## Properties
 

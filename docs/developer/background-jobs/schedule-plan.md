@@ -1,7 +1,7 @@
 ﻿<!--{"sort_order":3, "name": "schedule-plan", "label": "Schedule plans"}-->
 # Schedule plans
 
-In order for a background job to be scheduled by the platform, there should be a registered schedule plan which manages the process. All schedule plans of a plugin should be check for existence and registered during your plugin `Initialize` method in the `ErpPlugin` inherited method. Once registered the schedule plan will be executed by the system, even if removed from the plugin initialization.
+In order for a background job to be scheduled by the platform, there should be a registered schedule plan which manages the process. All schedule plans of a plugin should be checked for existence and registered from the plugin's `OnLoadAsync` (service/registration phase) or `OnMigrateAsync` (transactional bootstrap) method of its `IErpPlugin` implementation. Once registered the schedule plan will be executed by the system, even if removed from the plugin initialization.
 
 ## Properties
 
@@ -69,7 +69,7 @@ The schedule plan is implemented by the `SchedulePlan` object.
 
 ## Code example
 
-You can register a schedule plan by executing the following code in your plugin's initialize method:
+You can register a schedule plan by executing the following code in your plugin's `OnLoadAsync` (or `OnMigrateAsync`) method:
 
 ```csharp
 using WebVella.Erp.Jobs
