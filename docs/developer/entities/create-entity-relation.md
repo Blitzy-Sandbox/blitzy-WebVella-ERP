@@ -3,7 +3,7 @@
 
 ## Service Side API
 
-The API class that is needed for entity, entity meta and field creation is `EntityRelationManager` with its `Create` method. To initiate this, you need to be in `Administrator` role. You can create an entity with a code similar to:
+The API class that is needed for entity, entity meta and field creation is `EntityRelationManager` with its `Create` method. To initiate this, you need to be in `administrator` role. You can create an entity with a code similar to:
 
 ```csharp
 EntityRelation newRelationObject = null; // <<< Replace with an initialized object
@@ -13,17 +13,17 @@ EntityRelationResponse response = new EntityRelationManager().Create(newRelation
 
 ## Web API
 
-See the canonical REST reference: `../../api-reference/entities.md`.
+See the planned `/api/v1/` REST reference (target — not yet implemented): `../../api-reference/entities.md`.
 
 ##### Authorization
 
-To initiate this web request, you need to be in `Administrator` role.
+To initiate this web request, you need to be in the `administrator` role.
 
 ##### HTTP request
 ```http
-POST https://<host>/api/v1/meta/relation
+POST https://<YOUR_DOMAIN>/api/v3/en_US/meta/relation
 ```
-Source: /docs/developer/entities/create-entity-relation.md:L22
+This is the current route served by the in-process host, gated to the `administrator` role. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L2036. The planned headless surface would expose it under `/api/v1/meta/relation`; that surface is not yet implemented.
 
 ##### Query parameters
 

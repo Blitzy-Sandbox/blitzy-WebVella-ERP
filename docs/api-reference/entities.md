@@ -1,6 +1,19 @@
 <!--{"sort_order":5, "name": "entities", "label": "Entities & Metadata"}-->
 # Entities & Metadata
 
+> **Planned target design — Not available in this checkout.** There is **no
+> `WebVella.Erp.Api` project** and **no generated OpenAPI document** in
+> `WebVella.ERP3.sln`, so every `/api/v1/meta/...` route, HTTP method, request or
+> response DTO, status code, and example on this page is **proposed design** and
+> **Not available / to be confirmed** until the API host and its OpenAPI document
+> exist. The **current** controllers expose the legacy, locale-qualified
+> `/api/v3/en_US/meta/...` routes, not `/api/v1/meta/...`
+> (`Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1473`). The DTO
+> shapes shown reflect the **current in-process manager models** (`InputEntity`,
+> `InputField`, `EntityRelation`); the target request/response DTOs are Not
+> available. **The examples below are illustrative design sketches, not
+> runnable.**
+
 The metadata endpoints under `/api/v1/meta/` define and read the platform's
 **Entities**, their **fields**, and the **relations** between them. In WebVella
 terminology an **Entity** is a *content type* — a definition composed of a meta
@@ -8,33 +21,34 @@ record, a set of fields, and a set of relations to other entities — while a
 **Record** is a single *instance* of an Entity. Record data (the instances) is
 served by a separate surface; see [Records](records.md).
 
-Source: /docs/developer/entities/overview.md:L5
+Source: /WebVella.Erp/Api/Models/Entity.cs:L38 (Entity model)
 
 These endpoints are a thin REST transport in front of the platform's
 **in-process managers**, which are unchanged by the headless refactor and remain
 the authoritative implementation:
 
 - **`EntityManager`** — entity meta and entity-field operations. **Requires the
-  `Administration` role.** Source: /docs/developer/server-api/overview.md:L6-L12
+  `administrator` role.** Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 - **`EntityRelationManager`** — entity-relation operations. **Requires the
-  `Administration` role.** Source: /docs/developer/server-api/overview.md:L14-L20
+  `administrator` role.** Source: /WebVella.Erp/Api/EntityRelationManager.cs:L399 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-> **All metadata endpoints require the `Administration` role.** Every request on
+> **All metadata endpoints require the `administrator` role.** Every request on
 > this page is authenticated with an OIDC-issued JWT bearer token whose mapped
-> principal **must hold the `Administration` role**; a valid token without it is
+> principal **must hold the `administrator` role**; a valid token without it is
 > refused with `403 Forbidden`. See
 > [Authentication → Claim to role and permission mapping](authentication.md#claim-to-role-and-permission-mapping)
-> for how OIDC claims map to the `Administration` role.
+> for how OIDC claims map to the `administrator` role.
 
-All requests are made relative to the versioned base path `/api/v1/`
-(see the [API Reference overview](index.md)). Every **successful** response is
-wrapped in the platform's standard response envelope
-(`success`, `message`, `timestamp`, `errors`, `object`) documented under
-[Response Envelope](index.md#response-envelope); transport- and HTTP-level
-failures use the `application/problem+json` model documented in
+In the target design, all requests would be made relative to the versioned base
+path `/api/v1/` (see the [API Reference overview](index.md)). Today the
+in-process managers return the **legacy** response envelope
+(`timestamp`, `success`, `message`, `hash`, `errors`, `accessWarnings`, `object`)
+documented in full under [Response Envelope](index.md#response-envelope); the
+target `/api/v1/` envelope — and whether HTTP-level failures adopt an
+`application/problem+json` shape — is **Not available / to be confirmed**. See
 [Errors](errors.md).
 
-Source: /docs/developer/web-api/response.md:L59-L97
+Source: /WebVella.Erp/Api/Models/BaseModels.cs:L8-L38 (BaseResponseModel incl. hash, accessWarnings)
 
 ## Migrating from the legacy meta API
 
@@ -46,9 +60,9 @@ targets the legacy paths as follows:
 
 | Legacy endpoint (retired) | Replacement (`/api/v1/`) | Source |
 |---------------------------|--------------------------|--------|
-| `POST /api/v3/en_US/meta/entity` | `POST /api/v1/meta/entity` | Source: /docs/developer/entities/create-entity.md:L27 |
-| `POST /api/v3/en_US/meta/entity/{Id}/field` | `POST /api/v1/meta/entity/{id}/field` | Source: /docs/developer/entities/create-entity-field.md:L23 |
-| `POST /api/v3/en_US/meta/relation` | `POST /api/v1/meta/relation` | Source: /docs/developer/entities/create-entity-relation.md:L22 |
+| `POST /api/v3/en_US/meta/entity` | `POST /api/v1/meta/entity` | Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1473 (legacy POST api/v3/en_US/meta/entity) |
+| `POST /api/v3/en_US/meta/entity/{Id}/field` | `POST /api/v1/meta/entity/{id}/field` | Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1593 (legacy POST .../meta/entity/{Id}/field) |
+| `POST /api/v3/en_US/meta/relation` | `POST /api/v1/meta/relation` | Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L2036 (legacy POST api/v3/en_US/meta/relation) |
 
 The authorization model also changes: the legacy endpoints authorized through a
 browser session credential, whereas the `/api/v1/` surface is
@@ -62,56 +76,56 @@ stated once here and repeated per endpoint for convenience:
 - **Transport:** an OIDC-issued **JWT** presented as an HTTP `Authorization:
   Bearer <access_token>` header. There is no session-credential fallback on
   `/api/v1/`.
-- **Required role:** the **`Administration`** role. Entity and field operations
+- **Required role:** the **`administrator`** role. Entity and field operations
   are enforced by `EntityManager`, and relation operations by
-  `EntityRelationManager`; both require the `Administration` role.
+  `EntityRelationManager`; both require the `administrator` role.
 
-Source: /docs/developer/server-api/overview.md:L6-L12, /docs/developer/server-api/overview.md:L14-L20
+Source: /WebVella.Erp/Api/EntityManager.cs:L452, /WebVella.Erp/Api/EntityRelationManager.cs:L399 (both gate on SecurityContext.HasMetaPermission); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117
 
 A request that is unauthenticated is rejected with `401 Unauthorized`; a request
-that is authenticated but whose principal is not mapped to the `Administration`
+that is authenticated but whose principal is not mapped to the `administrator`
 role is rejected with `403 Forbidden`. The full status-code catalog and the
 problem-details body are documented in [Errors](errors.md).
 
 ## Entity metadata endpoints
 
 Entity metadata endpoints define and read Entities and their fields. They are
-backed by `EntityManager` and require the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L6-L12
+backed by `EntityManager` and require the `administrator` role.
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
 ### `GET /api/v1/meta/entity` — list entities
 
 Returns the collection of Entity meta definitions known to the platform.
 
-##### Authorization
+#### Authorization
 
-Requires a JWT bearer token whose principal is mapped to the **`Administration`**
-role. Backed by `EntityManager`, which requires the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Requires a JWT bearer token whose principal is mapped to the **`administrator`**
+role. Backed by `EntityManager`, which requires the `administrator` role.
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### HTTP request
+#### HTTP request
 
 ```http
 GET https://<host>/api/v1/meta/entity
 Authorization: Bearer <access_token>
 ```
 
-##### Query parameters
+#### Query parameters
 
 List results are paginated. The exact pagination parameter names and the default
 page size are **Not available / to be confirmed** — needed: the final pagination
 parameters (for example `page`/`pageSize`) exposed by the `WebVella.Erp.Api`
 endpoint definitions once finalized. See [Pagination](index.md#pagination).
 
-##### Request body
+#### Request body
 
 None. `GET` requests do not carry a request body.
 
-##### Side effects
+#### Side effects
 
 None. This endpoint is read-only and does not modify metadata or storage.
 
-##### Request response
+#### Request response
 
 On success the response envelope's `object` is an **array** of Entity meta
 objects. Each entry carries the entity meta (for example `id`, `name`, `label`,
@@ -138,18 +152,18 @@ relations.
 }
 ```
 
-Source: /docs/developer/web-api/response.md:L20-L37 (list envelope), /docs/developer/entities/overview.md:L5 (entity meta)
+Source: /WebVella.Erp/Api/Models/BaseModels.cs:L8-L38 (envelope), /WebVella.Erp/Api/Models/Entity.cs:L101 (EntityListResponse : BaseResponseModel)
 
-##### Error modes
+#### Error modes
 
 | Status | Cause |
 |--------|-------|
 | `401 Unauthorized` | Missing, invalid, or expired JWT bearer token. |
-| `403 Forbidden` | Authenticated principal is not in the `Administration` role. |
+| `403 Forbidden` | Authenticated principal is not in the `administrator` role. |
 
 See [Errors](errors.md) for the full problem-details model.
 
-##### Example
+#### Example
 
 ```bash
 curl "https://<host>/api/v1/meta/entity" \
@@ -160,22 +174,22 @@ curl "https://<host>/api/v1/meta/entity" \
 
 Returns a single Entity meta definition, identified by its unique `name`. This
 maps to `EntityManager.ReadEntity`.
-Source: /docs/developer/server-api/overview.md:L11
+Source: /WebVella.Erp/Api/EntityManager.cs:L800 (ReadEntity(string name))
 
-##### Authorization
+#### Authorization
 
-Requires a JWT bearer token whose principal is mapped to the **`Administration`**
-role. Backed by `EntityManager`, which requires the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Requires a JWT bearer token whose principal is mapped to the **`administrator`**
+role. Backed by `EntityManager`, which requires the `administrator` role.
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### HTTP request
+#### HTTP request
 
 ```http
 GET https://<host>/api/v1/meta/entity/{name}
 Authorization: Bearer <access_token>
 ```
 
-##### Query parameters
+#### Query parameters
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -183,15 +197,15 @@ Authorization: Bearer <access_token>
 
 No query-string parameters are required with this method.
 
-##### Request body
+#### Request body
 
 None. `GET` requests do not carry a request body.
 
-##### Side effects
+#### Side effects
 
 None. This endpoint is read-only and does not modify metadata or storage.
 
-##### Request response
+#### Request response
 
 On success the response envelope's `object` is the single Entity meta object for
 the requested `name`.
@@ -214,19 +228,19 @@ the requested `name`.
 }
 ```
 
-Source: /docs/developer/web-api/response.md:L6-L18 (single-object envelope), /docs/developer/entities/overview.md:L5 (entity meta)
+Source: /WebVella.Erp/Api/Models/BaseModels.cs:L8-L38 (envelope), /WebVella.Erp/Api/Models/Entity.cs:L95 (EntityResponse : BaseResponseModel)
 
-##### Error modes
+#### Error modes
 
 | Status | Cause |
 |--------|-------|
 | `401 Unauthorized` | Missing, invalid, or expired JWT bearer token. |
-| `403 Forbidden` | Authenticated principal is not in the `Administration` role. |
+| `403 Forbidden` | Authenticated principal is not in the `administrator` role. |
 | `404 Not Found` | No Entity exists with the requested `name`. |
 
 See [Errors](errors.md) for the full problem-details model.
 
-##### Example
+#### Example
 
 ```bash
 curl "https://<host>/api/v1/meta/entity/user" \
@@ -236,15 +250,15 @@ curl "https://<host>/api/v1/meta/entity/user" \
 ### `POST /api/v1/meta/entity` — create an entity
 
 Creates a new Entity. This maps to `EntityManager.CreateEntity`.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### Authorization
+#### Authorization
 
-Requires a JWT bearer token whose principal is mapped to the **`Administration`**
-role. Backed by `EntityManager`, which requires the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Requires a JWT bearer token whose principal is mapped to the **`administrator`**
+role. Backed by `EntityManager`, which requires the `administrator` role.
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### HTTP request
+#### HTTP request
 
 ```http
 POST https://<host>/api/v1/meta/entity
@@ -252,16 +266,16 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-##### Query parameters
+#### Query parameters
 
 No query parameters are required with this method.
 
-##### Request body
+#### Request body
 
 Post an **`InputEntity`** object as the request body. It carries the entity meta
 to create — for example `name`, `label`, `labelPlural`, `system`, `color`, and
 `iconName`.
-Source: /docs/developer/entities/create-entity.md:L34-L36
+Source: /WebVella.Erp/Api/Models/Entity.cs:L7 (InputEntity), /WebVella.Erp/Api/EntityManager.cs:L439 (CreateEntity(InputEntity))
 
 ```json
 {
@@ -274,17 +288,17 @@ Source: /docs/developer/entities/create-entity.md:L34-L36
 }
 ```
 
-##### Side effects
+#### Side effects
 
 Creating an Entity persists its meta **and** provisions its backing storage: the
 platform creates and maintains the optimal database structure for the new Entity
 (a DDL operation). This is a write operation and is not idempotent.
-Source: /docs/developer/entities/overview.md:L5
+Source: /WebVella.Erp/Api/EntityManager.cs:L439 (CreateEntity provisions entity storage)
 
-##### Request response
+#### Request response
 
 On success the response envelope's `object` is the newly created Entity.
-Source: /docs/developer/entities/create-entity.md:L42-L57
+Source: /WebVella.Erp/Api/Models/Entity.cs:L95 (EntityResponse), /WebVella.Erp/Api/EntityManager.cs:L439 (CreateEntity)
 
 ```json
 {
@@ -304,18 +318,18 @@ Source: /docs/developer/entities/create-entity.md:L42-L57
 }
 ```
 
-##### Error modes
+#### Error modes
 
 | Status | Cause |
 |--------|-------|
 | `400 Bad Request` | The request body is missing or is not valid JSON. |
 | `401 Unauthorized` | Missing, invalid, or expired JWT bearer token. |
-| `403 Forbidden` | Authenticated principal is not in the `Administration` role. |
+| `403 Forbidden` | Authenticated principal is not in the `administrator` role. |
 | `422 Unprocessable Entity` | The `InputEntity` is syntactically valid but fails validation (for example a duplicate or blank `name`). Field-level messages are returned per [Errors](errors.md). |
 
 See [Errors](errors.md) for the full problem-details model.
 
-##### Example
+#### Example
 
 ```bash
 curl -X POST "https://<host>/api/v1/meta/entity" \
@@ -334,15 +348,15 @@ curl -X POST "https://<host>/api/v1/meta/entity" \
 ### `POST /api/v1/meta/entity/{id}/field` — create a field
 
 Adds a new field to an existing Entity. This maps to `EntityManager.CreateField`.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### Authorization
+#### Authorization
 
-Requires a JWT bearer token whose principal is mapped to the **`Administration`**
-role. Backed by `EntityManager`, which requires the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L6-L12
+Requires a JWT bearer token whose principal is mapped to the **`administrator`**
+role. Backed by `EntityManager`, which requires the `administrator` role.
+Source: /WebVella.Erp/Api/EntityManager.cs:L452 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### HTTP request
+#### HTTP request
 
 ```http
 POST https://<host>/api/v1/meta/entity/{id}/field
@@ -350,21 +364,21 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-Source: /docs/developer/entities/create-entity-field.md:L23
+Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1593 (legacy field route); /WebVella.Erp/Api/EntityManager.cs:L924 (CreateField)
 
-##### Query parameters
+#### Query parameters
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `id` | `Guid` | Yes | Path segment. The id of the target Entity to which the field is added. |
 
-Source: /docs/developer/entities/create-entity-field.md:L28-L38
+Source: /WebVella.Erp/Api/EntityManager.cs:L924 (CreateField(Guid entityId, InputField inputField))
 
-##### Request body
+#### Request body
 
 Post an **`InputField`** object as the request body — the field definition
 (name, label, field type, and type-specific options).
-Source: /docs/developer/entities/create-entity-field.md:L42
+Source: /WebVella.Erp/Api/Models/FieldTypes/BaseField.cs:L10 (InputField), /WebVella.Erp/Api/EntityManager.cs:L924 (CreateField)
 
 ```json
 {
@@ -375,18 +389,18 @@ Source: /docs/developer/entities/create-entity-field.md:L42
 }
 ```
 
-##### Side effects
+#### Side effects
 
 Creating a field extends the target Entity's meta **and** its backing storage:
 the platform adds the corresponding column to the Entity's database structure (a
 DDL operation). This is a write operation and is not idempotent.
-Source: /docs/developer/entities/overview.md:L5
+Source: /WebVella.Erp/Api/EntityManager.cs:L924 (CreateField provisions field storage)
 
-##### Request response
+#### Request response
 
 On success the response envelope's `object` is the newly created field (the
 persisted field definition).
-Source: /docs/developer/entities/create-entity-field.md:L48-L63
+Source: /WebVella.Erp/Api/Models/FieldTypes/BaseField.cs:L428 (FieldResponse), /WebVella.Erp/Api/EntityManager.cs:L924 (CreateField)
 
 ```json
 {
@@ -404,19 +418,19 @@ Source: /docs/developer/entities/create-entity-field.md:L48-L63
 }
 ```
 
-##### Error modes
+#### Error modes
 
 | Status | Cause |
 |--------|-------|
 | `400 Bad Request` | The request body is missing or is not valid JSON. |
 | `401 Unauthorized` | Missing, invalid, or expired JWT bearer token. |
-| `403 Forbidden` | Authenticated principal is not in the `Administration` role. |
+| `403 Forbidden` | Authenticated principal is not in the `administrator` role. |
 | `404 Not Found` | No Entity exists with the supplied `{id}`. |
 | `422 Unprocessable Entity` | The `InputField` is syntactically valid but fails validation (for example a duplicate or blank field `name`). Field-level messages are returned per [Errors](errors.md). |
 
 See [Errors](errors.md) for the full problem-details model.
 
-##### Example
+#### Example
 
 ```bash
 curl -X POST "https://<host>/api/v1/meta/entity/6b2f9c30-0000-0000-0000-000000000000/field" \
@@ -433,23 +447,23 @@ curl -X POST "https://<host>/api/v1/meta/entity/6b2f9c30-0000-0000-0000-00000000
 ## Entity relation endpoints
 
 Entity relation endpoints define the relations between Entities. They are backed
-by `EntityRelationManager` and require the `Administration` role.
-Source: /docs/developer/server-api/overview.md:L14-L20
+by `EntityRelationManager` and require the `administrator` role.
+Source: /WebVella.Erp/Api/EntityRelationManager.cs:L399 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
 ### `POST /api/v1/meta/relation` — create a relation
 
 Creates a new relation between two Entities. This maps to
 `EntityRelationManager.Create`.
-Source: /docs/developer/server-api/overview.md:L14-L20
+Source: /WebVella.Erp/Api/EntityRelationManager.cs:L399 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### Authorization
+#### Authorization
 
-Requires a JWT bearer token whose principal is mapped to the **`Administration`**
-role. Backed by `EntityRelationManager`, which requires the `Administration`
+Requires a JWT bearer token whose principal is mapped to the **`administrator`**
+role. Backed by `EntityRelationManager`, which requires the `administrator`
 role.
-Source: /docs/developer/server-api/overview.md:L14-L20
+Source: /WebVella.Erp/Api/EntityRelationManager.cs:L399 (HasMetaPermission gate); /WebVella.Erp/Api/SecurityContext.cs:L26, L109-L117 (administrator role)
 
-##### HTTP request
+#### HTTP request
 
 ```http
 POST https://<host>/api/v1/meta/relation
@@ -457,16 +471,16 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-##### Query parameters
+#### Query parameters
 
 No query parameters are required with this method.
 
-##### Request body
+#### Request body
 
 Post an **`EntityRelation`** object as the request body — the relation
 definition, including its name, type, and the origin/target entity and field
 references.
-Source: /docs/developer/entities/create-entity-relation.md:L29-L31
+Source: /WebVella.Erp/Api/Models/EntityRelation.cs:L36 (EntityRelation), /WebVella.Erp/Api/EntityRelationManager.cs:L388 (Create)
 
 ```json
 {
@@ -479,16 +493,16 @@ Source: /docs/developer/entities/create-entity-relation.md:L29-L31
 }
 ```
 
-##### Side effects
+#### Side effects
 
 Creating a relation persists the relation definition between the two Entities so
 that it can be traversed (for example in EQL queries; see [EQL Query](eql.md)).
 This is a write operation and is not idempotent.
 
-##### Request response
+#### Request response
 
 On success the response envelope's `object` is the newly created relation.
-Source: /docs/developer/entities/create-entity-relation.md:L37-L52
+Source: /WebVella.Erp/Api/Models/EntityRelation.cs:L103 (EntityRelationResponse), /WebVella.Erp/Api/EntityRelationManager.cs:L388 (Create)
 
 ```json
 {
@@ -508,19 +522,19 @@ Source: /docs/developer/entities/create-entity-relation.md:L37-L52
 }
 ```
 
-##### Error modes
+#### Error modes
 
 | Status | Cause |
 |--------|-------|
 | `400 Bad Request` | The request body is missing or is not valid JSON. |
 | `401 Unauthorized` | Missing, invalid, or expired JWT bearer token. |
-| `403 Forbidden` | Authenticated principal is not in the `Administration` role. |
+| `403 Forbidden` | Authenticated principal is not in the `administrator` role. |
 | `404 Not Found` | A referenced origin/target Entity or field does not exist. |
 | `422 Unprocessable Entity` | The `EntityRelation` is syntactically valid but fails validation (for example a duplicate relation `name` or an incompatible relation type). Field-level messages are returned per [Errors](errors.md). |
 
 See [Errors](errors.md) for the full problem-details model.
 
-##### Example
+#### Example
 
 ```bash
 curl -X POST "https://<host>/api/v1/meta/relation" \
@@ -540,7 +554,7 @@ curl -X POST "https://<host>/api/v1/meta/relation" \
 
 - [Authentication](authentication.md) — the JWT bearer model and the
   [claim-to-role/permission mapping](authentication.md#claim-to-role-and-permission-mapping)
-  that grants the `Administration` role these endpoints require.
+  that grants the `administrator` role these endpoints require.
 - [Errors](errors.md) — the problem-details error model and the full list of
   status codes (`400`, `401`, `403`, `404`, `422`, …) referenced above.
 - [Records](records.md) — the endpoints for the Record *instances* of the

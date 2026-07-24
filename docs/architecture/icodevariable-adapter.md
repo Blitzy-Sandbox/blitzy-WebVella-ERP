@@ -1,14 +1,14 @@
-﻿<!--{"sort_order":2, "name": "icodevariable-adapter", "label": "ICodeVariable Adapter"}-->
+<!--{"sort_order":2, "name": "icodevariable-adapter", "label": "ICodeVariable Adapter"}-->
 
 # The ICodeVariable / BaseErpPageModel Adapter
 
-Code variables are user-authored C# snippets that implement `ICodeVariable` and are evaluated with a `BaseErpPageModel` argument to compute a value from the current page/request state. Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6. Because `BaseErpPageModel` is a RazorPages `PageModel`, it only exists naturally inside the RazorPages request lifecycle. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18. The headless refactor retires that RazorPages host, so to keep existing code variables working **unchanged** under the new `/api/v1/` surface a **compatibility shim (adapter)** synthesizes a `BaseErpPageModel` from an API request context and hands it to the same evaluation path. This page documents *why* the shim is required and *what* it reproduces; the adapter itself is built by the code workstream and is out of scope here (AAP §0.9.2).
+Code variables are administrator-authored C# snippets that implement `ICodeVariable` and are evaluated with a `BaseErpPageModel` argument to compute a value from the current page/request state. Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6. Because `BaseErpPageModel` derives from the RazorPages `PageModel`, it exists naturally inside the RazorPages request lifecycle. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18. A compatibility shim that synthesizes a `BaseErpPageModel` **outside** a full page render already exists today: the static helper `BaseErpPageModel.CreatePageModelSimulation(ErpRequestContext, ErpUser)`. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L403-L418. This page documents that existing helper and its single current caller, states exactly which members it maps and which it leaves unset, and then describes — as **planned, not-yet-built** work — what a `/api/v1/` adapter would additionally have to do. The `/api/v1/` host and any successor adapter are built by the code workstream and are out of scope here (AAP §0.9.2).
+
+> **Status.** The existing `CreatePageModelSimulation` helper and its caller are present in this checkout and are described here as **current** behavior. The headless `/api/v1/` surface, its request pipeline, and any dedicated page-model adapter for that surface **do not exist yet** (`WebVella.Erp.Api` is absent from `WebVella.ERP3.sln`); every `/api/v1/`-specific mapping below is therefore labelled **planned / Not available**.
 
 ## Purpose — why BaseErpPageModel is required
 
-`ICodeVariable.Evaluate(BaseErpPageModel pageModel)` is the single extension point that computed data-source and page values run through. Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6. It is invoked today from the data-source variable evaluator and from the EQL sample page — always with a *live* page model produced by RazorPages. Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L437,L454,L472; Source: /WebVella.Erp.Site/Pages/EQL.cshtml.cs:L54.
-
-The `pageModel` parameter is a `BaseErpPageModel`, and `BaseErpPageModel : PageModel` binds the type to the RazorPages lifecycle: its `AppName`/`AreaName`/`NodeName`/`PageName` and `RecordId`/`RelationId`/`ParentRecordId` values arrive through RazorPages model binding (`[BindProperty(SupportsGet = true)]`). Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18,L32-L51. Several members reach directly into `PageContext`/`HttpContext` (for example `HookKey`), and the whole type is gated by cookie authentication. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L78-L87,L17. Because a `BaseErpPageModel` is therefore expensive—if not impossible—to conjure outside RazorPages, and the RazorPages host is retired by the refactor (see [RazorPages to React migration](../migration/razorpages-to-react.md)), nothing naturally produces a `BaseErpPageModel` for an `/api/v1/` request. That gap is exactly what the shim closes.
+`ICodeVariable.Evaluate(BaseErpPageModel pageModel)` is the single extension point that computed data-source and page values run through. Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6. It is invoked today through the data-source variable evaluator. Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L437,L454,L472.
 
 The public API being kept alive is documented below (rule B).
 
@@ -18,75 +18,116 @@ The public API being kept alive is documented below (rule B).
 - **Side effects** — author-defined; a well-behaved code variable is read-only and only reads members of `pageModel`. Source: /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L9-L22.
 - **Error modes** — author code may throw or dereference members the host leaves unset; the evaluator additionally throws `ArgumentException` when the snippet source is empty. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L29-L30. See [Failure modes and troubleshooting](#failure-modes-and-troubleshooting).
 
-## The compatibility shim
+`BaseErpPageModel` derives from `PageModel`, and several of its members are populated by the RazorPages lifecycle: `AppName`/`AreaName`/`NodeName`/`PageName` and `RecordId`/`RelationId`/`ParentRecordId` are declared with `[BindProperty(SupportsGet = true)]` and arrive through model binding. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L32-L51. `HookKey` reaches into `PageContext.HttpContext.Request.Query`. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L78-L87. Because those members depend on the RazorPages request, code that needs a `BaseErpPageModel` outside a page render must obtain one some other way — which is exactly what `CreatePageModelSimulation` provides.
 
-On the `/api/v1/` request path the API-context adapter stands in for the RazorPages lifecycle: it constructs (synthesizes) a `BaseErpPageModel` and populates the members that code variables commonly read. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L21-L76.
+## The existing compatibility shim (current behavior)
 
-- **`CurrentUser`** is resolved from the JWT-authenticated principal instead of the cookie principal. Today it is computed from `User` via `AuthService.GetUser(User)`; the shim supplies an equivalent principal drawn from the bearer token. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L21-L30,L17. See [Security](security.md).
-- **`RecordId`/`RelationId`/`ParentRecordId`** and **`AppName`/`AreaName`/`NodeName`/`PageName`** are parsed from the API request path, query string, and body instead of RazorPages model binding. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L32-L51.
-- **`ErpRequestContext`**, **`ErpAppContext`**, and **`DataModel`** are populated by the adapter from the request. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L53-L57.
+`CreatePageModelSimulation` constructs a `BaseErpPageModel` from an already-built `ErpRequestContext` and an `ErpUser`, without a RazorPages page render. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L403-L418. It is called from exactly one place in this checkout — the web-API component-render endpoint `PageComponentRenderViews` (route `api/v3.0/pc/{fullComponentName}/view/{renderMode}`, `HttpPost`). Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L822-L824,L952-L960.
 
-Crucially, the evaluation entry point does **not** change: the shim hands the synthesized model to the same `CodeEvalService.Evaluate(sourceCode, pageModel)` method used today. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L51-L54. Snippets are compiled to an `ICodeVariable` via CS-Script and cached, so a given snippet compiles once and then runs byte-for-byte identically regardless of host. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L47. The goal is that existing user code variables — for example the shipped `EmptySampleClassSnippet` — require **no changes**. Source: /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L7-L23.
+At that caller the user is taken from the **current request principal** via `AuthService.GetUser(User)` — i.e. whatever scheme authenticated the request (in the legacy host, cookie or the `JWT_OR_COOKIE` policy), **not** a JWT principal specifically. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L952-L955.
 
 ```csharp
-// Illustrative only — the real adapter lives in the API host (out of scope, AAP §0.9.2).
-// On an /api/v1/ request the adapter synthesizes a BaseErpPageModel, populating the
-// members code variables read (CurrentUser from the JWT principal; AppName/RecordId
-// from the request; ErpRequestContext), then reuses the UNCHANGED evaluation path.
-var pageModel = ApiPageModelAdapter.FromRequest(httpContext, erpRequestContext);
-object value = CodeEvalService.Evaluate(sourceCode, pageModel); // same call as today
+// Current code, condensed (WebVella.Erp.Web/Controllers/WebApiController.cs:952-960).
+var currentUser = AuthService.GetUser(User);              // current request principal
+var baseErpPageMode = BaseErpPageModel.CreatePageModelSimulation(
+    erpRequestContext: erpRequestContext,                 // built earlier in the action
+    currentUser: currentUser);
+pageModel = baseErpPageMode.DataModel;                    // used for component rendering
+// Code variables ultimately evaluate through the UNCHANGED entry point:
+// CodeEvalService.Evaluate(sourceCode, baseErpPageMode).
 ```
 
-## Behavioral parity and known limitations
+The evaluation entry point does not change: the synthesized model is handed to the same `CodeEvalService.Evaluate(sourceCode, pageModel)` used everywhere else. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L51-L54. Snippets are compiled to an `ICodeVariable` via CS-Script and cached, so a given snippet compiles once and then runs identically regardless of how the `pageModel` was produced. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L47.
 
-The adapter reproduces the members a code variable is likely to read, but it cannot recreate features that only make sense while a RazorPage is being rendered. The table contrasts each `BaseErpPageModel` member/feature before (RazorPages host, retired) and after (API shim).
+### What the helper maps, and what it leaves unset
 
-| BaseErpPageModel member / feature | Under RazorPages (before) | Under the API shim (after) |
-|-----------------------------------|---------------------------|----------------------------|
-| `CurrentUser` — Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L21-L30 | Resolved from the **cookie** principal via `AuthService.GetUser(User)` (cookie scheme at :L17) | Resolved from the **JWT** principal — faithfully reproduced (see [Security](security.md)) |
-| `RecordId` / `RelationId` / `ParentRecordId` — Source: :L44-L51 | RazorPages model binding (`[BindProperty(SupportsGet = true)]`) | Parsed from the API request path/query — reproduced |
-| `AppName` / `AreaName` / `NodeName` / `PageName` — Source: :L32-L42 | RazorPages model binding | Parsed from the API request — reproduced |
-| `ErpRequestContext` / `ErpAppContext` / `DataModel` — Source: :L53-L57 | Set while the page initializes | Populated by the adapter — reproduced |
-| `ToolbarMenu` / `SidebarMenu` / `SiteMenu` / `ApplicationMenu` / `UserMenu` — Source: :L61-L69 | Built from the sitemap by `Init()` navigation during page render — Source: :L183-L228 | **May be empty / stubbed** — there is no page render under an API request |
-| `HookKey` — Source: :L78-L87 | Reads `PageContext.HttpContext.Request.Query` | Reproduced only if the adapter maps the API query; otherwise empty |
-| `PageContext` / `HttpContext` RazorPages specifics, `ReturnUrl` (Source: :L73), `Init()` redirect results (`LocalRedirectResult`, Source: :L156-L166) | Native to the RazorPages request | **Not applicable / unavailable** under an API request |
+The helper sets **eight** members and leaves everything else at its field default. The table lists the exact current behavior; no behavioral parity is claimed for the members it does not touch.
 
-In short: `CurrentUser`, the route/record identifiers, and `ErpRequestContext`/`ErpAppContext`/`DataModel` are **faithfully reproduced**; the navigation menus, RazorPages-specific `PageContext`/`HttpContext` details, `ReturnUrl`, and the redirect results produced by `Init()` are **unavailable or stubbed** because no page is being rendered.
+| BaseErpPageModel member | Set by `CreatePageModelSimulation`? | Detail (Source) |
+|-------------------------|-------------------------------------|-----------------|
+| `ErpRequestContext` | ✅ set | assigned from the `erpRequestContext` argument. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L410 |
+| `CurrentUser` (backing `currentUser`) | ✅ set | assigned from the `currentUser` argument (the caller passes `AuthService.GetUser(User)`); the lazy `User`-based resolver at L21-L30 is bypassed. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L411,L20-L30 |
+| `AppName` | ✅ set | `erpRequestContext.App?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L412 |
+| `AreaName` | ✅ set | `erpRequestContext.SitemapArea?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L413 |
+| `NodeName` | ✅ set | `erpRequestContext.SitemapNode?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L414 |
+| `PageName` | ✅ set | `erpRequestContext.Page?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L415 |
+| `RecordId` | ✅ set | `erpRequestContext.RecordId`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L416 |
+| `DataModel` | ✅ set | `new PageDataModel(pageModel)`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L417 |
+| `RelationId`, `ParentRecordId` | ❌ **unset** (null) | not copied, even though `ErpRequestContext` carries them (/WebVella.Erp.Web/ErpRequestContext.cs:L39,L41). Page-model fields stay null. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L48,L51 |
+| `ErpAppContext` | ❌ **unset** (null) | never assigned by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L57 |
+| `ToolbarMenu`, `SidebarMenu`, `SiteMenu`, `ApplicationMenu`, `UserMenu` | ❌ **unset** (empty lists) | populated only by page navigation, not by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L61-L69 |
+| `HookKey` | ❌ **unset** (throws/empty) | computed from `PageContext.HttpContext.Request.Query`; no `PageContext` is assigned by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L78-L87 |
+| `ReturnUrl`, `CurrentUrl` | ❌ **unset** (`""`) | not assigned by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L74,L76 |
+| `PageContext` / `HttpContext` (from `PageModel`) | ❌ **unset** | RazorPages base members; not assigned outside a page render. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18 |
+
+## Trust boundary — code variables execute as fully trusted in-process code
+
+Code variables are **not** end-user input: they are administrator-authored server-side configuration, compiled and executed **in-process with full host privileges and no sandbox**. `CodeEvalService.GetScriptObject` compiles the snippet with CS-Script — `CSScript.EvaluatorConfig.ReferenceDomainAssemblies = true` and `CSScript.Evaluator.LoadCode<ICodeVariable>(sourceCode)` — and `Evaluate` then runs `script.Evaluate(pageModel)` directly. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L47,L51-L54. Because `ReferenceDomainAssemblies` is enabled, the compiled snippet can reach any loaded assembly and perform any operation the host process can.
+
+Consequences that the shim does **not** change and must be governed operationally:
+
+- **No isolation from page-model adaptation.** Synthesizing a `BaseErpPageModel` (by `CreatePageModelSimulation` or any future adapter) provides **no** security boundary; it only changes what data the snippet reads. It does not restrict what the snippet can execute.
+- **Authoring must be authorized and audited.** Only trusted administrators may create or edit code variables; treat the snippet body as privileged code entering the trust boundary. Editing surfaces are administrator-gated (the admin controllers require `[Authorize(Roles = "administrator")]`). Source: /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L53.
+- **Failure propagation.** A thrown snippet exception either becomes `null` or propagates depending on the caller's `SafeCodeDataVariable` flag — the "safe" path catches and yields `null` (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L454), the default path propagates (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L437,L472).
+- **Host impact.** Because execution is in-process, a snippet can consume host resources, block, or fault the host; there is no per-snippet resource or permission limit.
+
+## Proposed for `/api/v1/` (Not available — target adapter not built)
+
+The `/api/v1/` host does not exist yet, so the following is **planned design, not implemented behavior**; it must be derived from the adapter/host code and proven by tests once that code lands (AAP §0.9.2). To let existing code variables run under `/api/v1/` unchanged, a target adapter would need to:
+
+- **Build an `ErpRequestContext` for the API request** and reuse `CreatePageModelSimulation` (or a successor helper) so the eight currently-mapped members are populated the same way.
+- **Map a validated principal to `ErpUser`.** Under `/api/v1/` the principal is expected to come from a bearer/JWT token; the adapter must resolve an `ErpUser` from it (the equivalent of today's `AuthService.GetUser(User)`), with claim-to-role mapping defined in [Security](security.md). This mapping is **Not available** until the API auth code exists.
+- **Decide each currently-unset member explicitly.** For `RelationId`/`ParentRecordId` (available on `ErpRequestContext` but not copied today), `ErpAppContext`, the five navigation menus, `HookKey`, and `ReturnUrl`/`CurrentUrl`, the adapter must either populate them from the API request or document them as unavailable under `/api/v1/`. None of these are populated by the current helper.
+- **Provide parity tests.** A test suite that evaluates representative code variables under both the current helper and the `/api/v1/` adapter is required to substantiate any parity claim. Until such tests exist, parity is **Not available / to be confirmed**.
+
+```text
+Not available — the /api/v1/ adapter, its method surface, and its request-to-member
+mapping do not exist in this checkout (requires WebVella.Erp.Api). Do not design a
+second adapter from this page; extend CreatePageModelSimulation or its documented
+successor once the API host code exists.
+```
 
 ## Failure modes and troubleshooting
 
-- **A code variable dereferences a RazorPages-only member the shim leaves null/empty** (for example a navigation menu, or `PageContext`) → it returns `null` or throws. *Remedy:* guard for null — the shipped sample already does `if (pageModel == null) return ""` — and avoid `PageContext`/menu dependencies. Source: /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L13-L14.
-- **Auth-dependent logic that assumes the cookie identity** → the shim now supplies the JWT principal instead. *Remedy:* ensure the token claims map to the expected user and roles so `CurrentUser` resolves as before. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L21-L30; see [Security](security.md).
-- **Code that expects menu / navigation state** built by `Init()` → treat it as unavailable under the API host. *Remedy:* do not rely on `ToolbarMenu`/`SidebarMenu` (or the other menus) inside a code variable. Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L183-L228.
-- **Assuming exceptions are always swallowed** → whether a thrown exception becomes `null` or propagates depends on the caller's `SafeCodeDataVariable` flag: the "safe" path catches and yields `null` (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L454) while the default path propagates (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L437,L472). *Remedy:* return a defined value on error inside the snippet, as the sample does. Source: /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L18-L20.
+- **A code variable dereferences a member the helper leaves unset** (for example `RelationId`, `ParentRecordId`, a navigation menu, `ErpAppContext`, or `HookKey`) → it returns `null` or throws. *Remedy:* guard for null — the shipped sample already does `if (pageModel == null) return ""` — and avoid depending on members outside the eight the helper sets. Source: /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L13-L14; /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L48,L51,L57,L61-L69,L78-L87.
+- **Auth-dependent logic** → `CurrentUser` reflects whatever principal the caller passed (`AuthService.GetUser(User)` today; a token-derived principal under the planned `/api/v1/` adapter). *Remedy:* ensure the resolved user and roles are what the snippet expects. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L952-L955; see [Security](security.md).
+- **Assuming exceptions are always swallowed** → whether a thrown exception becomes `null` or propagates depends on the caller's `SafeCodeDataVariable` flag. *Remedy:* return a defined value on error inside the snippet, as the sample does. Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L437,L454,L472; /WebVella.Erp.Web/Snippets/EmptySampleClassSnippet.cs:L18-L20.
 - **An empty or whitespace snippet body** → `CodeEvalService` throws `ArgumentException("SourceCode is empty")` before evaluation. *Remedy:* ensure the code variable body is non-empty. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L29-L30.
 
 ## Before / after
 
-The diagram contrasts how a `BaseErpPageModel` reaches `ICodeVariable.Evaluate` before (RazorPages host, retired) and after (headless API host with the shim). The final step — `ICodeVariable.Evaluate(pageModel)` — is identical in both.
+The diagram contrasts how a `BaseErpPageModel` reaches `ICodeVariable.Evaluate`: during a full RazorPages page render (before), through the existing `CreatePageModelSimulation` helper on the current web-API component-render path (today), and through a **planned** `/api/v1/` adapter (not built). The final step — `CodeEvalService.Evaluate` → `ICodeVariable.Evaluate(pageModel)` — is identical in every case.
 
 ```mermaid
 graph TB
-    subgraph Before["Before — RazorPages host (retired)"]
-        R1["Browser request to a RazorPage"] --> R2["RazorPages lifecycle binds route/query<br/>and builds BaseErpPageModel : PageModel"]
-        R2 --> R3["PageContext, HttpContext, cookie User,<br/>AppName/RecordId, ErpRequestContext"]
-        R3 --> R4["CodeEvalService.Evaluate(source, pageModel)"]
-        R4 --> R5["ICodeVariable.Evaluate(pageModel)"]
+    subgraph Before["RazorPages page render (legacy host)"]
+        R1["Browser request to a RazorPage"] --> R2["RazorPages model binding builds<br/>BaseErpPageModel : PageModel (all members)"]
+        R2 --> R3["CodeEvalService.Evaluate(source, pageModel)"]
     end
-    subgraph After["After — Headless API host (/api/v1/)"]
-        A1["Request to /api/v1 endpoint (JWT bearer)"] --> A2["API-context adapter (shim)<br/>synthesizes BaseErpPageModel"]
-        A2 --> A3["CurrentUser from JWT, RecordId/AppName<br/>from request, ErpRequestContext"]
+    subgraph Today["Existing helper (this checkout)"]
+        T1["POST api/v3.0/pc/... (WebApiController)"] --> T2["currentUser = AuthService.GetUser(User)<br/>+ prebuilt ErpRequestContext"]
+        T2 --> T3["CreatePageModelSimulation(...)<br/>sets 8 members; others unset"]
+        T3 --> T4["CodeEvalService.Evaluate(source, pageModel)"]
+    end
+    subgraph Planned["Planned /api/v1/ adapter (Not available)"]
+        A1["Request to /api/v1 endpoint (token principal)"] --> A2["Adapter builds ErpRequestContext,<br/>maps token to ErpUser"]
+        A2 --> A3["Reuse/extend CreatePageModelSimulation;<br/>decide each currently-unset member"]
         A3 --> A4["CodeEvalService.Evaluate(source, pageModel)"]
-        A4 --> A5["ICodeVariable.Evaluate(pageModel) — unchanged"]
     end
+    R3 --> E["ICodeVariable.Evaluate(pageModel) — unchanged"]
+    T4 --> E
+    A4 --> E
 ```
 
-*Diagram: the contract `object Evaluate(BaseErpPageModel pageModel)` (Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6) is unchanged; only the origin of the `BaseErpPageModel : PageModel` (Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18) differs — RazorPages model binding before, the API-context adapter after.*
+*Diagram: the contract `object Evaluate(BaseErpPageModel pageModel)` (Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6) is unchanged; only how the `BaseErpPageModel` is produced differs — RazorPages model binding, the existing `CreatePageModelSimulation` helper, or a planned `/api/v1/` adapter.*
 
 ## Key citations
 
-- `ICodeVariable` — Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6
-- `BaseErpPageModel` — Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L17-L18
-- `CodeEvalService` — Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L51-L54
+- `ICodeVariable.Evaluate(BaseErpPageModel)` — Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L3-L6
+- `BaseErpPageModel` type and members — Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L18,L32-L87
+- `BaseErpPageModel.CreatePageModelSimulation(ErpRequestContext, ErpUser)` — Source: /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L403-L418
+- Current caller `WebApiController.PageComponentRenderViews` — Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L822-L824,L952-L960
+- `CodeEvalService` (CS-Script compile + evaluate) — Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L47,L51-L54
+- `/api/v1/` host / dedicated adapter — **Not available** (no `WebVella.Erp.Api` project in `WebVella.ERP3.sln`)
 
 **Related:** [Architecture overview](overview.md) · [Security (OIDC/JWT)](security.md) · [RazorPages to React migration](../migration/razorpages-to-react.md)

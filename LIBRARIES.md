@@ -1,8 +1,9 @@
 # Third-Party Libraries
 
 This file is the canonical inventory of the third-party packages used across the WebVella ERP
-solution — the .NET runtime and plugins, the (retired) Blazor client, and the documentation and
-refactor tooling for the headless, container-native platform — grouped by registry and purpose.
+solution — the .NET runtime and plugins, the Blazor WebAssembly client (still present in the
+checkout and slated for retirement by the refactor), and the documentation and refactor tooling for
+the headless, container-native platform — grouped by registry and purpose.
 
 Versions reflect the current solution manifests (the project `*.csproj` files and `mkdocs.yml`) at
 the time of writing; unresolved or greenfield items that are not yet pinned are marked
@@ -20,8 +21,10 @@ manifest so the inventory stays verifiable.
   than one manifest, a representative source is cited and "and others" is noted.
 - **No secrets** — this document lists package names and versions only. It never contains
   credentials, tokens, connection strings, or keys.
-- **Target framework note** — 16 of 18 projects target `net10.0` (for example
-  `WebVella.Erp/WebVella.Erp.csproj`), while the root `README.md` describes the platform as
+- **Target framework note** — of the 19 project (`.csproj`) files in the solution, 17 target
+  `net10.0` (for example `WebVella.Erp/WebVella.Erp.csproj`) and 2
+  (`WebVella.Erp.WebAssembly/Server` and `WebVella.Erp.WebAssembly/Shared`) target `net7.0`, while
+  the root `README.md` describes the platform as
   "ASP.NET Core 9". The authoritative target framework is an open decision point (see
   [Open decision points](#open-decision-points)); this document reports the framework moniker each
   manifest actually declares rather than silently resolving the discrepancy.
@@ -44,8 +47,6 @@ Domain and runtime libraries used by the core engine (`WebVella.Erp`), the web/h
 | MimeMapping | `3.1.0` | MIME type lookup by file name/extension | `WebVella.Erp/WebVella.Erp.csproj` (and `WebVella.Erp.Site`) |
 | morelinq | `4.4.0` | Additional LINQ operators | `WebVella.Erp.Site/WebVella.Erp.Site.csproj` |
 | HtmlAgilityPack | `1.12.4` | HTML parsing | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
-| SixLabors.ImageSharp | `3.1.6` | Cross-platform image processing | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
-| SixLabors.ImageSharp.Drawing | `2.1.5` | Drawing extensions for ImageSharp | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | CS-Script | `4.13.1` | Dynamic C# scripting engine (code-based data sources) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | Microsoft.CodeAnalysis.CSharp | `5.0.0` | Roslyn C# compiler APIs (dynamic scripting) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | Microsoft.CodeAnalysis.CSharp.Scripting | `5.0.0` | Roslyn C# scripting support | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
@@ -54,6 +55,12 @@ Domain and runtime libraries used by the core engine (`WebVella.Erp`), the web/h
 | Wangkanai.Detection | `8.20.0` | Device/client detection | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | WebVella.TagHelpers | `1.8.0` | Razor tag helpers for the admin UI | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | MailKit | `4.14.1` | SMTP/IMAP email delivery (Mail plugin SMTP queue) | `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj` |
+
+> **Security note (MailKit `4.14.1`)** — the pinned version predates MailKit `4.16.0`, which fixes a
+> Moderate STARTTLS response-injection / SASL-downgrade advisory (GHSA-9j88-vvj5-vhgr /
+> CVE-2026-41319; CVSS 3.1 base score 6.5). Plan an upgrade to MailKit `>= 4.16.0` through the
+> implementation workstream after compatibility validation; do not treat `4.14.1` as a secure,
+> canonical pin. Source: `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj`.
 
 ## Authentication and web hosting (NuGet)
 
@@ -68,22 +75,9 @@ to OIDC/JWT bearer only (see the API reference and architecture/security documen
 | System.IdentityModel.Tokens.Jwt | `8.15.0` | JWT creation and validation primitives | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` (and `WebVella.Erp.WebAssembly/Client`) |
 | Microsoft.AspNetCore.Mvc.NewtonsoftJson | `10.0.1` | JSON.NET input/output formatter for MVC | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` (and `WebVella.Erp.Site`, the `WebVella.Erp.Site.*` hosts, and `WebVella.Erp.Plugins.Project`) |
 | Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation | `10.0.1` | Runtime Razor view compilation | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
-| Microsoft.AspNetCore.Mvc.ViewFeatures | `2.2.0` | MVC view features | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
-| Microsoft.AspNetCore.StaticFiles | `2.2.0` | Static file middleware | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
-| Microsoft.AspNetCore.ResponseCompression | `2.2.0` | HTTP response compression | `WebVella.Erp.Site/WebVella.Erp.Site.csproj` |
-| Microsoft.AspNetCore.Http.Abstractions | `2.2.0` | HTTP abstractions used by the core engine | `WebVella.Erp/WebVella.Erp.csproj` |
 | Microsoft.Web.LibraryManager.Build | `3.0.71` | Client-side library restore (LibMan) at build time | `WebVella.Erp.Site/WebVella.Erp.Site.csproj` |
-| Microsoft.Extensions.Caching.Abstractions | `10.0.0` | Caching abstractions | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Caching.Memory | `10.0.0` | In-memory cache | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Configuration.Json | `10.0.0` | JSON configuration provider | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Hosting.Abstractions | `10.0.0` | Generic host abstractions | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Logging | `10.0.0` | Logging abstractions and core | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Logging.Console | `10.0.0` | Console logging provider | `WebVella.Erp/WebVella.Erp.csproj` |
-| Microsoft.Extensions.Logging.Debug | `10.0.0` | Debug logging provider | `WebVella.Erp/WebVella.Erp.csproj` |
 | Microsoft.Extensions.FileProviders.Embedded | `10.0.1` | Embedded-resource file providers | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | Microsoft.Extensions.Http | `10.0.1` | `HttpClient` factory | `WebVella.Erp.WebAssembly/Client/WebVella.Erp.WebAssembly.csproj` |
-| System.Linq | `4.3.0` | LINQ reference package | `WebVella.Erp.Site/WebVella.Erp.Site.csproj` |
-| System.Threading | `4.3.0` | Threading reference package | `WebVella.Erp.Site/WebVella.Erp.Site.csproj` |
 
 ### .NET shared framework reference
 
@@ -95,11 +89,38 @@ Several projects reference the ASP.NET Core shared framework rather than individ
   `WebVella.Erp.Plugins.SDK`.
   Source: `WebVella.Erp/WebVella.Erp.csproj` (and the manifests listed above).
 
-## Legacy client stack (retired)
+### Commented-out (inactive) package references
 
-The Blazor WebAssembly client is part of the **retired** hosting model and is superseded by the new
-React single-page application in `WebVella.Erp.Client`. It is inventoried here for completeness and
-for migration reference — see [`docs/migration/blazor-retirement.md`](docs/migration/blazor-retirement.md).
+The following `PackageReference` entries appear in the project manifests but are **commented out**,
+so they are **not active dependencies** of the current build. They are listed separately here for
+completeness and to prevent them from being mistaken for active packages; each cites the manifest
+and the line(s) where it appears commented.
+
+| Package | Version | Status | Source (commented) |
+|---------|---------|--------|--------------------|
+| Microsoft.AspNetCore.Http.Abstractions | `2.2.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:51` |
+| Microsoft.Extensions.Caching.Abstractions | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Caching.Memory | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Configuration.Json | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Hosting.Abstractions | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Logging | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Logging.Console | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.Extensions.Logging.Debug | `10.0.0` | commented out (inactive) | `WebVella.Erp/WebVella.Erp.csproj:52-58` |
+| Microsoft.AspNetCore.Mvc.ViewFeatures | `2.2.0` | commented out (inactive) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj:136` |
+| Microsoft.AspNetCore.StaticFiles | `2.2.0` | commented out (inactive) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj:137` |
+| SixLabors.ImageSharp | `3.1.6` | commented out (inactive) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj:139-140` |
+| SixLabors.ImageSharp.Drawing | `2.1.5` | commented out (inactive) | `WebVella.Erp.Web/WebVella.Erp.Web.csproj:139-140` |
+| System.Linq | `4.3.0` | commented out (inactive) | `WebVella.Erp.Site/WebVella.Erp.Site.csproj:51-52` |
+| System.Threading | `4.3.0` | commented out (inactive) | `WebVella.Erp.Site/WebVella.Erp.Site.csproj:51-52` |
+| Microsoft.AspNetCore.ResponseCompression | `2.2.0` | commented out (inactive) | `WebVella.Erp.Site/WebVella.Erp.Site.csproj:56` |
+
+## Legacy client stack (present; slated for retirement)
+
+The Blazor WebAssembly client is still present in the checkout and is part of the hosting model that
+the refactor plans to retire; it is slated to be superseded by the planned React single-page
+application in `WebVella.Erp.Client` (not yet present in the checkout). It is inventoried here for
+completeness and for migration reference — see
+[`docs/migration/blazor-retirement.md`](docs/migration/blazor-retirement.md).
 
 | Package | Version | Purpose | Source |
 |---------|---------|---------|--------|
@@ -120,21 +141,26 @@ for migration reference — see [`docs/migration/blazor-retirement.md`](docs/mig
 
 | File | Purpose | Source |
 |------|---------|--------|
-| `libwkhtmltox.dll` | Native `wkhtmltox` (wkhtmltopdf) engine for HTML → PDF/image rendering. A ~29 MB PE32+ (x64, Windows) binary vendored directly in the repository rather than resolved from a package registry. | `ExternalLibraries/libwkhtmltox.dll` |
+| `libwkhtmltox.dll` | A ~29 MB PE32+ (x64, Windows) native binary vendored directly in the repository rather than resolved from a package registry. The file name corresponds to the `wkhtmltox` (wkhtmltopdf) HTML-to-PDF/image native library, but its consumer and purpose within this repository are **Not available / unverified** (see note below). | `ExternalLibraries/libwkhtmltox.dll` |
 
-> This binary is checked into the repository under `ExternalLibraries/`; it is not referenced by a
-> `PackageReference`. Consumers that need HTML → PDF/image rendering load it as a native library.
+> This binary is checked into the repository under `ExternalLibraries/`. It is not referenced by any
+> `PackageReference`, and a repository search for `wkhtmltox`/`wkhtmltopdf` found no loader or caller,
+> so its consumer within this solution is **Not available / unverified**. Only the vendored file
+> identity above is confirmed. Source: `ExternalLibraries/libwkhtmltox.dll` (no referencing manifest
+> or source file found in the checkout).
 
 ## New refactor and documentation tooling
 
 Tooling introduced by the headless, container-native refactor and the documentation workstream.
-Versions below are the current externally verified releases (July 2026); packages that are not
-present in the repository manifests yet are documented here so they can be adopted consistently.
+The versions below are those referenced by the Agent Action Plan; they are point-in-time values that
+may not be the latest releases, and none of these packages are present in the repository manifests
+yet. Treat every version here as **Not available / to be pinned at adoption** after compatibility and
+security validation by the implementation workstream.
 
 | Registry | Package | Version | Purpose |
 |----------|---------|---------|---------|
 | NuGet | Microsoft.AspNetCore.OpenApi | `10.0.x` (matches the `net10.0` target) | Generate the OpenAPI 3.1 document for the new `WebVella.Erp.Api` |
-| NuGet | Scalar.AspNetCore | `2.9.0` | Interactive OpenAPI reference UI (`MapScalarApiReference()`, Development only) |
+| NuGet | Scalar.AspNetCore | `2.9.0` (AAP-referenced; not the latest — the `2.16.x` series is the current stable line as of mid-2026; final pin to be confirmed) | Interactive OpenAPI reference UI (`MapScalarApiReference()`, Development only) |
 | npm | @stoplight/spectral-cli | `6.16.2` | Lint/validate the generated OpenAPI document in CI |
 | NuGet | docfx | `2.78.5` | Optional static .NET API reference from C# XML-doc comments |
 | npm | typedoc | `0.28.20` | Generate React/TypeScript client API docs from TSDoc comments |
@@ -145,7 +171,8 @@ present in the repository manifests yet are documented here so they can be adopt
 
 > The legacy `@stoplight/spectral` package is deprecated in favor of `@stoplight/spectral-cli`; only
 > the CLI package is used. `Microsoft.AspNetCore.OpenApi` on .NET 10 depends on `Microsoft.OpenApi`
-> v2.x, and `Scalar.AspNetCore` `2.9.0` is compatible with that combination.
+> v2.x; the `Scalar.AspNetCore` version ultimately pinned must be validated for compatibility with
+> that combination before adoption.
 
 ### Client SPA dependencies (greenfield)
 

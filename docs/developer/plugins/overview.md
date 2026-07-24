@@ -1,7 +1,11 @@
 ﻿<!--{"sort_order":1, "name": "overview", "label": "Overview"}-->
 # What is a WebVella ERP Plugin
 
-A plugin implements the **`IErpPlugin`** contract (provided by the `WebVella.Erp.Plugins.SDK` package) and is packaged and loaded by the headless host. It still extends the platform with the same capability set.
+A plugin is in general a Razor Class Library that has some specific in order to fully utilized the platform's capabilities. In the current codebase a plugin derives from the abstract `ErpPlugin` base class and is initialized through `Initialize(IServiceProvider)`.
+
+Source: /WebVella.Erp/ErpPlugin.cs:L12 declares `public abstract class ErpPlugin`; /WebVella.Erp/ErpPlugin.cs:L57 declares `public virtual void Initialize(IServiceProvider ServiceProvider)`.
+
+> **Planned (headless refactor — not yet implemented).** In the target headless platform a plugin is planned to implement an `IErpPlugin` contract from a `WebVella.Erp.Plugins.SDK` package and be packaged and loaded by the headless host. That interface and host do not exist in the current checkout. See the planned [plugin SDK contract reference](../../plugin-sdk/ierplugin-contract.md).
 
 The purpose of the plugin is to provide:
 
@@ -9,9 +13,9 @@ The purpose of the plugin is to provide:
 - page components
 - pages or page routing overrides
 - business logic with the help of Hooks
-- expose HTTP endpoints via `MapEndpoints(IEndpointRouteBuilder)`
+- extend the web api with its own controllers
 - code based datasources
 - register background jobs to be run by the system
 - register to your page
 
-See the canonical SDK reference: the [IErpPlugin contract](../../plugin-sdk/ierplugin-contract.md).
+> **Planned (headless refactor — not yet implemented).** Under the target `IErpPlugin` contract, plugins are planned to expose HTTP endpoints via `MapEndpoints(IEndpointRouteBuilder)` rather than registering MVC controllers. See the planned [plugin SDK contract reference](../../plugin-sdk/ierplugin-contract.md).

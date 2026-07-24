@@ -1,9 +1,9 @@
 <!--{"sort_order":1, "name": "index", "label": "Overview"}-->
 # API Reference
 
-The WebVella ERP REST API is a RESTful, JSON-over-HTTP surface that exposes the content-management capabilities of the platform — Entities, Records, EQL queries, and files — to your own applications. It is served under the versioned base path `/api/v1/` by the `WebVella.Erp.Api` host and is the headless successor to the legacy Web API. This section supersedes the older developer Web API pages (see [In This Section](#in-this-section)).
+> **Planned target design — Not available in this checkout.** The `/api/v1/` REST surface described here is **proposed design**. There is **no `WebVella.Erp.Api` project and no generated OpenAPI document** in `WebVella.ERP3.sln`, so every route, HTTP method, DTO field, status code, permission, pagination parameter, and example on this page is **Not available / to be confirmed** and must be derived from the target endpoint definitions and the generated OpenAPI document once they exist (AAP §0.9.2). The **current** controllers expose legacy `/api/v3` and `/api/v3.0` routes (for example `Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L63`), not `/api/v1/`. **The examples below are illustrative design sketches, not runnable.**
 
-Source: /docs/developer/web-api/overview.md:L4
+The WebVella ERP REST API is planned as a RESTful, JSON-over-HTTP surface that would expose the content-management capabilities of the platform — Entities, Records, EQL queries, and files — to your own applications. In the target design it would be served under the versioned base path `/api/v1/` by the (not-yet-existing) `WebVella.Erp.Api` host as the headless successor to the legacy Web API. This section is intended to supersede the older developer Web API pages (see [In This Section](#in-this-section)).
 
 ## Base URL
 
@@ -15,8 +15,6 @@ https://<host>/api/v1/
 
 A secure certificate (HTTPS/TLS) is strongly recommended for every request to the API.
 
-Source: /docs/developer/web-api/overview.md:L27
-
 ## Versioning
 
 The API version is carried as a single segment of the URL path (`/api/v1/`), so the version is chosen explicitly on every request. Earlier iterations of the Web API embedded **two** values in the path — the version *and* a locale segment (for example `en_US`). The headless surface drops the locale segment from the route; request/response localization is handled outside the path.
@@ -25,13 +23,11 @@ The API version is carried as a single segment of the URL path (`/api/v1/`), so 
 
 The existing API-change policy is retained: new extensions are added only to the latest supported version, while bug fixes and optimizations are backported to all relevant versions.
 
-Source: /docs/developer/web-api/overview.md:L25 (legacy path shape), /docs/developer/web-api/overview.md:L18 (change policy)
+Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L63 (legacy path shape `api/v3/en_US/eql` — version + locale segments)
 
 ## Content Types
 
-Requests and responses use `application/json` encoded as UTF-8. File uploads use `multipart/form-data`; see [Files](files.md). All timestamps — both those sent in requests and those returned in responses — are ISO 8601 strings in the UTC time zone (for example `2013-02-04T22:44:30.652Z`).
-
-Source: /docs/developer/web-api/overview.md:L10
+Requests and responses use `application/json` encoded as UTF-8. File uploads use `multipart/form-data`; see [Files](files.md). All timestamps — both those sent in requests and those returned in responses — are ISO 8601 strings in the UTC time zone (for example `2013-02-04T22:44:30.652Z`). The exact content-type and timestamp conventions of the target surface are **Not available / to be confirmed** until the `WebVella.Erp.Api` endpoints exist.
 
 ## Pagination
 
@@ -41,39 +37,41 @@ List endpoints return results in pages so that large result sets can be traverse
 
 ## Response Envelope
 
-Every response is wrapped in the platform's standard envelope, so successful and failed results share a single, predictable shape:
+The **target** `/api/v1/` response contract is **Not available / to be confirmed** — it must be derived from the `WebVella.Erp.Api` response DTOs and the generated OpenAPI document once they exist. What can be documented today is the **legacy** envelope produced by the in-process managers, the `ResponseModel : BaseResponseModel` type. Its complete, verified field set is below (labelled **legacy**):
 
 ```json
 {
+  "timestamp": "2014-03-03T23:20:23Z",
   "success": true,
   "message": "",
-  "timestamp": "2014-03-03T23:20:23Z",
+  "hash": null,
   "errors": [],
+  "accessWarnings": [],
   "object": {}
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | `bool` | Whether the method executed successfully. |
-| `message` | `string` | Human-readable result message, often surfaced to the end user. |
-| `timestamp` | `DateTime` | When the method executed, as an ISO 8601 string in the UTC time zone. |
-| `errors` | `List<ErrorModel>` | Validation or execution errors; empty when none are reported. Each entry is `{ key, value, message }`. |
-| `object` | `object` | The payload returned by the method — a single object or a list. |
+| Field (legacy) | JSON name | Type | Description |
+|----------------|-----------|------|-------------|
+| Timestamp | `timestamp` | `DateTime` | When the method executed (ISO 8601, UTC). |
+| Success | `success` | `bool` | Whether the method executed successfully. |
+| Message | `message` | `string` | Human-readable result message. |
+| Hash | `hash` | `string` | Optional content hash; `null` by default. **Present in the legacy model — do not omit.** |
+| Errors | `errors` | `List<ErrorModel>` | Validation/execution errors; empty when none. |
+| AccessWarnings | `accessWarnings` | `List<AccessWarningModel>` | Access/permission warnings; empty when none. **Present in the legacy model — do not omit.** |
+| Object | `object` | `object` | The payload (on `ResponseModel`). |
 
-Error responses follow the problem-details model documented in [Errors](errors.md).
+Source: /WebVella.Erp/Api/Models/BaseModels.cs:L8-L38 (`BaseResponseModel`: `timestamp`, `success`, `message`, `hash`, `errors`, `accessWarnings`; `StatusCode` is `[JsonIgnore]`), L40-L48 (`ResponseModel.object`).
 
-Source: /docs/developer/web-api/response.md
+> **Note.** The legacy `BaseResponseModel` carries **`hash`** and **`accessWarnings`** in addition to `success`/`message`/`timestamp`/`errors`. Whether the target `/api/v1/` envelope keeps, renames, or drops these — and whether it adopts an RFC 9457 problem-details shape for errors — is **Not available / to be confirmed** until the target response types and integration tests exist. See [Errors](errors.md).
 
 ## Authentication
 
 Requests that require authorization present an OIDC-issued JSON Web Token (JWT) as a bearer token in the `Authorization` header (`Authorization: Bearer <token>`). This replaces the legacy session-based authorization credential used by the older Web API. Token issuance, validation, scopes, and the claim-to-role/permission mapping are covered in full in [Authentication](authentication.md).
 
-Source: /docs/developer/web-api/overview.md:L31
-
 ## Request Pipeline
 
-An authenticated request first passes JWT bearer validation, is then dispatched to the matching `/api/v1/` endpoint, and finally delegates to the platform's **in-process managers** — the same `EntityManager` and `RecordManager` documented under [Server API](../developer/server-api/overview.md). Those managers are unchanged by the refactor and continue to run in-process; the REST host is a thin transport layer in front of them. Data access is performed through Npgsql transactions against PostgreSQL.
+In the target design, an authenticated request would first pass JWT bearer validation, then be dispatched to the matching `/api/v1/` endpoint, and finally delegate to the platform's **in-process managers** — the same `EntityManager` and `RecordManager` documented under [Server API](../developer/server-api/overview.md). Those managers are unchanged by the refactor and continue to run in-process today; in the headless target the REST host would be a thin transport layer in front of them. Data access is performed through Npgsql transactions against PostgreSQL. The exact pipeline (middleware order, validation, error mapping) is **Not available / to be confirmed** until the `WebVella.Erp.Api` host exists; the diagram below is an illustrative design sketch.
 
 ```mermaid
 sequenceDiagram
@@ -92,7 +90,7 @@ sequenceDiagram
     API-->>C: JSON response envelope (success, message, timestamp, errors, object)
 ```
 
-Source: /docs/developer/server-api/overview.md:L22 (RecordManager), /WebVella.Erp/WebVella.Erp.csproj:L61 (Npgsql 9.0.4, PostgreSQL access)
+Source: /WebVella.Erp/Api/RecordManager.cs:L15 (RecordManager), /WebVella.Erp/WebVella.Erp.csproj:L61 (Npgsql 9.0.4, PostgreSQL access)
 
 ## In This Section
 

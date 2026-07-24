@@ -1,72 +1,194 @@
-﻿<!--{"sort_order":1, "name": "ierplugin-contract", "label": "IErpPlugin Contract"}-->
+<!--{"sort_order":1, "name": "ierplugin-contract", "label": "IErpPlugin Contract"}-->
 # The IErpPlugin Contract
 
-A **plugin** is a class that implements the `IErpPlugin` interface owned by the `WebVella.Erp.Plugins.SDK` project. The plugin host discovers each plugin from its packaged `.wvplugin` artifact, loads it into an isolated, collectible `AssemblyLoadContext` at application startup, and can hot-reload it without restarting the process. The contract exposes **exactly three lifecycle methods** — `OnLoadAsync`, `OnMigrateAsync`, and `MapEndpoints` — which the host invokes, in that order, while wiring the plugin into the running platform. Source: /WebVella.Erp.Plugins.SDK
+> **Planned target design — Not available in this checkout.** The `IErpPlugin`
+> interface, the `.wvplugin` package format, the `PluginManifest` entry class, and
+> the collectible-`AssemblyLoadContext` plugin host described on this page **do not
+> exist in this repository yet** — there is no `IErpPlugin` interface, no
+> `PluginManifest`, and no `AssemblyLoadContext` usage anywhere in the solution.
+> Everything below is **proposed design** for the headless refactor and is **Not
+> available / to be confirmed** until the SDK contract and plugin host are
+> implemented; the exact method signatures, invocation order, cleanup, and failure
+> behavior must be derived from the SDK/host source and its tests once they exist.
+> What is **verified today** is the **legacy** plugin model: plugins inherit the
+> abstract `ErpPlugin` base class and override `Initialize(IServiceProvider)`.
+>
+> Source: /WebVella.Erp/ErpPlugin.cs:L12 (abstract `ErpPlugin`), L57 (`virtual void Initialize(IServiceProvider)`); /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10 (`SdkPlugin : ErpPlugin`), L15 (`override void Initialize`). Missing target artifacts (Not available / to be confirmed): `IErpPlugin` interface, `PluginManifest`, plugin host, `.wvplugin` format.
 
-This composition-based contract **replaces** the legacy "Razor Class Library" plugin model, in which a plugin inherited from the `ErpPlugin` base class (`public partial class SdkPlugin : ErpPlugin`) and implemented `Initialize(IServiceProvider)`. Source: /docs/developer/plugins/overview.md:L4, Source: /docs/developer/plugins/create-your-own.md:L37, Source: /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10 A step-by-step port of an existing plugin is documented separately in [migrating-from-erpplugin.md](migrating-from-erpplugin.md).
+In the proposed headless model, a **plugin** would be a class that implements an
+`IErpPlugin` interface owned by the `WebVella.Erp.Plugins.SDK` project. The plugin
+host would discover each plugin from a packaged `.wvplugin` artifact, load it into
+a collectible `AssemblyLoadContext`, and be able to reload it without restarting
+the process. The proposed contract exposes **three lifecycle methods** —
+`OnLoadAsync`, `OnMigrateAsync`, and `MapEndpoints`. Their exact signatures and the
+host's invocation order are **Not available / to be confirmed** until the interface
+and host exist.
+
+This composition-based contract is proposed to **replace** the legacy plugin model,
+in which a plugin inherits the `ErpPlugin` base class (`public partial class
+SdkPlugin : ErpPlugin`) and overrides `Initialize(IServiceProvider)`. A
+step-by-step port of an existing plugin is documented in
+[migrating-from-erpplugin.md](migrating-from-erpplugin.md).
+
+Source: /WebVella.Erp/ErpPlugin.cs:L12, L57; /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10 (`SdkPlugin : ErpPlugin`), L15 (`override void Initialize(IServiceProvider serviceProvider)`).
 
 ## Overview
 
-A plugin extends the platform with the same capability set the legacy model offered — tag helpers, page components, pages and page-routing overrides, business logic via hooks, HTTP endpoints, code-based data sources, and background jobs. Source: /docs/developer/plugins/overview.md:L6-L15 Under the headless platform, HTTP API extension is now performed by mapping **Minimal API** endpoints through `MapEndpoints` rather than by registering MVC controllers. Source: /WebVella.Erp.Plugins.SDK
+A plugin is intended to extend the platform with the same capability set the legacy
+model offers — tag helpers, page components, pages, business logic via hooks, HTTP
+endpoints, code-based data sources, and background jobs. Under the headless
+platform, HTTP API extension is proposed to be performed by mapping **Minimal API**
+endpoints through `MapEndpoints` rather than by registering MVC controllers as the
+legacy SDK plugin does today.
 
-Terminology in this document is consistent with the platform glossary: an **Entity** is a metadata-defined type, a **Record** is a row of an Entity, **EQL** is the query language, a **plugin** is an `IErpPlugin` implementation, and a **hook** is a business-logic extension point.
+Source (legacy controller model, verified): /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L17 (`class AdminController : Controller`), L39 (`[Route("api/v3.0/p/sdk/datasource/list")]`). The `IErpPlugin`/`MapEndpoints` replacement is Not available / to be confirmed.
+
+Terminology in this document is consistent with the platform glossary: an
+**Entity** is a metadata-defined type, a **Record** is a row of an Entity, **EQL**
+is the query language, a **plugin** is an `IErpPlugin` implementation, and a
+**hook** is a business-logic extension point.
 
 ## The plugin lifecycle
 
-The host drives every plugin through the same ordered lifecycle at load time:
+The proposed design drives every plugin through the same ordered lifecycle at load
+time:
 
-1. **`OnLoadAsync(IServiceCollection services)`** — the plugin registers its services into the dependency-injection container *before* the application's service provider is built.
-2. **`OnMigrateAsync(IDbTransaction transaction)`** — the plugin applies transactional schema/data patches on a host-owned database transaction.
-3. **`MapEndpoints(IEndpointRouteBuilder endpoints)`** — the plugin maps its Minimal API HTTP endpoints onto the host's router.
+1. **`OnLoadAsync(IServiceCollection services)`** — the plugin would register its
+   services into the dependency-injection container *before* the application's
+   service provider is built.
+2. **`OnMigrateAsync(IDbTransaction transaction)`** — the plugin would apply
+   transactional schema/data patches on a database transaction.
+3. **`MapEndpoints(IEndpointRouteBuilder endpoints)`** — the plugin would map its
+   Minimal API HTTP endpoints onto the host's router.
 
-> The three methods are **documented below in the order** `OnLoadAsync` → `MapEndpoints` → `OnMigrateAsync`, but the **runtime invocation order** is `OnLoadAsync` → `OnMigrateAsync` (inside the database transaction) → `MapEndpoints`, as shown in the [plugin load sequence](#plugin-load-sequence) diagram. Source: /WebVella.Erp.Plugins.SDK
+> The three methods are **documented below in the order** `OnLoadAsync` →
+> `MapEndpoints` → `OnMigrateAsync`. The proposed **runtime invocation order** is
+> `OnLoadAsync` → `OnMigrateAsync` → `MapEndpoints`, but the exact order — and in
+> particular whether endpoint mapping runs **before or after** the migration
+> transaction is committed — is **Not available / to be confirmed** until the host
+> defines it (see [Transaction behavior](#transaction-behavior-current-vs-target)).
 
 ## Lifecycle methods
 
-#### OnLoadAsync(IServiceCollection services)
+### OnLoadAsync(IServiceCollection services)
 
-**Purpose.** Register the plugin's services and dependency-injection bindings at load time, adding them to the `IServiceCollection` **before** the application's root service provider is built. This **replaces** the legacy `Initialize(IServiceProvider serviceProvider)` method: the legacy method received an *already-built* `IServiceProvider` from which to *resolve* services, whereas `OnLoadAsync` receives an `IServiceCollection` into which to *register* them. Source: /docs/developer/plugins/create-your-own.md:L52, Source: /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L15
+**Purpose.** Register the plugin's services and dependency-injection bindings at
+load time, adding them to the `IServiceCollection` **before** the application's
+root service provider is built. This is proposed to **replace** the legacy
+`Initialize(IServiceProvider serviceProvider)` method: the legacy method receives an
+*already-built* `IServiceProvider` from which to *resolve* services, whereas
+`OnLoadAsync` would receive an `IServiceCollection` into which to *register* them.
 
-**Inputs.** `IServiceCollection services` — the application's service collection, supplied by the host.
+Source (legacy): /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L15 (`override void Initialize(IServiceProvider serviceProvider)`). Target `OnLoadAsync` signature: Not available / to be confirmed.
 
-**Outputs / return.** `Task` — the method is asynchronous and is awaited by the host before it proceeds to the next lifecycle step.
+**Inputs.** `IServiceCollection services` — proposed to be the application's service
+collection, supplied by the host.
 
-**Side effects.** Service registrations (singletons, scoped and transient services, options, hooks, and job types) are added to the container. No HTTP requests are handled and no endpoints are live at this point.
+**Outputs / return.** `Task` (proposed) — awaited by the host before it proceeds.
 
-**Error modes.** If `OnLoadAsync` throws, the plugin is **not** loaded: the host aborts loading this plugin and unloads its collectible `AssemblyLoadContext` so the failed assemblies are released. Source: /WebVella.Erp.Plugins.SDK See [assemblyloadcontext-hosting.md](assemblyloadcontext-hosting.md) and [../architecture/plugin-host.md](../architecture/plugin-host.md) for host behavior.
+**Side effects.** Service registrations (singletons, scoped/transient services,
+options, hooks, and job types) would be added to the container. No HTTP requests
+are handled and no endpoints are live at this point.
 
-#### MapEndpoints(IEndpointRouteBuilder endpoints)
+**Error modes (proposed).** If `OnLoadAsync` throws, the plugin would not be loaded:
+the host would abort loading this plugin and unload its collectible
+`AssemblyLoadContext`. See [assemblyloadcontext-hosting.md](assemblyloadcontext-hosting.md)
+and [../architecture/plugin-host.md](../architecture/plugin-host.md) — both proposed
+design.
 
-**Purpose.** Map the plugin's Minimal API HTTP endpoints onto the host's routing. This **replaces** the legacy plugin **MVC controllers** — for example, the SDK plugin's `AdminController`, which the legacy host exposed under `api/v3.0/p/sdk/...`. Source: /docs/developer/plugins/overview.md:L12, Source: /WebVella.Erp.Plugins.SDK
+### MapEndpoints(IEndpointRouteBuilder endpoints)
 
-**Inputs.** `IEndpointRouteBuilder endpoints` — the host's endpoint route builder.
+**Purpose.** Map the plugin's Minimal API HTTP endpoints onto the host's routing.
+This is proposed to **replace** the legacy plugin **MVC controllers** — for example,
+the SDK plugin's `AdminController`, which the legacy host exposes under
+`api/v3.0/p/sdk/...`.
 
-**Outputs / return.** `void`. The method maps routes **synchronously** by calling `endpoints.MapGet`, `MapPost`, and related builder methods on the supplied builder; it does not perform asynchronous work.
+Source (legacy, verified): /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L39 (`[Route("api/v3.0/p/sdk/datasource/list")]`), L53 (`[AcceptVerbs("POST", Route = "api/v3.0/p/sdk/sitemap/area")]`).
 
-**Side effects.** Routes and endpoints are registered on the builder. They become live once the host finishes wiring all plugins and begins serving requests.
+**Inputs.** `IEndpointRouteBuilder endpoints` (proposed) — the host's endpoint route
+builder.
 
-**Error modes.** A route conflict (two endpoints claiming the same HTTP method and path) or any exception thrown during mapping fails the plugin load. To avoid collisions, namespace every endpoint under a plugin-specific prefix such as `/api/v1/plugins/{name}/...`. Source: /WebVella.Erp.Plugins.SDK
+**Outputs / return.** `void` (proposed) — the method would map routes synchronously.
 
-#### OnMigrateAsync(IDbTransaction transaction)
+**Side effects.** Routes and endpoints would be registered on the builder. To avoid
+collisions, every endpoint should be namespaced under a plugin-specific prefix such
+as `/api/v1/plugins/{name}/...` (target route shape — Not available / to be
+confirmed).
 
-**Purpose.** Apply transactional schema and data patches when the plugin loads — the plugin's **migration**. This **replaces** the legacy versioned `WEBVELLA_*_INIT_VERSION` initialization logic that ran inside `Initialize`, where each patch, guarded by a version check such as `if (currentPluginSettings.Version < 20181215)`, was applied in sequence. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L12, Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L79-L145
+> **Authorization is mandatory on every protected endpoint (Rule D / H-08).** The
+> legacy `AdminController` enforces authorization on the server: the controller
+> carries a class-level `[Authorize(...)]` so **all** its actions require an
+> authenticated principal, and sensitive actions add `[Authorize(Roles =
+> "administrator")]`. When a controller action is ported to a mapped Minimal API
+> endpoint, that server-side authorization **must be reproduced** by calling
+> `.RequireAuthorization(...)` (with the equivalent policy or roles) on the mapped
+> endpoint. Omitting it would expose a privileged operation anonymously. **UI
+> visibility is never a substitute for endpoint authorization** — hiding a menu item
+> does not protect the route.
+>
+> Source: /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L16 (class-level `[Authorize(AuthenticationSchemes = Cookie)]`), L52 (`[Authorize(Roles = "administrator")]` on `CreateSitemapArea`); role name `administrator` per /WebVella.Erp/Api/SecurityContext.cs:L26.
 
-**Inputs.** `IDbTransaction transaction` — a database transaction **supplied and owned by the host**. The plugin performs its writes on this transaction and **does not** open its own connection. This contrasts with the legacy pattern, in which the plugin itself called `DbContext.Current.CreateConnection()` and `BeginTransaction()`. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L31-L35
+**Error modes (proposed).** A route conflict (two endpoints claiming the same HTTP
+method and path) or an exception during mapping would fail the plugin load.
 
-**Outputs / return.** `Task` — the method is asynchronous and is awaited by the host.
+### OnMigrateAsync(IDbTransaction transaction)
 
-**Side effects.** Database writes (Entity and Record schema changes, seed data) are performed on the shared host transaction. The host **commits** only if every plugin migrates successfully.
+**Purpose.** Apply transactional schema and data patches when the plugin loads — the
+plugin's **migration**. This is proposed to **replace** the legacy versioned
+`WEBVELLA_*_INIT_VERSION` initialization that runs inside `Initialize`, where each
+patch is guarded by a version check such as `if (currentPluginSettings.Version <
+20181215)` and applied in sequence.
 
-**Error modes.** Throwing from `OnMigrateAsync` causes the host to **roll back** the shared transaction and rethrow — mirroring the legacy `catch { connection.RollbackTransaction(); throw; }` behavior. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L156-L160 See [migrations-onmigrateasync.md](migrations-onmigrateasync.md) for the versioned-patch pattern and rollback semantics.
+Source (legacy, verified): /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L12 (`WEBVELLA_SDK_INIT_VERSION = 20181001`), L79 (`if (currentPluginSettings.Version < 20181215)`).
 
-## Minimal plugin example
+**Inputs.** `IDbTransaction transaction` (proposed) — see
+[Transaction behavior](#transaction-behavior-current-vs-target) for the important
+distinction between the **current** per-plugin transaction and the **proposed**
+host-owned transaction, which is Not available / to be confirmed.
 
-The minimal implementation below is a `PluginManifest.cs`-style class — the per-plugin manifest naming that each bundled plugin (Crm, Mail, MicrosoftCDM, Next, Project) adopts under the headless model. Source: /WebVella.Erp.Plugins.SDK It implements all three lifecycle methods with placeholder bodies:
+**Outputs / return.** `Task` (proposed) — awaited by the host.
+
+**Error modes (proposed).** Throwing from `OnMigrateAsync` is proposed to roll back
+the transaction and rethrow — mirroring the legacy `catch { connection.RollbackTransaction(); throw; }`
+behavior. See [migrations-onmigrateasync.md](migrations-onmigrateasync.md).
+
+Source (legacy, verified): /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L156 (`catch`), L158 (`connection.RollbackTransaction()`).
+
+## Transaction behavior (current vs target)
+
+The transaction ownership model is the single most important thing this contract
+must pin down, and it is **not yet decided**.
+
+**Current (verified).** Each legacy plugin opens and owns **its own** transaction.
+The SDK plugin's `ProcessPatches()` opens a connection, begins a transaction, runs
+its version-gated patches, and commits — rolling back on error — all by itself:
+
+Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L31 (`DbContext.Current.CreateConnection()`), L35 (`connection.BeginTransaction()`), L153 (`connection.CommitTransaction()`), L156-L158 (`catch { connection.RollbackTransaction(); }`). The engine's `DbConnection.BeginTransaction` implements **nested savepoints** (`transaction.Save(...)`), not a cross-plugin unit of work — Source: /WebVella.Erp/Database/DbConnection.cs:L115, L126 (`transaction.Save`).
+
+**Target (Not available / to be confirmed).** Whether the host will instead open
+**one** transaction and hand the same `IDbTransaction` to every plugin — making all
+plugin migrations commit or roll back together — is a design decision the host has
+not yet made. There is no evidence in the current codebase of cross-plugin
+atomicity. **What is needed** before this section can assert host-owned semantics:
+the plugin-host source that (1) shows whether one transaction spans all plugins or
+each plugin migrates independently, (2) fixes whether `MapEndpoints` runs before or
+after the migration commit, (3) defines the compensation/rollback scope when one
+plugin among many fails, and (4) specifies how the ambient `EntityManager`/
+`RecordManager` bind to the supplied transaction.
+
+## Minimal plugin example (proposed)
+
+The illustrative implementation below is a `PluginManifest`-style class — the
+proposed per-plugin manifest naming that each bundled plugin (Crm, Mail,
+MicrosoftCDM, Next, Project) would adopt under the headless model. It is **design
+pseudocode against a contract that does not exist yet** (Not available / to be
+confirmed):
 
 ```csharp
 using System.Data;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Builder; // for RequireAuthorization
 using Microsoft.Extensions.DependencyInjection;
 
 public sealed class CrmPluginManifest : IErpPlugin
@@ -75,43 +197,63 @@ public sealed class CrmPluginManifest : IErpPlugin
 
     public Task OnLoadAsync(IServiceCollection services)
     {
-        // register plugin services (replaces Initialize(IServiceProvider))
+        // register plugin services (would replace Initialize(IServiceProvider))
         return Task.CompletedTask;
     }
 
     public Task OnMigrateAsync(IDbTransaction transaction)
     {
-        // apply versioned, transactional schema/data patches on the host transaction
+        // apply versioned, transactional schema/data patches (transaction ownership: see above)
         return Task.CompletedTask;
     }
 
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
-        // endpoints.MapGet("/api/v1/plugins/crm/ping", () => Results.Ok());
+        // Public/health endpoint (no privileged data) may be anonymous:
+        endpoints.MapGet("/api/v1/plugins/crm/ping", () => Results.Ok());
+
+        // PROTECTED endpoint — MUST enforce server-side authorization.
+        // This replaces a legacy [Authorize(Roles = "administrator")] controller action;
+        // the role/policy requirement is reproduced with RequireAuthorization.
+        endpoints.MapPost("/api/v1/plugins/crm/admin/task", CreateTask)
+                 .RequireAuthorization(policy => policy.RequireRole("administrator"));
     }
 }
 ```
 
-The `Name` property identifies the plugin, mirroring the legacy `Name` override (for example, `Name { get; protected set; } = "sdk";`). Source: /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L13
+The `Name` property identifies the plugin, mirroring the legacy `Name` override
+(`Name { get; protected set; } = "sdk";`).
 
-## Error modes and troubleshooting
+Source (legacy): /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L13 (`Name ... = "sdk"`). The `administrator` role in `.RequireRole("administrator")` mirrors the legacy `[Authorize(Roles = "administrator")]` — Source: /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L52; /WebVella.Erp/Api/SecurityContext.cs:L26.
 
-- **Plugin fails to load** — `OnLoadAsync` threw. The host unloads the plugin's collectible `AssemblyLoadContext`; check the plugin's DI registrations and the startup logs, then reload. See [assemblyloadcontext-hosting.md](assemblyloadcontext-hosting.md).
-- **Migration fails** — `OnMigrateAsync` threw; the host rolls back the shared transaction, so no partial schema change is committed. Fix the patch and reload. See [migrations-onmigrateasync.md](migrations-onmigrateasync.md).
-- **Endpoint route collision** — two endpoints share the same HTTP method and path. Prefix your routes with `/api/v1/plugins/{name}/...` to keep them unique.
-- **Assembly load failure** — a dependency could not be resolved inside the collectible `AssemblyLoadContext`. Verify the `.wvplugin` package bundles its dependencies, then follow the [rollback plan](../migration/rollback-plan.md).
+## Error modes and troubleshooting (proposed)
 
-Source: /WebVella.Erp.Plugins.SDK
+- **Plugin fails to load** — `OnLoadAsync` threw; the host would unload the plugin's
+  collectible `AssemblyLoadContext`. See [assemblyloadcontext-hosting.md](assemblyloadcontext-hosting.md).
+- **Migration fails** — `OnMigrateAsync` threw; the host would roll back the
+  transaction (scope per [Transaction behavior](#transaction-behavior-current-vs-target)).
+  See [migrations-onmigrateasync.md](migrations-onmigrateasync.md).
+- **Endpoint route collision** — two endpoints share the same HTTP method and path;
+  prefix routes with `/api/v1/plugins/{name}/...` to keep them unique.
+- **Protected endpoint exposed anonymously** — a ported endpoint omitted
+  `.RequireAuthorization(...)`; add the policy/roles that the legacy controller
+  action enforced.
+- **Assembly load failure** — a dependency could not be resolved inside the
+  collectible `AssemblyLoadContext`; the operator recovery procedure will be
+  documented in the plugin rollback plan (`docs/migration/rollback-plan.md`,
+  forthcoming — not yet authored).
 
-## Plugin load sequence
+## Plugin load sequence (proposed)
 
-The host loads each plugin into a **collectible** `AssemblyLoadContext`, then drives the three lifecycle methods in runtime order — `OnLoadAsync`, then `OnMigrateAsync` within a database transaction, then `MapEndpoints`:
+The proposed host would load each plugin into a collectible `AssemblyLoadContext`,
+then drive the three lifecycle methods. The diagram below is an **illustrative
+design sketch**; the commit/mapping order is Not available / to be confirmed:
 
 ```mermaid
 sequenceDiagram
-    participant Host as Plugin Host
+    participant Host as Plugin Host (proposed)
     participant ALC as AssemblyLoadContext (collectible)
-    participant Plugin as IErpPlugin
+    participant Plugin as IErpPlugin (proposed)
     participant DB as PostgreSQL
     Host->>Host: Discover .wvplugin package
     Host->>ALC: Load plugin assemblies
@@ -124,4 +266,6 @@ sequenceDiagram
     Host->>Plugin: MapEndpoints(IEndpointRouteBuilder)
 ```
 
-*Plugin load sequence via the collectible `AssemblyLoadContext`. Source: /WebVella.Erp.Plugins.SDK — see [../architecture/plugin-host.md](../architecture/plugin-host.md) for the full host design.*
+*Proposed plugin load sequence via a collectible `AssemblyLoadContext`. See
+[../architecture/plugin-host.md](../architecture/plugin-host.md) for the full
+(proposed) host design.*

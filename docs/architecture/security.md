@@ -1,85 +1,89 @@
-﻿<!--{"sort_order":6, "name": "security", "label": "Security"}-->
+<!--{"sort_order":6, "name": "security", "label": "Security"}-->
 
 # Security
 
-The headless platform authenticates users through **OpenID Connect (OIDC)** authorization-code login at an external identity provider, authorizes every `/api/v1/` request with a **stateless JSON Web Token (JWT) bearer token**, and maps the token's OIDC claims onto the **unchanged** WebVella role and permission model that the in-process managers already enforce. Because authorization state travels inside the token, the API keeps no server-side session.
+> **Planned target design — not yet implemented; provider-neutral.** The headless authentication model on this page is **proposed design**. The `/api/v1/` resource server (`WebVella.Erp.Api`) and the React SPA (`WebVella.Erp.Client`) **do not exist in this checkout**, and no OIDC identity provider has been chosen. What *does* exist is the **legacy** `WebVella.Erp.Site` host's JWT/cookie configuration, documented separately below as the **current** state. Every target element — the OIDC provider, the SPA client registration, and the API's token-validation parameters — is **Not available / to be confirmed** until the provider and host code exist (AAP §0.9.2). The **role/permission model** the API would map onto is real and unchanged (see [Claim → role / permission mapping](#claim--role--permission-mapping)).
 
-Source: /docs/architecture/overview.md:L5,L17 (an external OIDC identity provider issues the JWTs that authorize every API call; the API host validates JWT bearer tokens)
+The target design authenticates users through **OpenID Connect (OIDC)** at an external identity provider, authorizes each `/api/v1/` request with a **stateless JWT bearer token**, and maps the token's claims onto the **unchanged** WebVella role and permission model that the in-process managers already enforce. For obtaining and using tokens, see the [Authentication reference](../api-reference/authentication.md); this page is the architecture companion.
 
-For obtaining and using tokens — the request/response detail, token refresh, and error codes — see the canonical [Authentication reference](../api-reference/authentication.md). This page is the architecture companion: it describes the authentication **design** and the **claim-to-role mapping**, and links that reference rather than duplicating it.
+## Current state — legacy `WebVella.Erp.Site` host (verified)
 
-## Authentication flow (OIDC + JWT)
+The retired site host configures a `JWT_OR_COOKIE` policy scheme that forwards to JWT bearer **only when an `Authorization: Bearer ` header is present**, and otherwise falls back to the `erp_auth_base` cookie. Source: /WebVella.Erp.Site/Startup.cs:L90-L91,L96,L115-L125. Its JWT bearer validation enables issuer, audience, lifetime, and signing-key checks and — critically — validates the signature with a **symmetric** key read from `Settings:Jwt:Key`:
 
-Authentication is delegated to the identity provider; `WebVella.Erp.Api` acts as a pure **resource server** that only validates the tokens it receives.
+| Legacy validated element | Legacy config key | Note |
+|--------------------------|-------------------|------|
+| Issuer (`iss`) | `Settings:Jwt:Issuer` | Source: /WebVella.Erp.Site/Startup.cs:L110 |
+| Audience (`aud`) | `Settings:Jwt:Audience` | Source: /WebVella.Erp.Site/Startup.cs:L111 |
+| Signature | `Settings:Jwt:Key` (**symmetric** `SymmetricSecurityKey`) | Source: /WebVella.Erp.Site/Startup.cs:L112 — secret, never shown (rule D) |
+| Lifetime (`exp`/`nbf`) | token claims | Source: /WebVella.Erp.Site/Startup.cs:L108 |
+
+Source: /WebVella.Erp.Site/Startup.cs:L102-L114 (`AddJwtBearer` with `ValidateIssuer` / `ValidateAudience` / `ValidateLifetime` / `ValidateIssuerSigningKey = true`).
+
+> **Rule D — no secrets.** The signing key is referenced only by its configuration **key name**, `Settings:Jwt:Key`; its value is a secret and is never reproduced in documentation, logs, or examples (the sample value in `WebVella.Erp.Site/JWT_README.txt` is illustrative only and must never be used in any real deployment). Supply it through an environment variable or a Kubernetes Secret — see the [Configuration reference](../deployment/configuration-reference.md).
+
+> **Why the legacy JWT settings do NOT define the target model.** The legacy host validates tokens it **issues itself** with a **symmetric** key (`Settings:Jwt:Key`) and its own `webvella-erp` issuer/audience. An external OIDC provider signs tokens with its **own asymmetric keys** (published via JWKS) and its **own** issuer and audience. The target `/api/v1/` validation parameters are therefore **Not available / to be confirmed** and must be derived from the chosen provider — they are **not** the legacy symmetric-key settings above.
+
+## Target authentication flow (OIDC + JWT) — planned
+
+In the target design, `WebVella.Erp.Api` would act as a pure **resource server** that only validates the tokens it receives; login is delegated to the identity provider. The SPA is a **public client** (a browser app that **cannot keep a secret**):
 
 1. The user opens the SPA (`WebVella.Erp.Client`).
-2. The SPA starts an OIDC **authorization-code** login at the identity provider.
-3. The identity provider authenticates the user and issues an ID token and an **access token** (a JWT).
-4. The SPA calls the `/api/v1/` surface, presenting the access token in an `Authorization: Bearer <token>` header.
-5. `WebVella.Erp.Api` validates the JWT, maps its claims to WebVella roles and permissions, and then delegates to the in-process managers.
+2. The SPA starts an OIDC **authorization-code** flow **with PKCE (`S256`)**, a random **`state`** (CSRF defense), and a **`nonce`** (ID-token replay defense), redirecting only to a **pre-registered redirect URI**.
+3. The identity provider authenticates the user and returns an **authorization code** to the redirect URI.
+4. The SPA **exchanges the code** (with its PKCE `code_verifier`) at the provider's token endpoint for an ID token and an **access token** (a JWT). **No client secret is sent** — the SPA ships and stores no client secret.
+5. The SPA calls `/api/v1/` with `Authorization: Bearer <access token>`.
+6. `WebVella.Erp.Api` validates the JWT (issuer / audience / lifetime / signature via the provider's JWKS), maps its claims to WebVella roles/permissions, and delegates to the in-process managers.
 
-Source: /docs/architecture/overview.md:L16-L20 (the SPA authenticates through the OIDC provider, the API host validates JWT bearer tokens, and the provider issues the access tokens)
+**Browser token handling (planned).** Prefer short-lived access tokens kept **in memory**; avoid persisting tokens in `localStorage`. Use **refresh-token rotation** (one-time-use refresh tokens) where the provider supports it, alongside the `state` / `nonce` / registered-redirect-URI controls above. The concrete token lifetimes, storage mechanism, and refresh strategy are **Not available / to be confirmed** until the SPA and provider are chosen.
 
-**Legacy contrast.** The retired site host used a `JWT_OR_COOKIE` policy scheme that forwarded to JWT bearer only when an `Authorization: Bearer ` header was present and otherwise fell back to the `erp_auth_base` cookie, whereas the headless API is bearer-JWT-only. Source: /WebVella.Erp.Site/JWT_README.txt:L30,L49-L58 (the `JWT_OR_COOKIE` policy scheme and its `erp_auth_base` cookie fallback)
+## Token validation (target — Not available)
 
-## Token validation
+The exact target validation parameters — issuer, audience, and the **asymmetric** signing-key source (the provider's JWKS / discovery document) — are **Not available / to be confirmed**. They are **not** the legacy symmetric `Settings:Jwt:*` values (see the current-state note above) and will be documented once the provider is chosen and `WebVella.Erp.Api` defines its `AddJwtBearer` / authority configuration. A token that fails validation must be rejected with `401 Unauthorized`; the request-level contract is in the [Authentication reference](../api-reference/authentication.md).
 
-`WebVella.Erp.Api` validates every presented bearer JWT before honoring a request. Four checks are enabled — the token's **issuer**, **audience**, **lifetime**, and **signature** against the configured issuer signing key — corresponding to `ValidateIssuer`, `ValidateAudience`, `ValidateLifetime`, and `ValidateIssuerSigningKey`. A token that fails any check is rejected with `401 Unauthorized`; the request-level error contract lives in the [Authentication reference](../api-reference/authentication.md).
-
-Source: /WebVella.Erp.Site/JWT_README.txt:L40-L43 (`ValidateIssuer`, `ValidateAudience`, `ValidateLifetime`, `ValidateIssuerSigningKey`)
-
-| Validated element | Config key | Default value |
-|-------------------|------------|---------------|
-| Issuer (`iss`) | `Jwt:Issuer` | `webvella-erp` |
-| Audience (`aud`) | `Jwt:Audience` | `webvella-erp` |
-| Signature | `Jwt:Key` | *secret — not shown (Rule D)* |
-| Lifetime (`exp` / `nbf`) | token claims | validated |
-
-Source: /WebVella.Erp.Site/JWT_README.txt:L11-L15 (the `Jwt` issuer and audience default to `webvella-erp`; the signing key is supplied under `Jwt:Key`)
-
-> **Rule D — no secrets.** The signing key is referenced only by its configuration **key name**, `Jwt:Key`; its value is a secret and is never reproduced in documentation, logs, or examples. Supply it through an environment variable or a Kubernetes Secret — see the [Configuration reference](../deployment/configuration-reference.md). The issuer and audience **name** `webvella-erp` is a non-secret identifier and may be shown.
+**Error safety (rule D).** Authentication and authorization failures must return only a generic `401` / `403` problem response. They must **never** echo the token, its claims, validation internals, signing-key material, stack traces, or internal paths, and must not log the raw token — see [Observability](observability.md) and [Errors](../api-reference/errors.md).
 
 ## Claim → role / permission mapping
 
-After a token is validated, its OIDC claims (typically a role or group claim) are mapped onto the platform's existing **roles** and **permissions** — the same model the in-process managers already enforce, unchanged by the refactor. Two anchors define that model: administrative **metadata** operations require the `Administration` role, while **Record**-level access is governed by the permissions configured on the target Entity.
+After a token is validated, its OIDC claims (typically a role or group claim) would be mapped onto the platform's existing **roles** and **permissions** — the same model the in-process managers already enforce, unchanged by the refactor. The privileged role is the exact lowercase **`administrator`** role: administrative **metadata** operations require it, while **Record**-level access is governed by the permissions configured on the target Entity. Source: /WebVella.Erp/Api/SecurityContext.cs:L26 (`Name = "administrator"`); /WebVella.Erp/Api/Definitions.cs:L15 (`AdministratorRoleId`); /WebVella.Erp/Api/SecurityContext.cs:L109-L118 (`HasMetaPermission` checks the `administrator` role).
 
-| OIDC token claim | WebVella role / permission | Capability granted | Source |
-|------------------|----------------------------|--------------------|--------|
-| Role / group claim *(name to be confirmed)* | `Administration` role | Entity and field metadata operations (`EntityManager`) | Source: /docs/developer/server-api/overview.md:L8 |
-| Role / group claim *(name to be confirmed)* | `Administration` role | Entity-Relation operations (`EntityRelationManager`) | Source: /docs/developer/server-api/overview.md:L16 |
-| Role / group claim *(name to be confirmed)* | Per-Entity Record permissions | Record operations (`RecordManager`), evaluated against the target Entity | Source: /docs/developer/server-api/overview.md:L24 |
+| OIDC token claim | WebVella role / permission | Capability | Source |
+|------------------|----------------------------|------------|--------|
+| Role / group claim *(claim name pending)* | `administrator` role | Entity/field metadata operations (`EntityManager`) | Source: /WebVella.Erp/Api/SecurityContext.cs:L109-L118; /WebVella.Erp/Api/EntityManager.cs:L16 |
+| Role / group claim *(claim name pending)* | `administrator` role | Entity-Relation operations (`EntityRelationManager`) | Source: /WebVella.Erp/Api/SecurityContext.cs:L109-L118; /WebVella.Erp/Api/EntityRelationManager.cs:L11 |
+| Role / group claim *(claim name pending)* | Per-Entity Record permissions | Record operations (`RecordManager`), evaluated against the target Entity | Source: /WebVella.Erp/Api/RecordManager.cs:L15 |
 
-The concrete claim name(s) and the values that map to each WebVella role are **Not available / to be confirmed** — they are fixed once the identity provider (below) is chosen and `WebVella.Erp.Api` defines its claim-mapping policy. The request-level `401`/`403` behavior is documented in the [Authentication reference](../api-reference/authentication.md).
+The concrete claim name(s) and the values that map to each WebVella role are **Not available / to be confirmed** — they are fixed once the identity provider is chosen and `WebVella.Erp.Api` defines its claim-mapping policy. Any **target** claim-to-role vocabulary is therefore pending; only the current `administrator` role name is authoritative today. The request-level `401` / `403` behavior is documented in the [Authentication reference](../api-reference/authentication.md).
 
 ## Identity provider options
 
-> **Decision point — Not available / to be confirmed.** The OIDC identity provider for the headless platform is undecided; the candidates are **Duende IdentityServer** and **Keycloak**. All guidance on this page is deliberately **provider-neutral**. A provider-specific appendix — the OIDC discovery / issuer URL, SPA and confidential-client registration, and the concrete scope and claim names that resolve the mapping above — will be added once the provider is selected.
+> **Decision point — Not available / to be confirmed.** Decision owner: platform architecture. The OIDC identity provider is undecided; the candidates are **Duende IdentityServer** and **Keycloak**. All guidance here is deliberately **provider-neutral**. A provider-specific appendix — the OIDC discovery / issuer URL, the SPA (public-client + PKCE) and any confidential-client registration, the JWKS location, and the concrete scope and claim names that resolve the mapping above — will be added once the provider is selected. Required source to resolve: the chosen provider's discovery document and the `WebVella.Erp.Api` auth configuration, neither of which exists yet.
 
-Source: /docs/architecture/overview.md:L72 (identity provider — Duende IdentityServer vs Keycloak — recorded as an open decision)
+## Target authentication flow diagram (planned)
 
-## Authentication flow diagram
-
-The sequence below traces an OIDC login through JWT issuance, bearer validation, and claim mapping to the authorization outcome.
+The sequence traces the planned OIDC authorization-code + PKCE login, code exchange, bearer validation, and claim mapping. Every participant except the user's browser is **proposed and Not available**.
 
 ```mermaid
 sequenceDiagram
     participant User as User (browser)
-    participant SPA as WebVella.Erp.Client
-    participant IdP as Identity provider (OIDC)
-    participant API as WebVella.Erp.Api
+    participant SPA as WebVella.Erp.Client (public client, planned)
+    participant IdP as Identity provider (OIDC, provider pending)
+    participant API as WebVella.Erp.Api (resource server, planned)
     User->>SPA: Open app
-    SPA->>IdP: Authorization-code login
+    SPA->>IdP: Authorization-code + PKCE (S256), state, nonce
+    IdP-->>SPA: Authorization code (to registered redirect URI)
+    SPA->>IdP: Exchange code + code_verifier (no client secret)
     IdP-->>SPA: ID + access token (JWT)
     SPA->>API: GET /api/v1/... (Authorization: Bearer JWT)
-    API->>API: Validate issuer, audience, lifetime, signing key
+    API->>API: Validate iss/aud/lifetime/signature via provider JWKS (params pending)
     API->>API: Map claims to WebVella roles/permissions
-    API-->>SPA: 200 OK (authorized) / 401 / 403
+    API-->>SPA: 200 OK / 401 / 403 (generic; no sensitive detail)
 ```
 
-*Diagram: OIDC authorization-code login, JWT issuance, bearer validation at `WebVella.Erp.Api`, and claim-to-role mapping. The JWT settings shown (issuer / audience `webvella-erp`; signing key referenced by name `Jwt:Key`) come from Source: /WebVella.Erp.Site/JWT_README.txt:L11-L15; for obtaining and using tokens, see the [Authentication reference](../api-reference/authentication.md).*
+*Diagram: planned OIDC authorization-code + PKCE login, code exchange without a client secret, bearer validation via the provider's JWKS (parameters pending), and claim-to-`administrator`/permission mapping. The SPA and API are proposed and Not available in this checkout.*
 
 ## Related pages
 
-- [Authentication reference](../api-reference/authentication.md) — the canonical token request/response, refresh, and error contract this page complements.
+- [Authentication reference](../api-reference/authentication.md) — the planned token request/response, refresh, and error contract this page complements.
 - [Architecture overview](overview.md) — where authentication fits in the headless topology.
-- [Configuration reference](../deployment/configuration-reference.md) — how `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` are supplied as environment variables or Kubernetes Secrets.
+- [Observability](observability.md) — redaction rules that keep tokens and PII out of logs and errors.
+- [Configuration reference](../deployment/configuration-reference.md) — how JWT/OIDC settings would be supplied as environment variables or Kubernetes Secrets (key names only).

@@ -5,7 +5,7 @@ The Web API gives you access to the content management features you see in your 
 
 The WebVella ERP Web API is work in progress and we will gradually implement all available features.
 
-> **Note:** This Web API section is superseded by the canonical REST reference. See the API Reference overview at [`../../api-reference/index.md`](../../api-reference/index.md) and, for authentication, [`../../api-reference/authentication.md`](../../api-reference/authentication.md).
+> **Note:** This page documents the **current (legacy) `/api/v3/` Web API**. A canonical REST reference for the **planned** headless `/api/v1/` surface is being authored under [`../../api-reference/index.md`](../../api-reference/index.md) (and, for authentication, [`../../api-reference/authentication.md`](../../api-reference/authentication.md)); that `/api/v1/` surface does not exist in the current checkout.
 
 ## Date Format
 
@@ -17,26 +17,28 @@ CORS, or cross-origin resource sharing, is a way to make XMLHttpRequests to anot
 
 ## API changes
 
-All extensions of the API will be added only to the latest supported version. Bug fixes and optimizations will be applied to all relevant API versions. The API version is part of the base URL, so you will be able to choose which of API version you use for each of your requests. The current supported version is `v1` (base path `/api/v1/`).
+All extensions of the API will be added only to the latest supported version. Bug fixes and optimizations will be applied to all relevant API versions. The API version is part of the base URL, so you will be able to choose which of API version you use for each of your requests. The current supported version is `v3` (base path `/api/v3/`).
 
-Source: /docs/developer/web-api/overview.md:L18
+> **Planned (headless refactor — not yet implemented).** The target headless surface is planned to be versioned `/api/v1/`; it does not exist in the current checkout.
 
 ## API Base URL
 
-You can make your RESTful requests by adding to your WebVella ERP install domain the API path, based on the API version, content item and methods. It should look like similarly to the following example:
+You can make your RESTful requests by adding to your WebVella ERP install domain the API path, based on the API version, locale, content item and methods. It should look like similarly to the following example:
 
 ```http
-https://<host>/api/v1/meta/relation
+https://<YOUR_DOMAIN>/api/v3/en_US/meta/relation
 ```
 
-Source: /docs/developer/web-api/overview.md:L25
+Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L2036 maps the current `POST api/v3/en_US/meta/relation` route.
+
+> **Planned (headless refactor — not yet implemented).** Under the target headless surface this is planned to become `https://<host>/api/v1/meta/relation`; that route does not exist in the current checkout.
 
 **IMPORTANT:** Secure certificate (https) is recommendable for the WebVella Erp Web API
 
 ## Authorization
 
-Many API requests require authorization. Authorization is provided by an OIDC-issued JSON Web Token (JWT) presented as an HTTP Bearer token in the `Authorization` header — `Authorization: Bearer <token>` — which replaces the legacy browser-session authorization used by the retired web application.
+In order to provide the same level of security that we provide on our web software, many API requests are requiring authorization. In the current codebase this is done by a authorization cookie (`erp_auth_base`).
 
-Source: /docs/developer/web-api/overview.md:L31
+Source: /WebVella.Erp.Site/Startup.cs:L96 sets `options.Cookie.Name = "erp_auth_base";`.
 
-For the full authentication reference (obtaining tokens, JWT validation, scopes, and claim-to-role/permission mapping), see [`../../api-reference/authentication.md`](../../api-reference/authentication.md). Do not duplicate those details here.
+> **Planned (headless refactor — not yet implemented).** The target headless `/api/v1/` surface is planned to require an OIDC-issued JSON Web Token (JWT) presented as an HTTP `Authorization: Bearer <token>` header instead of the cookie. For the planned authentication reference (obtaining tokens, JWT validation, scopes, and claim-to-role/permission mapping), see [`../../api-reference/authentication.md`](../../api-reference/authentication.md).

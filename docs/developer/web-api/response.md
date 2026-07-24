@@ -3,6 +3,16 @@
 
 All responses are in JSON formatted in a specific way.
 
+> **Legacy response envelope (verified).** The JSON examples and the property
+> table below document the platform's existing `BaseResponseModel` response
+> envelope. The target `/api/v1/` response contract is **Not available / to be
+> confirmed** — there is no `WebVella.Erp.Api` project yet. `BaseResponseModel`
+> carries seven members — `timestamp`, `success`, `message`, `hash`, `errors`,
+> `accessWarnings`, and (via `ResponseModel`) `object` — all of which are shown
+> below.
+>
+> Source: /WebVella.Erp/Api/Models/BaseModels.cs:L8-L48 (BaseResponseModel incl. hash + accessWarnings; ResponseModel.object), L50-L59 (AccessWarningModel), L62-L71 (ErrorModel).
+
 ## Responding to GET a single entity record
 
 ```json
@@ -10,7 +20,9 @@ All responses are in JSON formatted in a specific way.
   "success": true,
   "message": "Nisi proident tempor cillum sint duis eu elit dolor Lorem amet qui officia occaecat.",
   "timestamp": "2014-03-03T23:20:23Z",
+  "hash": null,
   "errors": [],
+  "accessWarnings": [],
   "object": {
     "id": 1,
   }
@@ -24,7 +36,9 @@ All responses are in JSON formatted in a specific way.
   "success": true,
   "message": "Nisi proident tempor cillum sint duis eu elit dolor Lorem amet qui officia occaecat.",
   "timestamp": "2014-03-03T23:20:23Z",
+  "hash": null,
   "errors": [],
+  "accessWarnings": [],
   "object": [
 	{
 		"id": 1,
@@ -43,6 +57,7 @@ All responses are in JSON formatted in a specific way.
   "success": false,
   "message": "Nisi proident tempor cillum sint duis eu elit dolor Lorem amet qui officia occaecat.",
   "timestamp": "2014-03-03T23:20:23Z",
+  "hash": null,
   "errors": [
     {
       "key": "url",
@@ -50,6 +65,7 @@ All responses are in JSON formatted in a specific way.
       "message": "URL cannot be blank"
     }  
   ],
+  "accessWarnings": [],
   "object": {
 		"id": 1,
 	}
@@ -58,11 +74,20 @@ All responses are in JSON formatted in a specific way.
 
 ## Properties
 
-> The `/api/v1/` error/problem-details model is documented in [`../../api-reference/errors.md`](../../api-reference/errors.md).
+> The **proposed** target `/api/v1/` error/problem-details model (Not available / to be confirmed) is described in [`../../api-reference/errors.md`](../../api-reference/errors.md).
 
 +-------------------------------+-----------------------------------+
 | name                          | description                       |
 +===============================+===================================+
+| `accessWarnings`              | *object type*: `List<AccessWarningModel>`
+|                               |
+|                               | *default value*: ``
+|                               |
+|                               | list of access-warning objects reported when a record or field is returned with restricted access. It is empty when no warnings are reported. The object format is:
+|                               | * key - the access key/context of the warning
+|                               | * code - a machine-readable warning code
+|                               | * message - human readable message of the warning
++-------------------------------+-----------------------------------+
 | `errors`                      | *object type*: `List<ErrorModel>`                         
 |                               |         
 |                               | *default value*: ``
@@ -71,6 +96,12 @@ All responses are in JSON formatted in a specific way.
 |                               | * key - the property name, if any, which validation or execution returned an error
 |                               | * value - the property value, that causes the problem       
 |                               | * message - human readable message of the error       
++-------------------------------+-----------------------------------+
+| `hash`                        | *object type*: `string`
+|                               |
+|                               | *default value*: `null`
+|                               |
+|                               | an optional hash value associated with the response. It is `null` by default.
 +-------------------------------+-----------------------------------+
 | `message`                     | *object type*: `string`                         
 |                               |         

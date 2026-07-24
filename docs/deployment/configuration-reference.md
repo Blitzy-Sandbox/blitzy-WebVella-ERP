@@ -1,130 +1,144 @@
-﻿<!--{"sort_order":4, "name": "configuration-reference", "label": "Configuration Reference"}-->
+<!--{"sort_order":4, "name": "configuration-reference", "label": "Configuration Reference"}-->
 # Configuration Reference
 
-The WebVella ERP platform is configured through **environment variables** — mapped from the legacy `Settings` section of `WebVella.Erp.Site/Config.json` — together with **Kubernetes Secrets** for every sensitive value in the container-native deployment. Source: /WebVella.Erp.Site/Config.json:L2 This page is the single, authoritative reference for each configuration key: its environment-variable name, the legacy key it maps to, its purpose, its safe default, and whether it is a secret. It supersedes the scattered `Config.json` / `ErpSettings` mentions elsewhere in the documentation.
+> **Planned target — not yet implemented.** The container-native configuration model on this page (environment variables, Kubernetes Secrets, the `:` → `__` mapping, options validation / fail-fast, and the new OIDC / observability / worker / plugin keys) is the **proposed target** and **does not exist in the repository yet**. The current hosts read configuration **only** from a JSON file (`config.json`) via `AddJsonFile`; **no host registers an environment-variable configuration provider** (there is no `AddEnvironmentVariables` call anywhere in the codebase), so environment variables are **not** honored today. Source: /WebVella.Erp.Site/Startup.cs:L43 (`AddJsonFile(configPath)`); Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52 (`AddJsonFile` + `ErpSettings.Initialize`); Source: /WebVella.Erp.ConsoleApp/Program.cs:L40 (`AddJsonFile("config.json")`). The [Current configuration](#current-configuration-configjson) section below is verified against the code; the [Proposed container-native settings](#proposed-container-native-settings) section is design intent and marked **Not available / to be confirmed** where a value, key name, precedence rule, or validation behavior is undecided.
 
-> **No secrets in documentation (rule D).** Configuration is documented by **key name and safe default only**; this page never reproduces a literal secret value. Placeholders such as `<DB_CONNECTION_STRING>`, `<ENCRYPTION_KEY>`, and `<JWT_SIGNING_KEY>` stand in for real values. **Secrets must be provided via environment variables or Kubernetes Secrets and must never be committed to source control.**
+> **No secrets in documentation (rule D).** Configuration is documented by **key name only**; this page never reproduces a literal secret value, connection string, key, or internal host/path — even where the committed sample `config.json` contains one. Placeholders such as `<DB_CONNECTION_STRING>`, `<ENCRYPTION_KEY>`, and `<JWT_SIGNING_KEY>` stand in for real values. **Secrets must be provided via a Secret (or environment variable, once an env-var provider exists) and must never be committed to source control.**
 
-## Settings
+## Current configuration (`config.json`)
 
-All keys below live under the `Settings` section of the legacy `Config.json` and bind to the application's settings object. Source: /WebVella.Erp.Site/Config.json:L2 Each key is exposed to the container-native platform as an environment variable using the ASP.NET Core `:` → `__` convention described under [Environment variable mapping](#environment-variable-mapping). Secret rows carry `— (required; provide via Secret)` in the **Default** column and must be supplied through a Secret — never hard-coded.
+Today all settings are read from the `Settings` section of `WebVella.Erp.Site/Config.json` and bound through `ErpSettings`. Source: /WebVella.Erp.Site/Config.json:L2 (`Settings` object); Source: /WebVella.Erp/ErpSettings.cs (settings binding). The hosts build configuration with a JSON file provider only — there is no environment-variable provider — so the values below come from the committed file, not from the environment. Source: /WebVella.Erp.Site/Startup.cs:L43; Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52.
+
+The **Sample value** column shows the value present in the committed development `Config.json`, **not** an application-level default (there is no defaulting or options-validation layer — a missing key simply binds to null/empty). Secret and internal-infrastructure values are **not reproduced** (rule D); their rows show the value **type** and how to supply it.
 
 ### Database
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__ConnectionString` | `Settings:ConnectionString` — Source: /WebVella.Erp.Site/Config.json:L4 | PostgreSQL connection string consumed by the Npgsql data-access layer. Source: /WebVella.Erp/WebVella.Erp.csproj:L61 | `— (required; provide via Secret)` | Yes |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:ConnectionString` — Source: /WebVella.Erp.Site/Config.json:L4 | PostgreSQL connection string consumed by the Npgsql data-access layer. Source: /WebVella.Erp/WebVella.Erp.csproj:L61 (`Npgsql 9.0.4`) | Secret — required; literal value not reproduced (rule D) | Yes |
 
 ### Encryption
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__EncryptionKey` | `Settings:EncryptionKey` — Source: /WebVella.Erp.Site/Config.json:L5 | Symmetric key used to encrypt and decrypt encrypted Entity fields. | `— (required; provide via Secret)` | Yes |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:EncryptionKey` — Source: /WebVella.Erp.Site/Config.json:L5 | Symmetric key used to encrypt and decrypt encrypted Entity fields. | Secret — required; literal value not reproduced (rule D) | Yes |
 
-### JWT and OIDC
+### JWT (current)
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__Jwt__Key` | `Settings:Jwt:Key` — Source: /WebVella.Erp.Site/Config.json:L25 | Symmetric signing key used to validate JWT bearer tokens. Source: /WebVella.Erp.Site/JWT_README.txt | `— (required; provide via Secret)` | Yes |
-| `Settings__Jwt__Issuer` | `Settings:Jwt:Issuer` — Source: /WebVella.Erp.Site/Config.json:L26 | Expected JWT issuer (`iss`) claim. | `webvella-erp` | No |
-| `Settings__Jwt__Audience` | `Settings:Jwt:Audience` — Source: /WebVella.Erp.Site/Config.json:L27 | Expected JWT audience (`aud`) claim. | `webvella-erp` | No |
+The current hosts validate JWT bearer tokens with a **symmetric** signing key read from `Settings:Jwt:Key`. Source: /WebVella.Erp.Site/Config.json:L25; Source: /WebVella.Erp.Site/JWT_README.txt. The move to an external OIDC provider (and, typically, asymmetric/JWKS validation) is a target change described under [Proposed OIDC / identity provider](#oidc-identity-provider-proposed) and in [../architecture/security.md](../architecture/security.md); the current symmetric-key model is documented here as the "before" state.
 
-New OIDC authority/client settings introduced by the refactor are documented under [New container-native settings](#new-container-native-settings); the authentication architecture and claim mapping are described in [../architecture/security.md](../architecture/security.md).
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:Jwt:Key` — Source: /WebVella.Erp.Site/Config.json:L25 | Symmetric signing key used to validate JWT bearer tokens (current model). | Secret — required; literal value not reproduced (rule D) | Yes |
+| `Settings:Jwt:Issuer` — Source: /WebVella.Erp.Site/Config.json:L26 | Expected JWT issuer (`iss`) claim. | `webvella-erp` | No |
+| `Settings:Jwt:Audience` — Source: /WebVella.Erp.Site/Config.json:L27 | Expected JWT audience (`aud`) claim. | `webvella-erp` | No |
 
 ### Email and SMTP
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__EmailEnabled` | `Settings:EmailEnabled` — Source: /WebVella.Erp.Site/Config.json:L14 | Master switch for outbound email delivery. | `false` | No |
-| `Settings__EmailSMTPServerName` | `Settings:EmailSMTPServerName` — Source: /WebVella.Erp.Site/Config.json:L15 | SMTP server host name. | `—` | No |
-| `Settings__EmailSMTPPort` | `Settings:EmailSMTPPort` — Source: /WebVella.Erp.Site/Config.json:L16 | SMTP server port. | `—` | No |
-| `Settings__EmailSMTPUsername` | `Settings:EmailSMTPUsername` — Source: /WebVella.Erp.Site/Config.json:L17 | SMTP authentication user name. | `— (required; provide via Secret)` | Yes |
-| `Settings__EmailSMTPPassword` | `Settings:EmailSMTPPassword` — Source: /WebVella.Erp.Site/Config.json:L18 | SMTP authentication password. | `— (required; provide via Secret)` | Yes |
-| `Settings__EmailFrom` | `Settings:EmailFrom` — Source: /WebVella.Erp.Site/Config.json:L19 | Default `From` address for outbound email. | `—` | No |
-| `Settings__EmailTo` | `Settings:EmailTo` — Source: /WebVella.Erp.Site/Config.json:L20 | Default `To` address used for diagnostics/testing. | `—` | No |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:EmailEnabled` — Source: /WebVella.Erp.Site/Config.json:L14 | Master switch for outbound email delivery. | `false` | No |
+| `Settings:EmailSMTPServerName` — Source: /WebVella.Erp.Site/Config.json:L15 | SMTP server host name. | `""` (empty in sample) | No |
+| `Settings:EmailSMTPPort` — Source: /WebVella.Erp.Site/Config.json:L16 | SMTP server port. | `25` | No |
+| `Settings:EmailSMTPUsername` — Source: /WebVella.Erp.Site/Config.json:L17 | SMTP authentication user name. | Secret — provide via Secret; empty in sample | Yes |
+| `Settings:EmailSMTPPassword` — Source: /WebVella.Erp.Site/Config.json:L18 | SMTP authentication password. | Secret — provide via Secret; not reproduced (rule D) | Yes |
+| `Settings:EmailFrom` — Source: /WebVella.Erp.Site/Config.json:L19 | Default `From` address for outbound email. | `""` (empty in sample) | No |
+| `Settings:EmailTo` — Source: /WebVella.Erp.Site/Config.json:L20 | Default `To` address used for diagnostics/testing. | `""` (empty in sample) | No |
 
 ### Storage
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__EnableFileSystemStorage` | `Settings:EnableFileSystemStorage` — Source: /WebVella.Erp.Site/Config.json:L12 | Toggles the file-system storage backend (Storage.Net). | `—` | No |
-| `Settings__FileSystemStorageFolder` | `Settings:FileSystemStorageFolder` — Source: /WebVella.Erp.Site/Config.json:L13 | Root folder used when file-system storage is enabled. | `—` | No |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:EnableFileSystemStorage` — Source: /WebVella.Erp.Site/Config.json:L12 | Toggles the file-system storage backend (Storage.Net). | `false` | No |
+| `Settings:FileSystemStorageFolder` — Source: /WebVella.Erp.Site/Config.json:L13 | Root folder used when file-system storage is enabled. | Internal path — sample value not reproduced | No |
 
 ### Localization
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__Lang` | `Settings:Lang` — Source: /WebVella.Erp.Site/Config.json:L6 | Default language code. | `—` | No |
-| `Settings__Locale` | `Settings:Locale` — Source: /WebVella.Erp.Site/Config.json:L7 | Default locale (culture). | `—` | No |
-| `Settings__TimeZoneName` | `Settings:TimeZoneName` — Source: /WebVella.Erp.Site/Config.json:L8 | Default time-zone name. | `—` | No |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:Lang` — Source: /WebVella.Erp.Site/Config.json:L6 | Default language code. | `en` | No |
+| `Settings:Locale` — Source: /WebVella.Erp.Site/Config.json:L7 | Default locale (culture). | `en-US` | No |
+| `Settings:TimeZoneName` — Source: /WebVella.Erp.Site/Config.json:L8 | Default time-zone name. | `FLE Standard Time` | No |
 
 ### Runtime and feature flags
 
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__DevelopmentMode` | `Settings:DevelopmentMode` — Source: /WebVella.Erp.Site/Config.json:L10 | Enables development-only behavior; disable in production. | `—` | No |
-| `Settings__EnableBackgroundJobs` | `Settings:EnableBackgroundJobs` — Source: /WebVella.Erp.Site/Config.json:L11 | Enables the in-process job scheduler. In the container-native model this governs whether the host runs jobs itself or defers them to `WebVella.Erp.Worker`. | `—` | No |
-| `Settings__CacheKey` | `Settings:CacheKey` — Source: /WebVella.Erp.Site/Config.json:L9 | Cache-busting key; if empty, the current date is used. | `—` | No |
-| `Settings__AppName` | `Settings:AppName` — Source: /WebVella.Erp.Site/Config.json:L21 | Display name of the application. | `—` | No |
-| `Settings__NavLogoUrl` | `Settings:NavLogoUrl` — Source: /WebVella.Erp.Site/Config.json:L22 | URL of the navigation logo. | `—` | No |
-| `Settings__SystemMasterBackgroundImageUrl` | `Settings:SystemMasterBackgroundImageUrl` — Source: /WebVella.Erp.Site/Config.json:L23 | URL of the sign-in / master background image. | `—` | No |
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Settings:DevelopmentMode` — Source: /WebVella.Erp.Site/Config.json:L10 | Enables development-only behavior; disable in production. | `true` (dev sample) | No |
+| `Settings:EnableBackgroundJobs` — Source: /WebVella.Erp.Site/Config.json:L11 | Enables the in-process job scheduler. In the proposed container-native model this would govern whether the host runs jobs itself or defers them to the (not-yet-existing) `WebVella.Erp.Worker`. | `false` | No |
+| `Settings:CacheKey` — Source: /WebVella.Erp.Site/Config.json:L9 | Cache-busting key; if empty, the current date is used. | `""` (empty) | No |
+| `Settings:AppName` — Source: /WebVella.Erp.Site/Config.json:L21 | Display name of the application. | `WebVella Next` | No |
+| `Settings:NavLogoUrl` — Source: /WebVella.Erp.Site/Config.json:L22 | URL of the navigation logo. | `""` (empty) | No |
+| `Settings:SystemMasterBackgroundImageUrl` — Source: /WebVella.Erp.Site/Config.json:L23 | URL of the sign-in / master background image. | `""` (empty) | No |
 
-> **Legacy API URL template.** The legacy key `Settings:ApiUrlTemplates:FieldInlineEdit` used a `/api/v3/...` route template. Source: /WebVella.Erp.Site/Config.json:L35 In the headless target the REST surface is versioned under `/api/v1/`; the legacy template is retained only for backward-compatibility mapping, and its literal value is not reproduced here.
+> **Legacy API URL template.** The legacy key `Settings:ApiUrlTemplates:FieldInlineEdit` uses a `/api/v3/...` route template. Source: /WebVella.Erp.Site/Config.json:L35 In the headless target the REST surface would be versioned under `/api/v1/`; the legacy template is a "before"-state value and its literal contents are not reproduced here.
 
-## New container-native settings
+## Proposed container-native settings
 
-The refactor introduces configuration that has no legacy `Config.json` equivalent. Where the provider or tool is undecided, the setting is rendered as an explicit **"Not available / to be confirmed"** callout and the required inputs are listed, rather than assuming a value (rule F).
+> **Not available / to be confirmed.** Everything in this section is target design. It requires code that does not exist yet — at minimum an **environment-variable configuration provider** (an `AddEnvironmentVariables` registration, absent today) and an **options-validation layer** to enforce required keys and fail fast on startup. Until that code and the accompanying deployment manifests exist, the key **names, defaults, precedence order, and fail-fast behavior below are proposed, not authoritative**.
 
-### OIDC / identity provider
+### Environment-variable mapping (proposed)
 
-> **Not available / to be confirmed.** The identity provider (Duende IdentityServer vs. Keycloak) is undecided. Until it is chosen, the OIDC keys below are provider-neutral. **What is needed:** the authority / discovery URL, the client id, the client secret, and the requested scope names. See [../architecture/security.md](../architecture/security.md) for the authentication architecture and claim-to-role/permission mapping.
-
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__Oidc__Authority` | — (new) | OIDC authority / discovery-document base URL. | `Not available / to be confirmed` | No |
-| `Settings__Oidc__ClientId` | — (new) | OIDC client identifier for the platform. | `Not available / to be confirmed` | No |
-| `Settings__Oidc__ClientSecret` | — (new) | OIDC client secret used in the authorization-code flow. | `— (required; provide via Secret)` | Yes |
-| `Settings__Oidc__Scopes` | — (new) | Space-separated OIDC scope names requested at login. | `Not available / to be confirmed` | No |
-
-### Worker scheduler
-
-> **Not available / to be confirmed.** The worker scheduler (Quartz.NET vs. Hangfire) is undecided. These settings configure the `WebVella.Erp.Worker` schedules once the scheduler is chosen; no concrete key names are asserted here to avoid guessing.
-
-### Observability
-
-Structured logging and tracing for the container-native platform. See [../architecture/observability.md](../architecture/observability.md).
-
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__Serilog__MinimumLevel` | — (new) | Minimum Serilog log level (for example `Information` or `Warning`). | `—` | No |
-| `Settings__Otlp__Endpoint` | — (new) | OTLP exporter endpoint for traces, metrics, and logs. Treat as a secret if the endpoint embeds credentials. | `—` | No |
-
-### Plugin directory
-
-The filesystem directory the plugin host scans for packaged `.wvplugin` artifacts. See [../plugin-sdk/packaging-wvplugin.md](../plugin-sdk/packaging-wvplugin.md).
-
-| Env Var | Maps to (legacy key) | Purpose | Default | Secret? |
-|---------|----------------------|---------|---------|---------|
-| `Settings__PluginDirectory` | — (new) | Directory from which `.wvplugin` plugin packages are loaded. | `—` | No |
-
-## Environment variable mapping
-
-ASP.NET Core maps hierarchical configuration keys to environment variables by replacing each `:` separator with a double underscore `__`. Because the platform binds the `Settings` section, every key in the tables above is set as an environment variable as follows:
+The proposed convention reuses ASP.NET Core's standard mapping of hierarchical keys to environment variables by replacing each `:` separator with a double underscore `__`. This mapping only takes effect once an environment-variable provider is registered (**Not available / to be confirmed**). Under the proposal, the current `Settings:*` keys would also be settable as:
 
 - `Settings:ConnectionString` → `Settings__ConnectionString`
 - `Settings:Jwt:Issuer` → `Settings__Jwt__Issuer`
 - `Settings:Jwt:Key` → `Settings__Jwt__Key`
 
+The following is **non-executable illustrative pseudocode** for the proposed variable **names** only — no env-var provider reads these today. Secret values are shown as `${VAR:?...}` references that must be supplied from a Secret at runtime; they are never written inline or committed.
+
 ```bash
-# Environment-variable names only. Secret values are injected from a Secret at runtime,
-# never written inline or committed to source control.
-Settings__ConnectionString=<DB_CONNECTION_STRING>
-Settings__EncryptionKey=<ENCRYPTION_KEY>
-Settings__Jwt__Key=<JWT_SIGNING_KEY>
-Settings__Jwt__Issuer=webvella-erp
-Settings__Jwt__Audience=webvella-erp
-Settings__EmailEnabled=false
+# PROPOSED names only (no environment-variable provider exists yet — illustrative).
+# Secret VALUES are injected from a Secret at runtime via the ${VAR:?...} references
+# below; they are never written inline or committed to source control.
+export Settings__ConnectionString="${DB_CONNECTION_STRING:?provide via Secret}"
+export Settings__EncryptionKey="${ENCRYPTION_KEY:?provide via Secret}"
+export Settings__Jwt__Key="${JWT_SIGNING_KEY:?provide via Secret}"
+export Settings__Jwt__Issuer="webvella-erp"
+export Settings__Jwt__Audience="webvella-erp"
+export Settings__EmailEnabled="false"
 ```
+
+### OIDC / identity provider (proposed)
+
+> **Not available / to be confirmed.** The identity provider (Duende IdentityServer vs. Keycloak) is undecided, and no OIDC client or validation code exists yet. The design is provider-neutral. See [../architecture/security.md](../architecture/security.md) for the authentication architecture and claim-to-role/permission mapping.
+
+Security requirements the eventual configuration must satisfy (per RFC 9700 / OAuth 2.1 guidance):
+
+- The **React SPA is a public client** and **must not be issued or configured with a client secret** — a browser-delivered secret cannot be kept confidential. Login uses the **authorization-code flow with PKCE (S256)**, never the implicit flow or a browser-side password/direct-token grant.
+- The SPA must validate the OIDC **`state`** and **`nonce`** parameters and use an **exact, pre-registered redirect URI**.
+- A **client secret applies only to a confidential (server-side) client** (for example a back-end-for-frontend or the API host validating tokens against the provider), **if** the chosen topology uses one — that topology is itself **Not available / to be confirmed**. Any such secret is a Secret (rule D).
+- Token **issuer, audience, signing algorithm / JWKS, lifetimes, and refresh-token rotation** are deferred until the provider and client code exist; document them here only once resolved.
+
+**What is needed:** the authority / discovery URL, the client id, the requested scope names, the exact redirect URI(s), and — **only if** a confidential server-side client is used — that client's secret (supplied via a Secret). Concrete key names are intentionally **not asserted** here to avoid guessing (rule F).
+
+### Worker scheduler (proposed)
+
+> **Not available / to be confirmed.** The worker scheduler (Quartz.NET vs. Hangfire) is undecided, and the `WebVella.Erp.Worker` project does not exist yet. Its schedule settings would be defined here once the scheduler is chosen; no concrete key names are asserted, to avoid guessing.
+
+### Observability (proposed)
+
+> **Not available / to be confirmed.** No structured-logging or tracing stack exists in the codebase yet (no Serilog and no OpenTelemetry packages are referenced). The keys below are proposed. See [../architecture/observability.md](../architecture/observability.md).
+
+Data-handling requirements the eventual logging/tracing configuration must satisfy:
+
+- **Redaction / data classification.** Logs, traces, and log context **must never contain** credentials, tokens, signing keys, connection strings, or personal data (PII). Sensitive fields must be masked or omitted; the connection string is referenced by key name only, never logged as a value (rule D).
+- **Correlation IDs.** An inbound correlation-ID header must be **validated and sanitized** before it is logged or propagated (bounded length, restricted character set); client-supplied IDs are not trusted verbatim, and a server-generated ID is used when the inbound value is missing or invalid.
+- **OTLP endpoint vs. credentials.** The OTLP exporter **endpoint URL is configuration (non-secret) and must not embed credentials**. Any collector authentication (bearer token or headers) is a **separate Secret**, configured independently of the endpoint URL — never inlined into it.
+- **Browser / SPA telemetry.** Exporting telemetry directly from the browser is **pending (Not available / to be confirmed)**: it requires an authenticated, CORS-scoped collector endpoint and must not expose an unauthenticated browser-facing collector.
+
+| Proposed env var | Purpose | Default | Secret? |
+|------------------|---------|---------|---------|
+| `Settings__Serilog__MinimumLevel` | Minimum log level (for example `Information` or `Warning`). *Proposed — Not available / to be confirmed.* | `Not available / to be confirmed` | No |
+| `Settings__Otlp__Endpoint` | OTLP exporter endpoint URL for traces, metrics, and logs. Must **not** embed credentials; collector auth is a separate Secret. *Proposed — Not available / to be confirmed.* | `Not available / to be confirmed` | No |
+
+### Plugin directory (proposed)
+
+> **Not available / to be confirmed.** The `.wvplugin` packaging format and the plugin host that would scan a directory for packages do not exist yet. See [../plugin-sdk/packaging-wvplugin.md](../plugin-sdk/packaging-wvplugin.md), which also documents that the plugin loader is **not** a security sandbox.
+
+| Proposed env var | Purpose | Default | Secret? |
+|------------------|---------|---------|---------|
+| `Settings__PluginDirectory` | Directory from which `.wvplugin` plugin packages would be loaded. *Proposed — Not available / to be confirmed.* | `Not available / to be confirmed` | No |
 
 ## Target runtime
 
@@ -132,9 +146,9 @@ Settings__EmailEnabled=false
 
 ## See also
 
-- [docker-compose.md](docker-compose.md) — Docker Compose topology that consumes these variables.
-- [kubernetes-helm.md](kubernetes-helm.md) — Helm values and Kubernetes Secret wiring for these keys.
-- [troubleshooting.md](troubleshooting.md) — common configuration failure modes and remedies.
+- **docker-compose.md** *(planned page — not yet available)* — Docker Compose topology that would consume these variables.
+- **kubernetes-helm.md** *(planned page — not yet available)* — Helm values and Kubernetes Secret wiring for these keys.
+- **troubleshooting.md** *(planned page — not yet available)* — common configuration failure modes and remedies.
 - [../architecture/security.md](../architecture/security.md) — authentication architecture, JWT/OIDC, and claim mapping.
 - [../architecture/observability.md](../architecture/observability.md) — structured logging, correlation IDs, and OTLP export.
 - [../plugin-sdk/packaging-wvplugin.md](../plugin-sdk/packaging-wvplugin.md) — `.wvplugin` packaging and the plugin directory.
