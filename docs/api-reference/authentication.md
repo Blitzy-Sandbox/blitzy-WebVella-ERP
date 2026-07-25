@@ -62,7 +62,7 @@ sequenceDiagram
     participant API as API (WebVella.Erp.Api)
     C->>C: Generate code_verifier and code_challenge (S256), state, nonce
     C->>IdP: Authorization request (code grant, code_challenge, state, nonce)
-    IdP-->>C: Authorization code (after user authenticates; state echoed)
+    IdP-->>C: Authorization code (after user authenticates, state echoed)
     C->>IdP: Exchange code at token endpoint (code_verifier, NO client secret)
     IdP-->>C: Access token (JWT) plus optional rotating refresh token
     C->>API: Request /api/v1 with Authorization Bearer access token

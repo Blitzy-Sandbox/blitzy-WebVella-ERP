@@ -283,7 +283,7 @@ On success, would return the envelope with the created Record in `object`. On a 
 }
 ```
 
-Whether field-level validation is reported inside the envelope (as above) or promoted to a `422`/`400` `application/problem+json` response is **Not available / to be confirmed**; see [Errors](errors.md#relationship-to-the-response-envelope).
+Whether field-level validation is reported inside the envelope (as above) or promoted to a `422`/`400` `application/problem+json` response is **Not available / to be confirmed**; see [Errors](errors.md#relationship-to-the-response-envelope-legacy-verified).
 
 Source: /WebVella.Erp/Api/Models/BaseModels.cs:L62-L71 (`ErrorModel` = `{ key, value, message }`).
 

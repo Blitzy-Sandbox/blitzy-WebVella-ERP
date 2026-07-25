@@ -2,7 +2,7 @@
 
 # Security
 
-> **Planned target design — not yet implemented; provider-neutral.** The headless authentication model on this page is **proposed design**. The `/api/v1/` resource server (`WebVella.Erp.Api`) and the React SPA (`WebVella.Erp.Client`) **do not exist in this checkout**, and no OIDC identity provider has been chosen. What *does* exist is the **legacy** `WebVella.Erp.Site` host's JWT/cookie configuration, documented separately below as the **current** state. Every target element — the OIDC provider, the SPA client registration, and the API's token-validation parameters — is **Not available / to be confirmed** until the provider and host code exist (AAP §0.9.2). The **role/permission model** the API would map onto is real and unchanged (see [Claim → role / permission mapping](#claim--role--permission-mapping)).
+> **Planned target design — not yet implemented; provider-neutral.** The headless authentication model on this page is **proposed design**. The `/api/v1/` resource server (`WebVella.Erp.Api`) and the React SPA (`WebVella.Erp.Client`) **do not exist in this checkout**, and no OIDC identity provider has been chosen. What *does* exist is the **legacy** `WebVella.Erp.Site` host's JWT/cookie configuration, documented separately below as the **current** state. Every target element — the OIDC provider, the SPA client registration, and the API's token-validation parameters — is **Not available / to be confirmed** until the provider and host code exist (AAP §0.9.2). The **role/permission model** the API would map onto is real and unchanged (see [Claim → role / permission mapping](#claim-role-permission-mapping)).
 
 The target design authenticates users through **OpenID Connect (OIDC)** at an external identity provider, authorizes each `/api/v1/` request with a **stateless JWT bearer token**, and maps the token's claims onto the **unchanged** WebVella role and permission model that the in-process managers already enforce. For obtaining and using tokens, see the [Authentication reference](../api-reference/authentication.md); this page is the architecture companion.
 
@@ -76,7 +76,7 @@ sequenceDiagram
     SPA->>API: GET /api/v1/... (Authorization: Bearer JWT)
     API->>API: Validate iss/aud/lifetime/signature via provider JWKS (params pending)
     API->>API: Map claims to WebVella roles/permissions
-    API-->>SPA: 200 OK / 401 / 403 (generic; no sensitive detail)
+    API-->>SPA: 200 OK / 401 / 403 (generic, no sensitive detail)
 ```
 
 *Diagram: planned OIDC authorization-code + PKCE login, code exchange without a client secret, bearer validation via the provider's JWKS (parameters pending), and claim-to-`administrator`/permission mapping. The SPA and API are proposed and Not available in this checkout.*
