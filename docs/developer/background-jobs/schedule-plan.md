@@ -7,65 +7,22 @@ In order for a background job to be scheduled by the platform, there should be a
 
 The schedule plan is implemented by the `SchedulePlan` object.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `Enabled`                     | *object type*: `bool`                         
-|                               |         
-|                               | Whether this plan is enabled.
-+-------------------------------+-----------------------------------+
-| `EndDate`                     | *object type*: `DateTime?`                         
-|                               |         
-|                               | After which datetime the job scheduling must be canceled
-+-------------------------------+-----------------------------------+
-| `EndTimespan`                 | *object type*: `int?`                         
-|                               |         
-|                               | Represents the hour minute format as "HHmm" integer. Sets the end hour of the day when job scheduling is allowed
-+-------------------------------+-----------------------------------+
-| `Id`                          | *object type*: `Guid`                         
-|                               |         
-|                               | Id of the schedule plan
-+-------------------------------+-----------------------------------+
-| `IntervalInMinutes`           | *object type*: `int?`                         
-|                               |         
-|                               | Used in Interval type. Sets the length of the interval period in minutes.
-+-------------------------------+-----------------------------------+
-| `JobTypeId`                   | *object type*: `Guid`                         
-|                               |         
-|                               | Unique Id of the job type as decorated in the `Job` attribute
-+-------------------------------+-----------------------------------+
-| `LastTriggerTime`             | *object type*: `DateTime?`                         
-|                               |         
-|                               | When this job type was last triggered.
-+-------------------------------+-----------------------------------+
-| `LastStartedJobId`            | *object type*: `Guid?`                         
-|                               |         
-|                               | The id of the last scheduled background job
-+-------------------------------+-----------------------------------+
-| `Name`                        | *object type*: `string`                         
-|                               |         
-|                               | Human readable name of the schedule plan, presented in the plans' list.
-+-------------------------------+-----------------------------------+
-| `NextTriggerTime`             | *object type*: `DateTime?`                         
-|                               |         
-|                               | When this job type will be next triggered. If null - it will no longer be triggered. If you manually trigger a schedule plan, this property will be set at the start of the next minute.
-+-------------------------------+-----------------------------------+
-| `ScheduledDays`               | *object type*: `SchedulePlanDaysOfWeek`                         
-|                               |         
-|                               | List of booleans for each week day. Sets in which days of the week jobs should be scheduled
-+-------------------------------+-----------------------------------+
-| `StartDate`                   | *object type*: `DateTime?`                         
-|                               |         
-|                               | Start date and time of the plan. When the first job should be scheduled if this datetime matches the rest specific type conditions. If not, the first possible datetime after this will be selected.
-+-------------------------------+-----------------------------------+
-| `StartTimespan`               | *object type*: `int?`                         
-|                               |         
-|                               | Represents the hour minute format as "HHmm" integer. Sets the starting hour of the day when job scheduling is allowed
-+-------------------------------+-----------------------------------+
-| `Type`                        | *object type*: `SchedulePlanType`                         
-|                               |         
-|                               | Schedule type. Options are: Interval, Daily, Weekly, Monthly
-+-------------------------------+-----------------------------------+
+| name | description |
+| --- | --- |
+| `Enabled` | *object type*: `bool`<br/><br/>Whether this plan is enabled. |
+| `EndDate` | *object type*: `DateTime?`<br/><br/>After which datetime the job scheduling must be canceled |
+| `EndTimespan` | *object type*: `int?`<br/><br/>Represents the hour minute format as "HHmm" integer. Sets the end hour of the day when job scheduling is allowed |
+| `Id` | *object type*: `Guid`<br/><br/>Id of the schedule plan |
+| `IntervalInMinutes` | *object type*: `int?`<br/><br/>Used in Interval type. Sets the length of the interval period in minutes. |
+| `JobTypeId` | *object type*: `Guid`<br/><br/>Unique Id of the job type as decorated in the `Job` attribute |
+| `LastTriggerTime` | *object type*: `DateTime?`<br/><br/>When this job type was last triggered. |
+| `LastStartedJobId` | *object type*: `Guid?`<br/><br/>The id of the last scheduled background job |
+| `Name` | *object type*: `string`<br/><br/>Human readable name of the schedule plan, presented in the plans' list. |
+| `NextTriggerTime` | *object type*: `DateTime?`<br/><br/>When this job type will be next triggered. If null - it will no longer be triggered. If you manually trigger a schedule plan, this property will be set at the start of the next minute. |
+| `ScheduledDays` | *object type*: `SchedulePlanDaysOfWeek`<br/><br/>List of booleans for each week day. Sets in which days of the week jobs should be scheduled |
+| `StartDate` | *object type*: `DateTime?`<br/><br/>Start date and time of the plan. When the first job should be scheduled if this datetime matches the rest specific type conditions. If not, the first possible datetime after this will be selected. |
+| `StartTimespan` | *object type*: `int?`<br/><br/>Represents the hour minute format as "HHmm" integer. Sets the starting hour of the day when job scheduling is allowed |
+| `Type` | *object type*: `SchedulePlanType`<br/><br/>Schedule type. Options are: Interval, Daily, Weekly, Monthly |
 
 ## Code example
 

@@ -25,25 +25,12 @@ public class SampleJob : ErpJob
 
 This attribute has the following properties:
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `allowSingleInstance`	        | *object type*: `bool`                         
-|                               |         
-|                               | If set to TRUE, before scheduling a job, the platform will check if there is another job from the same type running. If there is, it will not schedule a the new job.
-+-------------------------------+-----------------------------------+
-| `defaultPriority`             | *object type*: `JobPriority`                         
-|                               |         
-|                               | Manages the order in which scheduled jobs will be executed. Needed when there are more scheduled jobs then the preset 2 threads. Options are: Low, Medium, High, Higher, Highest
-+-------------------------------+-----------------------------------+
-| `Id`                          | *object type*: `Guid`                         
-|                               |         
-|                               | Unique identification of the job
-+-------------------------------+-----------------------------------+
-| `Name`                        | *object type*: `string`                         
-|                               |         
-|                               | Human readable name of the job, presented in the jobs' list.
-+-------------------------------+-----------------------------------+
+| name | description |
+| --- | --- |
+| `allowSingleInstance` | *object type*: `bool`<br/><br/>If set to TRUE, before scheduling a job, the platform will check if there is another job from the same type running. If there is, it will not schedule a the new job. |
+| `defaultPriority` | *object type*: `JobPriority`<br/><br/>Manages the order in which scheduled jobs will be executed. Needed when there are more scheduled jobs then the preset 2 threads. Options are: Low, Medium, High, Higher, Highest |
+| `Id` | *object type*: `Guid`<br/><br/>Unique identification of the job |
+| `Name` | *object type*: `string`<br/><br/>Human readable name of the job, presented in the jobs' list. |
 
 ##### Requirement 3: Implement the `Execute` method of the inherited class "ErpJob"
 

@@ -1,7 +1,7 @@
 ﻿<!--{"sort_order":2, "name": "create-your-own", "label": "Create your own"}-->
 # Create a Plugin for the WebVella Erp
 
-To create a Plugin you need to add to the solution a Razor Class Library that has specific structure and requirements.
+> **Deprecated — legacy hosting model.** This page documents the **retired** `ErpPlugin` / `Initialize(IServiceProvider)` authoring model (a Razor Class Library) used by the legacy RazorPages host. In the headless platform a plugin implements the **`IErpPlugin`** contract and is loaded by the container-native host — see the canonical [IErpPlugin contract](../../plugin-sdk/ierplugin-contract.md) and the step-by-step [Migrating from ErpPlugin](../../plugin-sdk/migrating-from-erpplugin.md) guide. The steps below are retained only as the "before" reference for that migration.
 
 ## Plugin name
 
@@ -24,7 +24,7 @@ The plugin usually has a main `.cs` file and a number of folders that hold the c
 
 ## PluginNamePlugin.cs
 
-You can create this file as an ordinary class, but there are several requirements in order to turn it into a plugin:
+In the legacy `ErpPlugin` model, this file is an ordinary class turned into a plugin by the requirements below (shown here as the pre-migration **"before"** reference; the current headless model implements the [`IErpPlugin`](../../plugin-sdk/ierplugin-contract.md) contract instead):
 
 #### Requirement 1: The Namespace should correspond to the plugin library name
 ```csharp

@@ -28,17 +28,9 @@ This is the current route served by the in-process host, gated to the `administr
 
 ##### Query parameters
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `Id`                          | *object type*: `Guid`                         
-|                               |         
-|                               | *default value*: `NULL`
-|                               |
-|                               | *is required*: `TRUE`                      
-|                               |                                   
-|                               | Id of the target entity
-+-------------------------------+-----------------------------------+
+| name | description |
+| --- | --- |
+| `Id` | *object type*: `Guid`<br/><br/>*default value*: `NULL`<br/><br/>*is required*: `TRUE`<br/><br/>Id of the target entity |
 
 ##### Request body
 
