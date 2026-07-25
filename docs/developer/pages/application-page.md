@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":6, "name": "application-page", "label": "Application page"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Application page
 
 Application pages are meant to present data that is not tightly connected to a single entity such as dashboards in example. They can be two kinds of application pages based on whether or not they are connected to an application sitemap node.

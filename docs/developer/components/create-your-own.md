@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":2, "name": "create-your-own", "label": "Create your own"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Create a Page Component for WebVella Erp
 
 To create a Page Component you need to add a ViewComponent to your project that has specific structure and requirements. 

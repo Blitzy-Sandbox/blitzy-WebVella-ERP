@@ -1,4 +1,5 @@
 ﻿<!--{"sort_order":13, "name": "manage-custom-body", "label": "Manage custom body"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
 
 # Manage generated body
 

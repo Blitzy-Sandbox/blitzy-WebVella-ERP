@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":1, "name": "overview", "label": "Overview"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # What is a WebVella ERP Plugin Page Component
 
 The page components are used in the page body generation within the WebVella ERP. They provide the end user with the ability to quickly add, drag and drop, set the options of a certain presentation scenarios

@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":1, "name": "overview", "label": "Overview"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Overview
 
 The pages are the main tool for presenting content in the system. The easiest way to create, review or manage pages is through the SDK Plugin interface. 
