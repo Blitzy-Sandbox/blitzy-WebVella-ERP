@@ -1,4 +1,4 @@
-<!--{"sort_order":4, "name": "assemblyloadcontext-hosting", "label": "AssemblyLoadContext Hosting"}-->
+﻿<!--{"sort_order":4, "name": "assemblyloadcontext-hosting", "label": "AssemblyLoadContext Hosting"}-->
 # Plugin Hosting with AssemblyLoadContext
 
 > **Planned target design — Not available in this checkout.** There is **no plugin
@@ -73,6 +73,9 @@ controls themselves are non-negotiable:
 
 - [IErpPlugin contract](ierplugin-contract.md) — the three proposed lifecycle
   methods (`OnLoadAsync`, `OnMigrateAsync`, `MapEndpoints`).
+- [Migrating from ErpPlugin](migrating-from-erpplugin.md) — the step-by-step port
+  from the legacy `Initialize(IServiceProvider)` model to the proposed `IErpPlugin`
+  lifecycle that this host would load.
 - [Plugin host](../architecture/plugin-host.md) — the full proposed host design.
 - [Plugin migrations (OnMigrateAsync)](migrations-onmigrateasync.md) — the proposed
   versioned, idempotent, transactional patch pattern re-run on reload.

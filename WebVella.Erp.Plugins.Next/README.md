@@ -1,4 +1,4 @@
-# WebVella.Erp.Plugins.Next
+﻿# WebVella.Erp.Plugins.Next
 
 The **Next** plugin provides the WebVella *Next* application on top of the core `WebVella.Erp` engine. It is implemented as `NextPlugin : ErpPlugin` and provisions the Next/CRM data model — entities, fields, relations and reference data — while keeping a denormalized full-text search index in sync. `Source: /WebVella.Erp.Plugins.Next/NextPlugin.cs:L8`
 

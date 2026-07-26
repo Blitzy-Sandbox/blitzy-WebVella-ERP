@@ -1,4 +1,4 @@
-<!--{"sort_order":1, "name": "index", "label": "Overview"}-->
+﻿<!--{"sort_order":1, "name": "index", "label": "Overview"}-->
 # API Reference
 
 > **Planned target design — Not available in this checkout.** The `/api/v1/` REST surface described here is **proposed design**. There is **no `WebVella.Erp.Api` project and no generated OpenAPI document** in `WebVella.ERP3.sln`, so every route, HTTP method, DTO field, status code, permission, pagination parameter, and example on this page is **Not available / to be confirmed** and must be derived from the target endpoint definitions and the generated OpenAPI document once they exist (AAP §0.9.2). The **current** controllers expose legacy `/api/v3` and `/api/v3.0` routes (for example `Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L63`), not `/api/v1/`. **The examples below are illustrative design sketches, not runnable.**

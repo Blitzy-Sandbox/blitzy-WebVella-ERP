@@ -1,4 +1,4 @@
-# WebVella.Erp.Worker
+﻿# WebVella.Erp.Worker
 
 `WebVella.Erp.Worker` is the container-native background **worker** host for the headless WebVella ERP platform. It runs scheduled and queued **jobs** outside the HTTP request path, on the unchanged `WebVella.Erp` core engine and its shared PostgreSQL database, so that recurring work (outbound email delivery, daily task rollovers, and other recurrence/scheduled jobs) runs off the API request path. Because the worker shares the same core engine and PostgreSQL database as the API tier, the two still contend for those shared database resources — separating the host isolates request-handling latency, not the underlying database load.
 

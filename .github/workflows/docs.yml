@@ -23,6 +23,12 @@
 #   - P8-1: the Markdown lint job is a BLOCKING gate that honors the repository
 #           .markdownlint.json policy and .markdownlintignore scope; a newly introduced
 #           diagnostic fails CI.
+#   - Content validation (blocking): after the strict build, the docs-build job asserts
+#     that every ```mermaid block renders (mmdc), every internal link/anchor and
+#     doc-image resolves, every page carries the HTML-comment frontmatter and every
+#     folder.json is valid, and that no literal secret value appears in the docs (Rule D).
+#     Each content gate carries a min-count anti-vacuity assertion so an empty or
+#     mis-scoped tree fails instead of passing silently.
 name: Documentation CI
 
 on:
@@ -64,8 +70,18 @@ env:
 
 jobs:
   docs-build:
-    name: Docs build (MkDocs + TechDocs)
+    name: Docs build (MkDocs + TechDocs) & content validation
     runs-on: ubuntu-latest
+    # Minimum expected corpus sizes — the content gates below fail (rather than pass
+    # vacuously) if the documentation tree is empty or mis-scoped.
+    env:
+      # mmdc/puppeteer runs headless in CI; silence the deprecation notice.
+      PUPPETEER_DISABLE_HEADLESS_WARNING: "true"
+      MIN_MD_FILES: "140"
+      MIN_INTERNAL_LINKS: "500"
+      MIN_FOLDER_JSON: "15"
+      MIN_MERMAID_BLOCKS: "18"
+      MIN_SECRET_SCAN_FILES: "140"
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -74,17 +90,225 @@ jobs:
         with:
           # Pinned minor for reproducibility; requirements-docs.txt was compiled for 3.13.
           python-version: '3.13'
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '20'
       # Exact, fully hash-pinned toolchain (P7-2). requirements-docs.txt is generated from
       # requirements-docs.in via `pip-compile --generate-hashes`; --require-hashes forces
       # verification of every wheel so the documentation build tree is byte-reproducible.
-      # Plugins declared in root mkdocs.yml (techdocs-core >= 1.0.2 for Mermaid; mermaid2)
-      # resolve transitively from the two top-level pins.
       - name: Install MkDocs + TechDocs plugins (exact, hash-pinned)
         run: python -m pip install --require-hashes -r requirements-docs.txt
-      # Non-interactive only — never `mkdocs serve` / `--watch` in CI.
-      # Alternative: techdocs-cli generate --no-docker
+      # Mermaid CLI drives the Mermaid render gate; pinned to the version the mermaid2
+      # plugin loads (mkdocs.yml). npm install is non-interactive under CI=true (P6-1).
+      - name: Install Mermaid CLI (pinned)
+        run: npm install --global @mermaid-js/mermaid-cli@11.16.0
+      # Non-interactive only — never `mkdocs serve` / `--watch` in CI. Build to site/ so
+      # the internal-anchor gate can resolve #fragments against the authoritative HTML.
       - name: Build documentation site
-        run: mkdocs build --strict
+        run: mkdocs build --strict --site-dir site
+      # ---------------------------------------------------------------------------
+      # Gate 2 (BLOCKING) — every ```mermaid block must render.
+      # `mkdocs build` cannot catch malformed Mermaid because diagrams render in the
+      # browser; we render each block with mmdc (Mermaid CLI) which exits nonzero on a
+      # parse error. (Closes QA finding G1.)
+      # ---------------------------------------------------------------------------
+      - name: 'Gate 2 — Mermaid diagrams render (mmdc)'
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{ "args": ["--no-sandbox", "--disable-dev-shm-usage"] }' > /tmp/puppeteer.json
+          mkdir -p /tmp/mmdc_out
+          fail=0; files=0; blocks=0
+          while IFS= read -r f; do
+            files=$((files + 1))
+            n=$(grep -c '```mermaid' "$f" || true)
+            blocks=$((blocks + n))
+            safe=$(printf '%s' "$f" | tr '/ ' '__')
+            if ! mmdc -i "$f" -o "/tmp/mmdc_out/${safe}.md" -p /tmp/puppeteer.json -q; then
+              echo "::error file=$f::Mermaid diagram failed to render"
+              fail=$((fail + 1))
+            fi
+          done < <(grep -rl '```mermaid' docs --include='*.md')
+          echo "Mermaid render: files=$files blocks=$blocks failures=$fail"
+          if [ "$blocks" -lt "${MIN_MERMAID_BLOCKS}" ]; then
+            echo "::error::VACUOUS: only $blocks Mermaid blocks scanned (< ${MIN_MERMAID_BLOCKS})"; exit 1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::$fail Mermaid diagram(s) failed to render"; exit 1
+          fi
+
+      # ---------------------------------------------------------------------------
+      # Gate 3 (BLOCKING) — internal links & anchors resolve.
+      # Unlike markdown-link-check (which exits 0 even on dead links), this validator
+      # EXITS NONZERO when any relative link target is missing on disk, when a
+      # /doc-images/* asset is missing, or when a #fragment is absent from the target
+      # page's AUTHORITATIVE built-HTML ids (site/ from Gate 1). Bare "/route" links
+      # (e.g. /donate) are deploy-time site routes and are intentionally skipped.
+      # A min-count assertion prevents a vacuous pass. (Closes QA finding G2.)
+      # ---------------------------------------------------------------------------
+      - name: 'Gate 3 — Internal links & anchors'
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          DOCS, REPO, SITE = "docs", ".", "site"
+          MIN_MD = int(os.environ["MIN_MD_FILES"])
+          MIN_LINKS = int(os.environ["MIN_INTERNAL_LINKS"])
+          link_re = re.compile(r'(?<!\!)\[[^\]]*\]\(\s*([^)\s]+?)(?:\s+"[^"]*")?\s*\)')
+          img_re  = re.compile(r'!\[[^\]]*\]\(\s*([^)\s]+?)(?:\s+"[^"]*")?\s*\)')
+          def external(t):
+              return bool(re.match(r'^[a-zA-Z][\w+.-]*://', t)) or t.startswith(('//', 'mailto:', 'tel:', 'data:'))
+          def built_html(mdpath):
+              rel = os.path.relpath(mdpath, DOCS)
+              if os.path.basename(rel) == "index.md":
+                  return os.path.join(SITE, os.path.dirname(rel), "index.html")
+              return os.path.join(SITE, rel[:-3], "index.html")
+          _cache = {}
+          def ids_in(htmlpath):
+              if htmlpath in _cache:
+                  return _cache[htmlpath]
+              if not os.path.exists(htmlpath):
+                  _cache[htmlpath] = None
+                  return None
+              h = open(htmlpath, encoding='utf-8', errors='ignore').read()
+              ids = set(re.findall(r'\bid="([^"]+)"', h)) | set(re.findall(r'\bname="([^"]+)"', h))
+              _cache[htmlpath] = ids
+              return ids
+          mdfiles = [os.path.join(r, f) for r, _, fs in os.walk(DOCS) for f in fs if f.endswith('.md')]
+          broken, checked, anchors, site_routes = [], 0, 0, 0
+          for path in mdfiles:
+              txt = re.sub(r'```.*?```', '', open(path, encoding='utf-8').read(), flags=re.S)
+              for m in list(link_re.finditer(txt)) + list(img_re.finditer(txt)):
+                  raw = m.group(1).strip()
+                  if external(raw) or raw == '':
+                      continue
+                  core, frag = (raw.split('#', 1) + [None])[:2] if '#' in raw else (raw, None)
+                  core = core.split('?', 1)[0]
+                  base = os.path.dirname(path)
+                  if core == '' and frag is not None:            # same-page anchor
+                      anchors += 1
+                      ids = ids_in(built_html(path))
+                      if ids is not None and frag not in ids:
+                          broken.append((path, raw, "anchor"))
+                      continue
+                  if core.startswith('/'):
+                      if core.startswith('/doc-images/'):        # copied into build by mkdocs_hooks.py
+                          checked += 1
+                          if not os.path.exists(os.path.join(REPO, core.lstrip('/'))):
+                              broken.append((path, raw, "doc-image"))
+                      else:
+                          site_routes += 1                       # deploy-time site route; skip
+                      continue
+                  checked += 1
+                  cand = os.path.normpath(os.path.join(base, core))
+                  hit = next((v for v in (cand, cand + '.md', os.path.join(cand, 'index.md')) if os.path.exists(v)), None)
+                  if hit is None:
+                      broken.append((path, raw, "file")); continue
+                  if frag and hit.endswith('.md'):
+                      anchors += 1
+                      ids = ids_in(built_html(hit))
+                      if ids is not None and frag not in ids:
+                          broken.append((path, raw, "anchor"))
+          if len(mdfiles) < MIN_MD:
+              print(f"::error::VACUOUS: only {len(mdfiles)} markdown files scanned (< {MIN_MD})"); sys.exit(1)
+          if checked < MIN_LINKS:
+              print(f"::error::VACUOUS: only {checked} internal links checked (< {MIN_LINKS})"); sys.exit(1)
+          print(f"Links: md={len(mdfiles)} file-links={checked} anchors={anchors} site-routes-skipped={site_routes} broken={len(broken)}")
+          for p, t, kind in broken:
+              print(f"::error file={p}::broken {kind} link -> {t}")
+          sys.exit(1 if broken else 0)
+          PY
+
+      # ---------------------------------------------------------------------------
+      # Gate 4 (BLOCKING) — repository documentation conventions (Rule C).
+      # Every non-index .md must carry the HTML-comment frontmatter; every folder.json
+      # must be valid JSON with an integer sort_order and name/label. index.md landing
+      # pages are frontmatter/BOM-exempt (documented in docs/contributing/documentation.md).
+      # Min-count assertions prevent a vacuous pass.
+      # ---------------------------------------------------------------------------
+      - name: 'Gate 4 — Frontmatter & folder.json conventions'
+        run: |
+          python - <<'PY'
+          import os, re, json, sys
+          DOCS = "docs"
+          MIN_MD = int(os.environ["MIN_MD_FILES"])
+          MIN_FJ = int(os.environ["MIN_FOLDER_JSON"])
+          fm_re = re.compile(r'^\s*<!--\s*\{.*\}\s*-->')
+          md, folderjson, missing_fm, bad_fj = [], [], [], []
+          for r, _, fs in os.walk(DOCS):
+              for fn in fs:
+                  p = os.path.join(r, fn)
+                  if fn.endswith('.md'):
+                      md.append(p)
+                      if fn == "index.md":
+                          continue
+                      first = open(p, encoding='utf-8', errors='ignore').readline().lstrip('\ufeff')
+                      if not fm_re.match(first):
+                          missing_fm.append(p)
+                  elif fn == "folder.json":
+                      folderjson.append(p)
+                      try:
+                          o = json.load(open(p, encoding='utf-8'))
+                          if not isinstance(o.get("sort_order"), int):
+                              bad_fj.append((p, "sort_order not an integer"))
+                          if "name" not in o or "label" not in o:
+                              bad_fj.append((p, "missing name/label"))
+                      except Exception as e:
+                          bad_fj.append((p, f"invalid JSON: {e}"))
+          if len(md) < MIN_MD:
+              print(f"::error::VACUOUS: only {len(md)} markdown files (< {MIN_MD})"); sys.exit(1)
+          if len(folderjson) < MIN_FJ:
+              print(f"::error::VACUOUS: only {len(folderjson)} folder.json (< {MIN_FJ})"); sys.exit(1)
+          print(f"Conventions: md={len(md)} folder.json={len(folderjson)} missing_frontmatter={len(missing_fm)} bad_folder_json={len(bad_fj)}")
+          for p in missing_fm:
+              print(f"::error file={p}::missing HTML-comment frontmatter")
+          for p, why in bad_fj:
+              print(f"::error file={p}::{why}")
+          sys.exit(1 if (missing_fm or bad_fj) else 0)
+          PY
+
+      # ---------------------------------------------------------------------------
+      # Gate 5 (BLOCKING) — no literal secrets in documentation (Rule D).
+      # Scans for high-confidence secret VALUE shapes (AWS keys, PEM private keys,
+      # Slack/GitHub/Google tokens). References to key NAMES (e.g. AWS_SECRET_ACCESS_KEY,
+      # ${{ secrets.X }}) are not secrets and are not matched. Any match is REDACTED
+      # when printed. A min-count assertion prevents a vacuous pass.
+      # ---------------------------------------------------------------------------
+      - name: 'Gate 5 — No secrets in documentation'
+        run: |
+          python - <<'PY'
+          import os, re, sys
+          ROOTS = ["docs", ".github/workflows"]
+          EXTRA = ["README.md", "LIBRARIES.md", "INSTRUCTIONS.md", "mkdocs.yml"]
+          MIN_SCAN = int(os.environ["MIN_SECRET_SCAN_FILES"])
+          PATTERNS = {
+              "AWS access key id": re.compile(r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'),
+              "PEM private key":   re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----'),
+              "Slack token":       re.compile(r'\bxox[baprs]-[0-9A-Za-z-]{10,}\b'),
+              "GitHub token":      re.compile(r'\bghp_[0-9A-Za-z]{36}\b|\bgithub_pat_[0-9A-Za-z_]{22,}\b'),
+              "Google API key":    re.compile(r'\bAIza[0-9A-Za-z_\-]{35}\b'),
+          }
+          def redact(s):
+              return (s[:4] + "\u2026[REDACTED]") if len(s) > 4 else "[REDACTED]"
+          files = []
+          for root in ROOTS:
+              for r, _, fs in os.walk(root):
+                  for fn in fs:
+                      if fn.endswith(('.md', '.json', '.yml', '.yaml')):
+                          files.append(os.path.join(r, fn))
+          files += [f for f in EXTRA if os.path.exists(f)]
+          hits = []
+          for p in files:
+              txt = open(p, encoding='utf-8', errors='ignore').read()
+              for name, rx in PATTERNS.items():
+                  for m in rx.finditer(txt):
+                      hits.append((p, name, redact(m.group(0))))
+          if len(files) < MIN_SCAN:
+              print(f"::error::VACUOUS: only {len(files)} files scanned for secrets (< {MIN_SCAN})"); sys.exit(1)
+          print(f"Secret scan: files={len(files)} hits={len(hits)}")
+          for p, name, red in hits:
+              print(f"::error file={p}::possible {name} -> {red}")
+          sys.exit(1 if hits else 0)
+          PY
 
   openapi-lint:
     name: OpenAPI lint (Spectral)

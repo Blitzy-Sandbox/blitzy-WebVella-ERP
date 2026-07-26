@@ -1,4 +1,4 @@
-<!--{"sort_order":3, "name": "blazor-retirement", "label": "Blazor Retirement"}-->
+﻿<!--{"sort_order":3, "name": "blazor-retirement", "label": "Blazor Retirement"}-->
 
 # Blazor Retirement
 

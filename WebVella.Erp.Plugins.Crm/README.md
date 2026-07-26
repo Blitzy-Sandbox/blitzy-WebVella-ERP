@@ -1,4 +1,4 @@
-# WebVella.Erp.Plugins.Crm
+﻿# WebVella.Erp.Plugins.Crm
 
 CRM domain migration-scaffold plugin for the WebVella ERP platform (no metadata is seeded yet — see the scope note below).
 

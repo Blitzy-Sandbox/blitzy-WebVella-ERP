@@ -1,4 +1,4 @@
-<!--{"sort_order":3, "name": "authentication", "label": "Authentication"}-->
+﻿<!--{"sort_order":3, "name": "authentication", "label": "Authentication"}-->
 # Authentication
 
 > **Planned target design — Not available in this checkout.** There is **no

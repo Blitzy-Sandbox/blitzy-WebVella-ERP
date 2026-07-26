@@ -1,4 +1,4 @@
-<!--{"sort_order":2, "name": "migrating-from-erpplugin", "label": "Migrating from ErpPlugin"}-->
+﻿<!--{"sort_order":2, "name": "migrating-from-erpplugin", "label": "Migrating from ErpPlugin"}-->
 # Migrating from ErpPlugin to IErpPlugin
 
 > **Planned target design — Not available in this checkout.** The `IErpPlugin`

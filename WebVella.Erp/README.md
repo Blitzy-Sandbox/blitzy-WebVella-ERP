@@ -1,4 +1,4 @@
-# WebVella.Erp — Core Engine
+﻿# WebVella.Erp — Core Engine
 
 **WebVella.Erp** is the core .NET class library (`net10.0`, package version `1.7.7`) of the open-source [WebVella ERP](https://webvella.com) platform — a metadata-driven engine that models business data as **Entities**, **Records**, and relations, queries them through **EQL** (Entity Query Language), and extends them through **plugins** and **hooks**. Source: `WebVella.Erp/WebVella.Erp.csproj:L4,L11,L16`.
 

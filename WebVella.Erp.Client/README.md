@@ -1,4 +1,4 @@
-# WebVella.Erp.Client
+﻿# WebVella.Erp.Client
 
 React single-page application (SPA) — the browser admin/app UI of the headless, container-native WebVella ERP platform.
 

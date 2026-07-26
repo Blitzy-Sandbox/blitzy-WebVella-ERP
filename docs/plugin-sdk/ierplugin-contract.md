@@ -1,4 +1,4 @@
-<!--{"sort_order":1, "name": "ierplugin-contract", "label": "IErpPlugin Contract"}-->
+﻿<!--{"sort_order":1, "name": "ierplugin-contract", "label": "IErpPlugin Contract"}-->
 # The IErpPlugin Contract
 
 > **Planned target design — Not available in this checkout.** The `IErpPlugin`

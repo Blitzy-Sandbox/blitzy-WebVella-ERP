@@ -1,4 +1,4 @@
-<!--{"sort_order":5, "name": "entities", "label": "Entities & Metadata"}-->
+﻿<!--{"sort_order":5, "name": "entities", "label": "Entities & Metadata"}-->
 # Entities & Metadata
 
 > **Planned target design — Not available in this checkout.** There is **no

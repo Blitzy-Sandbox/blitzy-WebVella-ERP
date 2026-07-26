@@ -1,4 +1,4 @@
-<!--{"sort_order":3, "name": "plugin-host", "label": "Plugin Host"}-->
+﻿<!--{"sort_order":3, "name": "plugin-host", "label": "Plugin Host"}-->
 
 # Plugin Host
 

@@ -1,4 +1,4 @@
-<!--{"sort_order":3, "name": "packaging-wvplugin", "label": ".wvplugin Packaging"}-->
+﻿<!--{"sort_order":3, "name": "packaging-wvplugin", "label": ".wvplugin Packaging"}-->
 # Packaging a Plugin (.wvplugin)
 
 > **Planned target design — Not available in this checkout.** The `.wvplugin`

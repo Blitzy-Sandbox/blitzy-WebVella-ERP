@@ -1,4 +1,4 @@
-<!--{"sort_order":5, "name": "migrations-onmigrateasync", "label": "Migrations (OnMigrateAsync)"}-->
+﻿<!--{"sort_order":5, "name": "migrations-onmigrateasync", "label": "Migrations (OnMigrateAsync)"}-->
 # Plugin Migrations with OnMigrateAsync
 
 > **Planned target design — Not available in this checkout.** The `IErpPlugin`

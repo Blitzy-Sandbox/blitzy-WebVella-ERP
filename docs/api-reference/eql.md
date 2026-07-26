@@ -1,4 +1,4 @@
-<!--{"sort_order":6, "name": "eql", "label": "EQL Query"}-->
+﻿<!--{"sort_order":6, "name": "eql", "label": "EQL Query"}-->
 # EQL Query
 
 > **Planned target design — Not available in this checkout.** There is **no

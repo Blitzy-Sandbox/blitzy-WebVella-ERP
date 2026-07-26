@@ -1,4 +1,4 @@
-# WebVella.Erp.Plugins.Mail
+﻿# WebVella.Erp.Plugins.Mail
 
 Plugin for WebVella.Erp that handles sending emails. It adds email delivery and a persistent SMTP outbox/queue to a WebVella ERP host, including the ERP entities, background job, hooks and services needed to compose, queue, send and retry email through one or more SMTP servers.
 

@@ -1,4 +1,4 @@
-# WebVella.Erp.Plugins.Project
+﻿# WebVella.Erp.Plugins.Project
 
 The **Project** plugin provides project management for WebVella ERP — projects, tasks, time logging/timesheets, comments/feed, task watchers, and billable/non-billable reporting. It is implemented as `public partial class ProjectPlugin : ErpPlugin` with the plugin name `"project"`. `Source: WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L10-L13`
 

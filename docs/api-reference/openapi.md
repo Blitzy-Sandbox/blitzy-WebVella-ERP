@@ -1,4 +1,4 @@
-<!--{"sort_order":2, "name": "openapi", "label": "OpenAPI Document"}-->
+﻿<!--{"sort_order":2, "name": "openapi", "label": "OpenAPI Document"}-->
 # OpenAPI Document
 
 > **Planned target design — Not available in this checkout.** There is **no `WebVella.Erp.Api` project** in `WebVella.ERP3.sln` and **no generated OpenAPI document** anywhere in the checkout, so nothing on this page is runnable today. Every command, endpoint, and package wiring below is **proposed design** for the headless target and is **Not available / to be confirmed** until the API host exists. The version numbers are the values **pinned by the Agent Action Plan** (AAP §0.7.1); confirm the latest published versions against their registries at adoption.

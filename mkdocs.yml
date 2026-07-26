@@ -1,5 +1,18 @@
 site_name: 'blitzy-WebVella-ERP'
+# Site-wide meta description. The Material theme (via techdocs-core) emits
+# `<meta name="description" content="...">` from `config.site_description` as the
+# fallback whenever a page has no per-page description. The repository's TechDocs
+# HTML-comment frontmatter convention (`<!--{"sort_order":...}-->`) does not populate
+# MkDocs' native `description:` field, so without this fallback no page emitted a
+# meta description (QA finding #4, SEO/shareability). One site-wide line closes the
+# gap without changing any per-page frontmatter (minimal-change convention).
+site_description: 'Developer, integrator, and operator documentation for the WebVella ERP headless, container-native platform: REST/OpenAPI reference, plugin SDK, architecture, migration, and deployment guides.'
 nav:
+  # Register the six new top-level documentation sections created by the headless
+  # refactor so they appear in the site navigation (AAP §0.6.4 / §0.6.5; QA nav-only-Home).
+  # Section and page order follow each folder's `folder.json` `sort_order` and each page's
+  # frontmatter `sort_order`. The existing `docs/developer/**` tree remains driven by the
+  # Backstage-TechDocs reader navigation and its per-folder `folder.json` files (Rule C).
   - Home: index.md
   - Developer:
     - Introduction:
@@ -194,6 +207,17 @@ plugins:
   # mermaid2} unchanged per the minimal-change convention.
   - techdocs-core:
       use_material_search: true
+  # Register the Material search plugin under its canonical key `material/search`.
+  # This is REQUIRED for the header search box to actually render: mkdocs-material's
+  # `partials/header.html` gates the search UI on `"material/search" in config.plugins`,
+  # but techdocs-core registers its search plugin under the legacy key `search`, so with
+  # `use_material_search: true` alone the console error is gone yet the box never appears
+  # and the healthy `search_index.json` is never consumed. `material/search` ships inside
+  # the already-installed `mkdocs-material` theme (no new dependency) and MUST be listed
+  # AFTER `techdocs-core` (techdocs-core configures the Material theme in its own
+  # `on_config`; declaring `material/search` earlier fails the strict build with
+  # `TemplateNotFound: partials/language.html`).
+  - material/search
   - mermaid2:
       # Pin the Mermaid runtime version that the mermaid2 plugin loads (served from the
       # plugin's default CDN for that version). No repository-bundled Mermaid copy is
