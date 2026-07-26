@@ -21,10 +21,10 @@ Source: AAP §0.9.2 (application source, database schema, and legacy-host retire
 The **recommended (target) order of work** below is the *proposed* migration plan — it is design intent, not an executable sequence, because the target hosts, the `IErpPlugin` contract, and the `migrator` service it references do not exist yet. It moves from the data and service tiers outward to the user interface, while keeping a rollback path available throughout:
 
 1. **Stand up the headless API and run the database-migration job (planned).** Once the `WebVella.Erp.Api` host exists, it would run against the existing database, and a database-migration job would apply any schema patches before a client depends on it. The one-shot `migrator` service and its transaction/ordering model are **Not available / to be confirmed** (no such project exists yet). See [Database migration job](database-migration-job.md).
-2. **Migrate plugins to the `IErpPlugin` contract (planned).** Each bundled plugin would be ported from the current `ErpPlugin.Initialize(IServiceProvider)` model to the proposed asynchronous `IErpPlugin` lifecycle so it loads under the headless host. The `IErpPlugin` interface does not exist yet. See **Plugin migration** *(planned page — not yet available)*.
+2. **Migrate plugins to the `IErpPlugin` contract (planned).** Each bundled plugin would be ported from the current `ErpPlugin.Initialize(IServiceProvider)` model to the proposed asynchronous `IErpPlugin` lifecycle so it loads under the headless host. The `IErpPlugin` interface does not exist yet. See [Plugin migration](plugin-migration.md).
 3. **Cut the user interface over from RazorPages to the React SPA (planned).** The server-rendered RazorPages UI would be replaced with the `WebVella.Erp.Client` single-page application, which would talk to `/api/v1/`. See [RazorPages to React](razorpages-to-react.md).
 4. **Retire the Blazor WebAssembly client (planned).** The `WebVella.Erp.WebAssembly` client would be decommissioned **once** the React SPA reaches parity; it is still present today. See [Blazor retirement](blazor-retirement.md).
-5. **Keep a rollback path at every step (planned).** Each stage should be reversible if a plugin or a migration fails. See **Rollback plan** *(planned page — not yet available)*.
+5. **Keep a rollback path at every step (planned).** Each stage should be reversible if a plugin or a migration fails. See [Rollback plan](rollback-plan.md).
 
 ## Before / after topology
 
@@ -62,9 +62,9 @@ graph TB
 
 - [RazorPages to React](razorpages-to-react.md) — planned cutover from the RazorPages UI to the React SPA.
 - [Blazor retirement](blazor-retirement.md) — planned retirement of the Blazor WebAssembly client.
-- **Plugin migration** *(planned page — not yet available)* — porting the five bundled plugins to the proposed `IErpPlugin` contract.
+- [Plugin migration](plugin-migration.md) — porting the five bundled plugins to the proposed `IErpPlugin` contract.
 - [Database migration job](database-migration-job.md) — the proposed `migrator` service and the `OnMigrateAsync` flow.
-- **Rollback plan** *(planned page — not yet available)* — rollback when a plugin or a migration fails.
+- [Rollback plan](rollback-plan.md) — rollback when a plugin or a migration fails.
 
 **Related:** the [Architecture overview](../architecture/overview.md) describes the proposed headless target design in detail.
 

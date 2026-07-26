@@ -24,8 +24,8 @@ manifest so the inventory stays verifiable.
 - **Target framework note** — of the 19 project (`.csproj`) files in the solution, 17 target
   `net10.0` (for example `WebVella.Erp/WebVella.Erp.csproj`) and 2
   (`WebVella.Erp.WebAssembly/Server` and `WebVella.Erp.WebAssembly/Shared`) target `net7.0`, while
-  the root `README.md` describes the platform as
-  "ASP.NET Core 9". The authoritative target framework is an open decision point (see
+  the refactor specification references ".NET 9" / "ASP.NET Core 9" and the root `README.md` frames
+  this as an open ".NET 9 vs net10.0" decision. The authoritative target framework is an open decision point (see
   [Open decision points](#open-decision-points)); this document reports the framework moniker each
   manifest actually declares rather than silently resolving the discrepancy.
 
@@ -212,6 +212,7 @@ as **"Not available / to be confirmed"** rather than assumed:
   configuration and any provider-specific client library are pending that choice.
 - **Worker scheduler** — Quartz.NET vs. Hangfire is undecided for `WebVella.Erp.Worker`; the
   scheduler package is pending.
-- **Authoritative target framework** — the project manifests declare `net10.0` while the root
-  `README.md` states "ASP.NET Core 9". The resolved target must be confirmed before the framework
+- **Authoritative target framework** — the project manifests declare `net10.0` while the refactor
+  specification references ".NET 9" / "ASP.NET Core 9" and the root `README.md` frames this as an
+  open ".NET 9 vs net10.0" decision. The resolved target must be confirmed before the framework
   and `Microsoft.Extensions.*` / `Microsoft.AspNetCore.*` package lines are finalized.

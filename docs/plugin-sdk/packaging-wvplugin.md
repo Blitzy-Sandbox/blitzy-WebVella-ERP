@@ -131,8 +131,7 @@ confirmed until the host exists):
   the minimum privileges required; document what a plugin can and cannot reach.
 - **Quarantine & rollback.** A package that fails verification, load, or migration
   must be quarantined and the previous known-good version restored; the
-  operator-facing procedure will be documented in the plugin rollback plan
-  (`docs/migration/rollback-plan.md`, forthcoming — not yet authored).
+  operator-facing procedure will be documented in the [plugin rollback plan](../migration/rollback-plan.md).
 
 ## Where packages are deployed
 

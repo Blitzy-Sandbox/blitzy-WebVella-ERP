@@ -240,8 +240,7 @@ Source (legacy): /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L13 (`Name ... = "sdk"`)
   action enforced.
 - **Assembly load failure** — a dependency could not be resolved inside the
   collectible `AssemblyLoadContext`; the operator recovery procedure will be
-  documented in the plugin rollback plan (`docs/migration/rollback-plan.md`,
-  forthcoming — not yet authored).
+  documented in the [plugin rollback plan](../migration/rollback-plan.md).
 
 ## Plugin load sequence (proposed)
 

@@ -74,9 +74,9 @@ If you prefer Docker Compose `secrets:` (secret **files** rather than env values
 | Service | Image / build | Role |
 |---------|---------------|------|
 | `api` | `WebVella.Erp.Api` | Headless REST host serving `/api/v1/**`; exposes the OpenAPI document at `/openapi/v1.json` and the Scalar UI at `/scalar` (Development only). |
-| `worker` | `WebVella.Erp.Worker` | Background job host: SMTP email-queue processing every ~10 minutes (Source: /WebVella.Erp.Plugins.Mail/MailPlugin.cs:L48) and a daily project task starter at 00:10 UTC (Source: /WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L47). Scheduler = **Not available / to be confirmed**. |
+| `worker` | `WebVella.Erp.Worker` | Background job host: SMTP email-queue processing every ~10 minutes (Source: /WebVella.Erp.Plugins.Mail/MailPlugin.cs:L48,L69) and a daily project task starter at 00:10 UTC (Source: /WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L47). Scheduler = **Not available / to be confirmed**. |
 | `migrator` | `WebVella.Erp.Api` / console migration entrypoint | One-shot database-migration job; runs to completion before `api`/`worker` become ready. See [Database Migration Job](../migration/database-migration-job.md). |
-| `db` | PostgreSQL | Relational datastore accessed through the Npgsql client `9.0.4`. Source: /WebVella.Erp/WebVella.Erp.csproj:L61 The root README references PostgreSQL 16 (Source: /README.md); confirm the target version. |
+| `db` | PostgreSQL | Relational datastore accessed through the Npgsql client `9.0.4`. Source: /WebVella.Erp/WebVella.Erp.csproj:L61 The target PostgreSQL major version is **Not available / to be confirmed**. |
 | `idp` | identity provider | OIDC/JWT issuer for browser login and API token validation. Provider = **Not available / to be confirmed**. |
 
 Legacy bootstrap for reference (the pre-refactor RazorPages host): Source: /WebVella.Erp.Site/Program.cs.

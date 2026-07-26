@@ -1,4 +1,4 @@
-<!--{"sort_order":2, "name": "documentation", "label": "Documentation"}-->
+﻿<!--{"sort_order":2, "name": "documentation", "label": "Documentation"}-->
 # Documentation
 
 This guide explains how to **author and preview the WebVella ERP documentation site**. The site is built with MkDocs wrapped by Backstage TechDocs — the `techdocs-core` and `mermaid2` plugins are enabled, so Markdown pages and inline Mermaid diagrams render at build time. `Source: /mkdocs.yml:L11-L13`.

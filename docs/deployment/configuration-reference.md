@@ -1,4 +1,4 @@
-<!--{"sort_order":4, "name": "configuration-reference", "label": "Configuration Reference"}-->
+﻿<!--{"sort_order":4, "name": "configuration-reference", "label": "Configuration Reference"}-->
 # Configuration Reference
 
 > **Planned target — not yet implemented.** The container-native configuration model on this page (environment variables, Kubernetes Secrets, the `:` → `__` mapping, options validation / fail-fast, and the new OIDC / observability / worker / plugin keys) is the **proposed target** and **does not exist in the repository yet**. The current hosts read configuration **only** from a JSON file (`config.json`) via `AddJsonFile`; **no host registers an environment-variable configuration provider** (there is no `AddEnvironmentVariables` call anywhere in the codebase), so environment variables are **not** honored today. Source: /WebVella.Erp.Site/Startup.cs:L43 (`AddJsonFile(configPath)`); Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52 (`AddJsonFile` + `ErpSettings.Initialize`); Source: /WebVella.Erp.ConsoleApp/Program.cs:L40 (`AddJsonFile("config.json")`). The [Current configuration](#current-configuration-configjson) section below is verified against the code; the [Proposed container-native settings](#proposed-container-native-settings) section is design intent and marked **Not available / to be confirmed** where a value, key name, precedence rule, or validation behavior is undecided.
@@ -146,9 +146,9 @@ Data-handling requirements the eventual logging/tracing configuration must satis
 
 ## See also
 
-- **docker-compose.md** *(planned page — not yet available)* — Docker Compose topology that would consume these variables.
-- **kubernetes-helm.md** *(planned page — not yet available)* — Helm values and Kubernetes Secret wiring for these keys.
-- **troubleshooting.md** *(planned page — not yet available)* — common configuration failure modes and remedies.
+- [docker-compose.md](docker-compose.md) — Docker Compose topology that would consume these variables.
+- [kubernetes-helm.md](kubernetes-helm.md) — Helm values and Kubernetes Secret wiring for these keys.
+- [troubleshooting.md](troubleshooting.md) — common configuration failure modes and remedies.
 - [../architecture/security.md](../architecture/security.md) — authentication architecture, JWT/OIDC, and claim mapping.
 - [../architecture/observability.md](../architecture/observability.md) — structured logging, correlation IDs, and OTLP export.
 - [../plugin-sdk/packaging-wvplugin.md](../plugin-sdk/packaging-wvplugin.md) — `.wvplugin` packaging and the plugin directory.

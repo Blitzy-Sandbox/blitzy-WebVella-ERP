@@ -58,8 +58,7 @@ controls themselves are non-negotiable:
   privileges required, and document what a plugin can and cannot reach.
 - **Quarantine & rollback.** Quarantine a package that fails verification, load, or
   migration, and restore the previous known-good version — see the operator-facing
-  plugin rollback plan (`docs/migration/rollback-plan.md`, forthcoming — not yet
-  authored).
+  [plugin rollback plan](../migration/rollback-plan.md).
 
 ## Related pages
 
@@ -68,8 +67,7 @@ controls themselves are non-negotiable:
 - [Plugin host](../architecture/plugin-host.md) — the full proposed host design.
 - [Plugin migrations (OnMigrateAsync)](migrations-onmigrateasync.md) — the proposed
   versioned, idempotent, transactional patch pattern re-run on reload.
-- Plugin rollback plan (`docs/migration/rollback-plan.md`, forthcoming — not yet
-  authored) — the operator-facing procedure when a plugin cannot be loaded.
+- [Plugin rollback plan](../migration/rollback-plan.md) — the operator-facing procedure when a plugin cannot be loaded.
 
 ## Collectible load and unload (proposed)
 
@@ -195,8 +193,7 @@ The proposed failure points and host responses:
 | `MapEndpoints` | A route collision or mapping error | Abort the plugin and unload its context. |
 
 The operator-facing recovery procedure — how to diagnose, replace, or disable a
-plugin that cannot be loaded — will be documented in the plugin rollback plan
-(`docs/migration/rollback-plan.md`, forthcoming — not yet authored).
+plugin that cannot be loaded — will be documented in the [plugin rollback plan](../migration/rollback-plan.md).
 
 ## Load and failure flow (proposed)
 
@@ -234,5 +231,4 @@ sequence diagram is in [../architecture/plugin-host.md](../architecture/plugin-h
   idempotent and version-guarded so it is safe to re-run on every reload. See
   [migrations-onmigrateasync.md](migrations-onmigrateasync.md).
 - **A plugin fails to load at startup.** The host would abort that plugin, roll back
-  its migration, and unload its context; follow the plugin rollback plan
-  (`docs/migration/rollback-plan.md`, forthcoming — not yet authored) to recover.
+  its migration, and unload its context; follow the [plugin rollback plan](../migration/rollback-plan.md) to recover.

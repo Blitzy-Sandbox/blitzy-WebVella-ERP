@@ -237,6 +237,5 @@ Source (verified legacy packaging): /WebVella.Erp.Plugins.SDK/WebVella.Erp.Plugi
 
 This page covers porting **one** plugin's code. Migrating the five bundled plugins
 (Crm, Mail, MicrosoftCDM, Next, Project) and any third-party plugins at the program
-level — sequencing, compatibility, and rollout — will be covered in the plugin
-program-migration guide (`docs/migration/plugin-migration.md`, forthcoming — not yet
-authored), which will reference this page for the per-plugin code port.
+level — sequencing, compatibility, and rollout — will be covered in the
+[plugin program-migration guide](../migration/plugin-migration.md), which will reference this page for the per-plugin code port.

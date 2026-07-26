@@ -22,15 +22,13 @@ contract.
 
 This is the **quick, top-level guide**. The deeper guides live under [`docs/`](docs/):
 
-- Getting started — ⚠️ the legacy page `docs/developer/introduction/getting-started.md` is
-  **outdated and not yet remediated** (it describes the retired hosting model and publishes default
-  demo credentials), so it is intentionally **not linked** here and must **not** be used for
-  onboarding until it is rewritten for the headless platform.
-- Docker Compose deployment — `docs/deployment/docker-compose.md` *(forthcoming; planned for a later
-  milestone — not yet present)*.
+- Getting started — [docs/developer/introduction/getting-started.md](docs/developer/introduction/getting-started.md):
+  the current onboarding guide for the headless platform (Docker Compose quick start, target runtime,
+  and database bootstrap). ⚠️ This page documents a **default first-run demo sign-in**; reset it
+  immediately after the first login and never reuse it outside local development.
+- Docker Compose deployment — [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md).
 - Configuration reference — [docs/deployment/configuration-reference.md](docs/deployment/configuration-reference.md).
-- Build & test workflow — `docs/contributing/build-and-test.md` *(forthcoming; planned for a later
-  milestone — not yet present)*.
+- Build & test workflow — [docs/contributing/build-and-test.md](docs/contributing/build-and-test.md).
 
 ## Prerequisites
 
@@ -81,8 +79,7 @@ Create an **empty** PostgreSQL database and point the connection string at it.
 > **none of which exist yet**. There is no `docker-compose.yml`, no `Dockerfile` for the new hosts,
 > and no `WebVella.Erp.Api` / `WebVella.Erp.Worker` project. Treat this section as the **target**
 > design only. Source: `WebVella.ERP3.sln` (missing projects); repository root (no `docker-compose.yml`).
-> The full topology will be documented at `docs/deployment/docker-compose.md` *(forthcoming; not yet
-> present)*.
+> The full topology is documented at [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md).
 
 ```bash
 # TARGET WORKFLOW — NOT RUNNABLE YET (the projects and assets above do not exist).
@@ -188,8 +185,7 @@ value. Confirm each for your checkout before relying on the affected step.
   [Deployment](docs/deployment/).
 - Project overview — [README.md](README.md).
 - Third-party libraries — [LIBRARIES.md](LIBRARIES.md).
-- Authoring and previewing the docs site — `docs/contributing/documentation.md` *(forthcoming;
-  planned for a later milestone — not yet present)*.
+- Authoring and previewing the docs site — [docs/contributing/documentation.md](docs/contributing/documentation.md).
 
 ```bash
 # Build the documentation site locally (never use "serve" in CI/automation).

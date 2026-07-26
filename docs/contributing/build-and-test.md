@@ -1,4 +1,4 @@
-<!--{"sort_order":1, "name": "build-and-test", "label": "Build & Test"}-->
+﻿<!--{"sort_order":1, "name": "build-and-test", "label": "Build & Test"}-->
 # Build & Test
 
 This guide covers building, running, and testing the headless **WebVella ERP** platform for contributors: the `WebVella.Erp.Api` REST host, the `WebVella.Erp.Client` React SPA, and the `WebVella.Erp.Worker` background host, all layered on the unchanged `WebVella.Erp` core engine and a PostgreSQL database (AAP §0.5.1). The API, client, and worker projects are introduced by the headless refactor and **do not exist in the checkout yet** (AAP §0.2.2); the commands below describe the **target** workflow against the solution at `Source: /WebVella.ERP3.sln`.
@@ -9,12 +9,12 @@ Install the tooling below before building. Configuration is supplied by environm
 
 | Prerequisite | Purpose | Notes |
 |--------------|---------|-------|
-| PostgreSQL | Primary datastore; the core engine connects to it through the Npgsql client. | The root README references **PostgreSQL 16**. `Source: /README.md:L18` |
+| PostgreSQL | Primary datastore; the core engine connects to it through the Npgsql client. | The target PostgreSQL major version is **Not available / to be confirmed**. |
 | Docker + Docker Compose | Container-native local stack (`api`, `worker`, `migrator`, `db`, `idp`). | See [Docker Compose](../deployment/docker-compose.md) for the full topology. |
 | .NET SDK | Restores and builds the .NET solution. | Version **Not available / to be confirmed (.NET 9 vs net10.0)** — see the note below. |
 | Node.js + npm | Builds and runs the `WebVella.Erp.Client` React SPA. | Required only for the SPA workflow (AAP §0.4). |
 
-> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the root README states the platform targets "ASP.NET Core 9" (`Source: /README.md:L18`). The authoritative target framework is therefore **Not available / to be confirmed (.NET 9 vs net10.0)** and must not be assumed.
+> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the refactor specification references ".NET 9"; the root README frames this as an open ".NET 9 vs net10.0" decision (`Source: /README.md:L32`). The authoritative target framework is therefore **to be confirmed (.NET 9 vs net10.0)** and must not be assumed.
 
 ## Build the solution
 

@@ -53,7 +53,7 @@ Each discovered plugin **would** be loaded into its own **collectible** `Assembl
 > - **Locked plugin directory** — the plugin directory is operator-controlled with restrictive filesystem ACLs; the host service account cannot write to it, so a compromised process cannot self-install plugins.
 > - **Dependency & version policy** — an allowlist (or deny policy) for plugin dependencies and versions, so a plugin cannot smuggle a vulnerable or unexpected library.
 > - **Least privilege** — run the host with the minimum OS and database permissions the platform needs; do not grant plugins ambient elevated rights.
-> - **Quarantine & rollback** — a failed, unsigned, or revoked plugin is quarantined (moved out of the load path) and the operator follows a documented rollback procedure (planned; see the forthcoming `docs/migration/rollback-plan.md`).
+> - **Quarantine & rollback** — a failed, unsigned, or revoked plugin is quarantined (moved out of the load path) and the operator follows a documented rollback procedure (planned; see the [Rollback plan](../migration/rollback-plan.md)).
 
 ### Planned lifecycle wiring
 
@@ -78,7 +78,7 @@ Whether the target host owns a **single cross-plugin** transaction or preserves 
 
 **Current:** a plugin failure during `Initialize` rolls back only **that plugin's own** transaction and rethrows; earlier plugins that already committed are unaffected. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L158-L161.
 
-**Planned:** the host **would** contain a plugin failure to that plugin's collectible context — rolling back its migration (per the pending rules above) and unloading its ALC so the host process stays available. This is **Not available** (no collectible-context loader exists). The operator-facing recovery procedure is planned in the forthcoming `docs/migration/rollback-plan.md` (a later milestone; not yet a page).
+**Planned:** the host **would** contain a plugin failure to that plugin's collectible context — rolling back its migration (per the pending rules above) and unloading its ALC so the host process stays available. This is **Not available** (no collectible-context loader exists). The operator-facing recovery procedure is documented in the [Rollback plan](../migration/rollback-plan.md).
 
 ## Planned load sequence
 

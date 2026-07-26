@@ -14,7 +14,7 @@ None of that exists yet. Delivering it requires the following artifacts, each **
 - The **`IErpPlugin` contract** with an **`OnMigrateAsync(IDbTransaction)`** member. Neither `interface IErpPlugin` nor `OnMigrateAsync` exists in the codebase.
 - A **host-owned single-transaction orchestrator** that shares one `IDbTransaction` across **all** plugins (today each plugin owns its own transaction — see below).
 - A **plugin dependency-ordering** mechanism to fix the order in which plugin migrations run.
-- A **process exit-code contract** (`0` = success → start `api`/`worker`; non-zero = fail → block startup) and the container-level **startup gate** that enforces it. See **Docker Compose deployment** *(planned page — not yet available)* for the intended `migrator` service definition and `api`/`worker` start ordering.
+- A **process exit-code contract** (`0` = success → start `api`/`worker`; non-zero = fail → block startup) and the container-level **startup gate** that enforces it. See [Docker Compose deployment](../deployment/docker-compose.md) for the intended `migrator` service definition and `api`/`worker` start ordering.
 
 The proposed per-plugin contract this job would drive — `OnMigrateAsync(IDbTransaction)`, the host-owned transaction, and the all-or-nothing rollback — is described in [Plugin migrations — OnMigrateAsync](../plugin-sdk/migrations-onmigrateasync.md). The connection and transaction scoping it would rely on is described in [Data Access](../architecture/data-access.md).
 
@@ -55,7 +55,7 @@ Under this proposed design, because all writes would share one transaction, the 
 
 ## Ordering & startup gate (Not available / to be confirmed)
 
-In the target design the `migrator` would be a **one-shot** service that runs to completion, exits, and acts as a **startup gate**: the `api` and `worker` services would not start until the `migrator` exits `0`, so no request or background job ever runs against a partially migrated database. In a container-native model this ordering would be expressed as a dependency on the `migrator` completing successfully, with the connection string injected **by name only** (Rule D). No migrator service, and no compose/orchestration wiring, exists yet. See **Docker Compose deployment** *(planned page — not yet available)*.
+In the target design the `migrator` would be a **one-shot** service that runs to completion, exits, and acts as a **startup gate**: the `api` and `worker` services would not start until the `migrator` exits `0`, so no request or background job ever runs against a partially migrated database. In a container-native model this ordering would be expressed as a dependency on the `migrator` completing successfully, with the connection string injected **by name only** (Rule D). No migrator service, and no compose/orchestration wiring, exists yet. See [Docker Compose deployment](../deployment/docker-compose.md).
 
 ## Failure modes & troubleshooting
 
@@ -67,7 +67,7 @@ These are the **proposed** behaviors of the target `migrator`; they are not yet 
 | **Connectivity failure** | `DbContext.CreateContext(...)` cannot open a connection, so the job fails before any transaction begins and exits non-zero — the startup gate would keep `api`/`worker` down. Source: /WebVella.Erp.ConsoleApp/Program.cs:L42 | Verify the connection string is configured by key / env-var name and that PostgreSQL is reachable; never place a literal value in docs, logs, or config (Rule D). See [Data Access](../architecture/data-access.md). |
 | **Version-constant mismatch** | A plugin's persisted installed version is ahead of the patches its assembly ships, so a version gate never matches and patches are skipped. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L68,L79 | Ship patches whose version constants are strictly greater than the installed version; never lower a `WEBVELLA_*_INIT_VERSION` number. |
 
-When a migration cannot be completed, treat it as a blocked cutover and follow the **Rollback plan** *(planned page — not yet available)* rather than starting `api`/`worker` against an un-migrated or partially patched database.
+When a migration cannot be completed, treat it as a blocked cutover and follow the [Rollback plan](rollback-plan.md) rather than starting `api`/`worker` against an un-migrated or partially patched database.
 
 ## Proposed migration + rollback flow (Not available / to be confirmed)
 
@@ -91,5 +91,5 @@ flowchart TD
 
 - [Plugin migrations — OnMigrateAsync](../plugin-sdk/migrations-onmigrateasync.md) — the proposed per-plugin `OnMigrateAsync(IDbTransaction)` contract and the current versioned-init pattern this job would drive.
 - [Data Access](../architecture/data-access.md) — how the engine scopes the Npgsql connection and `IDbTransaction`.
-- **Docker Compose deployment** *(planned page — not yet available)* — the intended `migrator` service definition and the `api`/`worker` startup ordering.
-- **Rollback plan** *(planned page — not yet available)* — what to do when a plugin migration cannot be completed.
+- [Docker Compose deployment](../deployment/docker-compose.md) — the intended `migrator` service definition and the `api`/`worker` startup ordering.
+- [Rollback plan](rollback-plan.md) — what to do when a plugin migration cannot be completed.

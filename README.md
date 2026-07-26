@@ -9,7 +9,7 @@
 [![GitHub Repo stars](https://img.shields.io/github/stars/WebVella/WebVella-ERP?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/stargazers)
 [![Nuget version](https://img.shields.io/nuget/v/WebVella.ERP?style=for-the-badge)](https://www.nuget.org/packages/WebVella.ERP)
 [![Nuget download](https://img.shields.io/nuget/dt/WebVella.ERP?style=for-the-badge)](https://www.nuget.org/packages/WebVella.ERP)
-[![WebVella Document Templates License](https://img.shields.io/badge/MIT-green?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green?style=for-the-badge)](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt)
 
 ---
 
@@ -44,7 +44,7 @@ The **target** deployment model runs WebVella ERP as a set of Linux containers (
 
 The documentation set for the headless platform lives under [`docs/`](docs/):
 
-* Getting Started — ⚠️ the legacy page `docs/developer/introduction/getting-started.md` is **outdated and not yet remediated**: it describes the retired hosting model and publishes default demo credentials, so it is intentionally **not linked** here and must **not** be used for onboarding until it is rewritten for the headless platform. Use [INSTRUCTIONS.md](INSTRUCTIONS.md) instead.
+* Getting Started — [docs/developer/introduction/getting-started.md](docs/developer/introduction/getting-started.md): the current onboarding guide for the headless platform (Docker Compose quick start, target runtime, and database bootstrap). For the quick, top-level build & run steps, see [INSTRUCTIONS.md](INSTRUCTIONS.md).
 * API reference (REST / OpenAPI, `/api/v1/`) — [docs/api-reference/](docs/api-reference/)
 * Plugin SDK (`IErpPlugin`) — [docs/plugin-sdk/](docs/plugin-sdk/)
 * Architecture, including the `ICodeVariable`/`BaseErpPageModel` compatibility shim — [docs/architecture/](docs/architecture/) ([adapter doc](docs/architecture/icodevariable-adapter.md))

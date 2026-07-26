@@ -15,7 +15,7 @@ The project is currently available only as an ASP.NET Core application (the Razo
 | PostgreSQL | v.16 |
 | Bootstrap CSS | v.4 (current UI stack) |
 
-Source: /WebVella.Erp/WebVella.Erp.csproj:L4 shows `<TargetFramework>net10.0</TargetFramework>`, while the specification and root `README.md` state ".NET 9" / "ASP.NET Core 9"; the authoritative runtime is therefore a decision point that is **Not available / to be confirmed**.
+Source: /WebVella.Erp/WebVella.Erp.csproj:L4 shows `<TargetFramework>net10.0</TargetFramework>`, while the specification references ".NET 9" / "ASP.NET Core 9" and the root `README.md` frames this as an open ".NET 9 vs net10.0" decision; the authoritative runtime is therefore a decision point that is **Not available / to be confirmed**.
 
 > **Planned (headless refactor — not yet implemented).** The target React SPA client is planned to use Radix UI + Tailwind CSS; exact version pins are deferred to the SPA build workstream. See AAP §0.4.
 
