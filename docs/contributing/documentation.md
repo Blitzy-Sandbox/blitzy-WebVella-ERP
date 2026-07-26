@@ -7,7 +7,7 @@ Everything below follows the repository's existing conventions; this page intent
 
 ## Page frontmatter
 
-Every documentation page begins on **line 1** with an HTML-comment "frontmatter" that carries three fields.
+Every documentation page **except the top-level `docs/index.md`** begins on **line 1** with an HTML-comment "frontmatter" that carries three fields. The Home page `docs/index.md` is the one exception — it has no frontmatter because `mkdocs.yml` maps it directly as `Home: index.md`. `Source: /docs/index.md:L1`; `Source: /mkdocs.yml:L3`.
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -38,7 +38,7 @@ Each documentation subfolder carries a `folder.json` that describes the section 
 
 `Source: /docs/contributing/folder.json`; `Source: /docs/developer/introduction/folder.json`.
 
-> **`folder.json` is a legacy section-manifest convention that the current MkDocs stack does NOT read.** Site navigation is driven entirely by `mkdocs.yml` (see the next section), not by `folder.json`. `Source: /mkdocs.yml`. The manifests are retained for consistency across sections (rule C) and for the Backstage/pipeline tooling that historically consumed them, so add one to every new folder to match the existing structure.
+> **`folder.json` is a legacy section-manifest convention that the current MkDocs stack does NOT read.** Site navigation is driven entirely by `mkdocs.yml` (see the next section), not by `folder.json`. `Source: /mkdocs.yml`. The manifests are retained for consistency across sections (rule C), so add one to every new folder to match the existing structure.
 
 ## Navigation (mkdocs.yml)
 

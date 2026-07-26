@@ -1,20 +1,26 @@
 # WebVella.Erp.Plugins.Crm
 
-CRM metadata/entity-seeding plugin for the WebVella ERP platform.
+CRM domain migration-scaffold plugin for the WebVella ERP platform (no metadata is seeded yet — see the scope note below).
 
-`WebVella.Erp.Plugins.Crm` is a bundled WebVella ERP plugin that installs and version-migrates the
-CRM domain's metadata (entities, relations, and seed records) into the platform database. It ships
-as an ASP.NET Core **Razor class library** and is **loaded by a WebVella ERP host at runtime** — it
-is not a standalone application. Its only runtime logic today is a versioned, transactional
-migration orchestrator; there is no background job, controller, or service in this project.
+`WebVella.Erp.Plugins.Crm` is a bundled WebVella ERP plugin that provides the versioned,
+transactional **migration orchestrator** for the CRM domain. **Today it seeds no metadata**: its
+`ProcessPatches()` body only persists the plugin's baseline version number and commits — the actual
+entity/relation/record creation (`Patch20190123`) is a **commented-out template**, so no CRM
+entities, relations, or seed records are created yet.
+`Source: /WebVella.Erp.Plugins.Crm/CrmPlugin._.cs:L84,L86` (only `SavePluginData` + `CommitTransaction` run),
+`:L58-L79` (commented `Patch20190123`). It ships as an ASP.NET Core **Razor class library** and is
+**loaded by a WebVella ERP host at runtime** — it is not a standalone application. There is no
+background job, controller, or service in this project.
 
 ---
 
 ## What it does
 
-- **Seeds and manages CRM metadata/entities.** The plugin creates and updates the CRM entities,
-  relations, and records that the platform's CRM features depend on, packaged as a Razor class
-  library plugin loaded by a WebVella ERP host.
+- **Provides the CRM migration orchestrator (currently seeds nothing).** The plugin is the versioned,
+  transactional migration entry point for CRM metadata, packaged as a Razor class library loaded by a
+  WebVella ERP host. The entity/relation/record creation it is *designed* to perform is a
+  commented-out template today, so it currently creates no CRM entities, relations, or records.
+  `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin._.cs:L58-L79` (commented `Patch20190123`).
 - **Partial class `CrmPlugin` deriving from the plugin base `ErpPlugin`,** split across two files:
   - `CrmPlugin.cs` — plugin identity and lifecycle entry point. `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin.cs:L10-L22`
   - `CrmPlugin._.cs` — database patch/initialization orchestration. `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin._.cs:L15-L101`
@@ -23,11 +29,13 @@ migration orchestrator; there is no background job, controller, or service in th
 - **Startup lifecycle.** On startup the host calls `Initialize(IServiceProvider)`, which opens a
   system-level security scope (`SecurityContext.OpenSystemScope()`) and runs `ProcessPatches()`.
   `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin.cs:L15-L21`
-- **Versioned, transactional migrations.** `ProcessPatches()` instantiates `EntityManager`,
-  `EntityRelationManager`, and `RecordManager` to create/alter entities, relations, and records
-  inside a single database transaction, and advances a stored version number only after each patch
-  commits. The baseline install version is `WEBVELLA_CRM_INIT_VERSION = 20190101`.
-  `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin._.cs:L13,L15-L101`
+- **Versioned, transactional migration scaffold.** `ProcessPatches()` instantiates `EntityManager`,
+  `EntityRelationManager`, and `RecordManager` and opens a single database transaction, but the
+  create/alter patch invocation is commented out — so today it only persists the baseline version
+  and commits (no entities/relations/records are created). Each patch is *designed* to advance the
+  stored version only after it commits. The baseline install version is
+  `WEBVELLA_CRM_INIT_VERSION = 20190101`.
+  `Source: /WebVella.Erp.Plugins.Crm/CrmPlugin._.cs:L13,L15-L101` (managers L20-L22, commented patch L58-L79, `SavePluginData`+commit L84-L86).
 - **Persisted settings DTO.** The `Model/` folder holds `PluginSettings`, a small DTO carrying a
   single `Version` integer serialized under the JSON key `version`.
   `Source: /WebVella.Erp.Plugins.Crm/Model/PluginSettings.cs:L5-L9`

@@ -14,15 +14,26 @@ React single-page application (SPA) — the browser admin/app UI of the headless
 
 - **Data access.** The SPA talks to the REST API at **`/api/v1/`** (served by `WebVella.Erp.Api`) and uses **TanStack Query** for server-state fetching, caching, and invalidation. This replaces the retired client's hand-rolled `HttpClient`, whose base address was derived as `serverUrl + "api/"`. Source: WebVella.Erp.WebAssembly/Client/Program.cs:L15 (legacy `serverUrl + "api/"`), L20 (legacy `HttpClient { BaseAddress = ... }`). The new SPA targets the **versioned** `/api/v1/` base path instead of the unversioned `api/` prefix.
 
-- **Authentication.** The SPA signs users in with the **OIDC authorization-code flow (with PKCE)** and attaches the resulting **JWT** as an HTTP **bearer** token on every API call (`Authorization: Bearer <token>`). This supersedes the retired client's `CustomAuthenticationProvider` and `Blazored.LocalStorage`-based token handling. Source: WebVella.Erp.WebAssembly/Client/Program.cs:L21-L23 (legacy `CustomAuthenticationProvider` and `Blazored.LocalStorage`). Because it runs entirely in the browser, the SPA is a **public OIDC client**: it uses PKCE and **no client secret** (see [Key configs](#key-configs-and-defaults) and the authentication reference below).
+- **Authentication.** The SPA signs users in with the **OIDC authorization-code flow (with PKCE)** and attaches the resulting **JWT** as an HTTP **bearer** token on every API call (`Authorization: Bearer <token>`). The **short-lived access token is held in memory** — **not** in `localStorage` or `sessionStorage` — to limit XSS token-theft exposure; this supersedes the retired client's `CustomAuthenticationProvider` and `Blazored.LocalStorage`-based token persistence. Source: WebVella.Erp.WebAssembly/Client/Program.cs:L21-L23 (legacy `CustomAuthenticationProvider` and `Blazored.LocalStorage`). Because it runs entirely in the browser, the SPA is a **public OIDC client**: it uses PKCE and **no client secret** (see [Key configs](#key-configs-and-defaults) and the authentication reference below).
 
 - **UI and layout.** The interface is composed from **Radix UI Themes 3.x** components — the core vocabulary is **`Button`**, **`TextField`**, **`Select`**, **`Table`**, **`Dialog`**, **`Tabs`**, and **`Callout`** — arranged with the layout primitives **`Box`**, **`Flex`**, and **`Grid`** under a single **`Theme`** root wrapper, and styled with **Tailwind CSS v4** utilities. Screen layout must be composed from these Radix primitives plus Tailwind utility classes rather than hand-rolled CSS on raw `<div>` elements, so that spacing, color, radius, and typography stay on the shared Radix token scale.
+
+- **Accessibility & responsive acceptance criteria (planned).** No Figma or source design was provided (AAP §0.12), so the following are the **acceptance criteria** the SPA implementation must meet — they are **not yet built** (AAP §0.9.2):
+  - **Responsive layout** at the standard breakpoints, composed via Radix `Box` / `Flex` / `Grid` + Tailwind utilities (no fixed-pixel layouts that break on smaller viewports).
+  - **Keyboard navigation** — every interactive control is reachable and operable by keyboard in a logical tab order (Radix Primitives provide this by default).
+  - **ARIA semantics** — roles, labels, and descriptions on interactive and form controls; each input has an associated label.
+  - **Visible focus indicators** on all focusable elements.
+  - **Color contrast** meeting WCAG 2.1 AA (≥ 4.5:1 for normal text, ≥ 3:1 for large text), drawing on the Radix Colors step scale.
+  - **Interactive states** — hover, focus, active, and disabled — styled for every control.
+
+  These are verification targets for the SPA workstream; if a design contract (e.g., Figma) is later supplied, it takes precedence.
 
 ### Related documentation
 
 - Migration from the RazorPages UI → [../docs/migration/razorpages-to-react.md](../docs/migration/razorpages-to-react.md)
 - Blazor WebAssembly client retirement → [../docs/migration/blazor-retirement.md](../docs/migration/blazor-retirement.md)
 - API authentication reference (tokens, scopes, claim mapping) → [../docs/api-reference/authentication.md](../docs/api-reference/authentication.md)
+- ICodeVariable / BaseErpPageModel compatibility shim → [../docs/architecture/icodevariable-adapter.md](../docs/architecture/icodevariable-adapter.md) — how server-side admin-authored *code variables* are evaluated outside the retired RazorPages lifecycle when the SPA requests page/component renders through `/api/v1/` (the host synthesizes a `BaseErpPageModel`). `Source: /WebVella.Erp.Web/Models/ICodeVariable.cs:L5`.
 
 ---
 
@@ -54,11 +65,16 @@ The repository currently contains **no test projects**, and the SPA test runner 
 
 React/TypeScript client API docs can be generated from **TSDoc** comments with **TypeDoc**, emitting Markdown for the existing MkDocs/TechDocs site via the `typedoc-plugin-markdown` output plugin:
 
+Pin `typedoc` and `typedoc-plugin-markdown` in the SPA's **`devDependencies`** (recorded in the lockfile), then run the **locally installed, pinned** binary — never fetch-and-run an unpinned version:
+
 ```bash
-npx typedoc       # emits Markdown via typedoc-plugin-markdown for MkDocs
+# Pin once (recorded in package.json devDependencies + the lockfile):
+npm install --save-dev --save-exact typedoc@0.28.20 typedoc-plugin-markdown@4.12.0
+# Run the locally installed, pinned binary (fails if absent — no on-the-fly download):
+npm exec --no -- typedoc   # emits Markdown via typedoc-plugin-markdown for MkDocs
 ```
 
-Researched reference versions are **TypeDoc `0.28.20`** and **`typedoc-plugin-markdown` `4.12.0`**; the SPA-local pinned versions are **to be pinned at adoption** by the SPA workstream.
+The reference versions above (**TypeDoc `0.28.20`**, **`typedoc-plugin-markdown` `4.12.0`**) are the researched current releases; the SPA workstream owns the final pins recorded in the lockfile. Avoid bare `npx typedoc`, which will silently download and execute an unpinned version (a supply-chain risk).
 
 ### Serving
 
@@ -117,7 +133,7 @@ The platform's OIDC identity provider — **Duende IdentityServer vs. Keycloak**
 
 - **Symptom.** API calls fail with **`401 Unauthorized`**.
 - **Cause.** A missing, expired, or invalid **JWT** access token.
-- **Fix.** Ensure every API request carries the OIDC access token as `Authorization: Bearer <token>`, and that the token is **refreshed** (via the OIDC refresh token) before it expires. The token acquisition, validation, and refresh flow — and the `401`/`403` semantics — are documented in [../docs/api-reference/authentication.md](../docs/api-reference/authentication.md).
+- **Fix.** Ensure every API request carries the OIDC access token as `Authorization: Bearer <token>`. Access tokens are **short-lived and held in memory**; when one expires, the SPA obtains a new one **without forcing a full interactive login where possible** — via a **rotating refresh token if the identity provider issues one** (optional and **provider-dependent**), otherwise by **re-authenticating** through a fresh authorization-code + PKCE flow (silent-iframe or interactive). The token acquisition, validation, and refresh/re-authentication flow — and the `401`/`403` semantics — are documented in [../docs/api-reference/authentication.md](../docs/api-reference/authentication.md).
 
 ### OIDC redirect URI mismatch
 

@@ -7,13 +7,15 @@ This guide onboards a developer to run WebVella ERP locally. The quickest way is
 
 ## Quick start (Docker Compose)
 
-From the repository root, bring the whole stack up with a single, non-interactive command:
+From the repository root, the intended single, non-interactive command brings the whole stack up:
 
 ```bash
 docker compose up
 ```
 
-This starts four services — **`db`** (PostgreSQL), **`api`** (the REST host serving `/api/v1/`), **`worker`** (background jobs), and **`migrator`**. The one-shot **`migrator` runs first**: it applies the database schema before the long-running **`api`** and **`worker`** services become ready, so nothing ever serves traffic against an un-migrated database.
+> **This command is the intended target workflow — it does not run yet.** The Compose file and the per-service images do not all exist in the checkout (see the Planned note above), so `docker compose up` has nothing to build or start today.
+
+The target stack is **five services** — **`db`** (PostgreSQL), **`idp`** (the OIDC identity provider that issues the JWTs the `api` validates), **`api`** (the REST host serving `/api/v1/`), **`worker`** (background jobs), and the one-shot **`migrator`**. In the intended startup ordering the **`migrator` runs first** — it would apply the database schema before the long-running **`api`** and **`worker`** services become ready, so nothing serves traffic against an un-migrated database. This migrator-first ordering is part of the target design and is **not yet enforced by any committed Compose file**.
 
 - Full Compose topology, per-service roles, and startup ordering: [Docker Compose](../../deployment/docker-compose.md).
 - Every setting these services consume — documented by **configuration key name only**, never as a literal value (rule D): [Configuration Reference](../../deployment/configuration-reference.md).
@@ -30,13 +32,13 @@ WebVella ERP creates its own schema and seed data on first run — you only need
 
 1. Create an empty PostgreSQL database for the ERP.
 2. Supply the database connection to the stack by **configuration key name only** — never a literal connection string (rule D). The connection key, and every other setting, is listed in the [Configuration Reference](../../deployment/configuration-reference.md).
-3. On startup the one-shot **`migrator`** service applies the schema and versioned patches **transactionally** (all-or-nothing), then exits; only after it succeeds do `api` and `worker` start. The full migration and rollback flow is documented in the [Database Migration Job](../../migration/database-migration-job.md).
+3. In the target design the one-shot **`migrator`** service would apply the schema and versioned patches **transactionally** (all-or-nothing), then exit; only after it succeeds would `api` and `worker` start. This migrator-first ordering is intended behaviour, not something a committed Compose file enforces today. The full migration and rollback flow is documented in the [Database Migration Job](../../migration/database-migration-job.md).
 
 ## Running
 
 Both onboarding paths end in the same `docker compose up` — the only difference is where the service images come from:
 
-- **Build from the sources.** Clone the repository (`git clone https://github.com/WebVella/WebVella-ERP.git`) and run `docker compose up` from the repository root; Compose builds the service images and starts the `db`, `api`, `worker`, and `migrator` services.
+- **Build from the sources.** Clone the repository (`git clone https://github.com/WebVella/WebVella-ERP.git`) and run `docker compose up` from the repository root; Compose would build the service images and start the `db`, `idp`, `api`, `worker`, and `migrator` services. This is the intended target workflow — the Compose file and images do not all exist yet.
 - **Prebuilt / seed.** When published container images are available, the same `docker compose up` pulls them instead of building locally — no source checkout required. Image publication is part of the container-native target and is **Not available / to be confirmed** (see [Docker Compose](../../deployment/docker-compose.md)).
 
 Once the `api` service is up, the application requires authentication. Sign in with the default first-run/seed account — email **`erp@webvella.com`**, password **`erp`**. This is the documented default seed credential; change it after first login.

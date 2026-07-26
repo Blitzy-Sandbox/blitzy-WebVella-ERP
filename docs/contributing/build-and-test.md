@@ -5,16 +5,16 @@ This guide covers building, running, and testing the headless **WebVella ERP** p
 
 ## Prerequisites
 
-Install the tooling below before building. Configuration is supplied by environment-variable **name** only (for example `ConnectionStrings__Default`) — never commit real connection strings, passwords, or tokens (rule D).
+Install the tooling below before building. Configuration is supplied by environment-variable **name** only — for example, the database connection string is bound from the `Settings:ConnectionString` configuration key (environment form `Settings__ConnectionString`). `Source: /WebVella.Erp/ErpSettings.cs:L65`. Never commit real connection strings, passwords, or tokens (rule D).
 
 | Prerequisite | Purpose | Notes |
 |--------------|---------|-------|
 | PostgreSQL | Primary datastore; the core engine connects to it through the Npgsql client. | The root README references **PostgreSQL 16**. `Source: /README.md:L18` |
 | Docker + Docker Compose | Container-native local stack (`api`, `worker`, `migrator`, `db`, `idp`). | See [Docker Compose](../deployment/docker-compose.md) for the full topology. |
-| .NET SDK | Restores and builds the .NET solution. | Version **to be confirmed (.NET 9 vs net10.0)** — see the note below. |
+| .NET SDK | Restores and builds the .NET solution. | Version **Not available / to be confirmed (.NET 9 vs net10.0)** — see the note below. |
 | Node.js + npm | Builds and runs the `WebVella.Erp.Client` React SPA. | Required only for the SPA workflow (AAP §0.4). |
 
-> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the root README states the platform targets "ASP.NET Core 9" (`Source: /README.md:L18`). The authoritative target framework is therefore **to be confirmed (.NET 9 vs net10.0)** and must not be assumed.
+> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the root README states the platform targets "ASP.NET Core 9" (`Source: /README.md:L18`). The authoritative target framework is therefore **Not available / to be confirmed (.NET 9 vs net10.0)** and must not be assumed.
 
 ## Build the solution
 
@@ -25,7 +25,7 @@ dotnet restore WebVella.ERP3.sln
 dotnet build WebVella.ERP3.sln
 ```
 
-This builds the core engine, the bundled plugins, and — once the headless refactor lands — the new `WebVella.Erp.Api` and `WebVella.Erp.Worker` projects. `Source: /WebVella.ERP3.sln`
+This builds the core engine, the bundled plugins, and — once the headless refactor lands — the new `WebVella.Erp.Api` and `WebVella.Erp.Worker` projects. The solution currently comprises **17 projects** — the `WebVella.Erp` core engine, `WebVella.Erp.Web`, six plugins (Crm, Mail, MicrosoftCDM, Next, Project, SDK), seven Site host projects, the Blazor WebAssembly client, and `WebVella.Erp.ConsoleApp` — and the three new headless projects (`WebVella.Erp.Api`, `WebVella.Erp.Client`, `WebVella.Erp.Worker`) are additive, not yet present. `Source: /WebVella.ERP3.sln`; AAP §0.2.2.
 
 ## Run the services
 
@@ -37,7 +37,7 @@ The headless platform runs as three cooperating processes. The `WebVella.Erp.Api
 dotnet run --project WebVella.Erp.Api
 ```
 
-Serves the `/api/v1/` REST surface. The OpenAPI 3.1 document and the interactive Scalar reference UI are exposed in the **Development environment only** — see [OpenAPI reference](../api-reference/openapi.md) (AAP §0.6.1).
+Serves the `/api/v1/` REST surface. The generated **OpenAPI 3.1 document** is served at `/openapi/v1.json`; the interactive **Scalar reference UI** (at `/scalar`) is enabled in the **Development environment only** — see [OpenAPI reference](../api-reference/openapi.md) (AAP §0.6.1).
 
 ### Background worker
 
@@ -45,7 +45,7 @@ Serves the `/api/v1/` REST surface. The OpenAPI 3.1 document and the interactive
 dotnet run --project WebVella.Erp.Worker
 ```
 
-Hosts the scheduled background jobs — for example the SMTP email queue and the daily project-task starter (AAP §0.2.2). The job **scheduler is to be confirmed (Quartz.NET vs Hangfire)** (AAP §0.1.4). See [Background jobs](../developer/background-jobs/overview.md) for the job catalog.
+Hosts the scheduled background jobs — for example the SMTP email queue and the daily project-task starter (AAP §0.2.2). The job **scheduler is Not available / to be confirmed (Quartz.NET vs Hangfire)** (AAP §0.1.4). See [Background jobs](../developer/background-jobs/overview.md) for the job catalog.
 
 ### React SPA client
 

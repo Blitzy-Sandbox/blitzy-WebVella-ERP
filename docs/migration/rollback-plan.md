@@ -15,28 +15,28 @@ This page deliberately does **not** repeat the plugin-host or migration internal
 
 Under the proposed host, each plugin is loaded into its **own collectible `AssemblyLoadContext` (ALC)** so a faulty plugin can be unloaded without restarting the host — the design is documented in [Plugin Host](../architecture/plugin-host.md) and [AssemblyLoadContext hosting](../plugin-sdk/assemblyloadcontext-hosting.md) (proposed; Not available in code today). This differs from the legacy model (**before**): today a plugin is a Razor Class Library that derives from `ErpPlugin` and is initialised through `Initialize(IServiceProvider)` at startup, with every plugin sharing the single default load context and **no unload path**. Source: /docs/developer/plugins/overview.md:L4,L6.
 
-Planned rollback steps when a plugin fails to load (a bad `.wvplugin`, a missing dependency, an integrity/signature failure, or a throwing load lifecycle method):
+Planned rollback steps when a plugin fails to load (a bad `.wvplugin`, a missing dependency, an integrity/signature failure, or a throwing load lifecycle method). **Each step below is a target acceptance criterion the plugin host must satisfy — not current behaviour: the collectible-ALC host does not exist in this checkout, and the "Design intent:" links point to the proposed design docs, not to shipped code.**
 
-1. **Contain the fault.** The failure is confined to that plugin's collectible ALC; the host does not abort. Source: /docs/architecture/plugin-host.md:L77-L81.
-2. **Unload the context.** The host unloads the faulty plugin's collectible ALC, releasing its assemblies. Source: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L74-L92.
-3. **Skip and quarantine.** The plugin is skipped and quarantined (moved out of the load path) so it is not retried on every start. Source: /docs/architecture/plugin-host.md:L56.
-4. **Keep serving.** The host process stays available and continues serving the other, healthy plugins. Source: /docs/architecture/plugin-host.md:L77-L81.
-5. **Hot-swap safety.** When an *upgrade* fails to load, the previously loaded plugin version can remain active — the host only swaps in the new context once it loads cleanly. Source: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L158.
-6. **Operator remediation.** Fix the cause, repackage the `.wvplugin`, and redeploy; the host loads the corrected package into a fresh collectible ALC on the next discovery pass. Source: /docs/architecture/plugin-host.md:L41-L47.
+1. **Contain the fault.** The failure **must** be confined to that plugin's collectible ALC so the host does not abort. Design intent: /docs/architecture/plugin-host.md:L77-L81.
+2. **Unload the context.** The host **must** unload the faulty plugin's collectible ALC, releasing its assemblies. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L74-L92.
+3. **Skip and quarantine.** The plugin **must** be skipped and quarantined (moved out of the load path) so it is not retried on every start. Design intent: /docs/architecture/plugin-host.md:L56.
+4. **Keep serving.** The host process **must** stay available and continue serving the other, healthy plugins. Design intent: /docs/architecture/plugin-host.md:L77-L81.
+5. **Hot-swap safety.** When an *upgrade* fails to load, the previously loaded plugin version **should** remain active — the host swaps in the new context only once it loads cleanly. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L158.
+6. **Operator remediation.** After the operator fixes the cause, repackages the `.wvplugin`, and redeploys, the host **should** load the corrected package into a fresh collectible ALC on the next discovery pass. Design intent: /docs/architecture/plugin-host.md:L41-L47.
 
 > **Trust note.** A collectible ALC provides *dependency* isolation and an unload path — it is **not** a security sandbox; plugin code runs in-process with full host privileges. Source: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L30-L31.
 
 ## Scenario 2 — database migration fails
 
-Database migrations are applied by the proposed one-shot `migrator` service inside a **single transaction**, reusing the engine's existing primitives: `BeginTransaction()`, then `CommitTransaction()` on success or `RollbackTransaction()` on any error. Source: /WebVella.Erp.ConsoleApp/Program.cs:L75,L79,L83. The full proposed job flow lives in the [Database migration job](database-migration-job.md) guide (proposed; Not available in code today) and is **not repeated here**.
+The proposed one-shot `migrator` service would apply migrations inside a **single transaction**, reusing the engine's **existing, verified** transaction primitives — `BeginTransaction()`, then `CommitTransaction()` on success or `RollbackTransaction()` on any error. Source: /WebVella.Erp.ConsoleApp/Program.cs:L75,L79,L83 (current code — the only element of this scenario that exists today). The `migrator` service that would call them and the dependent-startup gate are proposed; the full job flow lives in the [Database migration job](database-migration-job.md) guide (proposed; Not available in code today) and is **not repeated here**.
 
-Planned rollback steps when a migration fails:
+Planned rollback steps when a migration fails. **Only step 1 (the transaction rollback) is backed by existing code; the exit code and the dependent-startup gate are target acceptance criteria whose "Design intent:" links point to the proposed migration-job design doc, not shipped code:**
 
-1. **Roll back the transaction.** The single migration transaction is rolled back, so the schema is never left partially patched. Source: /WebVella.Erp.ConsoleApp/Program.cs:L83.
-2. **Exit non-zero.** The `migrator` process exits with a non-zero status. Source: /docs/migration/database-migration-job.md:L72-L88.
-3. **Block dependent startup.** The `api` and `worker` services do not start against an un-migrated or partially patched database. Source: /docs/migration/database-migration-job.md:L56-L59.
-4. **Restore the prior version.** The operator restores/rolls back to the prior image or version of the `migrator` (and its patch set). Source: /docs/migration/database-migration-job.md:L60-L70.
-5. **Re-run.** Once the cause is fixed, re-run the `migrator`; on success it commits and the `api`/`worker` startup gate opens. Source: /docs/migration/database-migration-job.md:L45-L58.
+1. **Roll back the transaction.** The single migration transaction is rolled back via the existing `RollbackTransaction()` primitive, so the schema is never left partially patched. Source: /WebVella.Erp.ConsoleApp/Program.cs:L83 (current code).
+2. **Exit non-zero.** The `migrator` process **must** exit with a non-zero status. Design intent: /docs/migration/database-migration-job.md:L72-L88.
+3. **Block dependent startup.** The `api` and `worker` services **must not** start against an un-migrated or partially patched database. Design intent: /docs/migration/database-migration-job.md:L56-L59.
+4. **Restore the prior version.** The operator restores/rolls back to the prior image or version of the `migrator` (and its patch set). Design intent: /docs/migration/database-migration-job.md:L60-L70.
+5. **Re-run.** Once the cause is fixed, re-running the `migrator` **should** commit on success and open the `api`/`worker` startup gate. Design intent: /docs/migration/database-migration-job.md:L45-L58.
 
 ## Decision points
 
@@ -64,7 +64,7 @@ flowchart TD
     end
 ```
 
-*The two independent, fail-safe rollback paths: a failed plugin load unloads its collectible ALC while the host keeps serving other plugins (Source: /docs/architecture/plugin-host.md:L77-L81), and a failed migration rolls back its single transaction and exits non-zero (Source: /WebVella.Erp.ConsoleApp/Program.cs:L83).*
+*The two independent, fail-safe rollback paths, shown as **proposed acceptance criteria**: a failed plugin load is expected to unload its collectible ALC while the host keeps serving other plugins (design intent: /docs/architecture/plugin-host.md:L77-L81), and a failed migration rolls back its single transaction — the one element backed by existing code (Source: /WebVella.Erp.ConsoleApp/Program.cs:L83) — and is expected to exit non-zero.*
 
 ## Related
 

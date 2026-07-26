@@ -1,6 +1,8 @@
 ﻿<!--{"sort_order":2, "name": "create-your-own", "label": "Create your own"}-->
 # Create a Plugin for the WebVella Erp
 
+> **Planned target — not yet implemented (headless refactor).** The `IErpPlugin` contract, the `PluginManifest.cs` convention, the async lifecycle methods (`OnLoadAsync(IServiceCollection)`, `MapEndpoints(IEndpointRouteBuilder)`, `OnMigrateAsync(IDbTransaction)`), and the `.wvplugin` plugin host described on this page **do not exist in this repository yet** — they are delivered by the plugin-SDK implementation workstream, and the contract shape itself is **Not available / to be confirmed**. **Today**, a plugin is authored against the legacy base class `ErpPlugin` and overrides `Initialize(IServiceProvider)` — the bundled SDK sample still does exactly this. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10,L15 (`public partial class SdkPlugin : ErpPlugin` … `public override void Initialize(IServiceProvider serviceProvider)`). See [Plugins overview](overview.md) for the current model and [Migrating from ErpPlugin](../../plugin-sdk/migrating-from-erpplugin.md) for the planned port. The folder structure and `IErpPlugin` signatures below describe the **target** authoring model.
+
 To create a plugin you need to add to the solution a project that implements the **`IErpPlugin`** contract (commonly via a `PluginManifest.cs`) and follows a specific structure and a few requirements.
 
 ## Plugin name

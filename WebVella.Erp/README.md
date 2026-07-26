@@ -2,7 +2,9 @@
 
 **WebVella.Erp** is the core .NET class library (`net10.0`, package version `1.7.7`) of the open-source [WebVella ERP](https://webvella.com) platform — a metadata-driven engine that models business data as **Entities**, **Records**, and relations, queries them through **EQL** (Entity Query Language), and extends them through **plugins** and **hooks**. Source: `WebVella.Erp/WebVella.Erp.csproj:L4,L11,L16`.
 
-This package is consumed as a **library / NuGet package** by the headless hosts of the platform — the REST API (`WebVella.Erp.Api`), the background worker (`WebVella.Erp.Worker`), and the plugin hosts. The core engine is **unchanged in code** by the headless refactor: it continues to expose the same in-process managers, and this document describes that existing behavior. Source: `WebVella.Erp/WebVella.Erp.csproj:L6` (OutputType `Library`).
+This package is a **library / NuGet package** that, under the headless refactor, is **designed to be consumed** by the platform's (planned) headless hosts — the REST API (`WebVella.Erp.Api`), the background worker (`WebVella.Erp.Worker`), and the plugin hosts. The core engine is **unchanged in code** by the headless refactor: it continues to expose the same in-process managers, and this document describes that existing behavior. Source: `WebVella.Erp/WebVella.Erp.csproj:L6` (OutputType `Library`).
+
+> **Planned (headless refactor — not yet implemented).** The headless hosts and contracts named throughout this README as consumers — `WebVella.Erp.Api`, `WebVella.Erp.Worker`, the new `IErpPlugin` contract, and the `/api/v1/` REST surface — **do not exist in this checkout yet**; they are delivered by separate implementation workstreams (AAP §0.9.2). Everything described below about the **core engine itself** (its managers, the legacy `ErpPlugin` base, `ErpSettings` / JSON configuration, and the package facts) is **current** and verified against source.
 
 | Fact | Value | Source |
 |------|-------|--------|
@@ -46,7 +48,7 @@ The abstract `ErpPlugin` base carries JSON manifest metadata (`name`, `prefix`, 
 - `SetAutoMapperConfiguration(MapperConfigurationExpression)` — contribute AutoMapper maps. Source: `WebVella.Erp/ErpPlugin.cs:L53`.
 - `GetPluginData()` / `SavePluginData(string)` — read/write the plugin's row in the `plugin_data` table; both throw if the plugin `Name` is not set. Source: `WebVella.Erp/ErpPlugin.cs:L67,L87`.
 
-> **Important:** `ErpPlugin` is the **legacy** plugin base. The **new `IErpPlugin` contract** for the headless platform lives in the separate `WebVella.Erp.Plugins.SDK` project — see the [IErpPlugin contract guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md).
+> **Important:** `ErpPlugin` is the **legacy** plugin base and is the model in use today. The **new `IErpPlugin` contract** for the headless platform is **planned — not present in this checkout yet** (`IErpPlugin` has no implementation in source); it is slated to live alongside the `WebVella.Erp.Plugins.SDK` project — see the [IErpPlugin contract guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md).
 
 ### Configuration binding
 
@@ -69,7 +71,7 @@ Top-level subsystem folders of the engine. Source: `WebVella.Erp/`:
 | `Diagnostics/` | DB-backed logging over the `system_log` table. Source: `WebVella.Erp/Diagnostics/` |
 | `Exceptions/`, `Utilities/` | Validation / exception aggregation and cross-cutting helpers. Source: `WebVella.Erp/Exceptions/`, `WebVella.Erp/Utilities/` |
 
-> **These in-process managers are unchanged by the headless refactor and are distinct from the new REST surface** exposed by `WebVella.Erp.Api` (`/api/v1/`). They are invoked in-process (for example `new RecordManager().CreateRecord(...)`), whereas the REST API is an HTTP layer built on top of them. See the [in-process server-API reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/server-api/overview.md) and the [data-access architecture](https://github.com/WebVella/WebVella-ERP/blob/master/docs/architecture/data-access.md).
+> **These in-process managers are unchanged by the headless refactor and are distinct from the planned REST surface** that `WebVella.Erp.Api` (`/api/v1/`) will expose (**not yet built** — AAP §0.9.2). They are invoked in-process (for example `new RecordManager().CreateRecord(...)`), whereas the planned REST API would be an HTTP layer built on top of them. See the [in-process server-API reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/server-api/overview.md) and the [data-access architecture](https://github.com/WebVella/WebVella-ERP/blob/master/docs/architecture/data-access.md).
 
 ---
 
@@ -190,6 +192,8 @@ For the full repository dependency inventory, see [LIBRARIES.md](https://github.
 ---
 
 ## See also
+
+> **Link note (publish order).** This README is packed as the NuGet package landing page; the `docs/**`, `INSTRUCTIONS.md`, and `LIBRARIES.md` links here (and above) are **absolute upstream URLs** on the repository's default branch. They resolve **once those files are published there** (pin them to a release tag for long-term stability); in a local checkout the same files live at the repository root and under `docs/`.
 
 - [Build & run instructions (INSTRUCTIONS.md)](https://github.com/WebVella/WebVella-ERP/blob/master/INSTRUCTIONS.md)
 - [Getting started](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/introduction/getting-started.md)

@@ -18,7 +18,21 @@ On host startup the plugin's `Initialize(IServiceProvider)` opens a system secur
 
 **Daily "start tasks" background job (00:10 UTC).** `SetSchedulePlans()` ensures a Daily `SchedulePlan` named `"Start tasks on start_date"` that runs at **00:10 UTC** every day (`IntervalInMinutes = 1440`, all seven days enabled). `Source: WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L31-L72` The job itself is `class StartTasksOnStartDate : ErpJob`, decorated `[Job("3D18B8D8-74B8-45B1-B121-9582F7B8A4F4", "Start tasks on start_date", true, JobPriority.Low)]`; its `Execute(JobContext)` finds tasks whose start date has arrived and updates their `status_id`. `Source: WebVella.Erp.Plugins.Project/Jobs/StartTasksOnStartDate.cs`
 
-**HTTP surface (today).** The current implementation exposes an MVC `[Authorize]` controller under `/api/v3.0/p/project/*` (comments, timelogs, task start/status/watch, embedded JS). `Source: WebVella.Erp.Plugins.Project/Controllers/ProjectController.cs` Under the headless refactor this moves toward the `/api/v1/` + `IErpPlugin.MapEndpoints` model — see the cross-links below.
+**HTTP surface (today).** The current implementation exposes an MVC controller, `ProjectController`, decorated `[Authorize]` — **every endpoint requires an authenticated user** — routed under the legacy prefix `/api/v3.0/p/project/`. Per rule B, the public endpoints are documented below; every write action returns a JSON `ResponseModel` envelope (a `Success` flag, a message, and an optional object) and reports validation/processing failures as `Success = false` with a message. All line references are in `WebVella.Erp.Plugins.Project/Controllers/ProjectController.cs`. `Source: /WebVella.Erp.Plugins.Project/Controllers/ProjectController.cs:L18` (`[Authorize]`), `:L60,L139` (`ResponseModel` envelope + `return Json(response)`).
+
+| Method | Path | Purpose | Inputs | Output / errors | Lines |
+|--------|------|---------|--------|-----------------|-------|
+| POST | `/api/v3.0/p/project/pc-post-list/create` | Create a project post/comment feed item | `EntityRecord` (JSON body) | JSON `ResponseModel`; `Success=false` + message on error | L56-L58 |
+| POST | `/api/v3.0/p/project/pc-post-list/delete` | Delete a post/comment feed item | `EntityRecord` (JSON body) | JSON `ResponseModel` | L142-L144 |
+| POST | `/api/v3.0/p/project/pc-timelog-list/create` | Create a timelog entry | `EntityRecord` JSON body (`body`, `minutes`, `isBillable`, `relatedRecords`) | JSON `ResponseModel` | L177-L179 |
+| POST | `/api/v3.0/p/project/pc-timelog-list/delete` | Delete a timelog entry | `EntityRecord` (JSON body) | JSON `ResponseModel` | L257-L259 |
+| POST | `/api/v3.0/p/project/timelog/start` | Start a timelog for a task | `taskId` (query, `Guid`) | JSON `ResponseModel` | L295-L297 |
+| POST | `/api/v3.0/p/project/task/status` | Set a task's status | `taskId`, `statusId` (query, `Guid`) | JSON `ResponseModel` | L362-L364 |
+| POST | `/api/v3.0/p/project/task/watch` | Add/remove a task watcher | `taskId?`, `userId?` (query, `Guid?`), `startWatch` (query, `bool`, default `true`) | JSON `ResponseModel` | L396-L398 |
+| GET | `/api/v3.0/p/project/files/javascript` | Serve the plugin's embedded component JavaScript | — | JavaScript content | L463-L465 |
+| GET | `/api/v3.0/p/project/user/get-current` | Return the current authenticated user record | — | JSON user record | L486-L488 |
+
+(The `timelog/stop` action is present but commented out. `Source: /WebVella.Erp.Plugins.Project/Controllers/ProjectController.cs:L328-L330`.) Under the headless refactor this MVC surface moves toward the `/api/v1/` + `IErpPlugin.MapEndpoints` model — see the cross-links below.
 
 ### Refactor note
 
@@ -48,7 +62,7 @@ Project references are `WebVella.Erp.Web` and `WebVella.Erp` (the core engine). 
 
 ## Key configuration and defaults
 
-Configuration is documented by **key name / concept only**; no secret values appear here. Secrets (database connection, credentials, tokens) are supplied via environment variables / Kubernetes Secrets and are never committed — see the consolidated [configuration reference](../docs/deployment/configuration-reference.md).
+Configuration is documented by **key name / concept only**; no secret values appear here. In the **current** in-process model, platform settings (database connection, credentials, tokens) bind from `Config.json` via `ErpSettings`; the **target** container-native model supplies the same settings as **environment variables / Kubernetes Secrets** (never committed). `Source: /WebVella.Erp/ErpSettings.cs`. See the consolidated [configuration reference](../docs/deployment/configuration-reference.md).
 
 | Setting | Purpose | Default |
 |---------|---------|---------|
@@ -60,7 +74,7 @@ Configuration is documented by **key name / concept only**; no secret values app
 
 | Symptom | Likely cause | Remedy |
 |---------|--------------|--------|
-| Daily "start tasks" job does not fire | Scheduler/worker host down, or the schedule plan is disabled | Verify the worker host (`WebVella.Erp.Worker`) is running and that the "Start tasks on start_date" plan exists and is enabled. `Source: WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L31-L72` |
+| Daily "start tasks" job does not fire | The schedule plan is disabled, or the host running the schedule loop is down | **Today** the job runs **in-process** via the core `ScheduleManager` / `JobManager` loop inside the ERP host (not a separate worker); verify that host is running and that the "Start tasks on start_date" plan exists and is enabled. **Target:** the job moves to the planned `WebVella.Erp.Worker` host (**not yet built** — AAP §0.9.2). `Source: WebVella.Erp.Plugins.Project/ProjectPlugin.cs:L31-L72`; `Source: /WebVella.Erp/Jobs/SheduleManager.cs:L223`. |
 | Timelog report gaps / wrong billable totals | Timelogs missing scope/related-record links, or missing the `is_billable` flag | Verify the timelog records (scope, related task, billable flag) and re-run reporting. `Source: WebVella.Erp.Plugins.Project/Services/ReportService.cs` |
 | Patch / init-version failure on startup | A dated patch throws during initialization | The entire init transaction **rolls back** and the stored version does not advance; inspect logs, fix the offending data, and restart to re-run. `Source: WebVella.Erp.Plugins.Project/ProjectPlugin._.cs:L255-L272` |
 | Static-asset / theme not loading | Embedded component `service.js` / `Files/*.js` / `Theme/styles.css` not served | Confirm the assets are embedded and the plugin is loaded by the host. `Source: WebVella.Erp.Plugins.Project/WebVella.Erp.Plugins.Project.csproj:L30-L49` |

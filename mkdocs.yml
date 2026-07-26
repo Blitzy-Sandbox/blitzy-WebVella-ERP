@@ -9,21 +9,7 @@ nav:
 hooks:
   - mkdocs_hooks.py
 plugins:
-  # Enable techdocs-core's Material-native search instead of its default classic
-  # MkDocs (lunr) search. With the default (`use_material_search: false`),
-  # techdocs-core installs `mkdocs.contrib.search.SearchPlugin`, which appends
-  # `search/main.js` to `extra_javascript`; the Material theme then loads that
-  # classic script on every page, but Material never defines the global `base_url`
-  # that `search/main.js` expects (Material wires its own worker via the
-  # `<script id="__config">` block instead). The result was an uncaught
-  # `ReferenceError: base_url is not defined` on every built page (QA finding F-1).
-  # `use_material_search: true` makes techdocs-core install the Material search
-  # plugin, so the classic `search/main.js` is no longer generated or injected and
-  # the console error is eliminated. This configures the existing techdocs-core
-  # plugin only (no new plugin added), keeping the plugin list {techdocs-core,
-  # mermaid2} unchanged per the minimal-change convention.
-  - techdocs-core:
-      use_material_search: true
+  - techdocs-core
   - mermaid2:
       # Pin Mermaid and serve it from a locally bundled copy under docs/assets/mermaid/
       # so diagrams render in the container-native / air-gapped target with no CDN dependency
