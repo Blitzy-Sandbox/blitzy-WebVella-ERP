@@ -1,0 +1,92 @@
+# Documentation CI
+#
+# DOCUMENTATION-ONLY build & validation pipeline. Implements the docs-build/validation
+# portion of the pipeline narrated in docs/deployment/ci-cd.md.
+#
+# SCOPE GUARD (AAP 0.9.2): documentation-only. No application build/test/deploy
+# (no dotnet build/test) and no container image push.
+# Rule D: no secrets; least-privilege read-only token.
+# Rule F: unpinned tools commented "to be pinned at adoption"; OpenAPI lint degrades
+#         gracefully when openapi/v1.json is absent.
+# Rule C: standard, minimal, documentation-scoped GitHub Actions YAML.
+name: Documentation CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '**/*.md'
+      - 'openapi/**'
+      - 'catalog-info.yaml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '**/*.md'
+      - 'openapi/**'
+      - 'catalog-info.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  docs-build:
+    name: Docs build (MkDocs + TechDocs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # Plugins declared in root mkdocs.yml: techdocs-core, mermaid2.
+      # mkdocs-techdocs-core must be >= 1.0.2 for correct Mermaid rendering.
+      - name: Install MkDocs + TechDocs plugins
+        run: pip install "mkdocs-techdocs-core>=1.0.2" mkdocs-mermaid2-plugin
+      # Non-interactive only — never `mkdocs serve` / `--watch` in CI.
+      # Alternative: techdocs-cli generate --no-docker
+      - name: Build documentation site
+        run: mkdocs build --strict
+
+  openapi-lint:
+    name: OpenAPI lint (Spectral)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # Guarded: openapi/v1.json is produced by the WebVella.Erp.Api workstream and may
+      # not exist yet — skip gracefully instead of failing (Rule F).
+      # CLI package only; legacy @stoplight/spectral is deprecated.
+      - name: Lint OpenAPI document (skips gracefully if absent)
+        run: |
+          if [ -f openapi/v1.json ]; then
+            npx @stoplight/spectral-cli@6.16.2 lint openapi/v1.json
+          else
+            echo "::notice::openapi/v1.json Not available yet — skipping OpenAPI lint (produced by the WebVella.Erp.Api workstream)."
+          fi
+
+  markdown-lint:
+    name: Markdown lint (optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # Version to be pinned at adoption (Rule F).
+      - name: Lint Markdown
+        run: npx markdownlint-cli "**/*.md"
+
+  link-check:
+    name: Link check (optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # Version to be pinned at adoption (Rule F). Alternative: lychee docs/
+      - name: Check documentation links
+        run: npx markdown-link-check --quiet "docs/**/*.md"
