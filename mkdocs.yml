@@ -1,6 +1,183 @@
 site_name: 'blitzy-WebVella-ERP'
 nav:
   - Home: index.md
+  - Developer:
+    - Introduction:
+      - Overview: developer/introduction/overview.md
+      - Getting started: developer/introduction/getting-started.md
+      - Feature request: developer/introduction/feature-request.md
+      - Issue reporting: developer/introduction/issue-reporting.md
+      - Get involved: developer/introduction/get-involved.md
+    - Plugins:
+      - Overview: developer/plugins/overview.md
+      - Create your own: developer/plugins/create-your-own.md
+    - Entities:
+      - Overview: developer/entities/overview.md
+      - Create entity: developer/entities/create-entity.md
+      - Entity Fields: developer/entities/entity-fields.md
+      - Create entity field: developer/entities/create-entity-field.md
+      - Entity Relations: developer/entities/entity-relations.md
+      - Create entity relation: developer/entities/create-entity-relation.md
+    - Hooks:
+      - Overview and Types: developer/hooks/overview.md
+      - Attach to an API hook: developer/hooks/attach-to-api-hook.md
+      - Attach to a General Page Hook: developer/hooks/attach-to-general-page-hook.md
+      - Attach to a Page-Type Hook: developer/hooks/attach-to-page-type-hook.md
+      - Create Render Hook: developer/hooks/create-render-hook.md
+      - Attach to a Render Hook: developer/hooks/attach-to-render-hook.md
+    - Tag helpers:
+      - wv-active-page-equals: developer/tag-helpers/wv-active-page-equals.md
+      - wv-active-page-regex: developer/tag-helpers/wv-active-page-regex.md
+      - wv-active-page-starts: developer/tag-helpers/wv-active-page-starts.md
+      - wv-authorize: developer/tag-helpers/wv-authorize.md
+      - wv-button-group: developer/tag-helpers/wv-button-group.md
+      - wv-button-toolbar: developer/tag-helpers/wv-button-toolbar.md
+      - wv-button: developer/tag-helpers/wv-button.md
+      - wv-chart: developer/tag-helpers/wv-chart.md
+      - wv-code-highlight: developer/tag-helpers/wv-code-highlight.md
+      - wv-column: developer/tag-helpers/wv-column.md
+      - wv-drawer: developer/tag-helpers/wv-drawer.md
+      - wv-field-append: developer/tag-helpers/wv-field-append.md
+      - wv-field-autonumber: developer/tag-helpers/wv-field-autonumber.md
+      - wv-field-base: developer/tag-helpers/wv-field-base.md
+      - wv-field-checkbox-grid: developer/tag-helpers/wv-field-checkbox-grid.md
+      - wv-field-checkbox-list: developer/tag-helpers/wv-field-checkbox-list.md
+      - wv-field-checkbox: developer/tag-helpers/wv-field-checkbox.md
+      - wv-field-code: developer/tag-helpers/wv-field-code.md
+      - wv-field-color: developer/tag-helpers/wv-field-color.md
+      - wv-field-currency: developer/tag-helpers/wv-field-currency.md
+      - wv-field-datasource: developer/tag-helpers/wv-field-datasource.md
+      - wv-field-date: developer/tag-helpers/wv-field-date.md
+      - wv-field-datetime: developer/tag-helpers/wv-field-datetime.md
+      - wv-field-email: developer/tag-helpers/wv-field-email.md
+      - wv-field-file: developer/tag-helpers/wv-field-file.md
+      - wv-field-guid: developer/tag-helpers/wv-field-guid.md
+      - wv-field-html: developer/tag-helpers/wv-field-html.md
+      - wv-field-image: developer/tag-helpers/wv-field-image.md
+      - wv-field-multiselect: developer/tag-helpers/wv-field-multiselect.md
+      - wv-field-number: developer/tag-helpers/wv-field-number.md
+      - wv-field-password: developer/tag-helpers/wv-field-password.md
+      - wv-field-percent: developer/tag-helpers/wv-field-percent.md
+      - wv-field-phone: developer/tag-helpers/wv-field-phone.md
+      - wv-field-plaintext: developer/tag-helpers/wv-field-plaintext.md
+      - wv-field-prepend: developer/tag-helpers/wv-field-prepend.md
+      - wv-field-radio-list: developer/tag-helpers/wv-field-radio-list.md
+      - wv-field-select: developer/tag-helpers/wv-field-select.md
+      - wv-field-text: developer/tag-helpers/wv-field-text.md
+      - wv-field-textarea: developer/tag-helpers/wv-field-textarea.md
+      - wv-field-time: developer/tag-helpers/wv-field-time.md
+      - wv-field-url: developer/tag-helpers/wv-field-url.md
+      - wv-filter-autonumber: developer/tag-helpers/wv-filter-autonumber.md
+      - wv-filter-base: developer/tag-helpers/wv-filter-base.md
+      - wv-filter-checkbox: developer/tag-helpers/wv-filter-checkbox.md
+      - wv-filter-currency: developer/tag-helpers/wv-filter-currency.md
+      - wv-filter-date: developer/tag-helpers/wv-filter-date.md
+      - wv-filter-datetime: developer/tag-helpers/wv-filter-datetime.md
+      - wv-filter-email: developer/tag-helpers/wv-filter-email.md
+      - wv-filter-file: developer/tag-helpers/wv-filter-file.md
+      - wv-filter-guid: developer/tag-helpers/wv-filter-guid.md
+      - wv-filter-html: developer/tag-helpers/wv-filter-html.md
+      - wv-filter-image: developer/tag-helpers/wv-filter-image.md
+      - wv-filter-multiselect: developer/tag-helpers/wv-filter-multiselect.md
+      - wv-filter-number: developer/tag-helpers/wv-filter-number.md
+      - wv-filter-percent: developer/tag-helpers/wv-filter-percent.md
+      - wv-filter-phone: developer/tag-helpers/wv-filter-phone.md
+      - wv-filter-select: developer/tag-helpers/wv-filter-select.md
+      - wv-filter-text: developer/tag-helpers/wv-filter-text.md
+      - wv-filter-textarea: developer/tag-helpers/wv-filter-textarea.md
+      - wv-filter-url: developer/tag-helpers/wv-filter-url.md
+      - wv-form: developer/tag-helpers/wv-form.md
+      - wv-grid-column: developer/tag-helpers/wv-grid-column.md
+      - wv-grid-row: developer/tag-helpers/wv-grid-row.md
+      - wv-grid: developer/tag-helpers/wv-grid.md
+      - wv-icon-card: developer/tag-helpers/wv-icon-card.md
+      - wv-modal-body: developer/tag-helpers/wv-modal-body.md
+      - wv-modal-footer: developer/tag-helpers/wv-modal-footer.md
+      - wv-modal: developer/tag-helpers/wv-modal.md
+      - wv-page-header-actions: developer/tag-helpers/wv-page-header-actions.md
+      - wv-page-header-toolbar: developer/tag-helpers/wv-page-header-toolbar.md
+      - wv-page-header: developer/tag-helpers/wv-page-header.md
+      - wv-row: developer/tag-helpers/wv-row.md
+      - wv-section: developer/tag-helpers/wv-section.md
+      - wv-validation: developer/tag-helpers/wv-validation.md
+    - Data sources:
+      - Overview: developer/data-sources/overview.md
+      - EQL Syntax: developer/data-sources/eql.md
+      - Database data sources: developer/data-sources/database.md
+      - Code data sources: developer/data-sources/code.md
+    - Page Components:
+      - Overview: developer/components/overview.md
+      - Create your own: developer/components/create-your-own.md
+    - Pages:
+      - Overview: developer/pages/overview.md
+      - Routing: developer/pages/routing.md
+      - Home page: developer/pages/home-page.md
+      - Site page: developer/pages/site-page.md
+      - Application page: developer/pages/application-page.md
+      - Record list: developer/pages/record-list.md
+      - Record details: developer/pages/record-details.md
+      - Record create: developer/pages/record-create.md
+      - Record manage: developer/pages/record-manage.md
+      - Create a page: developer/pages/create-page.md
+      - Manage generated body: developer/pages/manage-generated-body.md
+      - Manage custom body: developer/pages/manage-custom-body.md
+    - Applications:
+      - Overview: developer/applications/overview.md
+      - Create application: developer/applications/create-application.md
+      - Sitemap: developer/applications/sitemap.md
+      - Home pages: developer/applications/home-pages.md
+    - Users and Roles:
+      - Overview: developer/users-and-roles/overview.md
+      - Users: developer/users-and-roles/users.md
+      - Roles: developer/users-and-roles/roles.md
+    - Background jobs:
+      - Overview: developer/background-jobs/overview.md
+      - Background job: developer/background-jobs/background-job.md
+      - Schedule plans: developer/background-jobs/schedule-plan.md
+      - Jobs log: developer/background-jobs/jobs-log.md
+    - System log: developer/system-log/overview.md
+    - Server API: developer/server-api/overview.md
+    - Web API:
+      - Overview: developer/web-api/overview.md
+      - Response Format: developer/web-api/response.md
+  - API Reference:
+    - Overview: api-reference/index.md
+    - OpenAPI Document: api-reference/openapi.md
+    - Authentication: api-reference/authentication.md
+    - Records: api-reference/records.md
+    - "Entities & Metadata": api-reference/entities.md
+    - EQL Query: api-reference/eql.md
+    - Files: api-reference/files.md
+    - Errors: api-reference/errors.md
+  - Plugin SDK:
+    - IErpPlugin Contract: plugin-sdk/ierplugin-contract.md
+    - Migrating from ErpPlugin: plugin-sdk/migrating-from-erpplugin.md
+    - ".wvplugin Packaging": plugin-sdk/packaging-wvplugin.md
+    - AssemblyLoadContext Hosting: plugin-sdk/assemblyloadcontext-hosting.md
+    - Migrations (OnMigrateAsync): plugin-sdk/migrations-onmigrateasync.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - ICodeVariable Adapter: architecture/icodevariable-adapter.md
+    - Plugin Host: architecture/plugin-host.md
+    - Data Access: architecture/data-access.md
+    - Observability: architecture/observability.md
+    - Security: architecture/security.md
+  - Migration:
+    - Overview: migration/overview.md
+    - RazorPages to React: migration/razorpages-to-react.md
+    - Blazor Retirement: migration/blazor-retirement.md
+    - Plugin Migration: migration/plugin-migration.md
+    - Database Migration Job: migration/database-migration-job.md
+    - Rollback Plan: migration/rollback-plan.md
+  - Deployment:
+    - Docker Compose: deployment/docker-compose.md
+    - "Kubernetes & Helm": deployment/kubernetes-helm.md
+    - CI/CD: deployment/ci-cd.md
+    - Configuration Reference: deployment/configuration-reference.md
+    - Troubleshooting: deployment/troubleshooting.md
+  - Contributing:
+    - "Build & Test": contributing/build-and-test.md
+    - Documentation: contributing/documentation.md
 # Documentation-build hook (MkDocs core `hooks:`, no extra dependency): copies the
 # repository-root `doc-images/` directory into the built site so the developer docs'
 # absolute `/doc-images/*.png` references resolve in a plain `mkdocs build` deployment.
