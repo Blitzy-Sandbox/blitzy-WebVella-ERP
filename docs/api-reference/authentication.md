@@ -57,6 +57,8 @@ architecture companion, [Security](../architecture/security.md).
 
 ```mermaid
 sequenceDiagram
+    accTitle: OIDC authorization-code with PKCE login and bearer API call
+    accDescr: A public SPA client generates a PKCE code verifier and challenge, obtains an authorization code from the OIDC identity provider, exchanges it at the token endpoint without a client secret for a JWT access token, then calls the WebVella.Erp.Api /api/v1 surface with an Authorization bearer header and receives a JSON response envelope.
     participant C as Client (SPA, public client)
     participant IdP as Identity Provider (OIDC)
     participant API as API (WebVella.Erp.Api)
@@ -242,7 +244,7 @@ note from the legacy site host. That file is retained only for historical
 reference; its cookie-based `JWT_OR_COOKIE` fallback does not apply to the
 `/api/v1/` surface.
 
-**Related pages**
+### Related pages
 
 - [Security](../architecture/security.md) — the authentication **architecture**
   companion (auth-flow internals, claim-mapping design, and provider trade-offs).

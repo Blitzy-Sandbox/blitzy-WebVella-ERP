@@ -187,6 +187,16 @@ Third-party packages referenced by the core engine. Source: `WebVella.Erp/WebVel
 
 The project also declares `FrameworkReference Include="Microsoft.AspNetCore.App"`. Source: `WebVella.Erp/WebVella.Erp.csproj:L43`.
 
+> **Security note (AutoMapper `14.0.0`)** — this pinned version is affected by a High-severity
+> Denial-of-Service advisory, GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (CWE-674 Uncontrolled Recursion;
+> CVSS 3.1 base score 7.5): mapping a deeply nested object graph throws an uncatchable
+> `StackOverflowException` and terminates the process. The fix ships in AutoMapper `15.1.1` / `16.1.1`
+> — no `14.x` patch is planned — so remediation means moving to `>= 15.1.1` after compatibility and
+> license validation. That upgrade is owned by the runtime dependency workstream; this README
+> documents the risk only and changes no package version (AAP §0.9.2). The full dependency security
+> inventory — including the transitive MimeKit CRLF advisory reached through the Mail plugin's MailKit
+> — is in `LIBRARIES.md`, linked below.
+
 For the full repository dependency inventory, see [LIBRARIES.md](https://github.com/WebVella/WebVella-ERP/blob/master/LIBRARIES.md).
 
 ---

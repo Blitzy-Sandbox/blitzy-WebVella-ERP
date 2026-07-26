@@ -65,7 +65,7 @@ public Task OnMigrateAsync(IDbTransaction transaction);
 
 For the complete contract and lifecycle, see the canonical SDK reference: the [IErpPlugin contract](../../plugin-sdk/ierplugin-contract.md). To port a legacy plugin to `IErpPlugin`, follow the [migration guide](../../plugin-sdk/migrating-from-erpplugin.md).
 
-Source: /docs/developer/plugins/create-your-own.md (this page's pre-refactor revision documented the legacy base-class plugin model).
+Source: the legacy base-class plugin model — `SdkPlugin : ErpPlugin` overriding `Initialize(IServiceProvider)` — in `WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10,L15`.
 
 ## Components
 

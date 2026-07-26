@@ -1,7 +1,7 @@
 ﻿<!--{"sort_order":2, "name": "getting-started", "label": "Getting started"}-->
 # Getting started
 
-This guide onboards a developer to run WebVella ERP locally. The quickest way is with **Docker Compose** — the container-native stack — so you no longer need a desktop IDE or a hand-configured runtime. This page replaces the previous desktop-IDE setup instructions. Source: /docs/developer/introduction/getting-started.md (the drift being corrected).
+This guide onboards a developer to run WebVella ERP locally. The quickest way is with **Docker Compose** — the container-native stack — so you no longer need a desktop IDE or a hand-configured runtime. This page replaces the previous desktop-IDE setup instructions, which remain visible in this guide's pre-refactor revision in the project's version-control (Git) history.
 
 > **Planned (headless refactor — not yet implemented).** The per-service container images and the Compose file used below are the intended container-native target and are produced by the code/build workstream; not all of these assets exist in the checkout yet. The full topology, service roles, and their greenfield status are documented in [Docker Compose](../../deployment/docker-compose.md).
 

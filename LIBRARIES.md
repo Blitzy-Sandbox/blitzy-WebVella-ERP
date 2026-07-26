@@ -56,11 +56,29 @@ Domain and runtime libraries used by the core engine (`WebVella.Erp`), the web/h
 | WebVella.TagHelpers | `1.8.0` | Razor tag helpers for the admin UI | `WebVella.Erp.Web/WebVella.Erp.Web.csproj` |
 | MailKit | `4.14.1` | SMTP/IMAP email delivery (Mail plugin SMTP queue) | `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj` |
 
-> **Security note (MailKit `4.14.1`)** — the pinned version predates MailKit `4.16.0`, which fixes a
-> Moderate STARTTLS response-injection / SASL-downgrade advisory (GHSA-9j88-vvj5-vhgr /
-> CVE-2026-41319; CVSS 3.1 base score 6.5). Plan an upgrade to MailKit `>= 4.16.0` through the
+> **Security note (AutoMapper `[14.0.0]`)** — the pinned version is affected by a High-severity
+> Denial-of-Service advisory, GHSA-rvv3-g6hj-g44x / CVE-2026-32933 (CWE-674 Uncontrolled Recursion;
+> CVSS 3.1 base score 7.5). Mapping a deeply nested object graph recurses without a default depth
+> limit, throwing an uncatchable `StackOverflowException` that terminates the entire process; the
+> payload can arrive over the network (for example an API request body), needs no authentication, and
+> is low-complexity to construct. The fix ships in AutoMapper `15.1.1` and `16.1.1`; **no patch is
+> planned for the `14.x` line**, so remediation requires moving to `>= 15.1.1` (validate the license
+> terms of the fixed line before adopting) through the implementation workstream after compatibility
+> testing. This is documentation only — no package version is changed here (AAP §0.9.2).
+> Source: `WebVella.Erp/WebVella.Erp.csproj:L47`.
+>
+> **Security note (MailKit `4.14.1` and its transitive MimeKit)** — the pinned version predates
+> MailKit `4.16.0`, which fixes a Moderate STARTTLS response-injection / SASL-downgrade advisory
+> (GHSA-9j88-vvj5-vhgr / CVE-2026-41319; CVSS 3.1 base score 6.5). MailKit `4.14.1` also pulls in
+> **MimeKit `4.14.x` transitively**, which is affected by a separate Moderate CRLF-injection advisory,
+> GHSA-g7hc-96xr-gvvx / CVE-2026-30227 (CWE-93; CVSS 3.1 base score 6.9): a carriage-return/line-feed
+> embedded in a quoted SMTP local-part enables SMTP command injection and email forgery. MimeKit fixes
+> it in `4.15.1`, and upgrading MailKit to `>= 4.16.0` transitively raises MimeKit to a fixed line
+> (`>= 4.15.1`), remediating **both** advisories in a single step. Plan this upgrade through the
 > implementation workstream after compatibility validation; do not treat `4.14.1` as a secure,
-> canonical pin. Source: `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj`.
+> canonical pin. This is documentation only — no package version is changed here (AAP §0.9.2).
+> Source: `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj` (MimeKit is a transitive
+> dependency of MailKit).
 
 ## Authentication and web hosting (NuGet)
 

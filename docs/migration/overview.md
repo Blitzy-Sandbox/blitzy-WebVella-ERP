@@ -32,6 +32,8 @@ The diagram below contrasts the monolithic "before" hosting model with the propo
 
 ```mermaid
 graph TB
+    accTitle: Migration before and after topology
+    accDescr: Before, a monolith runs the RazorPages host and the Blazor WebAssembly client over the core engine and PostgreSQL using the legacy /api/v3 surface. After, a headless container-native target adds a React SPA, a REST API host on /api/v1, and a background worker over the unchanged core engine and unchanged PostgreSQL schema, with an OIDC identity provider still to be confirmed.
     subgraph Before["Before — Monolith (current/legacy hosts, still present)"]
         RP["RazorPages host<br/>WebVella.Erp.Web"]
         BZ["Blazor WebAssembly client<br/>WebVella.Erp.WebAssembly"]

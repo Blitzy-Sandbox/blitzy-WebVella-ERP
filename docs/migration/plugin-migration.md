@@ -45,6 +45,8 @@ The flow below is applied to **each** plugin — bundled or third-party — in o
 
 ```mermaid
 flowchart TD
+    accTitle: Plugin migration steps to the headless host
+    accDescr: Porting a legacy ErpPlugin proceeds by adding a PluginManifest that implements IErpPlugin, moving DI initialization into OnLoadAsync, moving endpoints into MapEndpoints, moving versioned patches into OnMigrateAsync, moving scheduled jobs to the worker host with scheduler to be confirmed, and packaging as a wvplugin so the plugin runs under the headless host.
     START["Legacy plugin (ErpPlugin + Initialize) — before"] --> M1["Add PluginManifest.cs : IErpPlugin"]
     M1 --> M2["Initialize DI -> OnLoadAsync(IServiceCollection)"]
     M2 --> M3["Endpoints -> MapEndpoints(IEndpointRouteBuilder)"]

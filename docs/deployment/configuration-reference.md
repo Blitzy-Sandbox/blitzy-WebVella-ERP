@@ -3,6 +3,8 @@
 
 > **Planned target — not yet implemented.** The container-native configuration model on this page (environment variables, Kubernetes Secrets, the `:` → `__` mapping, options validation / fail-fast, and the new OIDC / observability / worker / plugin keys) is the **proposed target** and **does not exist in the repository yet**. The current hosts read configuration **only** from a JSON file (`config.json`) via `AddJsonFile`; **no host registers an environment-variable configuration provider** (there is no `AddEnvironmentVariables` call anywhere in the codebase), so environment variables are **not** honored today. Source: /WebVella.Erp.Site/Startup.cs:L43 (`AddJsonFile(configPath)`); Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52 (`AddJsonFile` + `ErpSettings.Initialize`); Source: /WebVella.Erp.ConsoleApp/Program.cs:L40 (`AddJsonFile("config.json")`). The [Current configuration](#current-configuration-configjson) section below is verified against the code; the [Proposed container-native settings](#proposed-container-native-settings) section is design intent and marked **Not available / to be confirmed** where a value, key name, precedence rule, or validation behavior is undecided.
 
+<!-- -->
+
 > **No secrets in documentation (rule D).** Configuration is documented by **key name only**; this page never reproduces a literal secret value, connection string, key, or internal host/path — even where the committed sample `config.json` contains one. Placeholders such as `<DB_CONNECTION_STRING>`, `<ENCRYPTION_KEY>`, and `<JWT_SIGNING_KEY>` stand in for real values. **Secrets must be provided via a Secret (or environment variable, once an env-var provider exists) and must never be committed to source control.**
 
 ## Current configuration (`config.json`)

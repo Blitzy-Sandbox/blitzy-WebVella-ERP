@@ -62,6 +62,8 @@ The diagram contrasts the request path before (RazorPages UI, cookie auth) and a
 
 ```mermaid
 graph LR
+    accTitle: RazorPages to React SPA migration
+    accDescr: Before, a browser uses cshtml pages with cookie authentication, hooks, and a request context over the core engine entity, record, and EQL model. After, a React SPA fetches /api/v1 with a JWT bearer to WebVella.Erp.Api endpoints, hooks, and a request context over the same core engine, whose model is unchanged.
     subgraph Legacy["Before — RazorPages UI (WebVella.Erp.Web/Pages, present)"]
         L1["Browser"] --> L2[".cshtml + PageModel (cookie auth)"]
         L2 --> L3["Hooks / ErpRequestContext"]

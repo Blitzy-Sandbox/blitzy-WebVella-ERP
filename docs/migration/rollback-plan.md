@@ -13,15 +13,15 @@ This page deliberately does **not** repeat the plugin-host or migration internal
 
 ## Scenario 1 — plugin fails to load
 
-Under the proposed host, each plugin is loaded into its **own collectible `AssemblyLoadContext` (ALC)** so a faulty plugin can be unloaded without restarting the host — the design is documented in [Plugin Host](../architecture/plugin-host.md) and [AssemblyLoadContext hosting](../plugin-sdk/assemblyloadcontext-hosting.md) (proposed; Not available in code today). This differs from the legacy model (**before**): today a plugin is a Razor Class Library that derives from `ErpPlugin` and is initialised through `Initialize(IServiceProvider)` at startup, with every plugin sharing the single default load context and **no unload path**. Source: /docs/developer/plugins/overview.md:L4,L6.
+Under the proposed host, each plugin is loaded into its **own collectible `AssemblyLoadContext` (ALC)** for per-plugin assembly isolation — the design is documented in [Plugin Host](../architecture/plugin-host.md) and [AssemblyLoadContext hosting](../plugin-sdk/assemblyloadcontext-hosting.md) (proposed; Not available in code today). **Live, no-restart unload/hot-swap of an already-running plugin is itself Not available / to be confirmed**, because it depends on an unregister/dispose/request-draining cleanup contract that does not yet exist (see [Hot-swap and reload](../plugin-sdk/assemblyloadcontext-hosting.md#hot-swap-and-reload)); the steps below apply to a plugin that **fails during a load attempt** (so it never began serving) and to activation/replacement performed by a **process restart**. This differs from the legacy model (**before**): today a plugin is a Razor Class Library that derives from `ErpPlugin` and is initialised through `Initialize(IServiceProvider)` at startup, with every plugin sharing the single default load context and **no unload path**. Source: /docs/developer/plugins/overview.md:L4,L6.
 
 Planned rollback steps when a plugin fails to load (a bad `.wvplugin`, a missing dependency, an integrity/signature failure, or a throwing load lifecycle method). **Each step below is a target acceptance criterion the plugin host must satisfy — not current behaviour: the collectible-ALC host does not exist in this checkout, and the "Design intent:" links point to the proposed design docs, not to shipped code.**
 
 1. **Contain the fault.** The failure **must** be confined to that plugin's collectible ALC so the host does not abort. Design intent: /docs/architecture/plugin-host.md:L77-L81.
-2. **Unload the context.** The host **must** unload the faulty plugin's collectible ALC, releasing its assemblies. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L74-L92.
+2. **Discard the failed context.** For a plugin that **failed during load** (before it began serving), the host **must** release that plugin's collectible ALC and its assemblies. Reclaiming a context that had already started serving requires the cleanup/unregister/dispose/drain contract that is **Not available / to be confirmed**. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md#collectible-load-and-unload-proposed.
 3. **Skip and quarantine.** The plugin **must** be skipped and quarantined (moved out of the load path) so it is not retried on every start. Design intent: /docs/architecture/plugin-host.md:L56.
 4. **Keep serving.** The host process **must** stay available and continue serving the other, healthy plugins. Design intent: /docs/architecture/plugin-host.md:L77-L81.
-5. **Hot-swap safety.** When an *upgrade* fails to load, the previously loaded plugin version **should** remain active — the host swaps in the new context only once it loads cleanly. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L158.
+5. **Upgrade safety (restart-based).** Because live hot-swap is **Not available / to be confirmed**, an upgrade is staged and applied by a **process restart**: if the new `.wvplugin` fails to load on restart, the host **should** skip it (leaving the service running without that plugin) rather than crash, and the operator redeploys the last-good package. Design intent: /docs/plugin-sdk/assemblyloadcontext-hosting.md#hot-swap-and-reload.
 6. **Operator remediation.** After the operator fixes the cause, repackages the `.wvplugin`, and redeploys, the host **should** load the corrected package into a fresh collectible ALC on the next discovery pass. Design intent: /docs/architecture/plugin-host.md:L41-L47.
 
 > **Trust note.** A collectible ALC provides *dependency* isolation and an unload path — it is **not** a security sandbox; plugin code runs in-process with full host privileges. Source: /docs/plugin-sdk/assemblyloadcontext-hosting.md:L30-L31.
@@ -50,6 +50,8 @@ Some operational specifics of both rollback paths depend on platform decisions t
 
 ```mermaid
 flowchart TD
+    accTitle: Rollback scenarios for plugin load and database migration failures
+    accDescr: Scenario one loads a plugin into a collectible AssemblyLoadContext and, if the load fails, unloads the context and skips the plugin while the host keeps serving other plugins. Scenario two begins a migration transaction and, on failure, rolls back and exits non-zero so the operator restores the prior version and re-runs.
     subgraph Plugin["Scenario 1 — plugin load failure"]
         P1["Load plugin into collectible AssemblyLoadContext"] --> P2{"Load succeeded?"}
         P2 -->|"Yes"| P3["Plugin active"]

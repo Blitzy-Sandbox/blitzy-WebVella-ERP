@@ -13,8 +13,8 @@
 
 ---
 
-WebVella ERP 
-======
+# WebVella ERP
+
 **WebVella ERP** is a free and open-source web platform that targets extreme customization and pluggability in service of any business data-management needs. It is built upon our experience, best practices, and the newest available technologies.
 
 WebVella ERP is evolving into a **headless, container-native platform**. The product is being split into a REST/OpenAPI API host (`WebVella.Erp.Api`, serving `/api/v1/`), a React single-page-application client (`WebVella.Erp.Client`), and a background worker (`WebVella.Erp.Worker`) — all built on top of the unchanged core engine (`WebVella.Erp`) and PostgreSQL, and extended through a formal `IErpPlugin` plugin contract.
@@ -31,8 +31,9 @@ WebVella ERP is evolving into a **headless, container-native platform**. The pro
 
 The database of choice is **PostgreSQL**, and **Linux containers are the intended deployment target** — Docker Compose for local development and Kubernetes for production. The authoritative .NET target runtime is an open decision point — **Not available / to be confirmed** (.NET 9 vs .NET 10 / `net10.0`): the project manifests currently declare `net10.0` (see `WebVella.Erp/WebVella.Erp.csproj:L4`), which has not yet been reconciled with the earlier ".NET 9" references and will be confirmed before release.
 
-If you want this project to continue or just like it, we will greatly appreciate your support of the project by: 
-* giving it a "star" 
+If you want this project to continue or just like it, we will greatly appreciate your support of the project by:
+
+* giving it a "star"
 * contributing to the source
 * Become a Sponsor: Click on the Sponsor button and Thank you in advance
 
@@ -59,17 +60,17 @@ Related repositories
 
 [WebVella-TagHelpers](https://github.com/WebVella/TagHelpers)
 
-
 ### Third party libraries
+
 * see [LIBRARIES](LIBRARIES.md) files
 
-## License 
+## License
+
 * see [LICENSE](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt) file
 
 ## Contact
-#### Developer/Company
+
+### Developer/Company
+
 * Homepage: [webvella.com](http://webvella.com)
 * Twitter: [@webvella](https://twitter.com/webvella "webvella on twitter")
-
-
-

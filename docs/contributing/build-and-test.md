@@ -14,7 +14,7 @@ Install the tooling below before building. Configuration is supplied by environm
 | .NET SDK | Restores and builds the .NET solution. | Version **Not available / to be confirmed (.NET 9 vs net10.0)** — see the note below. |
 | Node.js + npm | Builds and runs the `WebVella.Erp.Client` React SPA. | Required only for the SPA workflow (AAP §0.4). |
 
-> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the refactor specification references ".NET 9"; the root README frames this as an open ".NET 9 vs net10.0" decision (`Source: /README.md:L32`). The authoritative target framework is therefore **to be confirmed (.NET 9 vs net10.0)** and must not be assumed.
+> **Note — the required .NET SDK is a decision point (rule F).** `global.json` exists but its SDK version pin is **commented out**, so no SDK version is currently enforced. `Source: /global.json` The core project targets `net10.0` (`Source: /WebVella.Erp/WebVella.Erp.csproj:L4`), while the refactor specification references ".NET 9"; the root README frames this as an open ".NET 9 vs net10.0" decision (`Source: /README.md:L32`). The authoritative target framework is therefore **Not available / to be confirmed (.NET 9 vs net10.0)** and must not be assumed; the missing authority is the project-wide target-framework decision, to be recorded by uncommenting the `global.json` SDK pin and reconciling it with the refactor specification.
 
 ## Build the solution
 

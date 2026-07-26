@@ -178,13 +178,6 @@ nav:
   - Contributing:
     - "Build & Test": contributing/build-and-test.md
     - Documentation: contributing/documentation.md
-# Documentation-build hook (MkDocs core `hooks:`, no extra dependency): copies the
-# repository-root `doc-images/` directory into the built site so the developer docs'
-# absolute `/doc-images/*.png` references resolve in a plain `mkdocs build` deployment.
-# `doc-images/` lives outside `docs_dir`, so MkDocs would otherwise leave it uncopied
-# and those screenshots would 404 (QA Issue #5). The hook is additive and idempotent.
-hooks:
-  - mkdocs_hooks.py
 plugins:
   # Enable techdocs-core's Material-native search instead of its default classic
   # MkDocs (lunr) search. With the default (`use_material_search: false`),
@@ -202,13 +195,10 @@ plugins:
   - techdocs-core:
       use_material_search: true
   - mermaid2:
-      # Pin Mermaid and serve it from a locally bundled copy under docs/assets/mermaid/
-      # so diagrams render in the container-native / air-gapped target with no CDN dependency
-      # (AAP §0.7.1 "bundle Mermaid locally"). The single self-contained UMD build exposes a
-      # global `mermaid`, so mermaid2 loads it via a classic <script src> tag and calls
-      # mermaid.initialize(), avoiding the ESM startOnLoad race.
+      # Pin the Mermaid runtime version that the mermaid2 plugin loads (served from the
+      # plugin's default CDN for that version). No repository-bundled Mermaid copy is
+      # referenced, so the documentation build depends on no committed Mermaid asset.
       version: 11.16.0
-      javascript: assets/mermaid/mermaid.min.js
 # Register a superfences custom fence for ```mermaid so techdocs-core's bundled
 # pymdownx.superfences no longer emits a highlighted code block for it. Using
 # mermaid2.fence_mermaid emits <div class="mermaid"> (mermaid2's own marker), which the

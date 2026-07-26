@@ -1,0 +1,17 @@
+# Documentation toolchain — top-level pins (input to pip-compile).
+#
+# This file lists the DIRECT documentation-build dependencies for the MkDocs +
+# Backstage TechDocs site. Exact, fully-resolved, hash-pinned versions are
+# generated into requirements-docs.txt via:
+#
+#     pip-compile --generate-hashes --output-file=requirements-docs.txt requirements-docs.in
+#
+# The Documentation CI workflow (.github/workflows/docs.yml) installs the
+# compiled, hashed requirements-docs.txt so every build resolves the identical
+# dependency tree (supply-chain determinism — see review finding P7-2).
+#
+# techdocs-core >= 1.0.2 is required for correct Mermaid rendering; 1.7.0 is the
+# version validated against this repository's docs set.
+
+mkdocs-techdocs-core==1.7.0
+mkdocs-mermaid2-plugin==1.2.3

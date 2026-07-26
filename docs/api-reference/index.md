@@ -75,6 +75,8 @@ In the target design, an authenticated request would first pass JWT bearer valid
 
 ```mermaid
 sequenceDiagram
+    accTitle: General /api/v1 request pipeline
+    accDescr: A client calls an /api/v1 endpoint with a bearer token, the API validates the JWT and maps claims to roles and permissions, dispatches to an in-process RecordManager or EntityManager that runs within an Npgsql transaction against PostgreSQL, and returns a JSON response envelope carrying success, message, timestamp, errors, and object fields.
     participant C as Client
     participant API as API (WebVella.Erp.Api)
     participant Auth as Auth (JWT Bearer)

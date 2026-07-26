@@ -2,8 +2,9 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: blitzy-WebVella-ERP
-  description: WebVella ERP headless, container-native platform — headless REST API, React SPA,
-    background worker, and IErpPlugin plugin model
+  description: WebVella ERP — a legacy ASP.NET Core ERP solution being modernized toward a
+    planned headless, container-native architecture (a REST/OpenAPI API host, a React SPA,
+    a background worker, and an IErpPlugin plugin model), none of which exist in this checkout yet
   tags:
   - audit
   - csharp
@@ -36,31 +37,3 @@ spec:
   lifecycle: experimental
   owner: blitzy-sandbox
   system: blitzy-dotnet
-  # Links this Component to the OpenAPI API entity declared in the second document below,
-  # so Backstage surfaces the /api/v1/ contract on this component's page (AAP §0.6.4).
-  providesApis:
-  - blitzy-webvella-erp-api
----
-# ---------------------------------------------------------------------------------------------
-# OpenAPI API entity for the new headless REST surface (WebVella.Erp.Api, /api/v1/).
-# Optional-but-recommended registration per AAP §0.6.4 so the generated OpenAPI 3.1 contract is
-# surfaced in Backstage and linked from the Component above via spec.providesApis.
-# ---------------------------------------------------------------------------------------------
-apiVersion: backstage.io/v1alpha1
-kind: API
-metadata:
-  name: blitzy-webvella-erp-api
-  description: WebVella ERP headless REST API (/api/v1/) — OpenAPI 3.1 contract for records,
-    entities, EQL, and files
-spec:
-  type: openapi
-  lifecycle: experimental
-  owner: blitzy-sandbox
-  system: blitzy-dotnet
-  # The OpenAPI 3.1 document is auto-generated and served at /openapi/v1.json by the
-  # WebVella.Erp.Api host (via Microsoft.AspNetCore.OpenApi) and published to ./openapi/v1.json
-  # by that implementation workstream (AAP §0.5.2, §0.10.1). Note: this artifact is NOT present
-  # in the current checkout — the /api/v1/ host is the planned target built separately
-  # (Source: WebVella.Erp.Api/README.md, "Status — planned target"). Path per AAP: ./openapi/v1.json.
-  definition:
-    $text: ./openapi/v1.json

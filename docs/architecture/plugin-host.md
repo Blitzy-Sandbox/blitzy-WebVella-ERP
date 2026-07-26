@@ -44,7 +44,7 @@ At startup the host **would** scan a configured plugin directory and treat every
 
 ### Planned loading and isolation
 
-Each discovered plugin **would** be loaded into its own **collectible** `AssemblyLoadContext` (ALC) so that a plugin's private dependencies resolve inside that plugin's context and the host can unload or hot-swap it without a process restart. The shared contract type `IErpPlugin` **would** be provided by the host's default context so host and plugins agree on one interface type. This is a departure from the current model (Razor Class Libraries in a single context with no unload path). All of this is **Not available**: there is no `AssemblyLoadContext` usage in the code today. The intended runtime mechanics are described in [AssemblyLoadContext hosting](../plugin-sdk/assemblyloadcontext-hosting.md).
+Each discovered plugin **would** be loaded into its own **collectible** `AssemblyLoadContext` (ALC) so that a plugin's private dependencies resolve inside that plugin's context. The shared contract type `IErpPlugin` **would** be provided by the host's default context so host and plugins agree on one interface type. This is a departure from the current model (Razor Class Libraries in a single context with no unload path). Collectibility is a *necessary* precondition for unloading, but it is **not sufficient**: **live (no-restart) unload and hot-swap are Not available / to be confirmed**, because the host would also register a plugin's DI service descriptors, endpoint delegates/data sources, hooks, and jobs into host-owned structures, and those references keep the plugin's context alive. Reclaiming a context therefore requires an unregister/dispose/request-draining contract that does not exist and has not been designed; **until it does, plugin activation and removal are performed by a process restart.** All of this is **Not available**: there is no `AssemblyLoadContext` usage in the code today. The intended runtime mechanics — and the exact cleanup contract that no-restart replacement would require — are described in [AssemblyLoadContext hosting](../plugin-sdk/assemblyloadcontext-hosting.md).
 
 > **Trust boundary — a collectible `AssemblyLoadContext` is NOT a security sandbox.** An ALC provides *dependency* isolation (separate assembly resolution and an unload path); it does **not** confine what a loaded plugin can do. A plugin's code runs **in-process with full host privileges** — it can read host memory, open sockets, touch the file system, and call any loaded assembly. Loading a plugin is therefore equivalent to deploying trusted server code, and the host **must** enforce a supply-chain trust model that does not exist yet. The planned controls (all **Not available** until the host is built) are:
 >
@@ -78,7 +78,12 @@ Whether the target host owns a **single cross-plugin** transaction or preserves 
 
 **Current:** a plugin failure during `Initialize` rolls back only **that plugin's own** transaction and rethrows; earlier plugins that already committed are unaffected. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin._.cs:L158-L161.
 
-**Planned:** the host **would** contain a plugin failure to that plugin's collectible context — rolling back its migration (per the pending rules above) and unloading its ALC so the host process stays available. This is **Not available** (no collectible-context loader exists). The operator-facing recovery procedure is documented in the [Rollback plan](../migration/rollback-plan.md).
+**Planned:** the host **would** try to contain a plugin failure to that plugin's collectible context, but recoverability depends on **whether the migration transaction has already committed** — there is **no** all-or-nothing guarantee across that boundary:
+
+- **Pre-commit failure** (assembly resolution, `OnLoadAsync`, or `OnMigrateAsync` throwing before commit) — the migration is rolled back so nothing durable is written, and the plugin's ALC is unloaded; the host process stays available.
+- **Post-commit failure** (a failure in `MapEndpoints`, or anywhere after the transaction commits, given the proposed commit-before-mapping order) — the committed schema **stays applied and is not rolled back**; the host can only withhold the plugin's endpoints. Recovery requires **forward compensation** or operator action, not an automatic rollback.
+
+This is **Not available** (no collectible-context loader exists), and the exact ownership/order/scope remain pending per the rules above. The operator-facing recovery procedure is documented in the [Rollback plan](../migration/rollback-plan.md).
 
 ## Planned load sequence
 
@@ -86,6 +91,8 @@ The sequence below is the **planned** end-to-end path for a single plugin. It is
 
 ```mermaid
 sequenceDiagram
+    accTitle: Planned plugin host load and migration sequence
+    accDescr: The planned plugin host discovers and verifies a wvplugin package, loads its assemblies into a collectible AssemblyLoadContext, resolves the IErpPlugin instance, calls OnLoadAsync, begins a transaction, and calls OnMigrateAsync. On success it commits and calls MapEndpoints, and on migration failure it rolls back and unloads the collectible context. Transaction ownership, commit ordering, and rollback scope are marked pending.
     participant Host as Plugin host (planned)
     participant ALC as AssemblyLoadContext (collectible, planned)
     participant Plugin as IErpPlugin (planned)

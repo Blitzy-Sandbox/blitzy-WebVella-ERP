@@ -179,6 +179,8 @@ for the current transaction-scoping details.
 
 ```mermaid
 flowchart TD
+    accTitle: OnMigrateAsync versioned patch loop
+    accDescr: The host begins a load transaction and reads the installed plugin version, then while a newer patch is pending it applies the next patch on the transaction and advances the installed version. When no patch remains it persists the installed version and the host commits. A throw while applying a patch or persisting the version rolls back and rethrows.
     A([Host begins load transaction]) --> B[Read installed plugin version]
     B --> C{Newer patch pending?}
     C -->|yes| E[Apply next patch on IDbTransaction]

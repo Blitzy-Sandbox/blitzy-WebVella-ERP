@@ -70,6 +70,8 @@ The diagram shows the **planned** correlation-ID flow and export paths. Browserâ
 
 ```mermaid
 flowchart LR
+    accTitle: Observability signal flow to the OpenTelemetry collector
+    accDescr: The planned SPA sends a correlation id header to the planned API, which validates and propagates it to the planned worker. The API and worker export JSON logs and OTLP traces to an OpenTelemetry collector, while browser telemetry from the SPA to the collector remains pending authenticated and CORS handling.
     SPA["WebVella.Erp.Client (SPA, planned)"] -->|"correlation id (header)"| API["WebVella.Erp.Api (planned)"]
     API -->|"validate + propagate"| WORK["WebVella.Erp.Worker (planned)"]
     API -->|"JSON logs + traces (OTLP)"| COL["OpenTelemetry collector"]

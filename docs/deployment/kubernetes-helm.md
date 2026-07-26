@@ -12,6 +12,8 @@ The `api` Service is exposed through a TLS Ingress; both the `api` and `worker` 
 
 ```mermaid
 graph TB
+    accTitle: Kubernetes and Helm deployment layout
+    accDescr: A TLS ingress routes to the api service and api deployment inside the webvella-erp namespace. The api and worker deployments reach an external PostgreSQL over Npgsql, a migrator job applies the schema, non-secret keys come from a ConfigMap while secret keys come from a Secret referenced by name, and the api validates JWTs against the pending OIDC provider.
     ingress["Ingress (TLS)"]
     subgraph ns["Namespace: webvella-erp"]
         apisvc["Service: api"]

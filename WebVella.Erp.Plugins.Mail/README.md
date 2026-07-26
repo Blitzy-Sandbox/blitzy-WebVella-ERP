@@ -19,7 +19,7 @@ The Mail plugin provides **email sending** and an **SMTP outbox/queue** for WebV
 
 ## How to build, run and test
 
-- **Project type.** A Razor SDK class library — `Microsoft.NET.Sdk.Razor`, `<TargetFramework>net10.0</TargetFramework>`, `AddRazorSupportForMvc=true`. `Source: /WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj:L1,L4,L5` (The target framework is `net10.0` in code while the specification references ".NET 9"; the authoritative target is to be confirmed.)
+- **Project type.** A Razor SDK class library — `Microsoft.NET.Sdk.Razor`, `<TargetFramework>net10.0</TargetFramework>`, `AddRazorSupportForMvc=true`. `Source: /WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj:L1,L4,L5` (The target framework is `net10.0` in code while the specification references ".NET 9"; the authoritative platform-wide target framework is **Not available / to be confirmed**. The missing authority is a project-wide target-framework decision, to be pinned in the refactor specification and the solution build configuration (`global.json`); until then this README documents the value the `.csproj` declares.)
 - **Build.** Build as part of the solution:
 
   ```bash

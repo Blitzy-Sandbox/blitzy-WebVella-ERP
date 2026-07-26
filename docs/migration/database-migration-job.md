@@ -75,6 +75,8 @@ The diagram is the **proposed** flow for the not-yet-built `migrator` service:
 
 ```mermaid
 flowchart TD
+    accTitle: Database migration job flow with commit or rollback
+    accDescr: The proposed migrator service starts, connects to PostgreSQL using an environment-variable connection, begins a single cross-plugin transaction, and applies versioned patches through each plugin OnMigrateAsync. If all patches succeed it commits and exits zero so the api and worker start, otherwise it rolls back and exits non-zero, which blocks startup.
     A["migrator service starts (proposed)"] --> B["Connect to PostgreSQL (env-var connection)"]
     B --> C["BeginTransaction() (single, cross-plugin)"]
     C --> D["Apply versioned patches / OnMigrateAsync(IDbTransaction) per plugin"]

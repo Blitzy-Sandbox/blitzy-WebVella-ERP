@@ -12,6 +12,8 @@ The Compose project **will wire** five services on one network — this is the i
 
 ```mermaid
 graph TB
+    accTitle: Docker Compose service topology
+    accDescr: A browser or SPA client reaches the api service over HTTPS with a JWT and logs in through the idp service. The api validates JWTs with the idp and talks to the db over Npgsql, the worker also uses the db, the one-shot migrator applies the schema, and both api and worker start after the migrator completes.
     browser["Browser / SPA client"]
     subgraph compose["Docker Compose network"]
         api["api (WebVella.Erp.Api)<br/>/api/v1, /openapi/v1.json, /scalar"]

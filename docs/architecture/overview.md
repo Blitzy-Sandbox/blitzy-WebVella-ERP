@@ -33,6 +33,8 @@ The C4-style component diagram below shows how the client, service, and data tie
 
 ```mermaid
 graph LR
+    accTitle: Headless platform component overview
+    accDescr: A planned React SPA logs in through an external OIDC identity provider and calls the planned REST API host over HTTPS with a JWT bearer. The API validates tokens issued by the identity provider, and both the API and the planned background worker call the present core engine, which reaches PostgreSQL through Npgsql.
     subgraph ClientTier["Client tier (planned)"]
         SPA["React SPA (planned)<br/>WebVella.Erp.Client"]
     end

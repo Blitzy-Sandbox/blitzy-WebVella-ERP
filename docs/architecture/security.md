@@ -8,7 +8,7 @@ The target design authenticates users through **OpenID Connect (OIDC)** at an ex
 
 ## Current state — legacy `WebVella.Erp.Site` host (verified)
 
-The retired site host configures a `JWT_OR_COOKIE` policy scheme that forwards to JWT bearer **only when an `Authorization: Bearer ` header is present**, and otherwise falls back to the `erp_auth_base` cookie. Source: /WebVella.Erp.Site/Startup.cs:L90-L91,L96,L115-L125. Its JWT bearer validation enables issuer, audience, lifetime, and signing-key checks and — critically — validates the signature with a **symmetric** key read from `Settings:Jwt:Key`:
+The retired site host configures a `JWT_OR_COOKIE` policy scheme that forwards to JWT bearer **only when an `Authorization: Bearer` header is present**, and otherwise falls back to the `erp_auth_base` cookie. Source: /WebVella.Erp.Site/Startup.cs:L90-L91,L96,L115-L125. Its JWT bearer validation enables issuer, audience, lifetime, and signing-key checks and — critically — validates the signature with a **symmetric** key read from `Settings:Jwt:Key`:
 
 | Legacy validated element | Legacy config key | Note |
 |--------------------------|-------------------|------|
@@ -20,6 +20,8 @@ The retired site host configures a `JWT_OR_COOKIE` policy scheme that forwards t
 Source: /WebVella.Erp.Site/Startup.cs:L102-L114 (`AddJwtBearer` with `ValidateIssuer` / `ValidateAudience` / `ValidateLifetime` / `ValidateIssuerSigningKey = true`).
 
 > **Rule D — no secrets.** The signing key is referenced only by its configuration **key name**, `Settings:Jwt:Key`; its value is a secret and is never reproduced in documentation, logs, or examples (the sample value in `WebVella.Erp.Site/JWT_README.txt` is illustrative only and must never be used in any real deployment). Supply it through an environment variable or a Kubernetes Secret — see the [Configuration reference](../deployment/configuration-reference.md).
+
+<!-- -->
 
 > **Why the legacy JWT settings do NOT define the target model.** The legacy host validates tokens it **issues itself** with a **symmetric** key (`Settings:Jwt:Key`) and its own `webvella-erp` issuer/audience. An external OIDC provider signs tokens with its **own asymmetric keys** (published via JWKS) and its **own** issuer and audience. The target `/api/v1/` validation parameters are therefore **Not available / to be confirmed** and must be derived from the chosen provider — they are **not** the legacy symmetric-key settings above.
 
@@ -64,6 +66,8 @@ The sequence traces the planned OIDC authorization-code + PKCE login, code excha
 
 ```mermaid
 sequenceDiagram
+    accTitle: Authentication and authorization flow for the headless platform
+    accDescr: A user opens the planned SPA, which performs an authorization-code plus PKCE login against the pending OIDC provider and exchanges the code without a client secret for ID and access tokens. The SPA then calls the planned API with a bearer JWT, the API validates issuer, audience, lifetime, and signature via provider JWKS, maps claims to WebVella roles and permissions, and returns 200, 401, or 403 without sensitive detail.
     participant User as User (browser)
     participant SPA as WebVella.Erp.Client (public client, planned)
     participant IdP as Identity provider (OIDC, provider pending)

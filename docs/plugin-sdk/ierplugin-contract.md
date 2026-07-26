@@ -17,12 +17,17 @@
 
 In the proposed headless model, a **plugin** would be a class that implements an
 `IErpPlugin` interface owned by the `WebVella.Erp.Plugins.SDK` project. The plugin
-host would discover each plugin from a packaged `.wvplugin` artifact, load it into
-a collectible `AssemblyLoadContext`, and be able to reload it without restarting
-the process. The proposed contract exposes **three lifecycle methods** —
-`OnLoadAsync`, `OnMigrateAsync`, and `MapEndpoints`. Their exact signatures and the
-host's invocation order are **Not available / to be confirmed** until the interface
-and host exist.
+host would discover each plugin from a packaged `.wvplugin` artifact and load it
+into a collectible `AssemblyLoadContext`. Collectibility is intended to enable
+per-plugin assembly isolation; **live, no-restart reload/hot-swap is Not available /
+to be confirmed** and depends on an unregister/dispose/request-draining contract that
+does not yet exist, so plugin activation and removal are documented as a **process
+restart** (see
+[assemblyloadcontext-hosting.md](assemblyloadcontext-hosting.md#hot-swap-and-reload)).
+The proposed contract exposes **three lifecycle methods** — `OnLoadAsync`,
+`OnMigrateAsync`, and `MapEndpoints`. Their exact signatures and the host's
+invocation order are **Not available / to be confirmed** until the interface and host
+exist.
 
 This composition-based contract is proposed to **replace** the legacy plugin model,
 in which a plugin inherits the `ErpPlugin` base class (`public partial class
@@ -67,6 +72,10 @@ time:
 > particular whether endpoint mapping runs **before or after** the migration
 > transaction is committed — is **Not available / to be confirmed** until the host
 > defines it (see [Transaction behavior](#transaction-behavior-current-vs-target)).
+> Because the proposed order maps endpoints **after** the migration commits, a
+> failure in `MapEndpoints` would be **post-commit** and could **not** roll back the
+> committed schema; this contract therefore makes **no** all-or-nothing guarantee
+> across the commit boundary.
 
 ## Lifecycle methods
 
@@ -246,10 +255,17 @@ Source (legacy): /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L13 (`Name ... = "sdk"`)
 
 The proposed host would load each plugin into a collectible `AssemblyLoadContext`,
 then drive the three lifecycle methods. The diagram below is an **illustrative
-design sketch**; the commit/mapping order is Not available / to be confirmed:
+design sketch**; the commit/mapping order is Not available / to be confirmed. Note
+that in this sketch the migration transaction **commits before** `MapEndpoints`
+runs, so a `MapEndpoints` failure is **post-commit** and **cannot** roll back the
+committed schema — there is **no** all-or-nothing guarantee across the commit
+boundary (see [Transaction behavior](#transaction-behavior-current-vs-target) and the
+[failure handling](assemblyloadcontext-hosting.md#failure-handling-proposed) table):
 
 ```mermaid
 sequenceDiagram
+    accTitle: IErpPlugin load and migration sequence
+    accDescr: The proposed host discovers a wvplugin, loads assemblies into a collectible AssemblyLoadContext, resolves the IErpPlugin instance, calls OnLoadAsync, begins a transaction, and calls OnMigrateAsync to apply versioned patches. On a pre-commit success it commits and calls MapEndpoints, where a later mapping failure is post-commit so the schema stays applied and endpoints are withheld without rollback. If migration throws pre-commit, the host rolls back and unloads the collectible context so nothing durable remains.
     participant Host as Plugin Host (proposed)
     participant ALC as AssemblyLoadContext (collectible)
     participant Plugin as IErpPlugin (proposed)
@@ -261,10 +277,17 @@ sequenceDiagram
     Host->>DB: Begin transaction
     Host->>Plugin: OnMigrateAsync(IDbTransaction)
     Plugin->>DB: Apply versioned patches
-    Host->>DB: Commit (or Rollback on error)
-    Host->>Plugin: MapEndpoints(IEndpointRouteBuilder)
+    alt Migration OK (pre-commit)
+        Host->>DB: Commit
+        Host->>Plugin: MapEndpoints(IEndpointRouteBuilder)
+        Note over Host,DB: MapEndpoints failure here is post-commit — schema stays applied, endpoints withheld, no rollback
+    else Migration throws (pre-commit)
+        Host->>DB: Rollback
+        Note over Host,ALC: Rollback done, collectible ALC unloaded, nothing durable remains
+    end
 ```
 
-*Proposed plugin load sequence via a collectible `AssemblyLoadContext`. See
-[../architecture/plugin-host.md](../architecture/plugin-host.md) for the full
-(proposed) host design.*
+*Proposed plugin load sequence via a collectible `AssemblyLoadContext`. Pre-commit
+failures roll back; a post-commit `MapEndpoints` failure leaves the committed schema
+in place. See [../architecture/plugin-host.md](../architecture/plugin-host.md) for the
+full (proposed) host design.*

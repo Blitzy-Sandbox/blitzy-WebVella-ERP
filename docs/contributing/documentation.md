@@ -61,6 +61,8 @@ Author diagrams inline as fenced `mermaid` code blocks; the `mermaid2` plugin re
 
 ```mermaid
 graph LR
+    accTitle: Minimal example architecture diagram
+    accDescr: A small example flow used to illustrate Mermaid authoring, showing a React SPA calling a REST API that reads from PostgreSQL.
     SPA["React SPA"] --> API["REST API"] --> DB["PostgreSQL"]
 ```
 

@@ -1,4 +1,4 @@
-<!--{"sort_order":2, "name": "icodevariable-adapter", "label": "ICodeVariable Adapter"}-->
+﻿<!--{"sort_order":2, "name": "icodevariable-adapter", "label": "ICodeVariable Adapter"}-->
 
 # The ICodeVariable / BaseErpPageModel Adapter
 
@@ -37,7 +37,7 @@ pageModel = baseErpPageMode.DataModel;                    // used for component 
 // CodeEvalService.Evaluate(sourceCode, baseErpPageMode).
 ```
 
-The evaluation entry point does not change: the synthesized model is handed to the same `CodeEvalService.Evaluate(sourceCode, pageModel)` used everywhere else. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L51-L54. Snippets are compiled to an `ICodeVariable` via CS-Script and cached, so a given snippet compiles once and then runs identically regardless of how the `pageModel` was produced. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L44-L47.
+The evaluation entry point does not change: the synthesized model is handed to the same `CodeEvalService.Evaluate(sourceCode, pageModel)` used everywhere else. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L51-L54. Snippets are compiled to an `ICodeVariable` via CS-Script and cached, so a given snippet compiles once and then runs identically regardless of how the `pageModel` was produced. The cache is a `static` dictionary keyed on the snippet source string; the first call compiles the snippet and stores it, and every later call with the same source returns the cached `ICodeVariable` without recompiling. Source: /WebVella.Erp.Web/Services/CodeEvalService.cs:L13 (the `scriptObjects` cache), L33-L34 (cache-hit fast path returns the cached instance without recompiling), L45-L46 (first call compiles via `LoadCode` and stores the result).
 
 ### What the helper maps, and what it leaves unset
 
@@ -45,14 +45,14 @@ The helper sets **eight** members and leaves everything else at its field defaul
 
 | BaseErpPageModel member | Set by `CreatePageModelSimulation`? | Detail (Source) |
 |-------------------------|-------------------------------------|-----------------|
-| `ErpRequestContext` | ✅ set | assigned from the `erpRequestContext` argument. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L410 |
-| `CurrentUser` (backing `currentUser`) | ✅ set | assigned from the `currentUser` argument (the caller passes `AuthService.GetUser(User)`); the lazy `User`-based resolver at L21-L30 is bypassed. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L411,L20-L30 |
-| `AppName` | ✅ set | `erpRequestContext.App?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L412 |
-| `AreaName` | ✅ set | `erpRequestContext.SitemapArea?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L413 |
-| `NodeName` | ✅ set | `erpRequestContext.SitemapNode?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L414 |
-| `PageName` | ✅ set | `erpRequestContext.Page?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L415 |
-| `RecordId` | ✅ set | `erpRequestContext.RecordId`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L416 |
-| `DataModel` | ✅ set | `new PageDataModel(pageModel)`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L417 |
+| `ErpRequestContext` | ✅ set | assigned from the `erpRequestContext` argument. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L409 |
+| `CurrentUser` (backing `currentUser`) | ✅ set | assigned from the `currentUser` argument (the caller passes `AuthService.GetUser(User)`); the lazy `User`-based resolver at L21-L30 is bypassed. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L410,L20-L30 |
+| `AppName` | ✅ set | `erpRequestContext.App?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L411 |
+| `AreaName` | ✅ set | `erpRequestContext.SitemapArea?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L412 |
+| `NodeName` | ✅ set | `erpRequestContext.SitemapNode?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L413 |
+| `PageName` | ✅ set | `erpRequestContext.Page?.Name` else `""`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L414 |
+| `RecordId` | ✅ set | `erpRequestContext.RecordId`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L415 |
+| `DataModel` | ✅ set | `new PageDataModel(pageModel)`. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L416 |
 | `RelationId`, `ParentRecordId` | ❌ **unset** (null) | not copied, even though `ErpRequestContext` carries them (/WebVella.Erp.Web/ErpRequestContext.cs:L39,L41). Page-model fields stay null. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L48,L51 |
 | `ErpAppContext` | ❌ **unset** (null) | never assigned by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L57 |
 | `ToolbarMenu`, `SidebarMenu`, `SiteMenu`, `ApplicationMenu`, `UserMenu` | ❌ **unset** (empty lists) | populated only by page navigation, not by the helper. /WebVella.Erp.Web/Models/BaseErpPageModel.cs:L61-L69 |
@@ -67,7 +67,7 @@ Code variables are **not** end-user input: they are administrator-authored serve
 Consequences that the shim does **not** change and must be governed operationally:
 
 - **No isolation from page-model adaptation.** Synthesizing a `BaseErpPageModel` (by `CreatePageModelSimulation` or any future adapter) provides **no** security boundary; it only changes what data the snippet reads. It does not restrict what the snippet can execute.
-- **Authoring must be authorized and audited.** Only trusted administrators may create or edit code variables; treat the snippet body as privileged code entering the trust boundary. Editing surfaces are administrator-gated (the admin controllers require `[Authorize(Roles = "administrator")]`). Source: /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L53.
+- **Authoring is *not* administrator-gated today — a security gap.** Because a code variable is privileged in-process code, only trusted administrators *should* be able to submit or compile one. In this checkout that restriction is **absent**: the compile/test entry point `WebApiController.DataSourceAction` (`POST api/v3.0/datasource/code-compile`) carries only the controller's class-level `[Authorize]` — authentication with **no role requirement** — so **any authenticated user** can POST arbitrary C# to `CodeEvalService.Compile`, which compiles it in-process with `ReferenceDomainAssemblies` enabled. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L36 (class-level `[Authorize]`), L494-L509 (`DataSourceAction` → `CodeEvalService.Compile(model.CsCode)`). The `[Authorize(Roles = "administrator")]` attribute in the SDK admin controller gates an **unrelated** surface (sitemap-area management, `CreateSitemapArea`), **not** code-variable authoring, so it must not be cited as the authorization control for this trust boundary. Source: /WebVella.Erp.Plugins.SDK/Controllers/AdminController.cs:L53-L56. **This is a source-side authorization gap owned by the API/host implementation workstream** (restrict the compile/evaluate surface to the administrator role, or remove it from the general authenticated surface); it is recorded here as evidence (rule F) and is out of scope for this documentation-only workstream (AAP §0.9.2).
 - **Failure propagation.** A thrown snippet exception either becomes `null` or propagates depending on the caller's `SafeCodeDataVariable` flag — the "safe" path catches and yields `null` (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L433,L454), the default path propagates (Source: /WebVella.Erp.Web/Models/PageDataModel.cs:L437,L472).
 - **Host impact.** Because execution is in-process, a snippet can consume host resources, block, or fault the host; there is no per-snippet resource or permission limit.
 
@@ -100,6 +100,8 @@ The diagram contrasts how a `BaseErpPageModel` reaches `ICodeVariable.Evaluate`:
 
 ```mermaid
 graph TB
+    accTitle: ICodeVariable evaluation across legacy, current, and planned hosting paths
+    accDescr: Three request paths all converge on the unchanged ICodeVariable.Evaluate call. The legacy RazorPages host builds a full BaseErpPageModel through model binding. The existing checkout helper posts to a WebApiController route, builds a request context, and simulates a page model with eight members set. The planned /api/v1 adapter would build a request context from a token principal and extend that simulation, deciding each currently unset member.
     subgraph Before["RazorPages page render (legacy host)"]
         R1["Browser request to a RazorPage"] --> R2["RazorPages model binding builds<br/>BaseErpPageModel : PageModel (all members)"]
         R2 --> R3["CodeEvalService.Evaluate(source, pageModel)"]

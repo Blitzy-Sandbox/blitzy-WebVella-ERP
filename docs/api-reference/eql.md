@@ -88,6 +88,8 @@ The request pipeline for an EQL query is:
 
 ```mermaid
 sequenceDiagram
+    accTitle: EQL query request flow from client to PostgreSQL
+    accDescr: A client posts an EQL SELECT statement to /api/v1/eql with a bearer token, the API validates the JWT and resolves per-entity permissions, the Irony parser returns a validated query model, RecordManager executes it as SQL over an Npgsql transaction against PostgreSQL, and the resulting record tree is returned as a JSON response envelope.
     participant C as Client
     participant API as API (WebVella.Erp.Api)
     participant Auth as Auth (JWT Bearer)

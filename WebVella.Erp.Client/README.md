@@ -95,7 +95,7 @@ Configuration is provided as **environment variables**. Vite exposes variables t
 | `VITE_OIDC_POST_LOGOUT_REDIRECT_URI` | Post-logout redirect URI | `https://localhost:5173/` |
 | `VITE_OIDC_SCOPE` | Requested OIDC scopes | `openid profile ...` |
 
-The exact final variable names are owned by the SPA implementation workstream; treat the names above as the intended contract and **to be confirmed** where precision is required.
+The exact final variable names are **Not available / to be confirmed**: they are owned by the **SPA implementation workstream** — the `WebVella.Erp.Client` build that introduces the SPA's `package.json`, Vite configuration, and OIDC client wiring, none of which exist in this checkout yet. Treat the names above as the intended contract until that workstream pins them.
 
 ### No secrets in the SPA
 

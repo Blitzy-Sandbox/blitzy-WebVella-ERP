@@ -68,6 +68,8 @@ The diagram shows the **current** transaction-boundary calls, which are real and
 
 ```mermaid
 sequenceDiagram
+    accTitle: Data-access transaction scoping with commit or rollback
+    accDescr: A caller opens an Npgsql connection and begins a transaction, RecordManager creates or updates a record using the ambient database context and executes SQL against PostgreSQL, and the caller commits the transaction on success or rolls it back on error.
     participant Caller as Caller / unit of work
     participant RM as RecordManager
     participant Conn as DbConnection (Npgsql)

@@ -47,10 +47,12 @@ A representative `.wvplugin` package would have the top-level layout below. This
 layout is **proposed** and Not available / to be confirmed; the verified items are
 the current SDK project's embedded-resource and package settings, cited per line.
 
-<i class="fa fa-fw fa-folder go-orange"></i> assemblies <br/>
-<i class="fa fa-fw fa-folder go-orange"></i> static <br/>
-<i class="fa fa-fw fa-file-code go-blue"></i> WebVella.Erp.Plugins.PluginName.dll <br/>
-<i class="fa fa-fw fa-file-code go-blue"></i> README.md
+```text
+assemblies/                             # folder
+static/                                 # folder
+WebVella.Erp.Plugins.PluginName.dll     # file
+README.md                               # file
+```
 
 - **`WebVella.Erp.Plugins.PluginName.dll`** — the compiled plugin assembly, which
   would carry the `PluginManifest` (`IErpPlugin`) implementation the host resolves.

@@ -11,6 +11,8 @@ engine and supersedes the retired RazorPages/cookie hosting model.
 > the new **host project** of the same name — the REST/OpenAPI application — not that pre-existing
 > namespace. `Source: /WebVella.Erp/Api/RecordManager.cs` (declares `namespace WebVella.Erp.Api`).
 
+<!-- -->
+
 > **Status — planned target.** This host project is the **planned headless target**; its
 > `/api/v1/` surface **does not exist in the current checkout** and is built by a separate
 > implementation workstream. `Source: AAP §0.9.2`. The sibling references document the same

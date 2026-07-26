@@ -53,6 +53,8 @@ The diagram contrasts the Blazor WebAssembly client (**before**, still present) 
 
 ```mermaid
 graph TB
+    accTitle: Blazor WebAssembly to React SPA migration mapping
+    accDescr: The present Blazor WebAssembly client, with its router, a custom authentication provider backed by local storage, and an HttpClient-based API service, maps to the proposed React SPA where routing and layout are ported, the token flow is replaced with OIDC authorization-code plus PKCE using an in-memory token, and data access is retargeted to /api/v1 via TanStack Query.
     subgraph Before["Before — Blazor WebAssembly (WebVella.Erp.WebAssembly, present)"]
         B1["Client (.razor + Router)"]
         B2["CustomAuthenticationProvider + Blazored.LocalStorage"]

@@ -22,6 +22,8 @@ This is the operator's first stop during an incident. Match the observed **sympt
 
 ```mermaid
 flowchart TD
+    accTitle: Troubleshooting decision tree by symptom
+    accDescr: A decision tree that routes an observed symptom to a likely area. An HTTP 401 or 403 points to authentication, a non-zero migrator exit points to migrations, an unreachable PostgreSQL points to the database, missing plugin endpoints point to plugins, unsent emails point to SMTP, and anything else suggests pivoting on the correlation id in the logs.
     S(["Symptom observed"]) --> Q1{"HTTP 401 / 403?"}
     Q1 -->|"Yes"| AUTH["Authentication (JWT)"]
     Q1 -->|"No"| Q2{"Startup / DB error?"}
