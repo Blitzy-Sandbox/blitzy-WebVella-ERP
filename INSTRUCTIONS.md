@@ -146,8 +146,11 @@ Proposed configuration surface, **by key name only** (names pending confirmation
 - **Encryption** — `Settings__EncryptionKey` (placeholder `<ENCRYPTION_KEY>`).
 - **JWT** — `Settings__Jwt__Key` (placeholder `<JWT_SIGNING_KEY>`), `Settings__Jwt__Issuer`,
   `Settings__Jwt__Audience`.
-- **OIDC (external identity provider)** — provider-neutral keys such as `Settings__Oidc__Authority`,
-  `Settings__Oidc__ClientId`, and `Settings__Oidc__Scopes`. The **browser SPA is a public client**
+- **OIDC (external identity provider)** — concrete server-side key names are **illustrative, not
+  settled**: the canonical [configuration reference](docs/deployment/configuration-reference.md#oidc-identity-provider-proposed)
+  deliberately **does not assert** them pending the auth-provider decision (rule F). Illustratively
+  they would follow the house `Settings__` convention (for example `Settings__Oidc__Authority`,
+  `Settings__Oidc__ClientId`, `Settings__Oidc__Scopes`). The **browser SPA is a public client**
   and uses the **authorization-code flow with PKCE (S256)** where supported: it ships **no client
   secret**. A client secret applies only to a confidential (server-side) client and must never be
   delivered to the browser. State/nonce, redirect-URI allow-listing, and token-lifetime/refresh

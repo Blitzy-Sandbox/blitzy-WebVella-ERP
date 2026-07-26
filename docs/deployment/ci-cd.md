@@ -43,8 +43,8 @@ Each job below is mapped to one of the three tiers from the callout above. Only 
 |-----|------|------|---------|-------|
 | Build | Future application CI — **pending** | .NET SDK | `dotnet build WebVella.ERP3.sln -c Release` | Restores and compiles the solution. Source: /WebVella.ERP3.sln |
 | Integration tests | Future application CI — **pending** | Testcontainers | `dotnet test WebVella.ERP3.sln` | Spins an ephemeral PostgreSQL container per run. No test projects exist yet — **Not available / to be confirmed** (AAP §0.9.2). |
-| OpenAPI generate | Future application CI — **pending** | `Microsoft.AspNetCore.OpenApi` | run the API host to emit `openapi/v1.json` | Requires `WebVella.Erp.Api`, which does not exist yet. Document is served at `/openapi/v1.json`; export it as a build artifact for the lint step. |
-| OpenAPI lint | Future application CI — **pending** | Spectral (`@stoplight/spectral-cli`) | `spectral lint openapi/v1.json` | Depends on the generated document above. Fails the check on ruleset violations (AAP §0.7). |
+| OpenAPI generate | Future application CI — **pending** | `Microsoft.AspNetCore.OpenApi` | run the API host to emit `/openapi/v1.json` | Requires `WebVella.Erp.Api`, which does not exist yet. Document is served at `/openapi/v1.json`; export it to a local file (conventionally `openapi.json`) as a build artifact for the lint step. |
+| OpenAPI lint | Future application CI — **pending** | Spectral (`@stoplight/spectral-cli`) | `spectral lint openapi.json` | Depends on the generated document above (the exported `openapi.json`). Fails the check on ruleset violations (AAP §0.7). |
 | Docs build | **Baseline — available now** | MkDocs / TechDocs | `mkdocs build --strict` | Non-interactive; **never** `mkdocs serve`. Optional: `techdocs-cli generate --no-docker`. Source: /mkdocs.yml |
 | Docs publish | Final documentation workflow — **pending** | Backstage TechDocs | publish step | Publish target **Not available / to be confirmed**. |
 | Markdown lint *(optional)* | Baseline *(optional)* | `markdownlint-cli` | `markdownlint-cli "**/*.md"` | Style gate; version **to be pinned at adoption** (AAP §0.7.1). |

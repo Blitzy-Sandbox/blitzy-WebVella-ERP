@@ -34,7 +34,7 @@ This is a .NET class-library plugin targeting `net10.0`, built with `Microsoft.N
 - **Run** — the plugin is loaded by the ERP host; its patches run automatically on host startup via `Initialize(...)`. There is no separate run step for the plugin itself. `Source: /WebVella.Erp.Plugins.Next/NextPlugin.cs:L13-L19`
 - **Test** — **Not available.** There is no test project for this plugin in the repository; adding coverage would require introducing a test project targeting the plugin's public surface.
 
-> **Target framework — Not available / to be confirmed.** The project file targets `net10.0` `Source: /WebVella.Erp.Plugins.Next/WebVella.Erp.Plugins.Next.csproj:L4`, while the root `README.md` refers to ".NET 9 / ASP.NET Core 9". The authoritative platform target (.NET 9 vs `net10.0`) is an open decision point pending resolution; this README states `net10.0` per the manifest and does not resolve the ambiguity.
+> **Target framework — Not available / to be confirmed.** The project file targets `net10.0` `Source: /WebVella.Erp.Plugins.Next/WebVella.Erp.Plugins.Next.csproj:L4`, while the specification references ".NET 9" / "ASP.NET Core 9" and the root `README.md` frames this as an open ".NET 9 vs net10.0" decision. The authoritative platform target (.NET 9 vs `net10.0`) is an open decision point pending resolution; this README states `net10.0` per the manifest and does not resolve the ambiguity.
 
 ## Key configuration and defaults
 
