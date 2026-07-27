@@ -67,8 +67,10 @@ The generated document is planned to be validated in CI with **Spectral** (**`@s
 # Not runnable yet — requires the generated document from the API host.
 API_HOST="api.example.internal"
 curl "https://${API_HOST}/openapi/v1.json" -o openapi.json
-spectral lint openapi.json
+spectral lint openapi.json --ruleset .spectral.yaml
 ```
+
+Spectral 6.x requires an explicit ruleset; the repository ships `.spectral.yaml` — which extends the built-in `spectral:oas` ruleset — passed via `--ruleset`. Run without a ruleset, Spectral 6.x exits non-zero with "No ruleset has been defined." Source: /.spectral.yaml
 
 The legacy `@stoplight/spectral` package is **deprecated** in favor of `@stoplight/spectral-cli`; only the CLI package is used.
 

@@ -11,8 +11,8 @@ WebVella ERP host application at runtime (Source: `SdkPlugin.cs:L15`).
 > `Initialize(IServiceProvider)` model (Source: `SdkPlugin.cs:L10,L15`). The headless refactor
 > introduces a new asynchronous `IErpPlugin` contract (`OnLoadAsync` / `MapEndpoints` /
 > `OnMigrateAsync`) that will replace it; that migration is **not** yet implemented in this checkout.
-> See the [Plugin SDK — IErpPlugin contract](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md) and
-> [Migrating from ErpPlugin to IErpPlugin](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/migrating-from-erpplugin.md) guides.
+> See the [Plugin SDK — IErpPlugin contract](../docs/plugin-sdk/ierplugin-contract.md) and
+> [Migrating from ErpPlugin to IErpPlugin](../docs/plugin-sdk/migrating-from-erpplugin.md) guides.
 
 ## What it does
 
@@ -65,7 +65,7 @@ Configuration is documented **by key name only**; this plugin stores no secret v
   (Source: `Controllers/AdminController.cs:L39,L54`) and authenticates via **cookie** authentication
   (Source: `Controllers/AdminController.cs:L16`). This is the **legacy** versioned + cookie-auth
   surface; the refactor's target public surface is **`/api/v1/` with OIDC/JWT bearer auth** — see the
-  [REST API reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/api-reference/index.md).
+  [REST API reference](../docs/api-reference/index.md).
 - **Host-level secrets** (database connection string, JWT signing key, and similar) are **not**
   configured by this plugin; they belong to the host/deployment configuration reference and are
   referenced by name only.
@@ -88,13 +88,13 @@ Configuration is documented **by key name only**; this plugin stores no secret v
   likely missing. *Remedy:* confirm the plugin assembly and its static web assets are deployed with
   the host.
 - For platform-wide operational issues, see the
-  [operations troubleshooting guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md).
+  [operations troubleshooting guide](../docs/deployment/troubleshooting.md).
 
 ## Related documentation
 
 > **Link note (NuGet package page + publish order).** This README is packed as the NuGet package landing page, where **relative `../docs/` links do not resolve**; the links below are therefore **absolute upstream URLs** on the repository's default branch. They resolve once the documentation set is published there (pin them to a release tag for long-term stability); in a local checkout the same pages live under the `docs/` folder.
 
-- [Plugin SDK — IErpPlugin contract](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md)
-- [Migrating from ErpPlugin to IErpPlugin](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/migrating-from-erpplugin.md)
-- [REST API reference (`/api/v1/`)](https://github.com/WebVella/WebVella-ERP/blob/master/docs/api-reference/index.md)
-- [Operations troubleshooting](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md)
+- [Plugin SDK — IErpPlugin contract](../docs/plugin-sdk/ierplugin-contract.md)
+- [Migrating from ErpPlugin to IErpPlugin](../docs/plugin-sdk/migrating-from-erpplugin.md)
+- [REST API reference (`/api/v1/`)](../docs/api-reference/index.md)
+- [Operations troubleshooting](../docs/deployment/troubleshooting.md)

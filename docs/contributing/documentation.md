@@ -57,7 +57,7 @@ Placement in the navigation comes from `nav:` in `mkdocs.yml`; the `sort_order` 
 
 ## Diagrams (Mermaid)
 
-Author diagrams inline as fenced `mermaid` code blocks; the `mermaid2` plugin renders them at build time. Mermaid is pinned to **11.16.0** and bundled locally under `docs/assets/mermaid/`, so diagrams render with no CDN dependency. `Source: /mkdocs.yml:L11-L20`. A minimal example:
+Author diagrams inline as fenced `mermaid` code blocks; the `mermaid2` plugin renders them at build time. The Mermaid runtime is pinned to **11.16.0** and loaded from the `mermaid2` plugin's default CDN for that version — no repository-bundled Mermaid copy is referenced — so a network-connected environment is required to render diagrams in the browser. `Source: /mkdocs.yml:L221-L225`. A minimal example:
 
 ```mermaid
 graph LR

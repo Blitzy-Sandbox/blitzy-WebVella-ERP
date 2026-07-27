@@ -59,7 +59,7 @@ Defaults are confirmed in code: `EmailEnabled` → `false` and `EmailSMTPPort` �
 
 Secrets (`EmailSMTPUsername`, `EmailSMTPPassword`) must never be committed to source control: in the **current** model they are provided in the host's `Settings` configuration, and in the **target** container-native model through **environment variables / Kubernetes Secrets**.
 
-Per-server behavior is configured as **`smtp_service` records** in the "mail" application: `server`, `port`, `connection_security`, `is_enabled`, `is_default`, `max_retries_count` and `retry_wait_minutes` govern how each SMTP server is used and how the queue retries. `Source: /WebVella.Erp.Plugins.Mail/MailPlugin.20190215.cs:L580` See the consolidated [configuration reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/configuration-reference.md) for the full environment-variable / Secret list.
+Per-server behavior is configured as **`smtp_service` records** in the "mail" application: `server`, `port`, `connection_security`, `is_enabled`, `is_default`, `max_retries_count` and `retry_wait_minutes` govern how each SMTP server is used and how the queue retries. `Source: /WebVella.Erp.Plugins.Mail/MailPlugin.20190215.cs:L580` See the consolidated [configuration reference](../docs/deployment/configuration-reference.md) for the full environment-variable / Secret list.
 
 ## Troubleshooting
 
@@ -73,18 +73,18 @@ The queue engine records the last error on each message and applies a retry-with
 | Queued messages never send | The target `smtp_service` record has `is_enabled = false` — the queue aborts with "SMTP service is not enabled". `Source: /WebVella.Erp.Plugins.Mail/Services/SmtpInternalService.cs:L700-L702` | Enable the target `smtp_service` record (its `is_enabled` field). Note: `Settings:EmailEnabled` does **not** affect the queue — it only gates the separate `MailService` direct-send path. |
 | Queue never drains | The queue only drains when the schedule plan runs `ProcessSmtpQueueJob` (~every 10 minutes). `Source: /WebVella.Erp.Plugins.Mail/MailPlugin.cs:L41-L82` | **Today** the schedule plan runs **in-process** via the core `ScheduleManager` loop inside the ERP host (registered by `SetSchedulePlans()`) — ensure that host is running. **Target:** the job moves to the planned `WebVella.Erp.Worker` host (**not yet built** — AAP §0.9.2). `Source: /WebVella.Erp/Jobs/SheduleManager.cs:L223`. |
 
-For operational diagnostics across the platform, see the [operational troubleshooting guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md).
+For operational diagnostics across the platform, see the [operational troubleshooting guide](../docs/deployment/troubleshooting.md).
 
 ## Related documentation
 
 > **Link note (publish order).** The `docs/**` links below are **absolute upstream URLs** pointing at the repository's default branch; they resolve **once the documentation set is published there** (pin them to a specific release tag for long-term stability). Until then, the same pages are available under the `docs/` folder of your local checkout.
 
-- [Plugin SDK — `IErpPlugin` contract](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md)
-- [Plugin migration guide (`ErpPlugin` → `IErpPlugin`)](https://github.com/WebVella/WebVella-ERP/blob/master/docs/migration/plugin-migration.md)
-- [Background jobs / worker host](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/background-jobs/overview.md)
-- [Configuration reference (environment variables / Secrets)](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/configuration-reference.md)
-- [Operational troubleshooting](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md)
+- [Plugin SDK — `IErpPlugin` contract](../docs/plugin-sdk/ierplugin-contract.md)
+- [Plugin migration guide (`ErpPlugin` → `IErpPlugin`)](../docs/migration/plugin-migration.md)
+- [Background jobs / worker host](../docs/developer/background-jobs/overview.md)
+- [Configuration reference (environment variables / Secrets)](../docs/deployment/configuration-reference.md)
+- [Operational troubleshooting](../docs/deployment/troubleshooting.md)
 
 ## License
 
-Apache-2.0 — see the [LICENSE](https://github.com/WebVella/WebVella-ERP/blob/master/LICENSE.txt) file. `Source: /WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj:L10`
+Apache-2.0 — see the [LICENSE](../LICENSE.txt) file. `Source: /WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj:L10`

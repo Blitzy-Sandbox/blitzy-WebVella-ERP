@@ -1,0 +1,10 @@
+# Spectral ruleset for the generated OpenAPI 3.1 document (openapi/v1.json).
+#
+# Spectral 6.x requires an explicit ruleset; run without one it exits non-zero with
+# "No ruleset has been defined". Extending the built-in "spectral:oas" ruleset applies
+# Stoplight's standard OpenAPI v2/v3 validation and style rules.
+#
+# Consumed by the `openapi-lint` job in .github/workflows/docs.yml, which lints
+# openapi/v1.json once the WebVella.Erp.Api workstream emits it. Documented in
+# docs/deployment/ci-cd.md and docs/api-reference/openapi.md.
+extends: ["spectral:oas"]

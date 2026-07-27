@@ -15,7 +15,7 @@ This package is a **library / NuGet package** that, under the headless refactor,
 | License | `Apache-2.0` | `WebVella.Erp/WebVella.Erp.csproj:L14` |
 | Project URL | <https://webvella.com> | `WebVella.Erp/WebVella.Erp.csproj:L16` |
 
-> **Target-runtime note.** This package targets `net10.0` (Source: `WebVella.Erp/WebVella.Erp.csproj:L4`). The platform-wide authoritative runtime (the specification cites ".NET 9" while most projects declare `net10.0`) is an open decision point — **Not available / to be confirmed**; see the [deployment configuration reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/configuration-reference.md).
+> **Target-runtime note.** This package targets `net10.0` (Source: `WebVella.Erp/WebVella.Erp.csproj:L4`). The platform-wide authoritative runtime (the specification cites ".NET 9" while most projects declare `net10.0`) is an open decision point — **Not available / to be confirmed**; see the [deployment configuration reference](../docs/deployment/configuration-reference.md).
 
 ---
 
@@ -48,7 +48,7 @@ The abstract `ErpPlugin` base carries JSON manifest metadata (`name`, `prefix`, 
 - `SetAutoMapperConfiguration(MapperConfigurationExpression)` — contribute AutoMapper maps. Source: `WebVella.Erp/ErpPlugin.cs:L53`.
 - `GetPluginData()` / `SavePluginData(string)` — read/write the plugin's row in the `plugin_data` table; both throw if the plugin `Name` is not set. Source: `WebVella.Erp/ErpPlugin.cs:L67,L87`.
 
-> **Important:** `ErpPlugin` is the **legacy** plugin base and is the model in use today. The **new `IErpPlugin` contract** for the headless platform is **planned — not present in this checkout yet** (`IErpPlugin` has no implementation in source); it is slated to live alongside the `WebVella.Erp.Plugins.SDK` project — see the [IErpPlugin contract guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md).
+> **Important:** `ErpPlugin` is the **legacy** plugin base and is the model in use today. The **new `IErpPlugin` contract** for the headless platform is **planned — not present in this checkout yet** (`IErpPlugin` has no implementation in source); it is slated to live alongside the `WebVella.Erp.Plugins.SDK` project — see the [IErpPlugin contract guide](../docs/plugin-sdk/ierplugin-contract.md).
 
 ### Configuration binding
 
@@ -71,7 +71,7 @@ Top-level subsystem folders of the engine. Source: `WebVella.Erp/`:
 | `Diagnostics/` | DB-backed logging over the `system_log` table. Source: `WebVella.Erp/Diagnostics/` |
 | `Exceptions/`, `Utilities/` | Validation / exception aggregation and cross-cutting helpers. Source: `WebVella.Erp/Exceptions/`, `WebVella.Erp/Utilities/` |
 
-> **These in-process managers are unchanged by the headless refactor and are distinct from the planned REST surface** that `WebVella.Erp.Api` (`/api/v1/`) will expose (**not yet built** — AAP §0.9.2). They are invoked in-process (for example `new RecordManager().CreateRecord(...)`), whereas the planned REST API would be an HTTP layer built on top of them. See the [in-process server-API reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/server-api/overview.md) and the [data-access architecture](https://github.com/WebVella/WebVella-ERP/blob/master/docs/architecture/data-access.md).
+> **These in-process managers are unchanged by the headless refactor and are distinct from the planned REST surface** that `WebVella.Erp.Api` (`/api/v1/`) will expose (**not yet built** — AAP §0.9.2). They are invoked in-process (for example `new RecordManager().CreateRecord(...)`), whereas the planned REST API would be an HTTP layer built on top of them. See the [in-process server-API reference](../docs/developer/server-api/overview.md) and the [data-access architecture](../docs/architecture/data-access.md).
 
 ---
 
@@ -86,7 +86,7 @@ dotnet pack WebVella.Erp/WebVella.Erp.csproj -c Release
 
 Source: `WebVella.Erp/WebVella.Erp.csproj:L6` (OutputType `Library`), `:L18,L27` (this `README.md` is the packed `PackageReadmeFile`).
 
-**Run** — the engine is consumed as a library by the API, worker, and plugin hosts; it is not started directly. It requires a **PostgreSQL** database. On first run the bootstrap auto-creates the schema, required extensions/casts, and seed data. Source: `WebVella.Erp/ERPService.cs:L18,L28,L30,L36`. For a full, runnable instance follow the repository [build & run instructions](https://github.com/WebVella/WebVella-ERP/blob/master/INSTRUCTIONS.md) and the [getting-started guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/introduction/getting-started.md).
+**Run** — the engine is consumed as a library by the API, worker, and plugin hosts; it is not started directly. It requires a **PostgreSQL** database. On first run the bootstrap auto-creates the schema, required extensions/casts, and seed data. Source: `WebVella.Erp/ERPService.cs:L18,L28,L30,L36`. For a full, runnable instance follow the repository [build & run instructions](../INSTRUCTIONS.md) and the [getting-started guide](../docs/developer/introduction/getting-started.md).
 
 **Test** — **Not available.** No test project exists in the repository yet (rule F).
 
@@ -94,7 +94,7 @@ Source: `WebVella.Erp/WebVella.Erp.csproj:L6` (OutputType `Library`), `:L18,L27`
 
 ## Configuration
 
-The engine reads configuration through `ErpSettings`, bound from `IConfiguration`. Source: `WebVella.Erp/ErpSettings.cs`. Keys are documented **by name only** — never commit real secret values (rule D). In the container-native model these keys are supplied as **environment variables / Kubernetes Secrets**; see the consolidated [configuration reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/configuration-reference.md).
+The engine reads configuration through `ErpSettings`, bound from `IConfiguration`. Source: `WebVella.Erp/ErpSettings.cs`. Keys are documented **by name only** — never commit real secret values (rule D). In the container-native model these keys are supplied as **environment variables / Kubernetes Secrets**; see the consolidated [configuration reference](../docs/deployment/configuration-reference.md).
 
 **Database & security** (secret — set by name only; never print values):
 
@@ -165,7 +165,7 @@ The engine reads configuration through `ErpSettings`, bound from `IConfiguration
 | Startup aborts during plugin load | An exception thrown from a plugin's `Initialize(IServiceProvider)` propagates and aborts bootstrap | Check plugin logs / the `system_log` table and validate the plugin manifest. Source: `WebVella.Erp/ErpPlugin.cs:L57`, `WebVella.Erp/IErpService.cs:L14` |
 | Background jobs / schedules do not run | `Settings:EnableBackgroundJobs` is `false`, or the host never called `StartBackgroundJobProcess()` | Confirm the flag is `true` and that the host starts the job process. Source: `WebVella.Erp/ErpSettings.cs:L82`, `WebVella.Erp/IErpService.cs:L13` |
 
-For operational (container / deployment) issues see the [deployment troubleshooting guide](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md).
+For operational (container / deployment) issues see the [deployment troubleshooting guide](../docs/deployment/troubleshooting.md).
 
 ---
 
@@ -197,7 +197,7 @@ The project also declares `FrameworkReference Include="Microsoft.AspNetCore.App"
 > inventory — including the transitive MimeKit CRLF advisory reached through the Mail plugin's MailKit
 > — is in `LIBRARIES.md`, linked below.
 
-For the full repository dependency inventory, see [LIBRARIES.md](https://github.com/WebVella/WebVella-ERP/blob/master/LIBRARIES.md).
+For the full repository dependency inventory, see [LIBRARIES.md](../LIBRARIES.md).
 
 ---
 
@@ -205,14 +205,14 @@ For the full repository dependency inventory, see [LIBRARIES.md](https://github.
 
 > **Link note (publish order).** This README is packed as the NuGet package landing page; the `docs/**`, `INSTRUCTIONS.md`, and `LIBRARIES.md` links here (and above) are **absolute upstream URLs** on the repository's default branch. They resolve **once those files are published there** (pin them to a release tag for long-term stability); in a local checkout the same files live at the repository root and under `docs/`.
 
-- [Build & run instructions (INSTRUCTIONS.md)](https://github.com/WebVella/WebVella-ERP/blob/master/INSTRUCTIONS.md)
-- [Getting started](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/introduction/getting-started.md)
-- [In-process server-API reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/developer/server-api/overview.md)
-- [Plugin SDK — IErpPlugin contract](https://github.com/WebVella/WebVella-ERP/blob/master/docs/plugin-sdk/ierplugin-contract.md)
-- [Architecture — data access](https://github.com/WebVella/WebVella-ERP/blob/master/docs/architecture/data-access.md)
-- [Deployment — configuration reference](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/configuration-reference.md)
-- [Deployment — troubleshooting](https://github.com/WebVella/WebVella-ERP/blob/master/docs/deployment/troubleshooting.md)
-- [Third-party libraries (LIBRARIES.md)](https://github.com/WebVella/WebVella-ERP/blob/master/LIBRARIES.md)
+- [Build & run instructions (INSTRUCTIONS.md)](../INSTRUCTIONS.md)
+- [Getting started](../docs/developer/introduction/getting-started.md)
+- [In-process server-API reference](../docs/developer/server-api/overview.md)
+- [Plugin SDK — IErpPlugin contract](../docs/plugin-sdk/ierplugin-contract.md)
+- [Architecture — data access](../docs/architecture/data-access.md)
+- [Deployment — configuration reference](../docs/deployment/configuration-reference.md)
+- [Deployment — troubleshooting](../docs/deployment/troubleshooting.md)
+- [Third-party libraries (LIBRARIES.md)](../LIBRARIES.md)
 
 ---
 
