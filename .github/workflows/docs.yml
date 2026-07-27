@@ -321,10 +321,21 @@ jobs:
       # spectral-cli is pinned exactly and run non-interactively (P6-1); the legacy
       # @stoplight/spectral package is deprecated, so only the CLI package is used.
       # An explicit ruleset (.spectral.yaml, extends spectral:oas) is required by Spectral 6.x.
+      #
+      # SECURITY (brace-expansion GHSA-mh99-v99m-4gvg / CVE-2026-14257 — HIGH, ReDoS/OOM):
+      # spectral-cli@6.16.2 (the latest release) transitively resolves brace-expansion < 5.0.8.
+      # `npx --yes` would install that vulnerable transitive dependency, so instead we install
+      # Spectral into an ephemeral, run-time-only manifest that pins the fixed brace-expansion
+      # (>= 5.0.8) through an npm `overrides` block, then invoke the locally-installed binary.
+      # This keeps spectral-cli at its pinned 6.16.2 (NOT `npm audit fix --force`, which would
+      # downgrade it to 1.1.0) and commits no package.json/lockfile to the repo (Rule C).
       - name: Lint OpenAPI document (skips gracefully if absent)
         run: |
           if [ -f openapi/v1.json ]; then
-            npx --yes @stoplight/spectral-cli@6.16.2 lint openapi/v1.json --ruleset .spectral.yaml
+            tools="$(mktemp -d)"
+            printf '%s' '{"name":"webvella-erp-openapi-lint","private":true,"description":"Ephemeral manifest pinning a non-vulnerable brace-expansion (>=5.0.8) for the Spectral OpenAPI lint.","devDependencies":{"@stoplight/spectral-cli":"6.16.2"},"overrides":{"brace-expansion":">=5.0.8"}}' > "$tools/package.json"
+            CI=true npm install --prefix "$tools" --no-audit --no-fund --silent
+            "$tools/node_modules/.bin/spectral" lint openapi/v1.json --ruleset .spectral.yaml
           else
             echo "::notice::openapi/v1.json Not available yet — skipping OpenAPI lint (produced by the WebVella.Erp.Api workstream)."
           fi

@@ -12,6 +12,16 @@
 #
 # techdocs-core >= 1.0.2 is required for correct Mermaid rendering; 1.7.0 is the
 # version validated against this repository's docs set.
+#
+# SECURITY (residual risk — documentation only): techdocs-core==1.7.0 (the latest
+# release) transitively hard-pins pymdown-extensions==10.21.3, which carries a
+# Medium path-traversal advisory in its pymdownx.b64 extension (GHSA-9xwg-3r6f-jcx2
+# / CVE-2026-61632, CVSS 5.3). The fix (pymdown-extensions>=11.0) cannot be adopted
+# in isolation — recompiling this file with it yields ResolutionImpossible against
+# the techdocs-core wheel's ==10.21.3 constraint — and the vulnerable extension is
+# not enabled (mkdocs.yml configures only pymdownx.superfences), so the sink is
+# unreachable. Do not bump until techdocs-core relaxes the pin. Full rationale:
+# the pymdown-extensions security note in LIBRARIES.md (Rule F / AAP §0.9.2).
 
 mkdocs-techdocs-core==1.7.0
 mkdocs-mermaid2-plugin==1.2.3

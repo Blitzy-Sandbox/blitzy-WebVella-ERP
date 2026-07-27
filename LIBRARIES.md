@@ -191,6 +191,47 @@ security validation by the implementation workstream.
 > the CLI package is used. `Microsoft.AspNetCore.OpenApi` on .NET 10 depends on `Microsoft.OpenApi`
 > v2.x; the `Scalar.AspNetCore` version ultimately pinned must be validated for compatibility with
 > that combination before adoption.
+>
+> **Security note (`pymdown-extensions 10.21.3` — hash-pinned transitive dependency of the docs
+> toolchain)** — the compiled documentation requirements pin `pymdown-extensions==10.21.3`, which is
+> affected by a Medium-severity path-traversal advisory, GHSA-9xwg-3r6f-jcx2 / CVE-2026-61632 (CWE-22
+> Improper Limitation of a Pathname to a Restricted Directory; CVSS 3.1 base score 5.3). In the
+> `pymdownx.b64` extension, a crafted `<img src>` reference resolves relative to `base_path` without
+> normalizing `..` segments, letting a malicious Markdown source read files outside the intended
+> directory. The fix ships in `pymdown-extensions 11.0` (the `11.0.0` release; `11.0.1` is the current
+> latest). **This pin cannot be bumped in isolation:** `mkdocs-techdocs-core==1.7.0` — the latest
+> release, required for correct Mermaid rendering — *directly* hard-pins `pymdown-extensions==10.21.3`
+> (`mkdocs-material==9.7.6` only requires `>= 10.2`, so it is not the binding constraint), and there
+> is no newer `mkdocs-techdocs-core` release to move to. Recompiling the requirements with
+> `pymdown-extensions>=11.0` fails with `ResolutionImpossible`, the conflict tracing to the
+> `mkdocs_techdocs_core-1.7.0` wheel's `==10.21.3` requirement. **Residual risk is low and the sink is
+> unreachable in this repository:** the vulnerable `pymdownx.b64` extension is *not* enabled — the
+> only Markdown extension configured is `pymdownx.superfences` (for Mermaid) — and the built site emits
+> zero `data:…;base64,` payloads and zero `base64://` includes. No package version is changed here;
+> remediation is deferred to whenever `mkdocs-techdocs-core` publishes a build that relaxes the
+> `pymdown-extensions` pin, at which point the requirements are recompiled through the implementation
+> workstream (AAP §0.9.2). This is documentation only. Source: `requirements-docs.txt:L355` (the
+> hash-pinned `== 10.21.3`, `# via mkdocs-material / mkdocs-mermaid2-plugin / mkdocs-techdocs-core`);
+> `mkdocs.yml:L233` (only `pymdownx.superfences` enabled); `requirements-docs.in` (immovability
+> rationale for the `mkdocs-techdocs-core==1.7.0` pin).
+>
+> **Security note (`brace-expansion` — transitive under `@stoplight/spectral-cli`, remediated in CI)**
+> — `@stoplight/spectral-cli@6.16.2` (the latest release) transitively resolves `brace-expansion`
+> below `5.0.8`, which is affected by a High-severity Denial-of-Service advisory, GHSA-mh99-v99m-4gvg /
+> CVE-2026-14257 (CWE-400 Uncontrolled Resource Consumption / CWE-770 Allocation of Resources Without
+> Limits; CVSS 3.1 base score 7.5, vector `AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H`). `expand()` bounds the
+> *number* of results it produces but not their length, so a pattern chaining many brace groups
+> allocates unbounded memory and crashes the process out-of-memory; the input needs no authentication
+> and is low-complexity to construct. The fix ships in `brace-expansion 5.0.8` (all earlier versions
+> are affected). Because Spectral is executed from an ephemeral, run-time-only manifest in the
+> Documentation CI `openapi-lint` job (there is no committed `package.json` or lockfile anywhere in the
+> repository), the workflow pins the fixed transitive version through an npm `overrides` block
+> (`"brace-expansion": ">=5.0.8"`) and invokes the locally-installed binary, rather than relying on
+> `npx --yes`, which would resolve the vulnerable version. `spectral-cli` is intentionally kept at its
+> pinned `6.16.2` — `npm audit fix --force` is *not* used, as it would downgrade `spectral-cli` to
+> `1.1.0`. This is documentation-CI configuration only; no application package version is changed
+> (AAP §0.9.2). Source: `.github/workflows/docs.yml` (the `openapi-lint` job's ephemeral-manifest
+> `overrides` block).
 
 ### Client SPA dependencies (greenfield)
 
