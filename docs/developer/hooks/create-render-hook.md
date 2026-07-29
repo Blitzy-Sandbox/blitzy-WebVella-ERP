@@ -6,33 +6,11 @@ It is very easy to create a render hook, so other plugins can attach and inject 
 ## Properties
 The hook supports the following properties, which will be also provided as parameters to all attached methods:
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `model`                       | *object type*: `dynamic`                         
-|                               |         
-|                               | *default value*: `null`
-|                               |
-|                               | *is required*: `TRUE`                      
-|                               |                                   
-|                               | Any specific model you want to provide to the hook attachments. Useful when you loop through items in a list and want to provide the current item
-+-------------------------------+-----------------------------------+
-| `page-model`                  | *object type*: `BaseErpPageModel`                         
-|                               |         
-|                               | *default value*: `new BaseErpPageModel()`
-|                               |
-|                               | *is required*: `TRUE`                      
-|                               |                                   
-|                               | The current page model.
-+-------------------------------+-----------------------------------+
-| `placeholder`                 | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `TRUE`                      
-|                               |                                   
-|                               | An unique name defining the position
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `model` | *object type*: `dynamic`<br>*default value*: `null`<br>*is required*: `TRUE`<br>Any specific model you want to provide to the hook attachments. Useful when you loop through items in a list and want to provide the current item |
+| `page-model` | *object type*: `BaseErpPageModel`<br>*default value*: `new BaseErpPageModel()`<br>*is required*: `TRUE`<br>The current page model. |
+| `placeholder` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `TRUE`<br>An unique name defining the position |
 
 IMPORTANT: In our application master page there are already render hooks included for: `head-top`, `head-bottom`,`body-toop`, `body-bottom`.
 

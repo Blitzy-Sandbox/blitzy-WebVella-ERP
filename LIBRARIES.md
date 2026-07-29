@@ -61,7 +61,11 @@ Domain and runtime libraries used by the core engine (`WebVella.Erp`), the web/h
 > CVSS 3.1 base score 7.5). Mapping a deeply nested object graph recurses without a default depth
 > limit, throwing an uncatchable `StackOverflowException` that terminates the entire process; the
 > payload can arrive over the network (for example an API request body), needs no authentication, and
-> is low-complexity to construct. The fix ships in AutoMapper `15.1.1` and `16.1.1`; **no patch is
+> is low-complexity to construct. AutoMapper is declared **once**, as a direct dependency of the core
+> engine (`Source: /WebVella.Erp/WebVella.Erp.csproj:L47`), so it is pulled in transitively by every
+> solution project that references the core engine — a `dotnet list package --vulnerable
+> --include-transitive` inventory therefore reports it across **16 occurrences**. The fix ships in
+> AutoMapper `15.1.1` and `16.1.1`; **no patch is
 > planned for the `14.x` line**, so remediation requires moving to `>= 15.1.1` (validate the license
 > terms of the fixed line before adopting) through the implementation workstream after compatibility
 > testing. This is documentation only — no package version is changed here (AAP §0.9.2).
@@ -76,7 +80,12 @@ Domain and runtime libraries used by the core engine (`WebVella.Erp`), the web/h
 > it in `4.15.1`, and upgrading MailKit to `>= 4.16.0` transitively raises MimeKit to a fixed line
 > (`>= 4.15.1`), remediating **both** advisories in a single step. Plan this upgrade through the
 > implementation workstream after compatibility validation; do not treat `4.14.1` as a secure,
-> canonical pin. This is documentation only — no package version is changed here (AAP §0.9.2).
+> canonical pin. MailKit is a **direct** dependency of the Mail plugin
+> (`Source: /WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj:L28`) and appears in **two
+> occurrences** across the solution — the plugin itself and the `WebVella.Erp.Site.Mail` host that
+> references it (`Source: /WebVella.Erp.Site.Mail/WebVella.Erp.Site.Mail.csproj`) — with **MimeKit**
+> pulled in transitively in the same two, matching the inventory's two reported occurrences for each.
+> This is documentation only — no package version is changed here (AAP §0.9.2).
 > Source: `WebVella.Erp.Plugins.Mail/WebVella.Erp.Plugins.Mail.csproj` (MimeKit is a transitive
 > dependency of MailKit).
 
@@ -209,8 +218,12 @@ security validation by the implementation workstream.
 > only Markdown extension configured is `pymdownx.superfences` (for Mermaid) — and the built site emits
 > zero `data:…;base64,` payloads and zero `base64://` includes. No package version is changed here;
 > remediation is deferred to whenever `mkdocs-techdocs-core` publishes a build that relaxes the
-> `pymdown-extensions` pin, at which point the requirements are recompiled through the implementation
-> workstream (AAP §0.9.2). This is documentation only. Source: `requirements-docs.txt:L355` (the
+> `pymdown-extensions` pin, at which point the requirements are recompiled to
+> `pymdown-extensions >= 11.0.1` through the implementation workstream (AAP §0.9.2).
+> **Exception status: accepted and monitored** — re-evaluate on each `mkdocs-techdocs-core` release
+> and whenever `pip-audit` reports a change; the `pymdownx.b64` extension **must remain disabled** in
+> `mkdocs.yml` for the duration of this exception (only `pymdownx.superfences` is enabled today).
+> This is documentation only. Source: `requirements-docs.txt:L355` (the
 > hash-pinned `== 10.21.3`, `# via mkdocs-material / mkdocs-mermaid2-plugin / mkdocs-techdocs-core`);
 > `mkdocs.yml:L233` (only `pymdownx.superfences` enabled); `requirements-docs.in` (immovability
 > rationale for the `mkdocs-techdocs-core==1.7.0` pin).

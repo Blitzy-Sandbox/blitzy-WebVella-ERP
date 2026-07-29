@@ -11,13 +11,13 @@ The background job is implemented by the `ErpJob` object. It has only one method
 
 To create your own background job you need to apply the following requirements:
 
-##### Requirement 1: Create a class that inherits the `ErpJob` class
+### Requirement 1: Create a class that inherits the `ErpJob` class
 
 ```csharp
 public class SampleJob : ErpJob
 ```
 
-##### Requirement 2: Decorate your class with the `Job` attribute
+### Requirement 2: Decorate your class with the `Job` attribute
 
 ```csharp
 [Job("559c557a-0fd3-4235-b061-117197154ca5", "Sample job", true, JobPriority.Medium)]
@@ -32,7 +32,7 @@ This attribute has the following properties:
 | `Id` | *object type*: `Guid`<br/><br/>Unique identification of the job |
 | `Name` | *object type*: `string`<br/><br/>Human readable name of the job, presented in the jobs' list. |
 
-##### Requirement 3: Implement the `Execute` method of the inherited class "ErpJob"
+### Requirement 3: Implement the `Execute` method of the inherited class "ErpJob"
 
 ``` csharp
 public override void Execute(JobContext context)

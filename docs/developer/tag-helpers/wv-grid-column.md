@@ -9,41 +9,12 @@
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `class`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Added to the grid generated classes
-+-------------------------------+-----------------------------------+
-| `horizontal-align`            | *object type*: `HorizontalAlignmentType`                         
-|                               |         
-|                               | *default value*: `HorizontalAlignmentType.None`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | horizontal alignment with this column's table cells. Options are: None, Left, Center, Right
-+-------------------------------+-----------------------------------+
-| `text-wrap`                   | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | enable or disable the text-wrapping in this column's table cells
-+-------------------------------+-----------------------------------+
-| `vertical-align`              | *object type*: `VerticalAlignmentType`                         
-|                               |         
-|                               | *default value*: `VerticalAlignmentType.None`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | vertical alignment with this column's table cells. Options are: None, Top, Middle, Bottom
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `class` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>Added to the grid generated classes |
+| `horizontal-align` | *object type*: `HorizontalAlignmentType`<br>*default value*: `HorizontalAlignmentType.None`<br>*is required*: `FALSE`<br>horizontal alignment with this column's table cells. Options are: None, Left, Center, Right |
+| `text-wrap` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>enable or disable the text-wrapping in this column's table cells |
+| `vertical-align` | *object type*: `VerticalAlignmentType`<br>*default value*: `VerticalAlignmentType.None`<br>*is required*: `FALSE`<br>vertical alignment with this column's table cells. Options are: None, Top, Middle, Bottom |
 
 
 ## Example
@@ -57,6 +28,6 @@
 			<wv-grid-column>...</wv-grid-column>
 		</wv-grid-row>
 	}
-</wv-form>
+</wv-grid>
 ```
 

@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":2, "name": "create-entity", "label": "Create entity"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Create entity
 
 ## Service Side API
@@ -20,25 +22,25 @@ EntityResponse response = new EntityManager().CreateEntity(userEntity);
 
 See the planned `/api/v1/` REST reference (target — not yet implemented): `../../api-reference/entities.md`.
 
-##### Authorization
+### Authorization
 
 To initiate this web request, you need to be in the `administrator` role.
 
-##### HTTP request
+### HTTP request
 ```http
 POST https://<YOUR_DOMAIN>/api/v3/en_US/meta/entity
 ```
 This is the current route served by the in-process host, gated to the `administrator` role. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1473,L1475. The planned headless surface would expose it under `/api/v1/meta/entity`; that surface is not yet implemented.
 
-##### Query parameters
+### Query parameters
 
 No query parameters are required with this method.
 
-##### Request body
+### Request body
 
 You need to post a `InputEntity` object as a request body.
 
-##### Request response
+### Request response
 
 If successful, this method returns a response JSON with the following structure:
 
@@ -66,14 +68,14 @@ If successful, this method returns a response JSON with the following structure:
 **Important**: This page describes a process of creating an entity using the `WebVella SDK Plugin` web interface
 
 
-##### Step 1: Navigate to the SDK Application
+### Step 1: Navigate to the SDK Application
 
-##### Step 2: Select from the Objects top menu -> Entities
+### Step 2: Select from the Objects top menu -> Entities
 
 ![Entity list](/doc-images/sdk-entity-list.png)
 
-##### Step 3: Press the "Create Entity" button on the top right corner
+### Step 3: Press the "Create Entity" button on the top right corner
 
 ![Entity list](/doc-images/sdk-entity-create.png)
 
-##### Step 4: Press the green "Create Entity" button
+### Step 4: Press the green "Create Entity" button

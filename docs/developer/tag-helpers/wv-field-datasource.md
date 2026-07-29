@@ -11,25 +11,10 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `page-id`                     | *object type*: `Guid?`                         
-|                               |         
-|                               | *default value*: `NULL`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The ID of the page from which module the data will be extracted/calculated
-+-------------------------------+-----------------------------------+
-| `value`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `emtpy.string`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | A JSON string value is expected, which will be parsed / deserialized to `DataSourceVariable` model
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `page-id` | *object type*: `Guid?`<br>*default value*: `NULL`<br>*is required*: `FALSE`<br>The ID of the page from which module the data will be extracted/calculated |
+| `value` | *object type*: `string`<br>*default value*: `emtpy.string`<br>*is required*: `FALSE`<br>A JSON string value is expected, which will be parsed / deserialized to `DataSourceVariable` model |
 
 
 ## Example

@@ -11,25 +11,10 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `options`                     | *object type*: `List<SelectOption>`                         
-|                               |         
-|                               | *default value*: `new List<SelectOption>()`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The text presented as checkbox label in forms and also as checkbox value in Simple mode, when checked.
-+-------------------------------+-----------------------------------+
-| `value`                       | *object type*: `dynamic`                         
-|                               |         
-|                               | *default value*: `null`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Expects the value to be parsed as `List<string>`
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `options` | *object type*: `List<SelectOption>`<br>*default value*: `new List<SelectOption>()`<br>*is required*: `FALSE`<br>The text presented as checkbox label in forms and also as checkbox value in Simple mode, when checked. |
+| `value` | *object type*: `dynamic`<br>*default value*: `null`<br>*is required*: `FALSE`<br>Expects the value to be parsed as `List<string>` |
 
 ## Example
 

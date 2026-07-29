@@ -7,13 +7,13 @@ The database data source are created via the SDK Web Interface. In simple words 
 
 To create a database datasource you need to:
 
-##### Step 1: Navigate to the SDK Application
+### Step 1: Navigate to the SDK Application
 
-##### Step 2: Select from the Objects top menu -> Data Sources
+### Step 2: Select from the Objects top menu -> Data Sources
 
-##### Step 3: Press the "Add Data Source" button on the top right corner
+### Step 3: Press the "Add Data Source" button on the top right corner
 
 ![Create Data Source](/doc-images/sdk-datasource-create.png)
 
-##### Step 4: Press the "Add Data Source" button
+### Step 4: Press the "Add Data Source" button
 

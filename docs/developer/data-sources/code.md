@@ -5,37 +5,18 @@ Code datasource are automatically referenced on application start. They are part
 
 ## Create a Code Datasource
 
-##### Requirement 1: Inherit the `CodeDataSource` class
+### Requirement 1: Inherit the `CodeDataSource` class
 
-##### Requirement 2: Set the datasource meta properties
+### Requirement 2: Set the datasource meta properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `Description`                 | *object type*: `string`                         
-|                               |         
-|                               | Describes the purpose of the datasource
-+-------------------------------+-----------------------------------+
-| `Fields`                      | *object type*: `List<DataSourceModelFieldMeta>`                         
-|                               |         
-|                               | Describes the properties of the result model, so the user can select them with autocomplete and also the system can match their type
-+-------------------------------+-----------------------------------+
-| `Id`                          | *object type*: `Guid`                         
-|                               |                                   
-|                               | The unique id of the datasource
-+-------------------------------+-----------------------------------+
-| `Name`                        | *object type*: `string`                         
-|                               |         
-|                               | Human readable name of the datasource. It will be used when referencing the datasource or its data
-+-------------------------------+-----------------------------------+
-| `Parameters`                  | *object type*: `List<DataSourceParameter>`                         
-|                               |         
-|                               | Define what parameters the datasource expects
-+-------------------------------+-----------------------------------+
-| `ResultModel`                 | *object type*: `string`                         
-|                               |         
-|                               | What is the result model that the user should expect from this datasource
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `Description` | *object type*: `string`<br>Describes the purpose of the datasource |
+| `Fields` | *object type*: `List<DataSourceModelFieldMeta>`<br>Describes the properties of the result model, so the user can select them with autocomplete and also the system can match their type |
+| `Id` | *object type*: `Guid`<br>The unique id of the datasource |
+| `Name` | *object type*: `string`<br>Human readable name of the datasource. It will be used when referencing the datasource or its data |
+| `Parameters` | *object type*: `List<DataSourceParameter>`<br>Define what parameters the datasource expects |
+| `ResultModel` | *object type*: `string`<br>What is the result model that the user should expect from this datasource |
 
 ## Sample code
 

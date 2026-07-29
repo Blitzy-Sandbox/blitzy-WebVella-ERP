@@ -30,18 +30,18 @@ Note: the `Controllers` folder is now wired through `MapEndpoints(IEndpointRoute
 
 You can create this file as an ordinary class, but there are several requirements in order to turn it into a plugin:
 
-#### Requirement 1: The Namespace should correspond to the plugin library name
+### Requirement 1: The Namespace should correspond to the plugin library name
 ```csharp
 namespace WebVella.Erp.Plugins.SDK
 ```
 
-#### Requirement 2: Should implement `IErpPlugin`
+### Requirement 2: Should implement `IErpPlugin`
 
 ```csharp
 public class SdkPlugin : IErpPlugin
 ```
 
-#### Requirement 3: Should expose the plugin identity via its `Name`
+### Requirement 3: Should expose the plugin identity via its `Name`
 
 The plugin exposes its identity (its unique name) through the `IErpPlugin` implementation:
 
@@ -49,7 +49,7 @@ The plugin exposes its identity (its unique name) through the `IErpPlugin` imple
 public string Name => "sdk";
 ```
 
-#### Requirement 4: Should implement the `IErpPlugin` async lifecycle
+### Requirement 4: Should implement the `IErpPlugin` async lifecycle
 
 Implement the three lifecycle methods invoked by the headless plugin host — `OnLoadAsync(IServiceCollection)`, `MapEndpoints(IEndpointRouteBuilder)`, and `OnMigrateAsync(IDbTransaction)`:
 

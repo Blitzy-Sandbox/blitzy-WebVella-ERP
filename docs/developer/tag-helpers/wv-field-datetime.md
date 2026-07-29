@@ -11,17 +11,9 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `value`                       | *object type*: `DateTime?`                         
-|                               |         
-|                               | *default value*: `NULL`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | All datetime's in the database are stored in UTC timezone and are expected to be submitted to the server either with a timezone or will be considered UTC
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `value` | *object type*: `DateTime?`<br>*default value*: `NULL`<br>*is required*: `FALSE`<br>All datetime's in the database are stored in UTC timezone and are expected to be submitted to the server either with a timezone or will be considered UTC |
 
 ## Example
 

@@ -9,8 +9,8 @@ There are two types of datasources - database and code. Code datasources can be 
 
 **Important**: This page describes a process using the `WebVella SDK Plugin` web interface
 
-##### Step 1: Navigate to the SDK Application
+### Step 1: Navigate to the SDK Application
 
-##### Step 2: Select from the Objects top menu -> Data sources
+### Step 2: Select from the Objects top menu -> Data sources
 
 ![Data source List](/doc-images/sdk-datasource-list.png)

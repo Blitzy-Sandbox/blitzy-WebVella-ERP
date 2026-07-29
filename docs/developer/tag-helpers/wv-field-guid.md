@@ -10,17 +10,9 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `value`                       | *object type*: `GUID or string`                         
-|                               |         
-|                               | *default value*: `null`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | string value will be parsed to GUID
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `value` | *object type*: `GUID or string`<br>*default value*: `null`<br>*is required*: `FALSE`<br>string value will be parsed to GUID |
 
 ## Example
 

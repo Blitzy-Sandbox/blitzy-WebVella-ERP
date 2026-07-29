@@ -11,17 +11,9 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `maxlength`                   | *object type*: `int?`                         
-|                               |         
-|                               | *default value*: `NULL`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | If present, will be set as a maxlength attribute of the field's input
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `maxlength` | *object type*: `int?`<br>*default value*: `NULL`<br>*is required*: `FALSE`<br>If present, will be set as a maxlength attribute of the field's input |
 
 ## Example
 

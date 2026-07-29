@@ -5,15 +5,15 @@ The application home pages are all the "application type" pages connected to thi
 
 To review their list you need to:
 
-##### Step 1: Navigate to the SDK Application
+## Step 1: Navigate to the SDK Application
 
-##### Step 2: Select from the Objects top menu -> Applications
+## Step 2: Select from the Objects top menu -> Applications
 
 ![Application list](/doc-images/sdk-application-list.png)
 
-##### Step 3: Open the application management screen by pressing on a the view button
+## Step 3: Open the application management screen by pressing on a the view button
 
-##### Step 4: Click on the "Home Pages" tab menu
+## Step 4: Click on the "Home Pages" tab menu
 
 ![Application home pages](/doc-images/sdk-application-home-pages.png)
 

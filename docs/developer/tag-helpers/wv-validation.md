@@ -9,25 +9,10 @@
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `show-errors`                 | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Whether to show a list of specific errors in the validation element
-+-------------------------------+-----------------------------------+
-| `validation`                  | *object type*: `ValidationException`                         
-|                               |         
-|                               | *default value*: `new ValidationException()`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The validation details to present
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `show-errors` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>Whether to show a list of specific errors in the validation element |
+| `validation` | *object type*: `ValidationException`<br>*default value*: `new ValidationException()`<br>*is required*: `FALSE`<br>The validation details to present |
 
 ## Example
 

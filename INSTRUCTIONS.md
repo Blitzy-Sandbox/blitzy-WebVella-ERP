@@ -51,6 +51,12 @@ dotnet restore WebVella.ERP3.sln
 dotnet build WebVella.ERP3.sln
 ```
 
+> **⚠️ Linux build blocker (known issue — source-side).** On a **case-sensitive filesystem** (the default on most Linux distributions) the `dotnet restore`/`dotnet build` commands above **fail** with MSBuild error **MSB3202** ("The project file … was not found"). `WebVella.ERP3.sln` and **14 project files** reference the core engine as `..\WebVella.ERP\WebVella.Erp.csproj` — with an upper-case `ERP` segment and Windows-style backslash separators — while the directory on disk is **`WebVella.Erp`** (lower-case `Erp`). That is **15 exact-case references** in total (1 in the solution + 14 `ProjectReference` entries across the plugin and site `.csproj` files). Windows and macOS (case-insensitive by default) are **not** affected.
+>
+> **Workaround** (local, non-invasive): create a case-alias symlink at the repository root so the upper-case path resolves, then build as documented — `ln -s WebVella.Erp WebVella.ERP && dotnet build WebVella.ERP3.sln`.
+>
+> The **permanent fix** — normalizing the reference casing (and separators) in the solution and the 14 project files — is an **application-source change owned by the code workstream** and is **out of scope for this documentation set** (AAP §0.9.2). This note documents the blocker; it does not modify the affected `.sln`/`.csproj` files. Source: `/WebVella.ERP3.sln:L23`; the 14 `ProjectReference` entries in `/WebVella.Erp.*/*.csproj` (e.g. `/WebVella.Erp.Plugins.Crm/WebVella.Erp.Plugins.Crm.csproj`).
+>
 > The `dotnet run --project WebVella.Erp.Api` and `dotnet run --project WebVella.Erp.Worker`
 > commands belong to the **target** workflow and are **not runnable yet**: neither the
 > `WebVella.Erp.Api` nor the `WebVella.Erp.Worker` project exists in `WebVella.ERP3.sln`. The

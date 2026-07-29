@@ -9,41 +9,12 @@
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `class`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Additional CSS classes to be added to the element
-+-------------------------------+-----------------------------------+
-| `flex-horizontal-alignment`   | *object type*: `FlexHorizontalAlignmentType`                         
-|                               |         
-|                               | *default value*: `FlexHorizontalAlignmentType.None`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Sets the horizontal positioning of the nested columns as per flex standard. Options are: None, Start, Center, End, Around, Between
-+-------------------------------+-----------------------------------+
-| `flex-vertical-alignment`     | *object type*: `FlexVerticalAlignmentType`                         
-|                               |         
-|                               | *default value*: `FlexVerticalAlignmentType.None`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Sets the vertical positioning of the nested columns as per flex standard. Options are: None, Start, Center, End
-+-------------------------------+-----------------------------------+
-| `no-gutters`                  | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `FALSE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Removes the nested column padding as per Bootstrap styling
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `class` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>Additional CSS classes to be added to the element |
+| `flex-horizontal-alignment` | *object type*: `FlexHorizontalAlignmentType`<br>*default value*: `FlexHorizontalAlignmentType.None`<br>*is required*: `FALSE`<br>Sets the horizontal positioning of the nested columns as per flex standard. Options are: None, Start, Center, End, Around, Between |
+| `flex-vertical-alignment` | *object type*: `FlexVerticalAlignmentType`<br>*default value*: `FlexVerticalAlignmentType.None`<br>*is required*: `FALSE`<br>Sets the vertical positioning of the nested columns as per flex standard. Options are: None, Start, Center, End |
+| `no-gutters` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>Removes the nested column padding as per Bootstrap styling |
 
 
 ## Example

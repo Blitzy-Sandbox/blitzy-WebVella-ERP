@@ -9,19 +9,9 @@ This tag helper sets an `active` class to the element, if the current page path 
 
 ## Properties
 
-+-----------------------------------+-----------------------------------+
-| name                              | description                       |
-+===================================+===================================+
-|`wv-active-page-regex`             | *html target*: `attribute`        
-|                                   |         
-|                                   | *object type*: `Regex pattern`
-|                                   |         
-|                                   | *default value*: `none`                    
-|                                   |
-|                                   | *is required*: `TRUE`                      
-|                                   |                                   
-|                                   | A valid regex pattern to be matched.
-+-----------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `wv-active-page-regex` | *html target*: `attribute`<br>*object type*: `Regex pattern`<br>*default value*: `none`<br>*is required*: `TRUE`<br>A valid regex pattern to be matched. |
 
 
 ## Example

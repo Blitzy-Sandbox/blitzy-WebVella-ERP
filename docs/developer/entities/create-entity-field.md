@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":4, "name": "create-entity-field", "label": "Create entity field"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Create entity field
 
 ## Service Side API
@@ -16,27 +18,27 @@ FieldResponse response = new EntityManager().CreateField(entityId, newFieldObjec
 
 See the planned `/api/v1/` REST reference (target — not yet implemented): `../../api-reference/entities.md`.
 
-##### Authorization
+### Authorization
 
 To initiate this web request, you need to be in the `administrator` role.
 
-##### HTTP request
+### HTTP request
 ```http
 POST https://<YOUR_DOMAIN>/api/v3/en_US/meta/entity/{Id}/field
 ```
 This is the current route served by the in-process host, gated to the `administrator` role. Source: /WebVella.Erp.Web/Controllers/WebApiController.cs:L1593. The planned headless surface would expose it under `/api/v1/meta/entity/{Id}/field`; that surface is not yet implemented.
 
-##### Query parameters
+### Query parameters
 
 | name | description |
 | --- | --- |
 | `Id` | *object type*: `Guid`<br/><br/>*default value*: `NULL`<br/><br/>*is required*: `TRUE`<br/><br/>Id of the target entity |
 
-##### Request body
+### Request body
 
 You need to post a `InputField` object as a request body.
 
-##### Request response
+### Request response
 
 If successful, this method returns a response JSON with the following structure:
 
@@ -62,18 +64,18 @@ If successful, this method returns a response JSON with the following structure:
 
 **Important**: This page describes a process of creating an entity using the `WebVella SDK Plugin` web interface
 
-##### Step 1: Navigate to the SDK Application
+### Step 1: Navigate to the SDK Application
 
-##### Step 2: Select from the Objects top menu -> Entities
+### Step 2: Select from the Objects top menu -> Entities
 
-##### Step 3: Select the target entity from the list
+### Step 3: Select the target entity from the list
 
-##### Step 4: Select the "Fields" tab
+### Step 4: Select the "Fields" tab
 
-##### Step 5: Press the "Create Field" button
+### Step 5: Press the "Create Field" button
 
-##### Step 6: Select the field type you need to create
+### Step 6: Select the field type you need to create
 
 ![Field Create](/doc-images/sdk-entity-field-create.png)
 
-##### Step 6: Press the "Create Field" button
+### Step 6: Press the "Create Field" button

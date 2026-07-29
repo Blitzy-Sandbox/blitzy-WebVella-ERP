@@ -84,6 +84,8 @@ dotnet build WebVella.ERP3.sln
 dotnet pack WebVella.Erp/WebVella.Erp.csproj -c Release
 ```
 
+> **⚠️ Linux build blocker (known issue — source-side).** On a **case-sensitive filesystem** (the default on most Linux distributions) the `dotnet build WebVella.ERP3.sln` command **fails** with MSBuild **MSB3202**, because the solution and 14 `.csproj` files reference the core engine as `..\WebVella.ERP\WebVella.Erp.csproj` (upper-case `ERP`, backslash separators) while the directory on disk is `WebVella.Erp` (lower-case `Erp`) — **15 case-mismatched references** in total. Windows and macOS (case-insensitive by default) are unaffected. **Workaround:** create a case-alias symlink at the repository root — `ln -s WebVella.Erp WebVella.ERP` — then re-run the build. The permanent casing fix is an application-source change owned by the code workstream and is out of scope for this documentation set (AAP §0.9.2). Full note: [`INSTRUCTIONS.md`](../INSTRUCTIONS.md). Source: `/WebVella.ERP3.sln:L23` and the 14 `ProjectReference` entries in `/WebVella.Erp.*/*.csproj`.
+
 Source: `WebVella.Erp/WebVella.Erp.csproj:L6` (OutputType `Library`), `:L18,L27` (this `README.md` is the packed `PackageReadmeFile`).
 
 **Run** — the engine is consumed as a library by the API, worker, and plugin hosts; it is not started directly. It requires a **PostgreSQL** database. On first run the bootstrap auto-creates the schema, required extensions/casts, and seed data. Source: `WebVella.Erp/ERPService.cs:L18,L28,L30,L36`. For a full, runnable instance follow the repository [build & run instructions](../INSTRUCTIONS.md) and the [getting-started guide](../docs/developer/introduction/getting-started.md).

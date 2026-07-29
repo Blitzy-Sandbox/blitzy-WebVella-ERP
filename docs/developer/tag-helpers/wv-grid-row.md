@@ -9,11 +9,12 @@
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| does not have any specific properties                             | 
-+-------------------------------------------------------------------+
+<table>
+<thead><tr><th>name</th><th>description</th></tr></thead>
+<tbody>
+<tr><td colspan="2">does not have any specific properties</td></tr>
+</tbody>
+</table>
 
 
 ## Example
@@ -27,6 +28,6 @@
 			<wv-grid-column>...</wv-grid-column>
 		</wv-grid-row>
 	}
-</wv-form>
+</wv-grid>
 ```
 

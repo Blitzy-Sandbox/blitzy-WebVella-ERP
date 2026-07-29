@@ -9,29 +9,10 @@ This tag helper sets an `active` class to the element, if the current `ViewConte
 
 ## Properties
 
-+-----------------------------------+-----------------------------------+
-| name                              | description                       |
-+===================================+===================================+
-|`wv-active-page-equals`            | *html target*: `attribute`        
-|                                   |         
-|                                   | *object type*: `has no value`
-|                                   |         
-|                                   | *default value*: `none`   
-|                                   |
-|                                   | *is required*: `TRUE`                      
-|                                   |                                   
-|                                   | Just the attribute is required. It has no value needed.
-+-----------------------------------+-----------------------------------+
-|`asp-page or href`                 | *html target*: `attribute`        
-|                                   |         
-|                                   | *object type*: `string`                               
-|                                   |         
-|                                   | *default value*: `String.Empty`                     
-|                                   |
-|                                   | *is required*: `TRUE`                      
-|                                   |                                   
-|                                   | This attribute is required to be present. If not <code>active</code> class will not be assigned.
-+-----------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `wv-active-page-equals` | *html target*: `attribute`<br>*object type*: `has no value`<br>*default value*: `none`<br>*is required*: `TRUE`<br>Just the attribute is required. It has no value needed. |
+| `asp-page or href` | *html target*: `attribute`<br>*object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `TRUE`<br>This attribute is required to be present. If not <code>active</code> class will not be assigned. |
 
 ## Example
 

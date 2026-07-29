@@ -34,28 +34,27 @@ The diagram below contrasts the monolithic "before" hosting model with the propo
 graph TB
     accTitle: Migration before and after topology
     accDescr: Before, a monolith runs the RazorPages host and the Blazor WebAssembly client over the core engine and PostgreSQL using the legacy /api/v3 surface. After, a headless container-native target adds a React SPA, a REST API host on /api/v1, and a background worker over the unchanged core engine and unchanged PostgreSQL schema, with an OIDC identity provider still to be confirmed.
+    %% PF-009: the two topologies are stacked vertically (Before above After) rather than
+    %% laid side by side. As independent components in a `graph TB`, the two subgraphs were
+    %% previously placed horizontally, producing a ~2626px-wide diagram that was illegible at
+    %% normal zoom. Forcing `direction TB` inside each subgraph and adding the invisible link
+    %% `Before ~~~ After` stacks them, reducing width to ~920px while preserving the full
+    %% before/after topology and the accTitle/accDescr accessibility text.
     subgraph Before["Before — Monolith (current/legacy hosts, still present)"]
-        RP["RazorPages host<br/>WebVella.Erp.Web"]
-        BZ["Blazor WebAssembly client<br/>WebVella.Erp.WebAssembly"]
-        COREB["Core engine<br/>WebVella.Erp"]
-        DBB[("PostgreSQL")]
-        BZ -->|"legacy /api/v3/ (before)"| RP
-        RP --> COREB
-        COREB --> DBB
+        direction TB
+        BZ["Blazor WebAssembly client<br/>WebVella.Erp.WebAssembly"] -->|"legacy /api/v3/ (before)"| RP["RazorPages host<br/>WebVella.Erp.Web"]
+        RP --> COREB["Core engine<br/>WebVella.Erp"]
+        COREB --> DBB[("PostgreSQL")]
     end
     subgraph After["After — Headless, container-native (proposed target)"]
-        SPA["React SPA<br/>WebVella.Erp.Client"]
-        API["REST API host<br/>WebVella.Erp.Api (/api/v1/)"]
-        WK["Background worker<br/>WebVella.Erp.Worker"]
-        IDP["Identity provider<br/>OIDC (Not available / to be confirmed)"]
-        COREA["Core engine<br/>WebVella.Erp (unchanged)"]
-        DBA[("PostgreSQL (schema unchanged)")]
-        SPA -->|"OIDC login"| IDP
-        SPA -->|"HTTPS + JWT bearer"| API
-        API --> COREA
-        WK --> COREA
-        COREA --> DBA
+        direction TB
+        SPA["React SPA<br/>WebVella.Erp.Client"] -->|"OIDC login"| IDP["Identity provider<br/>OIDC (Not available / to be confirmed)"]
+        SPA -->|"HTTPS + JWT bearer"| API["REST API host<br/>WebVella.Erp.Api (/api/v1/)"]
+        API --> COREA["Core engine<br/>WebVella.Erp (unchanged)"]
+        WK["Background worker<br/>WebVella.Erp.Worker"] --> COREA
+        COREA --> DBA[("PostgreSQL (schema unchanged)")]
     end
+    Before ~~~ After
 ```
 
 *Diagram: the monolithic "before" topology (the current RazorPages and Blazor WebAssembly hosts, still present) versus the proposed headless "after" topology (REST API host, React SPA, and worker on the unchanged core engine). The "after" services do not exist yet.* Source: /WebVella.Erp.Web/WebVella.Erp.Web.csproj:L1 (RazorPages host, before); Source: /WebVella.Erp.WebAssembly/Client/WebVella.Erp.WebAssembly.csproj:L1 (Blazor WebAssembly client, before).

@@ -11,13 +11,13 @@ Both methods are managed through the SDK plugin in the page management screen.
 
 The manage the generated page body you need to:
 
-##### Step 1: Navigate to the page management screen
+## Step 1: Navigate to the page management screen
 
 You can navigate to the page management screen by opening the SDK application > Page List > Page details or by using the shortcut while on the page as presented on the next image.
 
 ![sdk page manage shortcut](/doc-images/sdk-page-manage-shortcut.png)
 
-##### Step2: Click on the "generated body" tab
+## Step2: Click on the "generated body" tab
 
 ![sdk page generated body](/doc-images/sdk-page-generated-body.png)
 

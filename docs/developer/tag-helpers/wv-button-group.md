@@ -9,41 +9,12 @@
 
 ## Properties
 
-+---------------------+-----------------------------------+
-| name                | description                       |
-+=====================+===================================+
-| `class`             | *object type*: `string` 
-|                     |         
-|                     | *default value*: `String.Empty`                    
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | CSS classes that you may need to add to the standard Bootstrap CSS
-+---------------------+-----------------------------------+
-| `id`                | *object type*: `string`                         
-|                     |         
-|                     | *default value*: `String.Empty`
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | Html ID you may need to set to the rendered element
-+---------------------+-----------------------------------+
-| `is-vertical`       | *object type*: `bool`                         
-|                     |         
-|                     | *default value*: `FALSE`
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | If TRUE, will render the button list vertically.
-+---------------------+-----------------------------------+
-| `size`              | *object type*: `enum CssSize`                         
-|                     |         
-|                     | *default value*: `CssSize.Inherit`
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | Size of the element. Options are: Normal,Small,Large, Inherit
-+---------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `class` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>CSS classes that you may need to add to the standard Bootstrap CSS |
+| `id` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>Html ID you may need to set to the rendered element |
+| `is-vertical` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>If TRUE, will render the button list vertically. |
+| `size` | *object type*: `enum CssSize`<br>*default value*: `CssSize.Inherit`<br>*is required*: `FALSE`<br>Size of the element. Options are: Normal,Small,Large, Inherit |
 
 ## Example
 

@@ -11,25 +11,10 @@
 ## Properties
 **Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `autogrow`                    | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `FALSE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | will increase the textarea height automatically based on the text content
-+-------------------------------+-----------------------------------+
-| `height`                      | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | will be set as a height style to the textarea input
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `autogrow` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>will increase the textarea height automatically based on the text content |
+| `height` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>will be set as a height style to the textarea input |
 
 ## Example
 

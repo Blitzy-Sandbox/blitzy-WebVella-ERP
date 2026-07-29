@@ -7,6 +7,18 @@ site_name: 'blitzy-WebVella-ERP'
 # meta description (QA finding #4, SEO/shareability). One site-wide line closes the
 # gap without changing any per-page frontmatter (minimal-change convention).
 site_description: 'Developer, integrator, and operator documentation for the WebVella ERP headless, container-native platform: REST/OpenAPI reference, plugin SDK, architecture, migration, and deployment guides.'
+theme:
+  # techdocs-core already selects the Material theme in its own `on_config`; this block
+  # only augments that selection (MkDocs requires `name` to be restated when a top-level
+  # `theme:` mapping is present) and does not replace it (Rule C, minimal change).
+  name: material
+  # PF-014 (mobile performance / LCP): disable Material's default Google Fonts (Roboto +
+  # Roboto Mono) fetch from fonts.googleapis.com / fonts.gstatic.com. Those are
+  # render-blocking, cross-origin requests that dominated mobile LCP (~8-9s) and add a CDN
+  # dependency inconsistent with the container-native / air-gapped target. `font: false`
+  # makes Material emit no Google Fonts <link> and fall back to the system font stack,
+  # removing the external render-blocking requests with no bundled-asset cost.
+  font: false
 nav:
   # Register the six new top-level documentation sections created by the headless
   # refactor so they appear in the site navigation (AAP §0.6.4 / §0.6.5; QA nav-only-Home).
@@ -191,6 +203,15 @@ nav:
   - Contributing:
     - "Build & Test": contributing/build-and-test.md
     - Documentation: contributing/documentation.md
+# Documentation-build hook (MkDocs core `hooks:`, no extra dependency): copies the
+# repository-root `doc-images/` directory into the built site so the developer docs'
+# absolute `/doc-images/*.png` references resolve in a plain `mkdocs build` deployment.
+# `doc-images/` lives outside `docs_dir`, so MkDocs would otherwise leave it uncopied
+# and every `/doc-images/*.png` reference would 404 in the built/deployed site
+# (QA finding PF-001). The hook is additive (never edits page content or moves the
+# source assets), dependency-free (stdlib only), and idempotent (`dirs_exist_ok=True`).
+hooks:
+  - mkdocs_hooks.py
 plugins:
   # Enable techdocs-core's Material-native search instead of its default classic
   # MkDocs (lunr) search. With the default (`use_material_search: false`),
@@ -219,10 +240,15 @@ plugins:
   # `TemplateNotFound: partials/language.html`).
   - material/search
   - mermaid2:
-      # Pin the Mermaid runtime version that the mermaid2 plugin loads (served from the
-      # plugin's default CDN for that version). No repository-bundled Mermaid copy is
-      # referenced, so the documentation build depends on no committed Mermaid asset.
+      # Pin Mermaid and serve it from a locally bundled copy under docs/assets/mermaid/
+      # so diagrams render in the container-native / air-gapped target with no CDN
+      # dependency (AAP §0.7.1 "bundle Mermaid locally"; QA finding PF-008). The single
+      # self-contained UMD build exposes a global `mermaid`, so mermaid2 loads it via a
+      # classic <script src> tag and calls mermaid.initialize(), avoiding the ESM
+      # startOnLoad race. `docs/assets/mermaid/mermaid.min.js` is copied verbatim into the
+      # built site by MkDocs (it lives inside docs_dir), so no CDN fetch occurs at runtime.
       version: 11.16.0
+      javascript: assets/mermaid/mermaid.min.js
 # Register a superfences custom fence for ```mermaid so techdocs-core's bundled
 # pymdownx.superfences no longer emits a highlighted code block for it. Using
 # mermaid2.fence_mermaid emits <div class="mermaid"> (mermaid2's own marker), which the
@@ -235,3 +261,19 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:mermaid2.fence_mermaid
+# Rendered-site accessibility & search-UX overrides (QA findings PF-010, PF-011, PF-016,
+# PF-028). These are additive theme-level assets layered on top of the Material theme that
+# techdocs-core configures internally; they modify no Material source or template (Rule C,
+# minimal change). extra_css adds a prose-link underline for WCAG 1.4.1 link
+# distinguishability (PF-010) plus a mobile search-wrapper max-width guard (PF-028);
+# extra.js names the search dialog and restores focus on dismiss (PF-010), resets the stale
+# result/status region and neutralizes the empty clear control (PF-016), clears any retained
+# query on close (PF-028), and makes the off-canvas mobile/tablet navigation drawer modal
+# (inert-when-closed, focus trap, Escape-close, scroll-lock, focus-restore) strictly below
+# Material's 76.25em drawer breakpoint so the persistent desktop sidebar is never altered
+# (PF-011). Both files live under docs/assets/ (copied verbatim into the built site) so no
+# CDN dependency is introduced.
+extra_css:
+  - assets/extra.css
+extra_javascript:
+  - assets/extra.js

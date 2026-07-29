@@ -5,35 +5,20 @@ To create an "Page-Type Hook" attachment, you need to create a class file in you
 
 ## Requirements
 
-#### Requirement 1: `HookAttachment` class attribute
+### Requirement 1: `HookAttachment` class attribute
 
 You need to decorate the class as an API hook by prepending an attribute. It has two properties:
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `key`                         | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | If you need to target a custom hook handler, here you need to provide its name
-+-------------------------------+-----------------------------------+
-| `priority`                    | *object type*: `int`                         
-|                               |         
-|                               | *default value*: `10`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The plugin order priority. More executes first.
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `key` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>If you need to target a custom hook handler, here you need to provide its name |
+| `priority` | *object type*: `int`<br>*default value*: `10`<br>*is required*: `FALSE`<br>The plugin order priority. More executes first. |
 
 ```csharp
 [HookAttachment]
 ```
 
-#### Requirement 2: Inherit the proper interface of the hook based on the targeted page type
+### Requirement 2: Inherit the proper interface of the hook based on the targeted page type
 
 Available options are: ILoginPageHook, ILogoutPageHook, IHomePageHook, ISitePageHook, IApplicationHomePageHook, IApplicationNodePageHook, IRecordCreatePageHook, IRecordDetailsPageHook, 
 IRecordListPageHook, IRecordManagePageHook, IRecordRelatedRecordCreatePageHook, IRecordRelatedRecordDetailsPageHook, IRecordRelatedRecordsListPageHook, IRecordRelatedRecordManagePageHook
@@ -42,7 +27,7 @@ IRecordListPageHook, IRecordManagePageHook, IRecordRelatedRecordCreatePageHook, 
 public class SomePageHook : ISitePageHook
 ```
 
-#### Requirement 3: Implement the interface methods
+### Requirement 3: Implement the interface methods
 
 You need to check what methods the hook interface provides and implement them.
 

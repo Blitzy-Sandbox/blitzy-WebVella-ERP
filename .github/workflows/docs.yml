@@ -191,10 +191,15 @@ jobs:
                           broken.append((path, raw, "anchor"))
                       continue
                   if core.startswith('/'):
-                      if core.startswith('/doc-images/'):        # copied into build by mkdocs_hooks.py
+                      if core.startswith('/doc-images/'):        # PF-017: validate the BUILT site output
+                          # The repo-root doc-images/ tree is published into the built site by
+                          # mkdocs_hooks.py (on_post_build) as site/doc-images/. Validating against
+                          # SITE (not REPO) means this gate FAILS if the publish hook is removed or
+                          # broken — the exact regression that previously let /doc-images/*.png 404
+                          # in the deployed site while the source PNGs still existed (PF-001).
                           checked += 1
-                          if not os.path.exists(os.path.join(REPO, core.lstrip('/'))):
-                              broken.append((path, raw, "doc-image"))
+                          if not os.path.exists(os.path.join(SITE, core.lstrip('/'))):
+                              broken.append((path, raw, "doc-image (missing from built site/)"))
                       else:
                           site_routes += 1                       # deploy-time site route; skip
                       continue

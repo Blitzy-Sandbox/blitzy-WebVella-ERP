@@ -5,77 +5,20 @@
 
 ## Purpose
 
-`<wv-icon-card/>`. Generates a styles icon card.
+`<wv-icon-card/>`. Generates a styled icon card.
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `class`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Added to the generated card classes
-+-------------------------------+-----------------------------------+
-| `description`                 | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Description of the card 
-+-------------------------------+-----------------------------------+
-| `icon-class`                  | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Used to generate the icon of the card using [FontAwesome icon library](https://fontawesome.com/icons)
-+-------------------------------+-----------------------------------+
-| `icon-color`                  | *object type*: `ErpColor`                         
-|                               |         
-|                               | *default value*: `ErpColor.Default`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Select from 32 color options
-+-------------------------------+-----------------------------------+
-| `is-card`                     | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | If TRUE generates the card wrapping lines according to the Bootstrap styling
-+-------------------------------+-----------------------------------+
-| `is-clickable`                | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | If TRUE adds a "clickable" class that will change the cursor as pointer on hovering the card
-+-------------------------------+-----------------------------------+
-| `has-shadow`                  | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | If TRUE generates a shadow below the card
-+-------------------------------+-----------------------------------+
-| `title`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Title of the card 
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `class` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>Added to the generated card classes |
+| `description` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>Description of the card |
+| `icon-class` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>Used to generate the icon of the card using [FontAwesome icon library](https://fontawesome.com/icons) |
+| `icon-color` | *object type*: `ErpColor`<br>*default value*: `ErpColor.Default`<br>*is required*: `FALSE`<br>Select from 32 color options |
+| `is-card` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>If TRUE generates the card wrapping lines according to the Bootstrap styling |
+| `is-clickable` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>If TRUE adds a "clickable" class that will change the cursor as pointer on hovering the card |
+| `has-shadow` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>If TRUE generates a shadow below the card |
+| `title` | *object type*: `string`<br>*default value*: `string.empty`<br>*is required*: `FALSE`<br>Title of the card |
 
 
 

@@ -9,89 +9,18 @@
 
 ## Properties
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `body-class`                  | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Additional CSS classes to be added to the body of the element
-+-------------------------------+-----------------------------------+
-| `class`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Additional CSS classes to be added to the element
-+-------------------------------+-----------------------------------+
-| `field-mode`                  | *object type*: `FieldRenderMode`                         
-|                               |         
-|                               | *default value*: `FieldRenderMode.Undefined`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Does not have effect on the section element, but on the nested fields as it could be inherited by default. Options are: Undefined, Form, Display, InlineEdit, Simple
-+-------------------------------+-----------------------------------+
-| `id`                          | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | HTML Id of the generated element
-+-------------------------------+-----------------------------------+
-| `is-card`                     | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `FALSE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Whether to render the element as a card
-+-------------------------------+-----------------------------------+
-| `is-collapsable`              | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `FALSE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Add the option of the element's body to be collapsed by clicking on its title
-+-------------------------------+-----------------------------------+
-| `is-collapsed`                | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `TRUE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Sets the initial collapse status
-+-------------------------------+-----------------------------------+
-| `label-mode`                  | *object type*: `LabelRenderMode` 
-|                               |         
-|                               | *default value*: `LabelRenderMode.Undefined`                    
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Does not have effect on the section element, but on the nested fields as it could be inherited by default. Options: Undefined, Stacked, Horizontal, Hidden
-+-------------------------------+-----------------------------------+
-| `title`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The section title
-+-------------------------------+-----------------------------------+
-| `title-tag`                   | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `String.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The HTML tag for wrapping the title text
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `body-class` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>Additional CSS classes to be added to the body of the element |
+| `class` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>Additional CSS classes to be added to the element |
+| `field-mode` | *object type*: `FieldRenderMode`<br>*default value*: `FieldRenderMode.Undefined`<br>*is required*: `FALSE`<br>Does not have effect on the section element, but on the nested fields as it could be inherited by default. Options are: Undefined, Form, Display, InlineEdit, Simple |
+| `id` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>HTML Id of the generated element |
+| `is-card` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>Whether to render the element as a card |
+| `is-collapsable` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>Add the option of the element's body to be collapsed by clicking on its title |
+| `is-collapsed` | *object type*: `bool`<br>*default value*: `TRUE`<br>*is required*: `FALSE`<br>Sets the initial collapse status |
+| `label-mode` | *object type*: `LabelRenderMode`<br>*default value*: `LabelRenderMode.Undefined`<br>*is required*: `FALSE`<br>Does not have effect on the section element, but on the nested fields as it could be inherited by default. Options: Undefined, Stacked, Horizontal, Hidden |
+| `title` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>The section title |
+| `title-tag` | *object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>The HTML tag for wrapping the title text |
 
 
 

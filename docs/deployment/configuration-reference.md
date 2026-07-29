@@ -9,9 +9,9 @@
 
 ## Current configuration (`config.json`)
 
-Today all settings are read from the `Settings` section of `WebVella.Erp.Site/Config.json` and bound through `ErpSettings`. Source: /WebVella.Erp.Site/Config.json:L2 (`Settings` object); Source: /WebVella.Erp/ErpSettings.cs (settings binding). The hosts build configuration with a JSON file provider only — there is no environment-variable provider — so the values below come from the committed file, not from the environment. Source: /WebVella.Erp.Site/Startup.cs:L43; Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52.
+Today configuration is read from `WebVella.Erp.Site/Config.json` and bound through `ErpSettings`. **Most** keys live under the top-level `Settings` object; two additional top-level sections exist alongside it — a `Development` section holding dev-only test fixtures (documented under [Development (dev-only)](#development-dev-only)) and an `ApiUrlTemplates` section holding a legacy route template (documented in the **Legacy API URL template** note below). Source: /WebVella.Erp.Site/Config.json:L2 (`Settings` object), L30 (`Development` section), L34 (`ApiUrlTemplates` section); Source: /WebVella.Erp/ErpSettings.cs (settings binding). The hosts build configuration with a JSON file provider only — there is no environment-variable provider — so the values below come from the committed file, not from the environment. Source: /WebVella.Erp.Site/Startup.cs:L43; Source: /WebVella.Erp.Web/ErpMvcExtensions.cs:L51-L52.
 
-The **Sample value** column shows the value present in the committed development `Config.json`, **not** an application-level default (there is no defaulting or options-validation layer — a missing key simply binds to null/empty). Secret and internal-infrastructure values are **not reproduced** (rule D); their rows show the value **type** and how to supply it.
+The **Sample value** column shows the value present in the committed development `Config.json`, **not** an application-level default. For the `Settings:*` keys there is no defaulting or options-validation layer — a missing key simply binds to null/empty. The two `Development:*` keys are the **exception**: they carry hardcoded application-level defaults in `ErpSettings`, so a missing key falls back to that default rather than null/empty (see [Development (dev-only)](#development-dev-only)). Source: /WebVella.Erp/ErpSettings.cs:L89-L96. Secret and internal-infrastructure values are **not reproduced** (rule D); their rows show the value **type** and how to supply it.
 
 ### Database
 
@@ -72,6 +72,15 @@ The current hosts validate JWT bearer tokens with a **symmetric** signing key re
 | `Settings:AppName` — Source: /WebVella.Erp.Site/Config.json:L21 | Display name of the application. | `WebVella Next` | No |
 | `Settings:NavLogoUrl` — Source: /WebVella.Erp.Site/Config.json:L22 | URL of the navigation logo. | `""` (empty) | No |
 | `Settings:SystemMasterBackgroundImageUrl` — Source: /WebVella.Erp.Site/Config.json:L23 | URL of the sign-in / master background image. | `""` (empty) | No |
+
+### Development (dev-only)
+
+These two keys live in a **separate top-level `Development` section** (not under `Settings`) and are **used only in development** to target a known entity/record for local testing. Unlike the `Settings:*` keys, both carry **hardcoded application-level defaults** in `ErpSettings`, so a missing or blank key does **not** bind to null — it falls back to the default. `TestEntityName` defaults to `test`; `TestRecordId` is initialized to a fixed GUID and is only overridden when the configured value parses as a GUID. Source: /WebVella.Erp/ErpSettings.cs:L89-L96. Neither key is a secret. Under the proposed (not-yet-existing) environment-variable provider they would map to `Development__TestEntityName` and `Development__TestRecordId`, but these are **development-only** and are not intended for production configuration.
+
+| Legacy key (`Config.json`) | Purpose | Sample value | Secret? |
+|----------------------------|---------|--------------|---------|
+| `Development:TestEntityName` — Source: /WebVella.Erp.Site/Config.json:L31 | Dev-only entity name used as a test target during local development. Falls back to the hardcoded default `test` when the key is empty or absent. Source: /WebVella.Erp/ErpSettings.cs:L89 | `test` (dev-only) | No |
+| `Development:TestRecordId` — Source: /WebVella.Erp.Site/Config.json:L32 | Dev-only record id used as a test target during local development. Bound only when the configured value parses as a GUID; otherwise the hardcoded default GUID in `ErpSettings` is used. Source: /WebVella.Erp/ErpSettings.cs:L90,L94-L96 | GUID — dev-only sample fixture (literal not reproduced) | No |
 
 > **Legacy API URL template.** The legacy key `Settings:ApiUrlTemplates:FieldInlineEdit` uses a `/api/v3/...` route template. Source: /WebVella.Erp.Site/Config.json:L35 In the headless target the REST surface would be versioned under `/api/v1/`; the legacy template is a "before"-state value and its literal contents are not reproduced here.
 
