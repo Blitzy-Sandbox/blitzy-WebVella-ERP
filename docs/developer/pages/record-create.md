@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":9, "name": "record-create", "label": "Record create"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Record create
 
 This page type is used for record create pages. Its url is like `/{AppName}/{AreaName}/{NodeName}/c/{PageName?}`. If a `PageName` is not provided, the system will automatically open the record create page that is connected to the selected entity by the node and has the lowest page sort order.

@@ -1,7 +1,9 @@
 ﻿<!--{"sort_order":2, "name": "create-your-own", "label": "Create your own"}-->
 # Create a Plugin for the WebVella Erp
 
-To create a Plugin you need to add to the solution a Razor Class Library that has specific structure and requirements.
+> **Planned target — not yet implemented (headless refactor).** The `IErpPlugin` contract, the `PluginManifest.cs` convention, the async lifecycle methods (`OnLoadAsync(IServiceCollection)`, `MapEndpoints(IEndpointRouteBuilder)`, `OnMigrateAsync(IDbTransaction)`), and the `.wvplugin` plugin host described on this page **do not exist in this repository yet** — they are delivered by the plugin-SDK implementation workstream, and the contract shape itself is **Not available / to be confirmed**. **Today**, a plugin is authored against the legacy base class `ErpPlugin` and overrides `Initialize(IServiceProvider)` — the bundled SDK sample still does exactly this. Source: /WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10,L15 (`public partial class SdkPlugin : ErpPlugin` … `public override void Initialize(IServiceProvider serviceProvider)`). See [Plugins overview](overview.md) for the current model and [Migrating from ErpPlugin](../../plugin-sdk/migrating-from-erpplugin.md) for the planned port. The folder structure and `IErpPlugin` signatures below describe the **target** authoring model.
+
+To create a plugin you need to add to the solution a project that implements the **`IErpPlugin`** contract (commonly via a `PluginManifest.cs`) and follows a specific structure and a few requirements.
 
 ## Plugin name
 
@@ -22,35 +24,48 @@ The plugin usually has a main `.cs` file and a number of folders that hold the c
 <i class="fa fa-fw fa-folder go-orange"></i> Utils <br/>
 <i class="fa fa-fw fa-file-code go-blue"></i> PluginNamePlugin.cs
 
+Note: the `Controllers` folder is now wired through `MapEndpoints(IEndpointRouteBuilder)` rather than MVC controllers.
+
 ## PluginNamePlugin.cs
 
 You can create this file as an ordinary class, but there are several requirements in order to turn it into a plugin:
 
-#### Requirement 1: The Namespace should correspond to the plugin library name
+### Requirement 1: The Namespace should correspond to the plugin library name
 ```csharp
 namespace WebVella.Erp.Plugins.SDK
 ```
 
-#### Requirement 2: Should inherit `ErpPlugin`
+### Requirement 2: Should implement `IErpPlugin`
 
 ```csharp
-public partial class SdkPlugin : ErpPlugin
+public class SdkPlugin : IErpPlugin
 ```
 
-#### Requirement 3: Should override at least the `Name` property of `ErpPlugin`
+### Requirement 3: Should expose the plugin identity via its `Name`
+
+The plugin exposes its identity (its unique name) through the `IErpPlugin` implementation:
 
 ```csharp
-[JsonProperty(PropertyName = "name")]
-public override string Name { get; protected set; } = "sdk";
+public string Name => "sdk";
 ```
 
-#### Requirement 4: Should implement the `Initialize` method of `ErpPlugin`
+### Requirement 4: Should implement the `IErpPlugin` async lifecycle
 
-Will need to inject the `IServiceProvider`.
+Implement the three lifecycle methods invoked by the headless plugin host — `OnLoadAsync(IServiceCollection)`, `MapEndpoints(IEndpointRouteBuilder)`, and `OnMigrateAsync(IDbTransaction)`:
+
+- `OnLoadAsync(IServiceCollection services)` — register the plugin's services / DI at load time (replaces the legacy startup initialization).
+- `MapEndpoints(IEndpointRouteBuilder endpoints)` — expose the plugin's HTTP endpoints.
+- `OnMigrateAsync(IDbTransaction transaction)` — apply transactional schema/data patches on the host-owned transaction.
 
 ```csharp
-public override void Initialize(IServiceProvider serviceProvider)
+public Task OnLoadAsync(IServiceCollection services);
+public void MapEndpoints(IEndpointRouteBuilder endpoints);
+public Task OnMigrateAsync(IDbTransaction transaction);
 ```
+
+For the complete contract and lifecycle, see the canonical SDK reference: the [IErpPlugin contract](../../plugin-sdk/ierplugin-contract.md). To port a legacy plugin to `IErpPlugin`, follow the [migration guide](../../plugin-sdk/migrating-from-erpplugin.md).
+
+Source: the legacy base-class plugin model — `SdkPlugin : ErpPlugin` overriding `Initialize(IServiceProvider)` — in `WebVella.Erp.Plugins.SDK/SdkPlugin.cs:L10,L15`.
 
 ## Components
 
@@ -58,7 +73,7 @@ Here are the page components provided by the plugin.
 
 ## Controllers
 
-Here are the api controllers provided by the plugin.
+Here are the HTTP endpoints provided by the plugin. Endpoints are registered via `MapEndpoints(IEndpointRouteBuilder)` rather than MVC controllers.
 
 ## DataSource
 

@@ -1,6 +1,279 @@
 site_name: 'blitzy-WebVella-ERP'
+# Site-wide meta description. The Material theme (via techdocs-core) emits
+# `<meta name="description" content="...">` from `config.site_description` as the
+# fallback whenever a page has no per-page description. The repository's TechDocs
+# HTML-comment frontmatter convention (`<!--{"sort_order":...}-->`) does not populate
+# MkDocs' native `description:` field, so without this fallback no page emitted a
+# meta description (QA finding #4, SEO/shareability). One site-wide line closes the
+# gap without changing any per-page frontmatter (minimal-change convention).
+site_description: 'Developer, integrator, and operator documentation for the WebVella ERP headless, container-native platform: REST/OpenAPI reference, plugin SDK, architecture, migration, and deployment guides.'
+theme:
+  # techdocs-core already selects the Material theme in its own `on_config`; this block
+  # only augments that selection (MkDocs requires `name` to be restated when a top-level
+  # `theme:` mapping is present) and does not replace it (Rule C, minimal change).
+  name: material
+  # PF-014 (mobile performance / LCP): disable Material's default Google Fonts (Roboto +
+  # Roboto Mono) fetch from fonts.googleapis.com / fonts.gstatic.com. Those are
+  # render-blocking, cross-origin requests that dominated mobile LCP (~8-9s) and add a CDN
+  # dependency inconsistent with the container-native / air-gapped target. `font: false`
+  # makes Material emit no Google Fonts <link> and fall back to the system font stack,
+  # removing the external render-blocking requests with no bundled-asset cost.
+  font: false
 nav:
+  # Register the six new top-level documentation sections created by the headless
+  # refactor so they appear in the site navigation (AAP §0.6.4 / §0.6.5; QA nav-only-Home).
+  # Section and page order follow each folder's `folder.json` `sort_order` and each page's
+  # frontmatter `sort_order`. The existing `docs/developer/**` tree remains driven by the
+  # Backstage-TechDocs reader navigation and its per-folder `folder.json` files (Rule C).
   - Home: index.md
+  - Developer:
+    - Introduction:
+      - Overview: developer/introduction/overview.md
+      - Getting started: developer/introduction/getting-started.md
+      - Feature request: developer/introduction/feature-request.md
+      - Issue reporting: developer/introduction/issue-reporting.md
+      - Get involved: developer/introduction/get-involved.md
+    - Plugins:
+      - Overview: developer/plugins/overview.md
+      - Create your own: developer/plugins/create-your-own.md
+    - Entities:
+      - Overview: developer/entities/overview.md
+      - Create entity: developer/entities/create-entity.md
+      - Entity Fields: developer/entities/entity-fields.md
+      - Create entity field: developer/entities/create-entity-field.md
+      - Entity Relations: developer/entities/entity-relations.md
+      - Create entity relation: developer/entities/create-entity-relation.md
+    - Hooks:
+      - Overview and Types: developer/hooks/overview.md
+      - Attach to an API hook: developer/hooks/attach-to-api-hook.md
+      - Attach to a General Page Hook: developer/hooks/attach-to-general-page-hook.md
+      - Attach to a Page-Type Hook: developer/hooks/attach-to-page-type-hook.md
+      - Create Render Hook: developer/hooks/create-render-hook.md
+      - Attach to a Render Hook: developer/hooks/attach-to-render-hook.md
+    - Tag helpers:
+      - wv-active-page-equals: developer/tag-helpers/wv-active-page-equals.md
+      - wv-active-page-regex: developer/tag-helpers/wv-active-page-regex.md
+      - wv-active-page-starts: developer/tag-helpers/wv-active-page-starts.md
+      - wv-authorize: developer/tag-helpers/wv-authorize.md
+      - wv-button-group: developer/tag-helpers/wv-button-group.md
+      - wv-button-toolbar: developer/tag-helpers/wv-button-toolbar.md
+      - wv-button: developer/tag-helpers/wv-button.md
+      - wv-chart: developer/tag-helpers/wv-chart.md
+      - wv-code-highlight: developer/tag-helpers/wv-code-highlight.md
+      - wv-column: developer/tag-helpers/wv-column.md
+      - wv-drawer: developer/tag-helpers/wv-drawer.md
+      - wv-field-append: developer/tag-helpers/wv-field-append.md
+      - wv-field-autonumber: developer/tag-helpers/wv-field-autonumber.md
+      - wv-field-base: developer/tag-helpers/wv-field-base.md
+      - wv-field-checkbox-grid: developer/tag-helpers/wv-field-checkbox-grid.md
+      - wv-field-checkbox-list: developer/tag-helpers/wv-field-checkbox-list.md
+      - wv-field-checkbox: developer/tag-helpers/wv-field-checkbox.md
+      - wv-field-code: developer/tag-helpers/wv-field-code.md
+      - wv-field-color: developer/tag-helpers/wv-field-color.md
+      - wv-field-currency: developer/tag-helpers/wv-field-currency.md
+      - wv-field-datasource: developer/tag-helpers/wv-field-datasource.md
+      - wv-field-date: developer/tag-helpers/wv-field-date.md
+      - wv-field-datetime: developer/tag-helpers/wv-field-datetime.md
+      - wv-field-email: developer/tag-helpers/wv-field-email.md
+      - wv-field-file: developer/tag-helpers/wv-field-file.md
+      - wv-field-guid: developer/tag-helpers/wv-field-guid.md
+      - wv-field-html: developer/tag-helpers/wv-field-html.md
+      - wv-field-image: developer/tag-helpers/wv-field-image.md
+      - wv-field-multiselect: developer/tag-helpers/wv-field-multiselect.md
+      - wv-field-number: developer/tag-helpers/wv-field-number.md
+      - wv-field-password: developer/tag-helpers/wv-field-password.md
+      - wv-field-percent: developer/tag-helpers/wv-field-percent.md
+      - wv-field-phone: developer/tag-helpers/wv-field-phone.md
+      - wv-field-plaintext: developer/tag-helpers/wv-field-plaintext.md
+      - wv-field-prepend: developer/tag-helpers/wv-field-prepend.md
+      - wv-field-radio-list: developer/tag-helpers/wv-field-radio-list.md
+      - wv-field-select: developer/tag-helpers/wv-field-select.md
+      - wv-field-text: developer/tag-helpers/wv-field-text.md
+      - wv-field-textarea: developer/tag-helpers/wv-field-textarea.md
+      - wv-field-time: developer/tag-helpers/wv-field-time.md
+      - wv-field-url: developer/tag-helpers/wv-field-url.md
+      - wv-filter-autonumber: developer/tag-helpers/wv-filter-autonumber.md
+      - wv-filter-base: developer/tag-helpers/wv-filter-base.md
+      - wv-filter-checkbox: developer/tag-helpers/wv-filter-checkbox.md
+      - wv-filter-currency: developer/tag-helpers/wv-filter-currency.md
+      - wv-filter-date: developer/tag-helpers/wv-filter-date.md
+      - wv-filter-datetime: developer/tag-helpers/wv-filter-datetime.md
+      - wv-filter-email: developer/tag-helpers/wv-filter-email.md
+      - wv-filter-file: developer/tag-helpers/wv-filter-file.md
+      - wv-filter-guid: developer/tag-helpers/wv-filter-guid.md
+      - wv-filter-html: developer/tag-helpers/wv-filter-html.md
+      - wv-filter-image: developer/tag-helpers/wv-filter-image.md
+      - wv-filter-multiselect: developer/tag-helpers/wv-filter-multiselect.md
+      - wv-filter-number: developer/tag-helpers/wv-filter-number.md
+      - wv-filter-percent: developer/tag-helpers/wv-filter-percent.md
+      - wv-filter-phone: developer/tag-helpers/wv-filter-phone.md
+      - wv-filter-select: developer/tag-helpers/wv-filter-select.md
+      - wv-filter-text: developer/tag-helpers/wv-filter-text.md
+      - wv-filter-textarea: developer/tag-helpers/wv-filter-textarea.md
+      - wv-filter-url: developer/tag-helpers/wv-filter-url.md
+      - wv-form: developer/tag-helpers/wv-form.md
+      - wv-grid-column: developer/tag-helpers/wv-grid-column.md
+      - wv-grid-row: developer/tag-helpers/wv-grid-row.md
+      - wv-grid: developer/tag-helpers/wv-grid.md
+      - wv-icon-card: developer/tag-helpers/wv-icon-card.md
+      - wv-modal-body: developer/tag-helpers/wv-modal-body.md
+      - wv-modal-footer: developer/tag-helpers/wv-modal-footer.md
+      - wv-modal: developer/tag-helpers/wv-modal.md
+      - wv-page-header-actions: developer/tag-helpers/wv-page-header-actions.md
+      - wv-page-header-toolbar: developer/tag-helpers/wv-page-header-toolbar.md
+      - wv-page-header: developer/tag-helpers/wv-page-header.md
+      - wv-row: developer/tag-helpers/wv-row.md
+      - wv-section: developer/tag-helpers/wv-section.md
+      - wv-validation: developer/tag-helpers/wv-validation.md
+    - Data sources:
+      - Overview: developer/data-sources/overview.md
+      - EQL Syntax: developer/data-sources/eql.md
+      - Database data sources: developer/data-sources/database.md
+      - Code data sources: developer/data-sources/code.md
+    - Page Components:
+      - Overview: developer/components/overview.md
+      - Create your own: developer/components/create-your-own.md
+    - Pages:
+      - Overview: developer/pages/overview.md
+      - Routing: developer/pages/routing.md
+      - Home page: developer/pages/home-page.md
+      - Site page: developer/pages/site-page.md
+      - Application page: developer/pages/application-page.md
+      - Record list: developer/pages/record-list.md
+      - Record details: developer/pages/record-details.md
+      - Record create: developer/pages/record-create.md
+      - Record manage: developer/pages/record-manage.md
+      - Create a page: developer/pages/create-page.md
+      - Manage generated body: developer/pages/manage-generated-body.md
+      - Manage custom body: developer/pages/manage-custom-body.md
+    - Applications:
+      - Overview: developer/applications/overview.md
+      - Create application: developer/applications/create-application.md
+      - Sitemap: developer/applications/sitemap.md
+      - Home pages: developer/applications/home-pages.md
+    - Users and Roles:
+      - Overview: developer/users-and-roles/overview.md
+      - Users: developer/users-and-roles/users.md
+      - Roles: developer/users-and-roles/roles.md
+    - Background jobs:
+      - Overview: developer/background-jobs/overview.md
+      - Background job: developer/background-jobs/background-job.md
+      - Schedule plans: developer/background-jobs/schedule-plan.md
+      - Jobs log: developer/background-jobs/jobs-log.md
+    - System log: developer/system-log/overview.md
+    - Server API: developer/server-api/overview.md
+    - Web API:
+      - Overview: developer/web-api/overview.md
+      - Response Format: developer/web-api/response.md
+  - API Reference:
+    - Overview: api-reference/index.md
+    - OpenAPI Document: api-reference/openapi.md
+    - Authentication: api-reference/authentication.md
+    - Records: api-reference/records.md
+    - "Entities & Metadata": api-reference/entities.md
+    - EQL Query: api-reference/eql.md
+    - Files: api-reference/files.md
+    - Errors: api-reference/errors.md
+  - Plugin SDK:
+    - IErpPlugin Contract: plugin-sdk/ierplugin-contract.md
+    - Migrating from ErpPlugin: plugin-sdk/migrating-from-erpplugin.md
+    - ".wvplugin Packaging": plugin-sdk/packaging-wvplugin.md
+    - AssemblyLoadContext Hosting: plugin-sdk/assemblyloadcontext-hosting.md
+    - Migrations (OnMigrateAsync): plugin-sdk/migrations-onmigrateasync.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - ICodeVariable Adapter: architecture/icodevariable-adapter.md
+    - Plugin Host: architecture/plugin-host.md
+    - Data Access: architecture/data-access.md
+    - Observability: architecture/observability.md
+    - Security: architecture/security.md
+  - Migration:
+    - Overview: migration/overview.md
+    - RazorPages to React: migration/razorpages-to-react.md
+    - Blazor Retirement: migration/blazor-retirement.md
+    - Plugin Migration: migration/plugin-migration.md
+    - Database Migration Job: migration/database-migration-job.md
+    - Rollback Plan: migration/rollback-plan.md
+  - Deployment:
+    - Docker Compose: deployment/docker-compose.md
+    - "Kubernetes & Helm": deployment/kubernetes-helm.md
+    - CI/CD: deployment/ci-cd.md
+    - Configuration Reference: deployment/configuration-reference.md
+    - Troubleshooting: deployment/troubleshooting.md
+  - Contributing:
+    - "Build & Test": contributing/build-and-test.md
+    - Documentation: contributing/documentation.md
+# Documentation-build hook (MkDocs core `hooks:`, no extra dependency): copies the
+# repository-root `doc-images/` directory into the built site so the developer docs'
+# absolute `/doc-images/*.png` references resolve in a plain `mkdocs build` deployment.
+# `doc-images/` lives outside `docs_dir`, so MkDocs would otherwise leave it uncopied
+# and every `/doc-images/*.png` reference would 404 in the built/deployed site
+# (QA finding PF-001). The hook is additive (never edits page content or moves the
+# source assets), dependency-free (stdlib only), and idempotent (`dirs_exist_ok=True`).
+hooks:
+  - mkdocs_hooks.py
 plugins:
-  - techdocs-core
-  - mermaid2
+  # Enable techdocs-core's Material-native search instead of its default classic
+  # MkDocs (lunr) search. With the default (`use_material_search: false`),
+  # techdocs-core installs `mkdocs.contrib.search.SearchPlugin`, which appends
+  # `search/main.js` to `extra_javascript`; the Material theme then loads that
+  # classic script on every page, but Material never defines the global `base_url`
+  # that `search/main.js` expects (Material wires its own worker via the
+  # `<script id="__config">` block instead). The result was an uncaught
+  # `ReferenceError: base_url is not defined` on every built page (QA finding F-1).
+  # `use_material_search: true` makes techdocs-core install the Material search
+  # plugin, so the classic `search/main.js` is no longer generated or injected and
+  # the console error is eliminated. This configures the existing techdocs-core
+  # plugin only (no new plugin added), keeping the plugin list {techdocs-core,
+  # mermaid2} unchanged per the minimal-change convention.
+  - techdocs-core:
+      use_material_search: true
+  # Register the Material search plugin under its canonical key `material/search`.
+  # This is REQUIRED for the header search box to actually render: mkdocs-material's
+  # `partials/header.html` gates the search UI on `"material/search" in config.plugins`,
+  # but techdocs-core registers its search plugin under the legacy key `search`, so with
+  # `use_material_search: true` alone the console error is gone yet the box never appears
+  # and the healthy `search_index.json` is never consumed. `material/search` ships inside
+  # the already-installed `mkdocs-material` theme (no new dependency) and MUST be listed
+  # AFTER `techdocs-core` (techdocs-core configures the Material theme in its own
+  # `on_config`; declaring `material/search` earlier fails the strict build with
+  # `TemplateNotFound: partials/language.html`).
+  - material/search
+  - mermaid2:
+      # Pin Mermaid and serve it from a locally bundled copy under docs/assets/mermaid/
+      # so diagrams render in the container-native / air-gapped target with no CDN
+      # dependency (AAP §0.7.1 "bundle Mermaid locally"; QA finding PF-008). The single
+      # self-contained UMD build exposes a global `mermaid`, so mermaid2 loads it via a
+      # classic <script src> tag and calls mermaid.initialize(), avoiding the ESM
+      # startOnLoad race. `docs/assets/mermaid/mermaid.min.js` is copied verbatim into the
+      # built site by MkDocs (it lives inside docs_dir), so no CDN fetch occurs at runtime.
+      version: 11.16.0
+      javascript: assets/mermaid/mermaid.min.js
+# Register a superfences custom fence for ```mermaid so techdocs-core's bundled
+# pymdownx.superfences no longer emits a highlighted code block for it. Using
+# mermaid2.fence_mermaid emits <div class="mermaid"> (mermaid2's own marker), which the
+# Material theme's native mermaid handler (selector `pre.mermaid`) deliberately ignores —
+# leaving mermaid2 as the single renderer and preventing the double-init that left empty
+# "ghost" diagram containers.
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid
+# Rendered-site accessibility & search-UX overrides (QA findings PF-010, PF-011, PF-016,
+# PF-028). These are additive theme-level assets layered on top of the Material theme that
+# techdocs-core configures internally; they modify no Material source or template (Rule C,
+# minimal change). extra_css adds a prose-link underline for WCAG 1.4.1 link
+# distinguishability (PF-010) plus a mobile search-wrapper max-width guard (PF-028);
+# extra.js names the search dialog and restores focus on dismiss (PF-010), resets the stale
+# result/status region and neutralizes the empty clear control (PF-016), clears any retained
+# query on close (PF-028), and makes the off-canvas mobile/tablet navigation drawer modal
+# (inert-when-closed, focus trap, Escape-close, scroll-lock, focus-restore) strictly below
+# Material's 76.25em drawer breakpoint so the persistent desktop sidebar is never altered
+# (PF-011). Both files live under docs/assets/ (copied verbatim into the built site) so no
+# CDN dependency is introduced.
+extra_css:
+  - assets/extra.css
+extra_javascript:
+  - assets/extra.js

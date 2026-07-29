@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":2, "name": "create-your-own", "label": "Create your own"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # Create a Page Component for WebVella Erp
 
 To create a Page Component you need to add a ViewComponent to your project that has specific structure and requirements. 
@@ -27,91 +29,27 @@ You can review more information about the files in the next sections
 
 This is the file that defines the view component and turns it into a page component. There are several key requirements for a view component to be recognized by the system as a page component:
 
-#### Requirement 1: `PageComponent` class attribute
+### Requirement 1: `PageComponent` class attribute
 
 This attribute is used to define the component's meta, that will be used by the system, when presenting it to the end user. It has the following properties:
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `Category`                    | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Under which category the component should be presented
-+-------------------------------+-----------------------------------+
-| `Color`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Icon's color code
-+-------------------------------+-----------------------------------+
-| `Description`                 | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Short text describing the component
-+-------------------------------+-----------------------------------+
-| `IconClass`                   | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The CSS class for generating the icon using [FontAwesome icon library](https://fontawesome.com/icons).
-+-------------------------------+-----------------------------------+
-| `IsInline`                    | *object type*: `bool`                         
-|                               |         
-|                               | *default value*: `FALSE`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Whether the design mode component presentation should be inline or block.
-+-------------------------------+-----------------------------------+
-| `Label`                       | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Will be presented as the component's name to the end user
-+-------------------------------+-----------------------------------+
-| `Library`                     | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Part of which library or vendor name
-+-------------------------------+-----------------------------------+
-| `Tags`                        | *object type*: `List<string>`                         
-|                               |         
-|                               | *default value*: `new List<string>()`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | Keywords that describe the component
-+-------------------------------+-----------------------------------+
-| `Version`                     | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The component's current version
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `Category` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>Under which category the component should be presented |
+| `Color` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>Icon's color code |
+| `Description` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>Short text describing the component |
+| `IconClass` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>The CSS class for generating the icon using [FontAwesome icon library](https://fontawesome.com/icons). |
+| `IsInline` | *object type*: `bool`<br>*default value*: `FALSE`<br>*is required*: `FALSE`<br>Whether the design mode component presentation should be inline or block. |
+| `Label` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>Will be presented as the component's name to the end user |
+| `Library` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>Part of which library or vendor name |
+| `Tags` | *object type*: `List<string>`<br>*default value*: `new List<string>()`<br>*is required*: `FALSE`<br>Keywords that describe the component |
+| `Version` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `FALSE`<br>The component's current version |
 
 ```csharp
 [PageComponent(Label = "Chart", Library = "WebVella", Description = "Line,area,pie, doughnut, bar, horizontal bar", Version = "0.0.1", IconClass = "fas fa-chart-pie")]
 ```
 
-#### Requirement 2: Inherit the `PageComponent` class
+### Requirement 2: Inherit the `PageComponent` class
 
 This inheritance will provide ability to inject the necessary services.
 
@@ -119,7 +57,7 @@ This inheritance will provide ability to inject the necessary services.
 public class PcChart : PageComponent
 ```
 
-#### Requirement 3: Add `ErpRequestContext` class property
+### Requirement 3: Add `ErpRequestContext` class property
 
 This property will grant the component an access to the page and application context.
 
@@ -127,7 +65,7 @@ This property will grant the component an access to the page and application con
 protected ErpRequestContext ErpRequestContext { get; set; }
 ```
 
-#### Requirement 4: Inject the `ErpRequestContext` in the components constructor
+### Requirement 4: Inject the `ErpRequestContext` in the components constructor
 
 In order to initialize the ErpRequestContext property you need to inject it during the component's creation
 
@@ -138,7 +76,7 @@ public PcChart([FromServices]ErpRequestContext coreReqCtx)
 }
 ```
 
-#### Requirement 5: Inject the component instance context in the `InvokeAsync` method of your component
+### Requirement 5: Inject the component instance context in the `InvokeAsync` method of your component
 
 This variable will provide details about the component's instance, its settings, environment and requested render mode
 
@@ -146,7 +84,7 @@ This variable will provide details about the component's instance, its settings,
 public override async Task<IViewComponentResult> InvokeAsync(PageComponentContext context)
 ```
 
-#### Requirement 6: Define components options
+### Requirement 6: Define components options
 
 Often a component needs to have its own options, that the user needs to set. Each instance of your component will store a json version of the component's options object in the database, which you will need to restore when needed.
 
@@ -168,11 +106,11 @@ Here is how it can be later restored:
 ```csharp
 options = JsonConvert.DeserializeObject<PcChartOptions>(context.Options.ToString());
 ```
-#### Requirement 7: Implement the rendering modes
+### Requirement 7: Implement the rendering modes
 
 A component in WebVella ERP should support the following rendering modes as defined by the `enum ComponentMode`: Display, Design, Options, Help, with the addition of an Error view.
 
-#### Requirement 8: Component namespace convention
+### Requirement 8: Component namespace convention
 
 In order for the system to be able to find any possible embedded resource, as `service.js`, the namespace should exactly correspond to the folder structure where the component is located.
 

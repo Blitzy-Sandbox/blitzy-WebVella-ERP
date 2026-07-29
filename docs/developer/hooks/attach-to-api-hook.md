@@ -5,35 +5,20 @@ To create an API Hook attachment, you need to create a class file in your plugin
 
 ## Requirements
 
-#### Requirement 1: `HookAttachment` class attribute
+### Requirement 1: `HookAttachment` class attribute
 
 You need to decorate the class as an API hook by prepending an attribute. It has two properties:
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `key`                         | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `string.Empty`
-|                               |
-|                               | *is required*: `TRUE`                      
-|                               |                                   
-|                               | The entity name that is targeted by the attribute
-+-------------------------------+-----------------------------------+
-| `priority`                    | *object type*: `int`                         
-|                               |         
-|                               | *default value*: `10`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The plugin order priority. More executes first.
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `key` | *object type*: `string`<br>*default value*: `string.Empty`<br>*is required*: `TRUE`<br>The entity name that is targeted by the attribute |
+| `priority` | *object type*: `int`<br>*default value*: `10`<br>*is required*: `FALSE`<br>The plugin order priority. More executes first. |
 
 ```csharp
 [HookAttachment("task")]
 ```
 
-#### Requirement 2: Inherit the interfaces that you need
+### Requirement 2: Inherit the interfaces that you need
 
 This hook can inherit the following interfaces: IErpPreCreateRecordHook, IErpPreUpdateRecordHook, IErpPreDeleteRecordHook, IErpPostCreateRecordHook, IErpPostUpdateRecordHook, IErpPostDeleteRecordHook
 
@@ -43,7 +28,7 @@ This hook can inherit the following interfaces: IErpPreCreateRecordHook, IErpPre
 public class TaskHook : IErpPreCreateRecordHook, IErpPreUpdateRecordHook,IErpPreDeleteRecordHook,IErpPostCreateRecordHook,IErpPostUpdateRecordHook,IErpPostDeleteRecordHook
 ```
 
-#### Requirement 3: Implement the interfaces methods
+### Requirement 3: Implement the interfaces methods
 
 ```csharp
 public void OnPreCreateRecord(string entityName, EntityRecord record, List<ErrorModel> errors)

@@ -1,0 +1,97 @@
+/*
+  WebVella ERP TechDocs — rendered-site accessibility & search-UX stylesheet.
+
+  Registered via `extra_css` in mkdocs.yml. These are additive, theme-level overrides
+  that layer on top of the Material theme (configured internally by techdocs-core); no
+  Material source or template is modified (Rule C, minimal change). Each block cites the
+  QA finding it closes.
+
+  Findings addressed here:
+    * PF-010 — in-content links are distinguishable from surrounding text by colour only
+               (WCAG 1.4.1 "Use of Color"); add a persistent underline to prose links.
+    * PF-028 — a retained pathological search query must never widen the (closed) document
+               at narrow viewports; constrain the search wrappers so they cannot overflow.
+*/
+
+/* =========================================================================
+   PF-010 — In-content link distinguishability (WCAG 1.4.1 / technique G183)
+   -------------------------------------------------------------------------
+   The theme link colour (--md-typeset-a-color = --md-primary-fg-color = #4051b5)
+   has ~8:1 contrast against the white page background (so it passes 1.4.3 text
+   contrast), but only ~2.34:1 against the adjacent near-black body text
+   (rgba(0,0,0,0.87)). That is below the 3:1 threshold WCAG technique G183 requires
+   for distinguishing a link from surrounding text by colour alone, so links inside
+   prose must carry a second, non-colour visual cue. A persistent underline is the
+   canonical remedy.
+
+   Scope: prose links only (inside `.md-typeset`, the rendered-Markdown container).
+   Navigation, header, footer, tabs and the table-of-contents live OUTSIDE
+   `.md-typeset` and are intentionally untouched. Heading permalinks (`.headerlink`,
+   the "¶" anchor) and button-styled links (`.md-button`) are excluded so their
+   existing treatment is preserved.
+   ========================================================================= */
+.md-typeset a:not(.headerlink):not(.md-button) {
+  text-decoration: underline;
+  /* nudge the underline off the text baseline for legibility with descenders */
+  text-underline-offset: 0.15em;
+}
+
+/* Keep the underline present (not removed) on hover/focus so the affordance is stable;
+   the theme already changes colour to --md-accent-fg-color on these states. */
+.md-typeset a:not(.headerlink):not(.md-button):hover,
+.md-typeset a:not(.headerlink):not(.md-button):focus {
+  text-decoration: underline;
+}
+
+/* Heading permalink anchors ("¶") remain undecorated — they are an icon affordance,
+   not prose, and underlining them would be visual noise. */
+.md-typeset a.headerlink {
+  text-decoration: none;
+}
+
+/* =========================================================================
+   PF-028 — Retained long query must not widen the closed document (≤320px)
+   -------------------------------------------------------------------------
+   At the narrowest mobile widths, dismissing search (Escape) while a very long
+   query string is still present left `document.scrollWidth` wider than the viewport
+   (e.g. 406px at a 320px viewport), producing horizontal overflow clipped by
+   `overflow-x:hidden`. The JS in extra.js clears the retained query on close (the
+   root cause); this CSS is a defence-in-depth guard so no intermediate frame — nor
+   any future retained value — can let a search wrapper exceed the viewport width.
+
+   Scoped to the off-canvas (mobile/tablet) breakpoint (< 76.25em, Material's own
+   drawer breakpoint) so the desktop search dropdown geometry is left exactly as the
+   theme ships it (no desktop regression).
+   ========================================================================= */
+@media screen and (max-width: 76.1875em) {
+  .md-search__inner,
+  .md-search__form,
+  .md-search__output,
+  .md-search__scrollwrap {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .md-search__input {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Cap in-content wrappers and wide code/table blocks to the viewport so a long code line
+     cannot extend the document's horizontal scroll extent after an overlay (search) open/close
+     reflow. These blocks keep their own internal overflow-x:auto scrolling; only the document
+     scroll extent is constrained. Belt-and-braces with the reflow reset in extra.js (PF-028). */
+  .md-main__inner,
+  .md-content,
+  .md-content__inner,
+  .md-typeset {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .md-typeset pre,
+  .md-typeset .highlight,
+  .md-typeset .highlighttable {
+    max-width: 100%;
+  }
+}

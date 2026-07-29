@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":10, "name": "wv-authorize", "label": "wv-authorize"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # wv-authorize
 
 ## Purpose
@@ -8,39 +10,11 @@ or in conjunction with `erp-allow-roles` and `erp-block-roles`.
 
 ## Properties
 
-+---------------------+-----------------------------------+
-| name                | description                       |
-+=====================+===================================+
-|`wv-authorize`       | *html target*: `attribute`        
-|                     |         
-|                     | *object type*: `string`                               
-|                     |         
-|                     | *default value*: `String.Empty`
-|                     |
-|                     | *is required*: `TRUE`                      
-|                     |                                   
-|                     | A role name or a csv list of role names, which the user needs to have in order to access the element.                       
-+---------------------+-----------------------------------+
-|`erp-allow-roles`    | *html target*: `attribute`
-|                     |         
-|                     | *object type*: `string or CSV`           
-|                     |         
-|                     | *default value*: `String.Empty`
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | Used as HTML Attribute to enabled the authorizations                       
-+---------------------+-----------------------------------+
-|`erp-block-roles`    | *html target*: `attribute`      
-|                     |         
-|                     | *object type*: `string or CSV` 
-|                     |         
-|                     | *default value*: `String.Empty`
-|                     |
-|                     | *is required*: `FALSE`                      
-|                     |                                   
-|                     | A role name or a csv list of role names, which the user should not have in order to access the element. With priority over the previous attribute `erp-allow-roles`
-+---------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `wv-authorize` | *html target*: `attribute`<br>*object type*: `string`<br>*default value*: `String.Empty`<br>*is required*: `TRUE`<br>A role name or a csv list of role names, which the user needs to have in order to access the element. |
+| `erp-allow-roles` | *html target*: `attribute`<br>*object type*: `string or CSV`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>Used as HTML Attribute to enabled the authorizations |
+| `erp-block-roles` | *html target*: `attribute`<br>*object type*: `string or CSV`<br>*default value*: `String.Empty`<br>*is required*: `FALSE`<br>A role name or a csv list of role names, which the user should not have in order to access the element. With priority over the previous attribute `erp-allow-roles` |
 
 ## Example
 

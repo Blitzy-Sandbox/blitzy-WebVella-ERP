@@ -1,6 +1,7 @@
 ﻿<!--{"sort_order":13, "name": "manage-custom-body", "label": "Manage custom body"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
 
-# Manage generated body
+# Manage custom body
 
 There are two kinds of page body generation methods. 
 * generated body - the body is generated with the help of page components, which you can add, move, put in different containers or one in another. Each page component also has its own set of options you can configure to best fit your needs.
@@ -8,16 +9,16 @@ There are two kinds of page body generation methods.
 
 Both methods are managed through the SDK plugin in the page management screen. 
 
-The manage the generated page body you need to:
+The manage the custom page body you need to:
 
-##### Step 1: Navigate to the page management screen
+## Step 1: Navigate to the page management screen
 
 You can navigate to the page management screen by opening the SDK application > Page List > Page details or by using the shortcut while on the page as presented on the next image.
 
 ![sdk page manage shortcut](/doc-images/sdk-page-manage-shortcut.png)
 
 
-##### Step2: Click on the "custom body" tab
+## Step2: Click on the "custom body" tab
 
 ![sdk page custom body](/doc-images/sdk-page-custom-body.png)
 

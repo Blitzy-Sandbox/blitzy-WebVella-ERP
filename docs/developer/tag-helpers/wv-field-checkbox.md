@@ -1,4 +1,6 @@
 ﻿<!--{"sort_order":10, "name": "wv-field-checkbox", "label": "wv-field-checkbox"}-->
+> **Deprecated (RazorPages host retired).** This page documents the legacy RazorPages host UI, which is retired in the headless refactor. The underlying **Entity / Record / EQL / hook** model is **unchanged**. For the target UI, see the migration guides: [RazorPages → React](../../migration/razorpages-to-react.md) and [Migration overview](../../migration/overview.md).
+
 # wv-field-checkbox
 
 ## Purpose
@@ -7,27 +9,12 @@
 
 
 ## Properties
-**Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](docs/developer/tag-helpers/wv-field-base). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
+**Important**: All `<wv-field-*>` helpers inherit a ["base tag helper" properties](wv-field-base.md). In the following list are presented only the properties that this tag helper adds or alters. Not all base tag helper properties can be implemented by this tag helper too.
 
-+-------------------------------+-----------------------------------+
-| name                          | description                       |
-+===============================+===================================+
-| `text-true`                   | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `selected`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The text presented as checkbox label in forms and also as checkbox value in Simple mode, when checked.
-+-------------------------------+-----------------------------------+
-| `text-false`                  | *object type*: `string`                         
-|                               |         
-|                               | *default value*: `not selected`
-|                               |
-|                               | *is required*: `FALSE`                      
-|                               |                                   
-|                               | The text presented as checkbox value in Simple mode, when checked.
-+-------------------------------+-----------------------------------+
+| name | description |
+|------|------|
+| `text-true` | *object type*: `string`<br>*default value*: `selected`<br>*is required*: `FALSE`<br>The text presented as checkbox label in forms and also as checkbox value in Simple mode, when checked. |
+| `text-false` | *object type*: `string`<br>*default value*: `not selected`<br>*is required*: `FALSE`<br>The text presented as checkbox value in Simple mode, when checked. |
 
 ## Example
 

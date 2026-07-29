@@ -2,8 +2,9 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: blitzy-WebVella-ERP
-  description: WebVella ERP monolith decomposition — cloud-native microservices, serverless
-    architecture, and OWASP security audit
+  description: WebVella ERP — a legacy ASP.NET Core ERP solution being modernized toward a
+    planned headless, container-native architecture (a REST/OpenAPI API host, a React SPA,
+    a background worker, and an IErpPlugin plugin model), none of which exist in this checkout yet
   tags:
   - audit
   - csharp

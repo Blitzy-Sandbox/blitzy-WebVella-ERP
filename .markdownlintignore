@@ -1,0 +1,24 @@
+# markdownlint scope (paired with .markdownlint.json).
+# The lint gate targets the NEW / authored documentation introduced by the headless
+# refactor (docs/api-reference, docs/plugin-sdk, docs/architecture, docs/migration,
+# docs/deployment, docs/contributing) and the per-module README files.
+#
+# The paths below are intentionally excluded:
+#   - blitzy/, site/, node_modules/  : generated / vendored output, not source.
+#   - docs/assets/                   : vendored third-party assets (no authored Markdown).
+#   - docs/developer/                : the LEGACY upstream documentation tree. The refactor adds a
+#                                      top-of-file deprecation/migration banner to these pages and,
+#                                      on many of them, losslessly reformats the body — converting the
+#                                      unsupported reStructuredText ASCII grid tables to Markdown/HTML
+#                                      pipe tables so they render correctly in MkDocs (no content is
+#                                      dropped). The tree is excluded from the lint gate because it
+#                                      still carries pre-existing legacy formatting residual (trailing
+#                                      spaces, hard tabs, long lines) that predates this work and is
+#                                      left untouched under the minimal-change clause.
+#   - WebVella.Erp.Web/README.md     : legacy RazorPages host README (host retired by the refactor).
+blitzy/
+site/
+node_modules/
+docs/assets/
+docs/developer/
+WebVella.Erp.Web/README.md
