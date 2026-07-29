@@ -57,7 +57,7 @@ Placement in the navigation comes from `nav:` in `mkdocs.yml`; the `sort_order` 
 
 ## Diagrams (Mermaid)
 
-Author diagrams inline as fenced `mermaid` code blocks; the `mermaid2` plugin renders them at build time. The Mermaid runtime is pinned to **11.16.0** and loaded from the `mermaid2` plugin's default CDN for that version — no repository-bundled Mermaid copy is referenced — so a network-connected environment is required to render diagrams in the browser. `Source: /mkdocs.yml:L221-L225`. A minimal example:
+Author diagrams inline as fenced `mermaid` code blocks; the `mermaid2` plugin renders them at build time. The Mermaid runtime is pinned to **11.16.0** and served from a locally bundled copy at `docs/assets/mermaid/mermaid.min.js` (loaded via `mermaid2`'s `javascript:` option and copied verbatim into the built site), so diagrams render with no runtime CDN dependency — including in offline / air-gapped environments. `Source: /mkdocs.yml:L242-L251`. A minimal example:
 
 ```mermaid
 graph LR
@@ -68,7 +68,7 @@ graph LR
 
 Prefer Mermaid over screenshots for architecture and flow diagrams (AAP §0.5.3); the developer docs contained no diagrams before the headless-refactor documentation introduced them.
 
-For **offline** artifacts you can optionally pre-render a `.mmd` file to SVG/PNG with the Mermaid CLI `mmdc` from `@mermaid-js/mermaid-cli` **11.16.0**, then store the output under `doc-images/` (AAP §0.7.1):
+To produce a **standalone** static image of a diagram (for example, to embed in an external document or README), you can optionally pre-render a `.mmd` file to SVG/PNG with the Mermaid CLI `mmdc` from `@mermaid-js/mermaid-cli` **11.16.0**, then store the output under `doc-images/` (AAP §0.7.1):
 
 ```bash
 mmdc -i diagram.mmd -o diagram.svg

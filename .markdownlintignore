@@ -6,12 +6,15 @@
 # The paths below are intentionally excluded:
 #   - blitzy/, site/, node_modules/  : generated / vendored output, not source.
 #   - docs/assets/                   : vendored third-party assets (no authored Markdown).
-#   - docs/developer/                : the LEGACY upstream documentation tree. Its bodies are
-#                                      preserved byte-for-byte (the refactor adds only top-of-file
-#                                      deprecation/migration banners); its lint residual is
-#                                      pre-existing legacy whitespace (trailing spaces, hard tabs)
-#                                      that predates this work and cannot be normalized without
-#                                      violating byte-exact legacy preservation.
+#   - docs/developer/                : the LEGACY upstream documentation tree. The refactor adds a
+#                                      top-of-file deprecation/migration banner to these pages and,
+#                                      on many of them, losslessly reformats the body — converting the
+#                                      unsupported reStructuredText ASCII grid tables to Markdown/HTML
+#                                      pipe tables so they render correctly in MkDocs (no content is
+#                                      dropped). The tree is excluded from the lint gate because it
+#                                      still carries pre-existing legacy formatting residual (trailing
+#                                      spaces, hard tabs, long lines) that predates this work and is
+#                                      left untouched under the minimal-change clause.
 #   - WebVella.Erp.Web/README.md     : legacy RazorPages host README (host retired by the refactor).
 blitzy/
 site/
